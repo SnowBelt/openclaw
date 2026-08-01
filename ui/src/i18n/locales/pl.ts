@@ -604,15 +604,28 @@ export const pl: TranslationMap = {
     },
     resolution: {
       resolve: "Rozwiąż",
-      preview: "Podgląd rozwiązania",
-      resolveFor: "Rozwiąż {title}",
-      previewOnly: "Tylko podgląd.",
-      previewOnlyDetail: "Nic się nie zmieniło.",
-      closePreview: "Zamknij podgląd — nie wprowadzaj zmian",
+      preview: "Zalecane rozwiązanie",
+      recommendation: "Zalecane rozwiązanie",
+      resolveFor: "Przejrzyj zalecane rozwiązanie dla {title}",
+      previewOnly: "Tylko rekomendacja.",
+      previewOnlyDetail: "Nic się nie zmienia, dopóki nie zatwierdzi się kwalifikującego naprawy.",
+      closePreview: "Nie teraz",
+      notNow: "Nie teraz",
+      recommendedLabel: "Zalecana naprawa:",
+      recommendedFix: "Zalecana naprawa",
+      whyRecommended: "Dlaczego to jest zalecane",
+      defaultReason:
+        "To jest najbezpieczniejszy kolejny krok, poparty aktualnie dostępnymi danymi.",
+      confidence: "Pewność",
+      confidencePending: "Oczekiwanie na lokalne badanie",
+      confidenceValue: "{confidence}% pewności",
       whatHappened: "Co się stało",
       progress: "Postęp",
       risk: "Ryzyko problemu",
       changePreview: "Co się zmieni",
+      verification: "Jak OpenClaw to zweryfikuje",
+      verificationPending:
+        "Przed uruchomieniem jakiejkolwiek automatycznej zmiany wymagany jest deterministyczny plan weryfikacji.",
       approval: "Twoja zgoda",
       evidence: "Aktualizacje postępu",
       localReview: "Przegląd lokalny ({confidence}%): {recommendation}",
@@ -629,10 +642,13 @@ export const pl: TranslationMap = {
       investigate: "Badaj z lokalnym AI",
       reviewEscalation: "Przeglądaj z Codexem",
       reviewCancellation: "Przegląd anulowania",
+      fixThis: "Napraw to za mnie",
       investigationPreview:
         "Nic się jeszcze nie zmienia. Otwiera się wersja robocza śledztwa tylko do odczytu, którą możesz przejrzeć i wysłać.",
       cancelPreview: "Przygotuj zabezpieczony podgląd, aby anulować „{title}”.",
       approvalRequired: "Musisz zatwierdzić każdą zmianę przed jej wprowadzeniem.",
+      oneConfirmation:
+        "Wymagane jest jedno zwięzłe potwierdzenie, ponieważ jest to przeanalizowana, odwracalna naprawa o średnim ryzyku.",
       automaticPolicy:
         "OpenClaw może automatycznie uruchomić to zatwierdzone naprawienie, ponieważ jest ograniczone i odwracalne.",
       evidenceLocation:
@@ -641,6 +657,7 @@ export const pl: TranslationMap = {
         "Nie jest jeszcze potrzebny, ponieważ badanie nie wprowadza żadnych zmian. Każda proponowana naprawa musi zawierać Plan cofania.",
       cancelRollback:
         "Anulowanie nie może przywrócić ukończonej pracy. Przeglądaj dokładny podgląd zmian przed zatwierdzeniem.",
+      progressLocationLabel: "Gdzie pojawia się postęp",
       safeguard:
         "Zmiany o wysokim ryzyku, nieodwracalne, wrażliwe pod względem bezpieczeństwa, finansowe, dotyczące poświadczeń, wydania, niszczące, nowe lub niepewne nadal wymagają Twojej potwierdzenia.",
       draftNotice: "Otwarcie szkicu nie wysyła go ani nie rozpoczyna pracy.",
@@ -700,7 +717,7 @@ export const pl: TranslationMap = {
       eyebrow: "Akceptacja właściciela",
       title: "60-sekundowa kontrola Operations Room",
       subtitle:
-        "Odliczanie rozpoczyna się dopiero po kliknięciu Rozpocznij. Przeczytaj ekran, wybierz odpowiedzi, podglądaj rozwiązanie o najwyższym priorytecie, a następnie zamknij je bez wprowadzania zmian.",
+        "Timer startuje dopiero po kliknięciu Rozpocznij. Przeczytaj ekran, wybierz odpowiedzi, przejrzyj rekomendację najwyższego priorytetu, a następnie wybierz Nie teraz, nie wprowadzając zmian.",
       begin: "Rozpocznij 60-sekundową kontrolę",
       secondsLeft: "pozostałych sekund",
       statusQuestion: "Jaki jest jeden podstawowy status systemu?",
@@ -710,9 +727,9 @@ export const pl: TranslationMap = {
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Nie znano właściciela ani następnego kroku",
       resolveQuestion:
-        "Podglądaj rozwiązanie o najwyższym priorytecie, a następnie zamknij je bez zmian.",
+        "Przejrzyj rekomendację o najwyższym priorytecie, a następnie wybierz opcję Nie teraz.",
       resolvePending: "Jeszcze nie ukończono",
-      resolveDone: "Podgląd otwarty i bezpiecznie zamknięty",
+      resolveDone: "Rekomendacja przejrzymana i bezpiecznie odłożona",
       finish: "Zakończ i utwórz paragon",
       passed: "Weryfikacja właściciela zakończona powodzeniem",
       failed: "Weryfikacja właściciela nie powiodła się",

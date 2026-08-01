@@ -603,15 +603,28 @@ export const pt_BR: TranslationMap = {
     },
     resolution: {
       resolve: "Resolver",
-      preview: "Visualizar resolução",
-      resolveFor: "Resolver {title}",
-      previewOnly: "Apenas visualização.",
-      previewOnlyDetail: "Nada foi alterado.",
-      closePreview: "Fechar visualização — não fazer alterações",
+      preview: "Resolução recomendada",
+      recommendation: "Resolução recomendada",
+      resolveFor: "Revisar a resolução recomendada para {title}",
+      previewOnly: "Apenas recomendação.",
+      previewOnlyDetail: "Nada muda até que uma correção elegível seja aprovada.",
+      closePreview: "Agora não",
+      notNow: "Agora não",
+      recommendedLabel: "Correção recomendada:",
+      recommendedFix: "Correção recomendada",
+      whyRecommended: "Por que isso é recomendado",
+      defaultReason:
+        "Este é o próximo passo mais seguro, apoiado pelas evidências atualmente disponíveis.",
+      confidence: "Confiança",
+      confidencePending: "Aguardando investigação local",
+      confidenceValue: "{confidence}% de confiança",
       whatHappened: "O que aconteceu",
       progress: "Progresso",
       risk: "Risco do problema",
       changePreview: "O que será alterado",
+      verification: "Como o OpenClaw irá verificar",
+      verificationPending:
+        "Um plano de verificação determinístico é necessário antes que qualquer alteração automática possa ser executada.",
       approval: "Sua aprovação",
       evidence: "Atualizações de progresso",
       localReview: "Revisão local ({confidence}%): {recommendation}",
@@ -628,10 +641,13 @@ export const pt_BR: TranslationMap = {
       investigate: "Investigar com IA local",
       reviewEscalation: "Revisar com Codex",
       reviewCancellation: "Revisar cancelamento",
+      fixThis: "Corrigir isso para mim",
       investigationPreview:
         "Nada muda por enquanto. Um rascunho de investigação somente para leitura é aberto para sua revisão e envio.",
       cancelPreview: 'Prepare uma visualização protegida para cancelar "{title}".',
       approvalRequired: "Você deve aprovar qualquer alteração antes que ela ocorra.",
+      oneConfirmation:
+        "Uma confirmação concisa é necessária porque esta é uma correção de risco médio revisada e reversível.",
       automaticPolicy:
         "O OpenClaw pode executar este reparo aprovado automaticamente, pois é limitado e reversível.",
       evidenceLocation:
@@ -640,6 +656,7 @@ export const pt_BR: TranslationMap = {
         "Não necessário ainda, pois a investigação não faz alterações. Qualquer correção proposta deve incluir um Plano de reversão.",
       cancelRollback:
         "O cancelamento não pode restaurar o trabalho concluído. Revise a visualização exata da alteração antes de aprová-la.",
+      progressLocationLabel: "Onde o progresso aparece",
       safeguard:
         "Alterações de alto risco, irreversíveis, sensíveis à segurança, financeiras, de credenciais, de lançamento, destrutivas, novas ou incertas ainda exigem sua confirmação.",
       draftNotice: "Abrir o rascunho não o envia nem inicia o trabalho.",
@@ -699,7 +716,7 @@ export const pt_BR: TranslationMap = {
       eyebrow: "Aceitação do proprietário",
       title: "Verificação de 60 segundos da Operations Room",
       subtitle:
-        "O temporizador começa apenas quando você clica em Iniciar. Leia a tela, escolha as respostas, visualize a resolução de maior prioridade e feche-a sem alterações.",
+        "O temporizador começa apenas quando você clica em Iniciar. Leia a tela, escolha as respostas, revise a recomendação de maior prioridade e, em seguida, escolha Agora não sem fazer nenhuma alteração.",
       begin: "Iniciar verificação de 60 segundos",
       secondsLeft: "segundos restantes",
       statusQuestion: "Qual é o status principal do sistema?",
@@ -709,9 +726,9 @@ export const pt_BR: TranslationMap = {
         "Quem é o responsável pela questão de maior prioridade e qual é o próximo passo?",
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Nenhum responsável ou próximo passo conhecido",
-      resolveQuestion: "Visualize a resolução de maior prioridade e feche-a sem alterações.",
+      resolveQuestion: 'Revise a recomendação de maior prioridade e escolha "Agora não".',
       resolvePending: "Ainda não concluído",
-      resolveDone: "Visualização aberta e fechada com segurança",
+      resolveDone: "Recomendação revisada e adiada com segurança",
       finish: "Concluir e criar recibo",
       passed: "Verificação do proprietário aprovada",
       failed: "Verificação do proprietário não aprovada",

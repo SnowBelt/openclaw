@@ -1618,7 +1618,14 @@ export async function collectOperationsSnapshot(params: {
     controls: {
       mode: "guarded",
       previewRequired: true,
-      supportedActions: ["cron.run", "cron.enable", "cron.disable", "task.cancel", "flow.cancel"],
+      supportedActions: [
+        "cron.run",
+        "cron.enable",
+        "cron.disable",
+        "remediation.apply",
+        "task.cancel",
+        "flow.cancel",
+      ],
       note: "Task and workflow cancellation require operator.write; schedule changes require operator.admin. Every change uses a single-use confirmation preview.",
     },
   };

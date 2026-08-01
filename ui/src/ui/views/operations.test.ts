@@ -117,23 +117,26 @@ describe("Operations Room view", () => {
     const resolution = container.querySelector<HTMLDetailsElement>(".operations-resolution");
     const link = resolution?.querySelector<HTMLAnchorElement>('a[href^="/chat?"]');
 
-    expect(resolution?.querySelector("summary")?.textContent).toContain("Preview resolution");
+    expect(resolution?.querySelector("summary")?.textContent).toContain("Recommended resolution");
     expect(resolution?.textContent?.replace(/\s+/g, " ").trim()).toContain(
-      "Preview only. Nothing has changed.",
+      "Recommendation only. Nothing changes until an eligible repair is approved.",
     );
-    expect(resolution?.textContent).toContain("Close preview — make no changes");
+    expect(resolution?.textContent).toContain("Not now");
     expect(resolution?.textContent).toContain("What happened");
     expect(resolution?.textContent).toContain("Owner");
-    expect(resolution?.textContent).toContain("Next action");
+    expect(resolution?.textContent).toContain("Recommended fix");
+    expect(resolution?.textContent).toContain("Why this is recommended");
+    expect(resolution?.textContent).toContain("Confidence");
     expect(resolution?.textContent).toContain("Issue risk");
     expect(resolution?.textContent).toContain("What will change");
+    expect(resolution?.textContent).toContain("How OpenClaw will verify it");
     expect(resolution?.textContent).toContain("Your approval");
     expect(resolution?.textContent).toContain("Progress updates");
     expect(resolution?.textContent).toContain("Undo plan");
     expect(resolution?.textContent).toContain(
       "High-risk, irreversible, security-sensitive, financial, credential, release, destructive, novel, or uncertain changes still require your confirmation.",
     );
-    expect(link?.textContent).toContain("Investigate with local AI");
+    expect(link?.textContent).toContain("Fix this for me");
     expect(link?.href).toContain("draft=");
     const draft = new URL(link?.href ?? "http://localhost/chat").searchParams.get("draft");
     expect(draft).toContain("Read-only investigation only");
@@ -211,7 +214,7 @@ describe("Operations Room view", () => {
     expect(onNavigate.mock.calls).toEqual([["workboard"], ["workboard"]]);
   });
 
-  it("shows issue progress, next check, remediation, and a guarded workflow cancel", async () => {
+  it("shows issue progress and never presents generic workflow cancellation as a repair", async () => {
     const snapshot = createOperationsTestSnapshot();
     const finding = snapshot.findings[0]!;
     snapshot.findings[0] = {
@@ -237,16 +240,16 @@ describe("Operations Room view", () => {
     expect(issue?.textContent).toContain("Remediation task");
     expect(issue?.textContent).toContain("task-1");
     issue?.querySelector<HTMLButtonElement>(".operations-remediation-link")?.click();
-    issue
-      ?.querySelector<HTMLButtonElement>(".operations-resolution__actions .btn--primary")
-      ?.click();
+    issue?.querySelector<HTMLAnchorElement>(".operations-resolution__actions a")?.click();
 
     expect(onNavigate).toHaveBeenCalledWith("workboard");
-    expect(onAction).toHaveBeenCalledWith("flow.cancel", "flow-1");
-    expect(issue?.querySelector("summary")?.getAttribute("aria-label")).toContain("Resolve");
-    expect(issue?.textContent).toContain("Review cancellation");
-    expect(issue?.textContent).toContain("Prepare a guarded preview");
-    expect(issue?.textContent).not.toContain("Opening the draft does not send it or start work.");
+    expect(onAction).not.toHaveBeenCalled();
+    expect(issue?.querySelector("summary")?.getAttribute("aria-label")).toContain(
+      "recommended resolution",
+    );
+    expect(issue?.textContent).toContain("Fix this for me");
+    expect(issue?.textContent).not.toContain("Review cancellation");
+    expect(issue?.textContent).not.toContain("Prepare a guarded preview");
   });
 
   it("shows automatic repair progress, evidence, result, rollback, and guarded Undo", async () => {

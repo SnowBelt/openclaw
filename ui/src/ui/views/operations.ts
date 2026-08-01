@@ -378,18 +378,26 @@ function renderFindingResolution(
   props: OperationsProps,
   isPrimary: boolean,
 ) {
-  const workflowMutationSafe = props.snapshot
-    ? mutationSourceConfirmed(props.snapshot, props, "workflows")
-    : false;
-  const canCancelWorkflow =
-    finding.category === "workflow" &&
-    Boolean(finding.entityId) &&
-    props.canWrite &&
-    Boolean(props.snapshot?.controls.supportedActions.includes("flow.cancel"));
   const risk = operationsFindingRisk(finding);
   const remediation = finding.remediation;
   const needsEscalation =
     remediation?.status === "failed" || remediation?.status === "approval_required";
+  const canApplyRecommendedRepair =
+    remediation?.status === "confirmation_required" &&
+    remediation.risk === "medium" &&
+    remediation.judge?.approved === true &&
+    props.canAdmin &&
+    Boolean(props.snapshot?.controls.supportedActions.includes("remediation.apply"));
+  const recommendedFix =
+    remediation?.recommendedFix ??
+    remediation?.exactRepair ??
+    finding.nextAction ??
+    finding.recommendedAction ??
+    t("operationsRoom.resolution.nextStepUnknown");
+  const recommendationReason =
+    remediation?.recommendationReason ?? t("operationsRoom.resolution.defaultReason");
+  const recommendationConfidence =
+    remediation?.confidence ?? remediation?.investigation?.confidence;
   const canUndo =
     remediation?.undoAvailable === true &&
     Boolean(remediation.undoAction) &&
@@ -409,7 +417,7 @@ function renderFindingResolution(
         title: finding.title,
       })}
     >
-      ${t("operationsRoom.resolution.preview")}
+      ${t("operationsRoom.resolution.recommendation")}
     </summary>
     <p class="operations-resolution__preview-note" role="note">
       <strong>${t("operationsRoom.resolution.previewOnly")}</strong>
@@ -441,23 +449,33 @@ function renderFindingResolution(
         <dd>${t(`operationsRoom.resolution.risks.${remediation?.risk ?? risk}`)}</dd>
       </div>
       <div>
-        <dt>${t("operationsRoom.attention.nextAction")}</dt>
+        <dt>${t("operationsRoom.resolution.recommendedFix")}</dt>
+        <dd>${recommendedFix}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.whyRecommended")}</dt>
+        <dd>${recommendationReason}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.confidence")}</dt>
         <dd>
-          ${finding.nextAction ??
-          finding.recommendedAction ??
-          t("operationsRoom.resolution.nextStepUnknown")}
+          ${recommendationConfidence == null
+            ? t("operationsRoom.resolution.confidencePending")
+            : t("operationsRoom.resolution.confidenceValue", {
+                confidence: String(Math.round(recommendationConfidence * 100)),
+              })}
         </dd>
       </div>
       <div>
         <dt>${t("operationsRoom.resolution.changePreview")}</dt>
         <dd>
-          ${remediation
-            ? remediation.exactRepair
-            : canCancelWorkflow
-              ? t("operationsRoom.resolution.cancelPreview", {
-                  title: finding.title,
-                })
-              : t("operationsRoom.resolution.investigationPreview")}
+          ${remediation?.expectedChange ?? t("operationsRoom.resolution.investigationPreview")}
+        </dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.verification")}</dt>
+        <dd>
+          ${remediation?.verificationPlan ?? t("operationsRoom.resolution.verificationPending")}
         </dd>
       </div>
       <div>
@@ -465,7 +483,9 @@ function renderFindingResolution(
         <dd>
           ${remediation?.automatic
             ? t("operationsRoom.resolution.automaticPolicy")
-            : t("operationsRoom.resolution.approvalRequired")}
+            : canApplyRecommendedRepair
+              ? t("operationsRoom.resolution.oneConfirmation")
+              : t("operationsRoom.resolution.approvalRequired")}
         </dd>
       </div>
       <div>
@@ -500,13 +520,7 @@ function renderFindingResolution(
       </div>
       <div>
         <dt>${t("operationsRoom.resolution.rollback")}</dt>
-        <dd>
-          ${remediation
-            ? remediation.rollback
-            : canCancelWorkflow
-              ? t("operationsRoom.resolution.cancelRollback")
-              : t("operationsRoom.resolution.investigationRollback")}
-        </dd>
+        <dd>${remediation?.rollback ?? t("operationsRoom.resolution.investigationRollback")}</dd>
       </div>
       ${remediation
         ? html`<div>
@@ -544,6 +558,10 @@ function renderFindingResolution(
             <dd>${finding.remediationTaskId}</dd>
           </div>`
         : nothing}
+      <div>
+        <dt>${t("operationsRoom.resolution.progressLocationLabel")}</dt>
+        <dd>${remediation?.progressLocation ?? t("operationsRoom.resolution.evidenceLocation")}</dd>
+      </div>
     </dl>
     <p class="operations-resolution__safeguard" role="note">
       ${t("operationsRoom.resolution.safeguard")}
@@ -551,7 +569,7 @@ function renderFindingResolution(
     <div class="operations-resolution__actions">
       <button
         type="button"
-        class="btn btn--sm operations-resolution__cancel-preview"
+        class="btn btn--sm operations-resolution__defer"
         @click=${(event: Event) => {
           const details = (event.currentTarget as HTMLElement).closest("details");
           if (details instanceof HTMLDetailsElement) {
@@ -559,11 +577,11 @@ function renderFindingResolution(
             details.querySelector("summary")?.focus();
           }
           if (isPrimary) {
-            dispatchResolutionEvent("openclaw-operations-resolution-cancelled", finding.id);
+            dispatchResolutionEvent("openclaw-operations-resolution-deferred", finding.id);
           }
         }}
       >
-        ${t("operationsRoom.resolution.closePreview")}
+        ${t("operationsRoom.resolution.notNow")}
       </button>
       ${finding.remediationTaskId
         ? html`<button
@@ -584,27 +602,23 @@ function renderFindingResolution(
             ${t("operationsRoom.resolution.undo")}
           </button>`
         : nothing}
-      ${canCancelWorkflow
+      ${canApplyRecommendedRepair
         ? html`<button
             class="btn btn--sm btn--primary"
-            aria-label=${t("operationsRoom.actions.cancelWork", { title: finding.title })}
-            title=${workflowMutationSafe ? nothing : t("operationsRoom.actions.unavailable")}
-            ?disabled=${props.actionBusy || !workflowMutationSafe}
-            @click=${() => props.onAction("flow.cancel", finding.entityId!)}
+            ?disabled=${props.actionBusy}
+            @click=${() => props.onAction("remediation.apply", remediation!.id)}
           >
-            ${t("operationsRoom.resolution.reviewCancellation")}
+            ${t("operationsRoom.resolution.fixThis")}
           </button>`
         : remediation && !needsEscalation
           ? nothing
           : html`<a class="btn btn--sm btn--primary" href=${investigationHref(finding)}>
-              ${t(
-                needsEscalation
-                  ? "operationsRoom.resolution.reviewEscalation"
-                  : "operationsRoom.resolution.investigate",
-              )}
+              ${needsEscalation
+                ? t("operationsRoom.resolution.reviewEscalation")
+                : t("operationsRoom.resolution.fixThis")}
             </a>`}
     </div>
-    ${canCancelWorkflow || (remediation && !needsEscalation)
+    ${canApplyRecommendedRepair || (remediation && !needsEscalation)
       ? nothing
       : html`<small class="operations-muted">${t("operationsRoom.resolution.draftNotice")}</small>`}
   </details>`;

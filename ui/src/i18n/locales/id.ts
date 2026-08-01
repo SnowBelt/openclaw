@@ -604,15 +604,28 @@ export const id: TranslationMap = {
     },
     resolution: {
       resolve: "Selesaikan",
-      preview: "Pratinjau resolusi",
-      resolveFor: "Selesaikan {title}",
-      previewOnly: "Hanya pratinjau.",
-      previewOnlyDetail: "Tidak ada perubahan.",
-      closePreview: "Tutup pratinjau — tidak melakukan perubahan",
+      preview: "Resolusi yang direkomendasikan",
+      recommendation: "Resolusi yang direkomendasikan",
+      resolveFor: "Tinjau resolusi yang direkomendasikan untuk {title}",
+      previewOnly: "Hanya rekomendasi.",
+      previewOnlyDetail: "Tidak ada perubahan sampai perbaikan yang memenuhi syarat disetujui.",
+      closePreview: "Bukan sekarang",
+      notNow: "Bukan sekarang",
+      recommendedLabel: "Perbaikan yang direkomendasikan:",
+      recommendedFix: "Perbaikan yang direkomendasikan",
+      whyRecommended: "Mengapa ini direkomendasikan",
+      defaultReason:
+        "Ini adalah langkah selanjutnya yang paling aman berdasarkan bukti yang tersedia saat ini.",
+      confidence: "Tingkat kepercayaan",
+      confidencePending: "Menunggu investigasi lokal",
+      confidenceValue: "Tingkat kepercayaan {confidence}%",
       whatHappened: "Apa yang terjadi",
       progress: "Progres",
       risk: "Risiko masalah",
       changePreview: "Apa yang akan berubah",
+      verification: "Bagaimana OpenClaw akan memverifikasinya",
+      verificationPending:
+        "Rencana verifikasi deterministik diperlukan sebelum perubahan otomatis dapat dijalankan.",
       approval: "Persetujuan Anda",
       evidence: "Pembaruan kemajuan",
       localReview: "Tinjauan lokal ({confidence}%): {recommendation}",
@@ -629,10 +642,13 @@ export const id: TranslationMap = {
       investigate: "Selidiki dengan AI lokal",
       reviewEscalation: "Tinjau dengan Codex",
       reviewCancellation: "Tinjau pembatalan",
+      fixThis: "Perbaiki ini untuk saya",
       investigationPreview:
         "Belum ada yang berubah. Draf investigasi baca-saja terbuka untuk Anda tinjau dan kirim.",
       cancelPreview: "Siapkan pratinjau terpelihara untuk membatalkan “{title}”.",
       approvalRequired: "Anda harus menyetujui setiap perubahan sebelum terjadi.",
+      oneConfirmation:
+        "Satu konfirmasi singkat diperlukan karena ini adalah perbaikan berisiko sedang yang telah ditinjau dan dapat dibatalkan.",
       automaticPolicy:
         "OpenClaw dapat menjalankan perbaikan yang disetujui ini secara otomatis karena bersifat terbatas dan dapat dibatalkan.",
       evidenceLocation:
@@ -641,6 +657,7 @@ export const id: TranslationMap = {
         "Belum diperlukan karena investigasi tidak melakukan perubahan. Setiap perbaikan yang diusulkan harus menyertakan Rencana rollback.",
       cancelRollback:
         "Pembatalan tidak dapat memulihkan pekerjaan yang telah selesai. Tinjau pratinjau perubahan yang tepat sebelum menyetujuinya.",
+      progressLocationLabel: "Di mana kemajuan ditampilkan",
       safeguard:
         "Perubahan berisiko tinggi, tidak dapat dibatalkan, sensitif terhadap keamanan, keuangan, kredensial, rilis, destruktif, baru, atau tidak pasti masih memerlukan konfirmasi Anda.",
       draftNotice: "Membuka draf tidak mengirimkannya atau memulai pekerjaan.",
@@ -699,7 +716,7 @@ export const id: TranslationMap = {
       eyebrow: "Penerimaan pemilik",
       title: "Pemeriksaan Operations Room 60 detik",
       subtitle:
-        "Timer hanya dimulai saat Anda mengklik Mulai. Baca layar, pilih jawaban, pratinjau resolusi prioritas tertinggi, lalu tutup tanpa perubahan.",
+        "Timer dimulai hanya ketika Anda mengklik Mulai. Baca layar, pilih jawaban, tinjau rekomendasi prioritas tertinggi, lalu pilih Bukan sekarang tanpa melakukan perubahan.",
       begin: "Mulai pemeriksaan 60 detik",
       secondsLeft: "detik tersisa",
       statusQuestion: "Apa satu status sistem utama?",
@@ -708,9 +725,9 @@ export const id: TranslationMap = {
       issueQuestion: "Siapa pemilik masalah prioritas tertinggi, dan apa selanjutnya?",
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Tidak ada pemilik atau langkah selanjutnya yang diketahui",
-      resolveQuestion: "Pratinjau resolusi prioritas tertinggi, lalu tutup tanpa perubahan.",
+      resolveQuestion: "Tinjau rekomendasi dengan prioritas tertinggi, lalu pilih Bukan sekarang.",
       resolvePending: "Belum selesai",
-      resolveDone: "Pratinjau dibuka dan ditutup dengan aman",
+      resolveDone: "Rekomendasi telah ditinjau dan ditunda dengan aman",
       finish: "Selesai dan buat tanda terima",
       passed: "Pemeriksaan pemilik lulus",
       failed: "Pemeriksaan pemilik tidak lulus",

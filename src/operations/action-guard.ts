@@ -30,6 +30,8 @@ function actionSummary(action: OperationsActionKind, targetId: string): string {
       return `Enable scheduled workflow ${targetId}.`;
     case "cron.disable":
       return `Pause scheduled workflow ${targetId}.`;
+    case "remediation.apply":
+      return `Apply the independently reviewed Operations Room repair ${targetId}.`;
     case "task.cancel":
       return `Cancel task ${targetId}.`;
     case "flow.cancel":
@@ -45,6 +47,8 @@ function assertNeverAction(action: never): never {
 export function createOperationsActionPreview(params: {
   action: OperationsActionKind;
   targetId: string;
+  summary?: string;
+  risk?: OperationsActionPreview["risk"];
   now?: number;
 }): OperationsActionPreview {
   const now = params.now ?? Date.now();
@@ -53,8 +57,10 @@ export function createOperationsActionPreview(params: {
     token: crypto.randomUUID(),
     action: params.action,
     targetId: params.targetId,
-    summary: actionSummary(params.action, params.targetId),
-    risk: params.action === "cron.run" ? "medium" : "high",
+    summary: params.summary ?? actionSummary(params.action, params.targetId),
+    risk:
+      params.risk ??
+      (params.action === "cron.run" || params.action === "remediation.apply" ? "medium" : "high"),
     expiresAt: now + PREVIEW_TTL_MS,
     requiresConfirmation: true,
   };

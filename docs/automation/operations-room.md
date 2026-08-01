@@ -211,17 +211,20 @@ starting, plugin installation, config editing, and permission changes remain in 
 
 ## Resolving an issue
 
-Every current issue has a **Resolve** disclosure. It explains what happened, the impact, owner,
-recommended next step, risk, current response, exact change preview, approval requirement, where
-progress and completion evidence will appear, and how a proposed change would be undone.
+Every current issue has a **Recommended resolution** disclosure. It explains what happened, the
+impact, owner, recommended fix, why it is recommended, confidence, risk, exact expected change,
+verification, approval requirement, where progress and completion evidence will appear, and how a
+proposed change would be undone.
 
-When the issue maps to an existing guarded control, Resolve opens that exact preview and retains the
-same freshness, permission, confirmation, and single-use receipt requirements. When no safe exact
-mutation exists, **Investigate with local AI** opens a visible read-only Chat draft. Opening the draft
-does not send it or start work. The operator reviews and sends it explicitly. The draft requires
-deterministic checks first, local AI for investigation and recommendations, an independent local
-Judge safety review, Codex only for high-risk or low-confidence escalation, and a proposed
-change/verification/rollback plan before any separate approval.
+The primary action is **Fix this for me**. For an eligible reviewed medium-risk repair, it opens the
+same exact guarded preview and requires one concise confirmation. For a deterministic low-risk
+recipe, OpenClaw may repair immediately and verify it. When no approved recipe exists, the action
+opens a visible read-only Chat draft for local investigation and a concrete recommendation. Opening
+the draft does not send it or start work. The operator reviews and sends it explicitly. The draft
+requires deterministic checks first, local AI for investigation and recommendations, an independent
+local Judge safety review, Codex only for high-risk or low-confidence escalation, and a proposed
+change/verification/rollback plan before any separate approval. **Not now** only defers the
+recommendation; it is never presented as a repair.
 
 The UI never labels an issue as investigating, applying, verifying, or resolved unless the
 authoritative finding state supports that label. Missing, stale, partial, ambiguous, or unsupported
@@ -277,9 +280,8 @@ The primary overview presents these two signals together in **What is running**:
 
 The header does not repeat a second system-state term. **Now** is the one authoritative primary
 status. The first current finding is labeled **Highest-priority issue** and displays **Who owns this**
-and **What happens next** before its preview. Opening **Preview resolution** makes no change.
-**Close preview — make no changes** closes it explicitly and returns keyboard focus to the preview
-control.
+and **What happens next** before its recommendation. Opening **Recommended resolution** makes no
+change. **Not now** defers it explicitly and returns keyboard focus to the recommendation control.
 
 ## Owner acceptance in the page
 

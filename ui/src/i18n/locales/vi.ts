@@ -603,15 +603,28 @@ export const vi: TranslationMap = {
     },
     resolution: {
       resolve: "Giải quyết",
-      preview: "Xem trước giải pháp",
-      resolveFor: "Giải quyết {title}",
-      previewOnly: "Chỉ xem trước.",
-      previewOnlyDetail: "Chưa có thay đổi nào.",
-      closePreview: "Đóng xem trước — không thực hiện thay đổi",
+      preview: "Giải pháp được đề xuất",
+      recommendation: "Giải pháp được đề xuất",
+      resolveFor: "Xem xét giải pháp được đề xuất cho {title}",
+      previewOnly: "Chỉ là đề xuất.",
+      previewOnlyDetail:
+        "Không có thay đổi nào diễn ra cho đến khi một phương án sửa chữa đủ điều kiện được phê duyệt.",
+      closePreview: "Để sau",
+      notNow: "Để sau",
+      recommendedLabel: "Phương án sửa chữa được đề xuất:",
+      recommendedFix: "Phương án sửa chữa được đề xuất",
+      whyRecommended: "Lý do được đề xuất",
+      defaultReason: "Đây là bước tiếp theo an toàn nhất dựa trên bằng chứng hiện có.",
+      confidence: "Độ tin cậy",
+      confidencePending: "Đang chờ điều tra cục bộ",
+      confidenceValue: "Độ tin cậy {confidence}%",
       whatHappened: "Điều gì đã xảy ra",
       progress: "Tiến độ",
       risk: "Rủi ro của sự cố",
       changePreview: "Những thay đổi sẽ diễn ra",
+      verification: "Cách OpenClaw xác minh",
+      verificationPending:
+        "Cần có kế hoạch xác minh tất định trước khi bất kỳ thay đổi tự động nào được thực hiện.",
       approval: "Sự phê duyệt của bạn",
       evidence: "Cập nhật tiến độ",
       localReview: "Đánh giá cục bộ ({confidence}%): {recommendation}",
@@ -628,10 +641,13 @@ export const vi: TranslationMap = {
       investigate: "Khảo sát với AI cục bộ",
       reviewEscalation: "Đánh giá với Codex",
       reviewCancellation: "Xem lại việc hủy bỏ",
+      fixThis: "Sửa giúp tôi",
       investigationPreview:
         "Chưa có gì thay đổi. Bản nháp điều tra chỉ đọc sẽ mở ra để bạn xem xét và gửi đi.",
       cancelPreview: "Chuẩn bị bản xem trước được bảo vệ để hủy “{title}”.",
       approvalRequired: "Bạn phải phê duyệt mọi thay đổi trước khi nó diễn ra.",
+      oneConfirmation:
+        "Yêu cầu một xác nhận ngắn gọn vì đây là phương án sửa chữa rủi ro trung bình đã được xem xét và có thể hoàn tác.",
       automaticPolicy:
         "OpenClaw có thể tự động chạy sửa chữa đã được phê duyệt này vì nó bị giới hạn và có thể đảo ngược.",
       evidenceLocation:
@@ -640,6 +656,7 @@ export const vi: TranslationMap = {
         "Chưa cần thiết vì quá trình điều tra không thực hiện thay đổi nào. Mọi giải pháp đề xuất phải bao gồm Kế hoạch hoàn tác.",
       cancelRollback:
         "Việc hủy bỏ không thể khôi phục công việc đã hoàn thành. Xem trước chính xác thay đổi trước khi phê duyệt.",
+      progressLocationLabel: "Nơi hiển thị tiến độ",
       safeguard:
         "Các thay đổi có rủi ro cao, không thể đảo ngược, nhạy cảm về bảo mật, tài chính, thông tin đăng nhập, phát hành, phá hủy, mới hoặc không chắc chắn vẫn cần xác nhận của bạn.",
       draftNotice: "Việc mở bản nháp không gửi nó hoặc bắt đầu công việc.",
@@ -699,7 +716,7 @@ export const vi: TranslationMap = {
       eyebrow: "Chủ sở hữu chấp thuận",
       title: "Kiểm tra Operations Room trong 60 giây",
       subtitle:
-        "Hẹn giờ chỉ bắt đầu khi bạn nhấp vào Bắt đầu. Đọc màn hình, chọn câu trả lời, xem trước giải pháp ưu tiên cao nhất, sau đó đóng mà không thay đổi.",
+        "Bộ đếm thời gian chỉ bắt đầu khi bạn nhấp vào Bắt đầu. Đọc màn hình, chọn câu trả lời, xem lại đề xuất ưu tiên cao nhất, sau đó chọn Để sau mà không thực hiện thay đổi nào.",
       begin: "Bắt đầu kiểm tra 60 giây",
       secondsLeft: "giây còn lại",
       statusQuestion: "Trạng thái hệ thống chính là gì?",
@@ -708,9 +725,10 @@ export const vi: TranslationMap = {
       issueQuestion: "Ai là chủ sở hữu của vấn đề có độ ưu tiên cao nhất, và bước tiếp theo là gì?",
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Không xác định được chủ sở hữu hoặc bước tiếp theo",
-      resolveQuestion: "Xem trước giải pháp có độ ưu tiên cao nhất, sau đó đóng mà không thay đổi.",
+      resolveQuestion:
+        "Xem xét khuyến nghị có độ ưu tiên cao nhất, sau đó chọn Không phải bây giờ.",
       resolvePending: "Chưa hoàn thành",
-      resolveDone: "Đã mở xem trước và đóng an toàn",
+      resolveDone: "Đã xem xét khuyến nghị và tạm hoãn an toàn",
       finish: "Hoàn tất và tạo biên lai",
       passed: "Kiểm tra chủ sở hữu đã vượt qua",
       failed: "Kiểm tra chủ sở hữu không vượt qua",

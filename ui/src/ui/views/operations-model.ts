@@ -104,7 +104,11 @@ export function operationsInvestigationDraft(finding: OperationsFinding): string
           `Automatic repair status: ${finding.remediation.status}`,
           `Approved recipe: ${finding.remediation.recipeId}`,
           `Automatic repair risk: ${finding.remediation.risk}`,
+          `Recommended fix: ${finding.remediation.recommendedFix ?? finding.remediation.exactRepair}`,
+          `Why recommended: ${finding.remediation.recommendationReason ?? "Not recorded"}`,
           `Exact repair attempted: ${finding.remediation.exactRepair}`,
+          `Expected change: ${finding.remediation.expectedChange ?? "Not recorded"}`,
+          `Verification plan: ${finding.remediation.verificationPlan ?? "Not recorded"}`,
           `Recorded result: ${finding.remediation.result ?? finding.remediation.progress}`,
           `Rollback plan: ${finding.remediation.rollback}`,
         ]

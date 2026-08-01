@@ -16,6 +16,18 @@ import {
 } from "../../operations/action-guard.js";
 import { collectOperationsSnapshot } from "../../operations/collector.js";
 import { projectOperationsSnapshotV1 } from "../../operations/compat.js";
+import {
+  applyConfirmedOperationsRemediation,
+  type OperationsRemediationStore,
+} from "../../operations/remediation-engine.js";
+import {
+  createOperationsRemediationContext,
+  createOperationsRepairRecipes,
+} from "../../operations/remediation-recipes.js";
+import {
+  loadOperationsRemediationRecords,
+  upsertOperationsRemediationRecord,
+} from "../../operations/remediation-store.js";
 import type { OperationsActionReceipt } from "../../operations/types.js";
 import { cancelDetachedTaskRunById, cancelFlowById } from "../../tasks/task-executor.js";
 import { listVisibleActiveSessionRuns } from "./session-active-runs.js";
@@ -102,6 +114,38 @@ export const operationsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    if (params.action === "remediation.apply") {
+      try {
+        const record = loadOperationsRemediationRecords().find(
+          (entry) => entry.id === params.targetId,
+        );
+        if (
+          !record ||
+          record.status !== "confirmation_required" ||
+          record.risk !== "medium" ||
+          !record.judge?.approved
+        ) {
+          throw new Error("recommended repair is not eligible for one-confirmation execution");
+        }
+        respond(
+          true,
+          createOperationsActionPreview({
+            action: params.action,
+            targetId: params.targetId,
+            summary: record.exactRepair,
+            risk: "medium",
+          }),
+          undefined,
+        );
+      } catch (err) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.UNAVAILABLE, `operations action preview failed: ${String(err)}`),
+        );
+      }
+      return;
+    }
     respond(
       true,
       createOperationsActionPreview({ action: params.action, targetId: params.targetId }),
@@ -160,6 +204,45 @@ export const operationsHandlers: GatewayRequestHandlers = {
           await context.cron.update(params.targetId, { enabled });
           applied = true;
           summary = `${enabled ? "Enabled" : "Paused"} scheduled workflow ${params.targetId}.`;
+          break;
+        }
+        case "remediation.apply": {
+          const store = {
+            list: () => loadOperationsRemediationRecords(),
+            upsert: (record) => {
+              upsertOperationsRemediationRecord(record);
+            },
+          } satisfies OperationsRemediationStore;
+          const record = store.list().find((entry) => entry.id === params.targetId);
+          if (!record) {
+            throw new Error("recommended repair record not found");
+          }
+          const snapshot = await collectOperationsSnapshot({
+            cfg,
+            cron: context.cron,
+            modelCatalog: [],
+            modelCatalogAvailable: false,
+            eventLoop: context.getEventLoopHealth?.(),
+            includeProcesses: false,
+            activeRuns: listVisibleActiveSessionRuns(context),
+          });
+          const finding = snapshot.findings.find((entry) => entry.id === record.findingId);
+          if (!finding) {
+            throw new Error("current issue no longer matches the recommended repair");
+          }
+          const completed = await applyConfirmedOperationsRemediation({
+            recordId: record.id,
+            finding,
+            context: createOperationsRemediationContext(context.cron),
+            recipes: createOperationsRepairRecipes(),
+            store,
+          });
+          applied = completed.status === "completed";
+          summary =
+            completed.result ??
+            (completed.status === "rolled_back"
+              ? "Repair did not verify, so OpenClaw restored the rollback point."
+              : completed.progress);
           break;
         }
         case "task.cancel": {

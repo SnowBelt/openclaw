@@ -9,7 +9,7 @@ const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
 const ID_PATTERN = /^[A-Za-z0-9._:@/+~-]{1,160}$/u;
 const ACCEPTANCE_DURATION_MS = 60_000;
 const RESOLUTION_OPENED_EVENT = "openclaw-operations-resolution-opened";
-const RESOLUTION_CANCELLED_EVENT = "openclaw-operations-resolution-cancelled";
+const RESOLUTION_DEFERRED_EVENT = "openclaw-operations-resolution-deferred";
 
 export type OperationsOwnerAcceptanceConfig = {
   campaignId: string;
@@ -103,7 +103,7 @@ export class OperationsOwnerAcceptance extends LitElement {
   @state() private answers: Partial<Record<AnswerKey, boolean>> = {};
   @state() private selectedLabels: Partial<Record<AnswerKey, string>> = {};
   @state() private primaryResolutionOpened = false;
-  @state() private primaryResolutionCancelled = false;
+  @state() private primaryResolutionDeferred = false;
   @state() private receipt: OperationsOwnerAcceptanceReceipt | null = null;
   @state() private copied = false;
   @state() private copyFailed = false;
@@ -119,27 +119,27 @@ export class OperationsOwnerAcceptance extends LitElement {
     }
   };
 
-  private readonly handleResolutionCancelled = (event: Event) => {
+  private readonly handleResolutionDeferred = (event: Event) => {
     if (
       this.phase === "running" &&
       event instanceof CustomEvent &&
       event.detail?.findingId === this.facts?.primaryIssueId
     ) {
       this.primaryResolutionOpened = true;
-      this.primaryResolutionCancelled = true;
+      this.primaryResolutionDeferred = true;
     }
   };
 
   override connectedCallback() {
     super.connectedCallback();
     globalThis.addEventListener(RESOLUTION_OPENED_EVENT, this.handleResolutionOpened);
-    globalThis.addEventListener(RESOLUTION_CANCELLED_EVENT, this.handleResolutionCancelled);
+    globalThis.addEventListener(RESOLUTION_DEFERRED_EVENT, this.handleResolutionDeferred);
   }
 
   override disconnectedCallback() {
     this.stopTimer();
     globalThis.removeEventListener(RESOLUTION_OPENED_EVENT, this.handleResolutionOpened);
-    globalThis.removeEventListener(RESOLUTION_CANCELLED_EVENT, this.handleResolutionCancelled);
+    globalThis.removeEventListener(RESOLUTION_DEFERRED_EVENT, this.handleResolutionDeferred);
     super.disconnectedCallback();
   }
 
@@ -161,7 +161,7 @@ export class OperationsOwnerAcceptance extends LitElement {
     this.answers = {};
     this.selectedLabels = {};
     this.primaryResolutionOpened = false;
-    this.primaryResolutionCancelled = false;
+    this.primaryResolutionDeferred = false;
     this.timer = globalThis.setInterval(() => {
       this.now = Date.now();
     }, 1_000);
@@ -185,7 +185,9 @@ export class OperationsOwnerAcceptance extends LitElement {
       issueDetailsAndOwnerOrNext: this.answers.issue === true,
       localAiDistinctionCorrect: this.answers.activity === true,
       overallStateCorrect: this.answers.status === true,
-      resolvePreviewAndSafeCancel: this.primaryResolutionOpened && this.primaryResolutionCancelled,
+      // Preserve the receipt field for existing coordinator records; the UI event is explicitly
+      // a safe deferral rather than a cancellation-based resolution.
+      resolvePreviewAndSafeCancel: this.primaryResolutionOpened && this.primaryResolutionDeferred,
       workingItemIdentified: this.answers.activity === true,
     };
     const passed = elapsedMs <= ACCEPTANCE_DURATION_MS && Object.values(outcomes).every(Boolean);
@@ -272,7 +274,7 @@ export class OperationsOwnerAcceptance extends LitElement {
       owner: facts.primaryIssueOwner,
     });
     const issueOptions = [exactIssue, t("operationsRoom.ownerAcceptance.issueUnknown")].toSorted();
-    const resolveDone = this.primaryResolutionOpened && this.primaryResolutionCancelled;
+    const resolveDone = this.primaryResolutionOpened && this.primaryResolutionDeferred;
     const readyToFinish =
       this.answers.status !== undefined &&
       this.answers.activity !== undefined &&

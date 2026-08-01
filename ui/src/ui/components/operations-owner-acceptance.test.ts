@@ -83,7 +83,7 @@ describe("Operations Room owner acceptance", () => {
       }),
     );
     globalThis.dispatchEvent(
-      new CustomEvent("openclaw-operations-resolution-cancelled", {
+      new CustomEvent("openclaw-operations-resolution-deferred", {
         detail: { findingId: "finding-1" },
       }),
     );
@@ -138,7 +138,7 @@ describe("Operations Room owner acceptance", () => {
     buttonWithText(element, "OpenClaw: 0 · Local AI: 2").click();
     buttonWithText(element, "main — Review the recorded blocker.").click();
     globalThis.dispatchEvent(
-      new CustomEvent("openclaw-operations-resolution-cancelled", {
+      new CustomEvent("openclaw-operations-resolution-deferred", {
         detail: { findingId: "finding-1" },
       }),
     );
@@ -172,7 +172,7 @@ describe("Operations Room owner acceptance", () => {
     buttonWithText(element, "OpenClaw: 0 · Local AI: 2").click();
     buttonWithText(element, "main — Review the recorded blocker.").click();
     globalThis.dispatchEvent(
-      new CustomEvent("openclaw-operations-resolution-cancelled", {
+      new CustomEvent("openclaw-operations-resolution-deferred", {
         detail: { findingId: "finding-1" },
       }),
     );

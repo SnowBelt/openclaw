@@ -31,8 +31,14 @@ export function createOperationsRepairRecipes(): OperationsRepairRecipe<Operatio
       risk: "medium",
       domain: "routine",
       confidence: 0.98,
+      recommendationReason:
+        "Repeated failures can keep consuming resources and producing duplicate alerts; pausing only this schedule contains the problem without deleting work.",
       exactRepair:
         "Pause the enabled schedule after three consecutive failed runs so it cannot repeat the same failure.",
+      expectedChange:
+        "Only the matching failed schedule becomes paused; its history and configuration remain intact.",
+      verificationPlan:
+        "Read the schedule back from the authoritative cron service and confirm enabled is false.",
       rollback: "Re-enable the same schedule through the guarded Undo action.",
       reversible: true,
       verificationMode: "authoritative_readback",

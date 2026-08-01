@@ -1166,13 +1166,13 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
         await details.locator("summary").focus();
         await page.keyboard.press("Enter");
         expect(await details.getAttribute("open")).not.toBeNull();
-        expect(await details.locator("summary").textContent()).toContain("Preview resolution");
+        expect(await details.locator("summary").textContent()).toContain("Recommended resolution");
         expect(
           (await details.locator(".operations-resolution__preview-note").textContent())
             ?.replace(/\s+/g, " ")
             .trim(),
-        ).toBe("Preview only. Nothing has changed.");
-        expect(await details.textContent()).toContain("Close preview — make no changes");
+        ).toBe("Recommendation only. Nothing changes until an eligible repair is approved.");
+        expect(await details.textContent()).toContain("Not now");
         await details.getByText(scenario.owner, { exact: true }).waitFor();
         await details.getByText(scenario.response, { exact: true }).waitFor();
         await details.getByText(scenario.impact, { exact: true }).waitFor();
@@ -1185,7 +1185,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       }
       const investigation = page
         .locator(".operations-issue", { hasText: "Release approval needed" })
-        .getByRole("link", { name: "Investigate with local AI" });
+        .getByRole("link", { name: "Fix this for me" });
       const investigationUrl = new URL((await investigation.getAttribute("href"))!, server.baseUrl);
       expect(investigationUrl.pathname).toBe("/chat");
       expect(investigationUrl.searchParams.get("draft")).toContain(
@@ -1236,7 +1236,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       const issue = page.locator(".operations-issue", {
         hasText: "OpenClaw is retrying an agent",
       });
-      await issue.getByText("Preview resolution", { exact: true }).click();
+      await issue.getByText("Recommended resolution", { exact: true }).click();
       await issue.getByText("Pause the exact failing schedule.", { exact: true }).waitFor();
       await issue.getByText("Read-back verified disabled.", { exact: true }).waitFor();
       await issue.getByText("Re-enable the same schedule.", { exact: true }).waitFor();
@@ -1300,9 +1300,11 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
         .click();
 
       const primaryIssue = page.locator(".operations-issue--primary");
-      await primaryIssue.getByText("Preview resolution", { exact: true }).click();
-      await primaryIssue.getByRole("button", { name: "Close preview — make no changes" }).click();
-      await acceptance.getByText("Preview opened and safely closed", { exact: true }).waitFor();
+      await primaryIssue.getByText("Recommended resolution", { exact: true }).click();
+      await primaryIssue.getByRole("button", { name: "Not now" }).click();
+      await acceptance
+        .getByText("Recommendation reviewed and safely deferred", { exact: true })
+        .waitFor();
       await acceptance.getByRole("button", { name: "Finish and create receipt" }).click();
       await acceptance.getByText("Owner check passed", { exact: true }).waitFor();
       expect(

@@ -606,15 +606,27 @@ export const tr: TranslationMap = {
     },
     resolution: {
       resolve: "Çöz",
-      preview: "Çözümü önizle",
-      resolveFor: "{title} sorununu çöz",
-      previewOnly: "Sadece önizleme.",
-      previewOnlyDetail: "Hiçbir değişiklik yapılmadı.",
-      closePreview: "Önizlemeyi kapat — değişiklik yapma",
+      preview: "Önerilen çözüm",
+      recommendation: "Önerilen çözüm",
+      resolveFor: "{title} için önerilen çözümü inceleyin",
+      previewOnly: "Sadece öneri.",
+      previewOnlyDetail: "Uygun bir onarım onaylanana kadar hiçbir değişiklik yapılmaz.",
+      closePreview: "Şimdi değil",
+      notNow: "Şimdi değil",
+      recommendedLabel: "Önerilen düzeltme:",
+      recommendedFix: "Önerilen düzeltme",
+      whyRecommended: "Neden önerildiği",
+      defaultReason: "Bu, mevcut kanıtlarla desteklenen en güvenli sonraki adımdır.",
+      confidence: "Güvenilirlik",
+      confidencePending: "Yerel inceleme bekleniyor",
+      confidenceValue: "%{confidence} güvenilirlik",
       whatHappened: "Ne oldu",
       progress: "İlerleme",
       risk: "Sorun riski",
       changePreview: "Ne değişecek",
+      verification: "OpenClaw bunu nasıl doğrulayacak",
+      verificationPending:
+        "Herhangi bir otomatik değişiklik çalışmadan önce deterministik bir doğrulama planı gereklidir.",
       approval: "Onayınız",
       evidence: "İlerleme güncellemeleri",
       localReview: "Yerel inceleme (%{confidence}): {recommendation}",
@@ -631,10 +643,13 @@ export const tr: TranslationMap = {
       investigate: "Yerel yapay zeka ile araştıır",
       reviewEscalation: "Codex ile İncele",
       reviewCancellation: "İptali incele",
+      fixThis: "Bunu benim için düzelt",
       investigationPreview:
         "Henüz hiçbir şey değişmiyor. İncelemeniz ve göndermeniz için salt okunur bir soruşturma taslağı açılır.",
       cancelPreview: '"{title}" iptal etmek için korunaklı bir önizleme hazırlayın.',
       approvalRequired: "Herhangi bir değişiklik gerçekleşmeden önce onaylamanız gerekir.",
+      oneConfirmation:
+        "Bu, incelenmiş ve geri alınabilir orta riskli bir onarım olduğu için kısa bir onay gereklidir.",
       automaticPolicy:
         "OpenClaw, bu onaylı onarımı sınırlı ve geri alınabilir olduğu için otomatik olarak çalıştırabilir.",
       evidenceLocation:
@@ -643,6 +658,7 @@ export const tr: TranslationMap = {
         "Henüz gerekli değil çünkü soruşturma herhangi bir değişiklik yapmaz. Önerilen her düzeltme bir geri alma planı içermelidir.",
       cancelRollback:
         "İptal, tamamlanan işleri geri yükleyemez. Onaylamadan önce değişiklik önizlemesini dikkatlice inceleyin.",
+      progressLocationLabel: "İlerlemenin göründüğü yer",
       safeguard:
         "Yüksek riskli, geri alınamaz, güvenlikle ilgili, finansal, kimlik bilgisi içeren, sürüm yayına alma, yıkıcı, yeni veya belirsiz değişiklikler yine de onayınızı gerektirir.",
       draftNotice: "Taslak açmak, onu göndermez veya işe başlamaz.",
@@ -701,7 +717,7 @@ export const tr: TranslationMap = {
       eyebrow: "Sahip onayı",
       title: "60 saniyelik Operasyon Odası kontrolü",
       subtitle:
-        "Zamanlayıcı, Başla'ya tıkladığınızda başlar. Ekranı okuyun, cevapları seçin, en yüksek öncelikli çözümü önizleyin ve değişiklik yapmadan kapatın.",
+        "Zamanlayıcı yalnızca Başla'ya tıkladığınızda başlar. Ekranı okuyun, cevapları seçin, en yüksek öncelikli öneriyi inceleyin ve değişiklik yapmadan Şimdi değil'i seçin.",
       begin: "60 saniyelik kontrolü başlat",
       secondsLeft: "saniye kaldı",
       statusQuestion: "Birincil sistem durumu nedir?",
@@ -710,10 +726,9 @@ export const tr: TranslationMap = {
       issueQuestion: "En yüksek öncelikli sorunun sahibi kim ve sonrasında ne olacak?",
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Sorumlu veya sonraki adım bilinmiyor",
-      resolveQuestion:
-        "En yüksek öncelikli çözümü önizleyin, ardından değişiklik yapmadan kapatın.",
+      resolveQuestion: "En yüksek öncelikli öneriyi inceleyin, ardından Şimdi değil'i seçin.",
       resolvePending: "Henüz tamamlanmadı",
-      resolveDone: "Önizleme açıldı ve güvenli şekilde kapatıldı",
+      resolveDone: "Öneri incelendi ve güvenle ertelendi",
       finish: "Tamamla ve makbuz oluştur",
       passed: "Sorumlu kontrolü başarılı",
       failed: "Sorumlu kontrolü başarısız oldu",

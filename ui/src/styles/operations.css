@@ -374,7 +374,7 @@
   font-size: 12px;
 }
 
-.operations-resolution__cancel-preview {
+.operations-resolution__defer {
   border-color: color-mix(in srgb, var(--muted) 46%, var(--border));
   background: var(--panel);
   color: var(--text);

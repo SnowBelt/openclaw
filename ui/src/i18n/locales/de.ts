@@ -607,15 +607,29 @@ export const de: TranslationMap = {
     },
     resolution: {
       resolve: "Lösen",
-      preview: "Lösungsvorschau",
-      resolveFor: "{title} lösen",
-      previewOnly: "Nur Vorschau.",
-      previewOnlyDetail: "Es wurde nichts geändert.",
-      closePreview: "Vorschau schließen – keine Änderungen vornehmen",
+      preview: "Empfohlene Lösung",
+      recommendation: "Empfohlene Lösung",
+      resolveFor: "Überprüfen Sie die empfohlene Lösung für {title}",
+      previewOnly: "Nur Empfehlung.",
+      previewOnlyDetail:
+        "Es ändert sich nichts, solange keine berechtigte Reparatur genehmigt wird.",
+      closePreview: "Nicht jetzt",
+      notNow: "Nicht jetzt",
+      recommendedLabel: "Empfohlene Korrektur:",
+      recommendedFix: "Empfohlene Korrektur",
+      whyRecommended: "Warum dies empfohlen wird",
+      defaultReason:
+        "Dies ist der sicherste nächste Schritt, der durch die derzeit verfügbaren Beweise gestützt wird.",
+      confidence: "Vertrauenswürdigkeit",
+      confidencePending: "Lokale Untersuchung ausstehend",
+      confidenceValue: "{confidence}% Vertrauenswürdigkeit",
       whatHappened: "Was ist passiert",
       progress: "Fortschritt",
       risk: "Risiko des Problems",
       changePreview: "Was sich ändern wird",
+      verification: "Wie OpenClaw dies überprüft",
+      verificationPending:
+        "Vor jeder automatischen Änderung ist ein deterministischer Verifikationsplan erforderlich.",
       approval: "Ihre Genehmigung",
       evidence: "Fortschrittsaktualisierungen",
       localReview: "Lokale Überprüfung ({confidence}%): {recommendation}",
@@ -632,10 +646,13 @@ export const de: TranslationMap = {
       investigate: "Mit lokaler KI untersuchen",
       reviewEscalation: "Mit Codex überprüfen",
       reviewCancellation: "Stornierung überprüfen",
+      fixThis: "Das für mich beheben",
       investigationPreview:
         "Es ändert sich noch nichts. Ein schreibgeschützter Entwurf der Untersuchung wird geöffnet, damit Sie ihn überprüfen und senden können.",
       cancelPreview: "Bereite eine geschützte Vorschau vor, um „{title}“ abzubrechen.",
       approvalRequired: "Sie müssen jede Änderung genehmigen, bevor sie durchgeführt wird.",
+      oneConfirmation:
+        "Eine kurze Bestätigung ist erforderlich, da es sich um eine geprüfte, rückgängig zu machende Reparatur mit mittlerem Risiko handelt.",
       automaticPolicy:
         "OpenClaw kann diese genehmigte Reparatur automatisch ausführen, da sie begrenzt und umkehrbar ist.",
       evidenceLocation:
@@ -644,6 +661,7 @@ export const de: TranslationMap = {
         "Noch nicht erforderlich, da die Untersuchung keine Änderungen vornimmt. Jeder vorgeschlagene Fix muss einen Rollback-Plan enthalten.",
       cancelRollback:
         "Eine Stornierung kann abgeschlossene Arbeiten nicht wiederherstellen. Überprüfen Sie die genaue Änderungsübersicht, bevor Sie sie genehmigen.",
+      progressLocationLabel: "Wo der Fortschritt angezeigt wird",
       safeguard:
         "Änderungen mit hohem Risiko, die irreversibel, sicherheitskritisch, finanziell relevant, anmeldebezogen, freigaberelevant, zerstörerisch, neuartig oder unsicher sind, erfordern weiterhin Ihre Bestätigung.",
       draftNotice: "Das Öffnen des Entwurfs sendet ihn nicht und startet keine Arbeit.",
@@ -703,7 +721,7 @@ export const de: TranslationMap = {
       eyebrow: "Bestätigung durch den Besitzer",
       title: "60-Sekunden-Check im Operations Room",
       subtitle:
-        "Der Timer startet erst, wenn Sie auf Start klicken. Lesen Sie den Bildschirm, wählen Sie die Antworten, zeigen Sie die Auflösung mit der höchsten Priorität in der Vorschau an und schließen Sie sie ohne Änderungen.",
+        "Der Timer startet erst, wenn Sie auf Start klicken. Lesen Sie den Bildschirm, wählen Sie die Antworten, überprüfen Sie die Empfehlung mit der höchsten Priorität und wählen Sie dann Nicht jetzt aus, ohne eine Änderung vorzunehmen.",
       begin: "60-Sekunden-Check starten",
       secondsLeft: "Sekunden verbleibend",
       statusQuestion: "Was ist der eine primäre Systemstatus?",
@@ -714,9 +732,9 @@ export const de: TranslationMap = {
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Kein Verantwortlicher oder nächster Schritt bekannt",
       resolveQuestion:
-        "Zeigen Sie die Auflösung mit der höchsten Priorität in der Vorschau an und schließen Sie sie ohne Änderungen.",
+        "Überprüfen Sie die Empfehlung mit der höchsten Priorität und wählen Sie dann „Nicht jetzt“ aus.",
       resolvePending: "Noch nicht abgeschlossen",
-      resolveDone: "Vorschau geöffnet und sicher geschlossen",
+      resolveDone: "Empfehlung überprüft und sicher aufgeschoben",
       finish: "Beenden und Quittung erstellen",
       passed: "Besitzer-Check bestanden",
       failed: "Besitzer-Check nicht bestanden",

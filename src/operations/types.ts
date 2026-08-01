@@ -24,6 +24,7 @@ export type OperationsRemediationStatus =
   | "eligible"
   | "investigating"
   | "reviewing"
+  | "confirmation_required"
   | "applying"
   | "verifying"
   | "completed"
@@ -41,11 +42,17 @@ export type OperationsRemediationRecord = {
   risk: OperationsRemediationRisk;
   status: OperationsRemediationStatus;
   ownerId: string;
+  recommendedFix?: string;
+  recommendationReason?: string;
+  confidence?: number;
   exactRepair: string;
+  expectedChange?: string;
+  verificationPlan?: string;
   progress: string;
   result?: string;
   evidence: string[];
   rollback: string;
+  progressLocation?: string;
   undoAvailable: boolean;
   undoAction?: OperationsActionKind;
   undoTargetId?: string;
@@ -314,6 +321,7 @@ export type OperationsActionKind =
   | "cron.run"
   | "cron.enable"
   | "cron.disable"
+  | "remediation.apply"
   | "task.cancel"
   | "flow.cancel";
 

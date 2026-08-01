@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   recoverInterruptedOperationsRemediations,
+  applyConfirmedOperationsRemediation,
   runOperationsRemediationSweep,
   type OperationsRepairRecipe,
 } from "./remediation-engine.js";
@@ -47,7 +48,10 @@ function recipe(
     risk: "low",
     domain: "routine",
     confidence: 1,
+    recommendationReason: "Repeated failures are safely contained by pausing this schedule.",
     exactRepair: "Pause the failing schedule.",
+    expectedChange: "Only the failing schedule becomes paused.",
+    verificationPlan: "Read the schedule back and confirm it is paused.",
     rollback: "Re-enable the schedule.",
     reversible: true,
     verificationMode: "authoritative_readback",
@@ -67,6 +71,10 @@ function recipe(
       passed: context.enabled,
       evidence: context.enabled ? "Rollback verified." : "Rollback failed.",
     }),
+    undo: {
+      action: "cron.enable",
+      targetId: (currentFinding) => currentFinding.entityId ?? "job-1",
+    },
     ...overrides,
   };
 }
@@ -75,6 +83,26 @@ function ai() {
   return {
     investigate: vi.fn(async () => ({ confidence: 0.99, recommendation: "Bounded and safe." })),
     judge: vi.fn(async () => ({ approved: true, reason: "Rollback is verified." })),
+  };
+}
+
+function recommendationAi() {
+  return {
+    ...ai(),
+    recommend: vi.fn(async () => ({
+      risk: "high" as const,
+      domain: "novel" as const,
+      confidence: 0.94,
+      recommendedFix: "Collect a read-only diagnostic bundle for Codex review.",
+      reason: "No approved bounded recipe matches this issue yet.",
+      expectedChange: "No runtime state changes; only a diagnostic bundle is proposed.",
+      verificationPlan: "Verify the bundle contains no secrets and matches the issue identity.",
+      rollback: "No rollback is needed because the recommendation is read-only.",
+    })),
+    judgeRecommendation: vi.fn(async () => ({
+      approved: true,
+      reason: "Read-only and policy-safe; execution still requires an approved recipe.",
+    })),
   };
 }
 
@@ -147,7 +175,23 @@ describe("Operations remediation engine", () => {
     });
     expect(reviewer.investigate).toHaveBeenCalledOnce();
     expect(reviewer.judge).toHaveBeenCalledOnce();
-    expect(records.at(-1)?.status).toBe("completed");
+    expect(records.at(-1)).toMatchObject({
+      status: "confirmation_required",
+      automatic: false,
+      undoAvailable: false,
+      result: "No change has been made yet.",
+    });
+    expect(state.enabled).toBe(true);
+    const confirmed = await applyConfirmedOperationsRemediation({
+      recordId: records.at(-1)!.id,
+      finding: finding(),
+      context: state,
+      recipes: [recipe({ risk: "medium", confidence: 0.98 })],
+      store,
+    });
+    expect(confirmed.status).toBe("completed");
+    expect(confirmed.undoAvailable).toBe(true);
+    expect(state.enabled).toBe(false);
   });
 
   it("makes no change when the independent Judge rejects medium risk", async () => {
@@ -445,5 +489,28 @@ describe("Operations remediation engine", () => {
     expect(apply).not.toHaveBeenCalled();
     expect(records).toHaveLength(0);
     expect(state.enabled).toBe(true);
+  });
+
+  it("records a concrete advisory when no approved recipe matches", async () => {
+    const reviewer = recommendationAi();
+    const { store } = memoryStore();
+    const output = await runOperationsRemediationSweep({
+      findings: [finding()],
+      context: { enabled: true },
+      recipes: [],
+      store,
+      ai: reviewer,
+    });
+    expect(reviewer.recommend).toHaveBeenCalledOnce();
+    expect(reviewer.judgeRecommendation).toHaveBeenCalledOnce();
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatchObject({
+      recipeId: "local-ai.recommendation.v1",
+      status: "approval_required",
+      automatic: false,
+      recommendedFix: "Collect a read-only diagnostic bundle for Codex review.",
+      expectedChange: "No runtime state changes; only a diagnostic bundle is proposed.",
+      result: "No automatic change was made.",
+    });
   });
 });

@@ -9,6 +9,7 @@ const REMEDIATION_STATUSES = new Set([
   "eligible",
   "investigating",
   "reviewing",
+  "confirmation_required",
   "applying",
   "verifying",
   "completed",
@@ -95,9 +96,20 @@ function isRecord(value: unknown): value is OperationsRemediationRecord {
     typeof record.risk === "string" &&
     REMEDIATION_RISKS.has(record.risk) &&
     boundedString(record.ownerId, 256) &&
+    (record.recommendedFix === undefined || boundedString(record.recommendedFix, 4_000)) &&
+    (record.recommendationReason === undefined ||
+      boundedString(record.recommendationReason, 4_000)) &&
+    (record.confidence === undefined ||
+      (typeof record.confidence === "number" &&
+        Number.isFinite(record.confidence) &&
+        record.confidence >= 0 &&
+        record.confidence <= 1)) &&
     boundedString(record.exactRepair, 4_000) &&
+    (record.expectedChange === undefined || boundedString(record.expectedChange, 4_000)) &&
+    (record.verificationPlan === undefined || boundedString(record.verificationPlan, 4_000)) &&
     boundedString(record.progress, 4_000) &&
     boundedString(record.rollback, 4_000) &&
+    (record.progressLocation === undefined || boundedString(record.progressLocation, 1_000)) &&
     typeof record.undoAvailable === "boolean" &&
     typeof record.automatic === "boolean" &&
     typeof record.startedAt === "number" &&

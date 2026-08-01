@@ -144,7 +144,12 @@ function resolveOperationsActionRequiredScopes(params: unknown): OperatorScope[]
     return [WRITE_SCOPE];
   }
   const action = (params as { action?: unknown }).action;
-  if (action === "cron.run" || action === "cron.enable" || action === "cron.disable") {
+  if (
+    action === "cron.run" ||
+    action === "cron.enable" ||
+    action === "cron.disable" ||
+    action === "remediation.apply"
+  ) {
     return [ADMIN_SCOPE];
   }
   return [WRITE_SCOPE];

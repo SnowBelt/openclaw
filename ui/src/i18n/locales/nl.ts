@@ -606,15 +606,28 @@ export const nl: TranslationMap = {
     },
     resolution: {
       resolve: "Oplossen",
-      preview: "Voorbeeld van oplossing",
-      resolveFor: "Los op {title}",
-      previewOnly: "Alleen voorbeeld.",
-      previewOnlyDetail: "Er is niets veranderd.",
-      closePreview: "Voorbeeld sluiten — geen wijzigingen aanbrengen",
+      preview: "Aanbevolen oplossing",
+      recommendation: "Aanbevolen oplossing",
+      resolveFor: "Bekijk de aanbevolen oplossing voor {title}",
+      previewOnly: "Alleen een aanbeveling.",
+      previewOnlyDetail: "Er verandert niets totdat een geldige reparatie is goedgekeurd.",
+      closePreview: "Niet nu",
+      notNow: "Niet nu",
+      recommendedLabel: "Aanbevolen oplossing:",
+      recommendedFix: "Aanbevolen oplossing",
+      whyRecommended: "Waarom dit wordt aanbevolen",
+      defaultReason:
+        "Dit is de veiligste volgende stap, ondersteund door de momenteel beschikbare bewijslast.",
+      confidence: "Zekerheid",
+      confidencePending: "In afwachting van lokaal onderzoek",
+      confidenceValue: "{confidence}% zekerheid",
       whatHappened: "Wat er gebeurde",
       progress: "Voortgang",
       risk: "Risico van probleem",
       changePreview: "Wat er verandert",
+      verification: "Hoe OpenClaw dit zal verifiëren",
+      verificationPending:
+        "Er is een deterministisch verificatieplan vereist voordat er automatisch wijzigingen kunnen worden doorgevoerd.",
       approval: "Uw goedkeuring",
       evidence: "Voortgangsupdates",
       localReview: "Lokale beoordeling ({confidence}%): {recommendation}",
@@ -631,10 +644,13 @@ export const nl: TranslationMap = {
       investigate: "Onderzoeken met lokale AI",
       reviewEscalation: "Beoordelen met Codex",
       reviewCancellation: "Annulering controleren",
+      fixThis: "Los dit voor me op",
       investigationPreview:
         "Er gebeurt nog niets. Er wordt een alleen-lezen conceptonderzoek geopend dat je kunt controleren en verzenden.",
       cancelPreview: 'Bereid een beveiligde voorbeeldweergave voor om "{title}" te annuleren.',
       approvalRequired: "Je moet elke wijziging goedkeuren voordat deze wordt doorgevoerd.",
+      oneConfirmation:
+        "Eén beknopte bevestiging is vereist omdat dit een beoordeelde, omkeerbare reparatie met gemiddeld risico is.",
       automaticPolicy:
         "OpenClaw kan deze goedgekeurde reparatie automatisch uitvoeren omdat deze beperkt en omkeerbaar is.",
       evidenceLocation:
@@ -643,6 +659,7 @@ export const nl: TranslationMap = {
         "Nog niet nodig omdat het onderzoek geen wijzigingen aanbrengt. Elke voorgestelde oplossing moet een terugrolplan bevatten.",
       cancelRollback:
         "Annulering kan voltooid werk niet herstellen. Bekijk de exacte wijzigingsvoorschouw voordat u deze goedkeurt.",
+      progressLocationLabel: "Waar voortgang wordt weergegeven",
       safeguard:
         "Wijzigingen met hoog risico, die onomkeerbaar zijn, of die betrekking hebben op beveiliging, financiën, referenties, releases, destructieve acties, nieuwe functies of onzekerheden, vereisen nog steeds uw bevestiging.",
       draftNotice: "Het openen van het concept stuurt deze niet af of start geen werk.",
@@ -701,7 +718,7 @@ export const nl: TranslationMap = {
       eyebrow: "Eigenaaracceptatie",
       title: "Controle Operations Room van 60 seconden",
       subtitle:
-        "De timer start pas als u op Begin klikt. Lees het scherm, kies de antwoorden, bekijk de oplossing met de hoogste prioriteit en sluit deze zonder wijzigingen.",
+        "De timer start pas wanneer u op Start klikt. Lees het scherm, kies de antwoorden, bekijk de aanbeveling met de hoogste prioriteit en kies vervolgens Niet nu zonder wijzigingen aan te brengen.",
       begin: "Start controle van 60 seconden",
       secondsLeft: "seconden resterend",
       statusQuestion: "Wat is de ene primaire systeemstatus?",
@@ -712,9 +729,9 @@ export const nl: TranslationMap = {
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Er is geen eigenaar of vervolgstap bekend",
       resolveQuestion:
-        "Bekijk een voorbeeld van de oplossing met de hoogste prioriteit en sluit deze zonder wijzigingen.",
+        "Bekijk de aanbeveling met de hoogste prioriteit en kies vervolgens Niet nu.",
       resolvePending: "Nog niet voltooid",
-      resolveDone: "Voorbeeld geopend en veilig gesloten",
+      resolveDone: "Aanbeveling beoordeeld en veilig uitgesteld",
       finish: "Voltooien en bonnetje maken",
       passed: "Eigenaarcontrole geslaagd",
       failed: "Eigenaarcontrole niet geslaagd",

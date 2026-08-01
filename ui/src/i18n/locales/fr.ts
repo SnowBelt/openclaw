@@ -608,15 +608,29 @@ export const fr: TranslationMap = {
     },
     resolution: {
       resolve: "Résoudre",
-      preview: "Aperçu de la résolution",
-      resolveFor: "Résoudre {title}",
-      previewOnly: "Aperçu uniquement.",
-      previewOnlyDetail: "Rien n'a changé.",
-      closePreview: "Fermer l'aperçu — ne rien modifier",
+      preview: "Résolution recommandée",
+      recommendation: "Résolution recommandée",
+      resolveFor: "Consulter la résolution recommandée pour {title}",
+      previewOnly: "Recommandation uniquement.",
+      previewOnlyDetail:
+        "Aucun changement n'est apporté tant qu'une réparation éligible n'est pas approuvée.",
+      closePreview: "Pas maintenant",
+      notNow: "Pas maintenant",
+      recommendedLabel: "Correction recommandée :",
+      recommendedFix: "Correction recommandée",
+      whyRecommended: "Pourquoi cette recommandation",
+      defaultReason:
+        "C'est la prochaine étape la plus sûre, étayée par les preuves actuellement disponibles.",
+      confidence: "Confiance",
+      confidencePending: "En attente d'investigation locale",
+      confidenceValue: "{confidence}% de confiance",
       whatHappened: "Que s'est-il passé",
       progress: "Progression",
       risk: "Niveau de risque",
       changePreview: "Ce qui va changer",
+      verification: "Comment OpenClaw le vérifiera",
+      verificationPending:
+        "Un plan de vérification déterministe est requis avant qu'un changement automatique ne puisse s'exécuter.",
       approval: "Votre approbation",
       evidence: "Mises à jour de progression",
       localReview: "Examen local ({confidence}%): {recommendation}",
@@ -633,10 +647,13 @@ export const fr: TranslationMap = {
       investigate: "Enquêter avec l'IA locale",
       reviewEscalation: "Examiner avec Codex",
       reviewCancellation: "Examiner l'annulation",
+      fixThis: "Corriger cela pour moi",
       investigationPreview:
         "Rien ne change pour le moment. Un brouillon d'enquête en lecture seule s'ouvre pour que vous puissiez l'examiner et l'envoyer.",
       cancelPreview: "Préparer un aperçu protégé pour annuler « {title} ».",
       approvalRequired: "Vous devez approuver toute modification avant qu'elle ne soit appliquée.",
+      oneConfirmation:
+        "Une confirmation concise est requise car il s'agit d'une réparation à risque moyen, réversible et examinée.",
       automaticPolicy:
         "OpenClaw peut exécuter automatiquement cette réparation approuvée car elle est limitée et réversible.",
       evidenceLocation:
@@ -645,6 +662,7 @@ export const fr: TranslationMap = {
         "Non nécessaire pour le moment car l'investigation n'apporte aucun changement. Toute correction proposée doit inclure un Plan de retour en arrière.",
       cancelRollback:
         "L'annulation ne peut pas restaurer le travail terminé. Consultez l'aperçu exact des modifications avant de les approuver.",
+      progressLocationLabel: "Où apparaît la progression",
       safeguard:
         "Les modifications à haut risque, irréversibles, sensibles sur le plan de la sécurité, financières, liées aux identifiants, aux versions, destructrices, novatrices ou incertaines nécessitent toujours votre confirmation.",
       draftNotice: "L'ouverture du brouillon ne l'envoie pas et ne démarre pas le travail.",
@@ -704,7 +722,7 @@ export const fr: TranslationMap = {
       eyebrow: "Validation par le propriétaire",
       title: "Vérification rapide de la salle d'exploitation (60 secondes)",
       subtitle:
-        "Le minuteur ne démarre que lorsque vous cliquez sur Démarrer. Lisez l'écran, choisissez les réponses, prévisualisez la résolution prioritaire, puis fermez-la sans modification.",
+        "Le minuteur ne démarre que lorsque vous cliquez sur Démarrer. Lisez l'écran, choisissez les réponses, examinez la recommandation prioritaire, puis choisissez Pas maintenant sans apporter de modification.",
       begin: "Démarrer la vérification de 60 secondes",
       secondsLeft: "secondes restantes",
       statusQuestion: "Quel est l'état principal du système ?",
@@ -714,9 +732,9 @@ export const fr: TranslationMap = {
         "Qui est responsable du problème prioritaire et quelle est la prochaine étape ?",
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Aucun responsable ou prochaine étape identifié",
-      resolveQuestion: "Prévisualisez la résolution prioritaire, puis fermez-la sans modification.",
+      resolveQuestion: "Examinez la recommandation prioritaire, puis choisissez Plus tard.",
       resolvePending: "Pas encore terminé",
-      resolveDone: "Prévisualisation ouverte et fermée en toute sécurité",
+      resolveDone: "Recommandation examinée et reportée en toute sécurité",
       finish: "Terminer et créer le reçu",
       passed: "Vérification du propriétaire réussie",
       failed: "Vérification du propriétaire échouée",

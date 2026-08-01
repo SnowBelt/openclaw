@@ -608,15 +608,29 @@ export const it: TranslationMap = {
     },
     resolution: {
       resolve: "Risolvi",
-      preview: "Anteprima risoluzione",
-      resolveFor: "Risolvi {title}",
+      preview: "Risoluzione consigliata",
+      recommendation: "Risoluzione consigliata",
+      resolveFor: "Visualizza la risoluzione consigliata per {title}",
       previewOnly: "Solo anteprima.",
-      previewOnlyDetail: "Nessuna modifica è stata apportata.",
-      closePreview: "Chiudi anteprima — non effettuare modifiche",
+      previewOnlyDetail:
+        "Nessuna modifica viene apportata finché non viene approvata una riparazione idonea.",
+      closePreview: "Non ora",
+      notNow: "Non ora",
+      recommendedLabel: "Correzione consigliata:",
+      recommendedFix: "Correzione consigliata",
+      whyRecommended: "Motivo della raccomandazione",
+      defaultReason:
+        "Questo è il passaggio successivo più sicuro supportato dalle prove attualmente disponibili.",
+      confidence: "Affidabilità",
+      confidencePending: "In attesa di verifica locale",
+      confidenceValue: "{confidence}% di affidabilità",
       whatHappened: "Cosa è successo",
       progress: "Avanzamento",
       risk: "Rischio del problema",
       changePreview: "Cosa cambierà",
+      verification: "Come OpenClaw verificherà la risoluzione",
+      verificationPending:
+        "È necessario un piano di verifica deterministico prima che qualsiasi modifica automatica possa essere eseguita.",
       approval: "La tua approvazione",
       evidence: "Aggiornamenti sullo stato di avanzamento",
       localReview: "Revisione locale ({confidence}%): {recommendation}",
@@ -633,10 +647,13 @@ export const it: TranslationMap = {
       investigate: "Indaga con l'AI locale",
       reviewEscalation: "Rivedi con Codex",
       reviewCancellation: "Verifica annullamento",
+      fixThis: "Risolvi per me",
       investigationPreview:
         "Nessuna modifica per ora. Viene aperta una bozza di indagine in sola lettura da rivedere e inviare.",
       cancelPreview: 'Prepara un\'anteprima protetta per annullare "{title}".',
       approvalRequired: "Devi approvare ogni modifica prima che venga applicata.",
+      oneConfirmation:
+        "È richiesta una sola conferma concisa poiché si tratta di una riparazione a rischio medio, revisionata e reversibile.",
       automaticPolicy:
         "OpenClaw può eseguire automaticamente questa riparazione approvata poiché è limitata e reversibile.",
       evidenceLocation:
@@ -645,6 +662,7 @@ export const it: TranslationMap = {
         "Non necessario ancora perché l'indagine non apporta modifiche. Qualsiasi correzione proposta deve includere un piano di rollback.",
       cancelRollback:
         "L'annullamento non può ripristinare il lavoro completato. Esamina l'anteprima esatta della modifica prima di approvarla.",
+      progressLocationLabel: "Dove viene visualizzato l'avanzamento",
       safeguard:
         "Le modifiche ad alto rischio, irreversibili, sensibili alla sicurezza, finanziarie, relative a credenziali, release, distruttive, nuove o incerte richiedono comunque la tua conferma.",
       draftNotice: "L'apertura della bozza non la invia né avvia il lavoro.",
@@ -704,7 +722,7 @@ export const it: TranslationMap = {
       eyebrow: "Accettazione del proprietario",
       title: "Verifica Operations Room di 60 secondi",
       subtitle:
-        "Il timer parte solo quando clicchi su Avvia. Leggi lo schermo, scegli le risposte, visualizza l'anteprima della risoluzione con priorità più alta, quindi chiudi senza apportare modifiche.",
+        "Il timer parte solo quando fai clic su Avvia. Leggi lo schermo, scegli le risposte, esamina la raccomandazione con priorità più elevata, quindi scegli Non ora senza apportare modifiche.",
       begin: "Avvia verifica di 60 secondi",
       secondsLeft: "secondi rimanenti",
       statusQuestion: "Qual è lo stato principale del sistema?",
@@ -713,10 +731,9 @@ export const it: TranslationMap = {
       issueQuestion: "A chi spetta il problema con priorità più alta e cosa succede dopo?",
       issueAnswer: "{owner} — {next}",
       issueUnknown: "Nessun proprietario o passaggio successivo noto",
-      resolveQuestion:
-        "Anteprima della risoluzione con priorità più alta, quindi chiudila senza modifiche.",
+      resolveQuestion: "Esamina la raccomandazione con priorità più alta, quindi scegli Non ora.",
       resolvePending: "Non ancora completato",
-      resolveDone: "Anteprima aperta e chiusa in sicurezza",
+      resolveDone: "Raccomandazione esaminata e rimandata in sicurezza",
       finish: "Completa e crea ricevuta",
       passed: "Verifica proprietario superata",
       failed: "Verifica proprietario non superata",

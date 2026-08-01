@@ -20,7 +20,10 @@ const recipe = {
   risk: "medium",
   domain: "routine",
   confidence: 0.98,
+  recommendationReason: "Pausing the repeated failure is bounded.",
   exactRepair: "Pause it.",
+  expectedChange: "Only the schedule is paused.",
+  verificationPlan: "Read the schedule back and confirm it is paused.",
   rollback: "Enable it.",
   reversible: true,
   verificationMode: "authoritative_readback",
@@ -69,6 +72,46 @@ describe("Operations remediation local AI", () => {
     );
     expect(fetchImpl.mock.calls[0][1].body).toContain("untrusted data");
     expect(fetchImpl.mock.calls[0][1].body).not.toContain("Repeated failure");
+  });
+
+  it("produces advisory recommendations and keeps Judge approval non-executable", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(
+          JSON.stringify({
+            risk: "high",
+            domain: "novel",
+            confidence: 0.94,
+            recommendedFix: "Collect a read-only diagnostic bundle.",
+            reason: "No approved recipe matches.",
+            expectedChange: "No runtime state changes.",
+            verificationPlan: "Verify the bundle is complete and secret-free.",
+            rollback: "Not needed for a read-only recommendation.",
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          JSON.stringify({ approved: true, reason: "Bounded and read-only." }),
+          "openclaw-judge-qwen35-27b-q8:latest",
+        ),
+      );
+    const ai = createOperationsRemediationLocalAi({ fetchImpl });
+    const recommendation = await ai.recommend?.({ finding });
+    await expect(
+      ai.judgeRecommendation?.({ finding, recommendation: recommendation! }),
+    ).resolves.toEqual({ approved: true, reason: "Bounded and read-only." });
+    expect(recommendation).toMatchObject({
+      risk: "high",
+      domain: "novel",
+      confidence: 0.94,
+      recommendedFix: "Collect a read-only diagnostic bundle.",
+    });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).model).toBe("qwen3.6:27b-q8_0");
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).model).toBe(
+      "openclaw-judge-qwen35-27b-q8:latest",
+    );
   });
 
   it("rejects non-loopback model endpoints", () => {
