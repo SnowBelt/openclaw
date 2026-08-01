@@ -11,7 +11,21 @@ function moduleIdIncludesPackage(id: string, packageName: string): boolean {
   );
 }
 
+const CONTROL_UI_FEATURE_CHUNKS = [
+  ["/ui/src/ui/controllers/kalshi-dashboard.ts", "kalshi-dashboard-runtime"],
+  ["/ui/src/ui/controllers/pcc.ts", "pcc-runtime"],
+  ["/ui/src/ui/controllers/workboard.ts", "workboard-runtime"],
+  ["/ui/src/ui/controllers/book-writer-dashboard.ts", "book-writer-runtime"],
+] as const;
+
 export function controlUiManualChunk(id: string): string | undefined {
+  const normalized = normalizeModuleId(id);
+  for (const [sourcePath, chunkName] of CONTROL_UI_FEATURE_CHUNKS) {
+    if (normalized.includes(sourcePath)) {
+      return chunkName;
+    }
+  }
+
   if (
     moduleIdIncludesPackage(id, "lit") ||
     moduleIdIncludesPackage(id, "lit-html") ||
