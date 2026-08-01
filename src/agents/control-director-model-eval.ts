@@ -8,8 +8,8 @@ import {
   buildControlDirectorLatencyObservations,
   type ControlDirectorQualityAssessment,
 } from "./control-director-quality-rubric.js";
-import type { IndependentJudgeReceipt } from "./independent-judge-service.js";
 import { parseJudgeCompletionVerdict } from "./judge-gate.js";
+import type { IndependentJudgeReceipt } from "./judge-receipt-signer.js";
 import { verifyJudgeReceipt } from "./judge-receipt-signer.js";
 
 export const CONTROL_DIRECTOR_MODEL_EVAL_VERSION = 1 as const;

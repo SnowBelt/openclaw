@@ -100,7 +100,22 @@ receipt-signer tests after the approved immutable trial-model and Judge-model/ca
 identity fixture repair. Targeted lint attempt 6 and Mac Studio type attempt 6
 passed after that edit. Final targeted formatting attempt 7 also passed all
 matched formatter-supported files, including `repeat-ledger.json` as valid JSON,
-after all source and continuation edits. No attempt 8 was needed.
+after all source and continuation edits. No attempt 8 was needed before the
+bounded architecture repair; the authorized attempt 8 refresh then repaired
+one formatter difference in `src/agents/control-director-model-eval.ts` and
+passed the complete matched formatter set.
+
+The clean verifier on predecessor candidate
+`4739ecfd9af72f197bebfe5cb42a40c091406e31` passed its complete source, UI,
+extension, contract, documentation, build, and source-readiness sequence. A
+subsequent architecture gate exposed one Madge cycle between model evaluation
+and independent Judge service. The bounded repair moved the shared Judge receipt
+and issuance types to the authorized signer module and preserved the independent
+service type exports. Focused regressions passed 13/13, architecture attempt 2
+passed with zero cycles, and post-repair lint and TypeScript refreshes passed.
+The predecessor clean-verifier receipt is stale only because those two
+authorized agent files changed; rerun the clean exact-SHA verifier after the
+final 41-path recommit.
 
 Bounded source review attempt 1 found five P1 defects. Attempt 2 verified four
 repairs and left browser proof unresolved because it reconstructed expected
@@ -127,10 +142,10 @@ Focused compaction attempt 7 is current at 29 of 29. Attempt 10's 80 of 80
 tooling and 12 passing agent tests remain current because the final repair changed
 only `src/agents/judge-receipt-signer.test.ts`; focused source-integration repair
 verification attempt 11 passed 3 of 3 tests and closes that cached grouped gate.
-Targeted lint attempt 6 and Mac Studio type attempt 6 passed. Final targeted
-formatting attempt 7 also passed all matched formatter-supported files, including
-the repeat ledger as valid JSON. Syntax attempt 5, implementation audit attempt
-4, focused compaction attempt 7, and independent review attempt 4 remain current.
+Targeted lint attempt 7 and Mac Studio type attempt 7 passed after the bounded
+architecture repair. Final formatting attempt 8 also passed after its bounded
+one-file repair. Syntax attempt 5, implementation audit attempt 4, focused
+compaction attempt 7, and independent review attempt 4 remain current.
 
 ## Required proof sequence
 

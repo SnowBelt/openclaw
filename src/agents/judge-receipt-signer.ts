@@ -40,6 +40,144 @@ export type SignedJudgeReceipt<T extends Record<string, unknown>> = T & {
   publicKeyId: string;
 };
 
+export type ControlDirectorImmutableModelIdentity = {
+  modelDigest: string;
+  cacheDigest: string;
+};
+
+export type ControlDirectorCertificationLeaseBinding = {
+  schema: "openclaw.custom-runtime-certification-lease.v2";
+  runtimeHome: string;
+  observedLeaseSha256: string;
+  epochSha256: string;
+  state: string;
+  activeSha: string;
+  candidateSha: string;
+  rollbackSha: string;
+  activeReleaseId: string;
+  rollbackReleaseId: string;
+  owner: string;
+  actor: string;
+  approvalId: string;
+  operationId: string;
+  invocationId: string;
+  operationClass: "release-certification";
+  createdAt: string;
+  expiresAt: string;
+  heartbeatAt: string;
+  heartbeatRequired: true;
+  heartbeatSequence: number;
+  pid: number;
+};
+
+export type ControlDirectorTrialJudgeIssuance = {
+  schema: "openclaw.control-director-trial-judge-issuance.v1";
+  purpose: "control-director-model-trial";
+  campaignNonce: string;
+  trialId: string;
+  trialModelRef: string;
+  trialModelIdentity: ControlDirectorImmutableModelIdentity;
+  judgeModelIdentity: ControlDirectorImmutableModelIdentity;
+  measurementReceiptSha256: string;
+  measurementSetSha256: string;
+  evidenceSetSha256: string;
+  certificationLease: ControlDirectorCertificationLeaseBinding;
+  transcript: { path: string; sha256: string; content: string };
+  invocation: {
+    runId: string;
+    sessionId: string;
+    judgeAgentId: string;
+    provider: string;
+    model: string;
+    startedAt: string;
+    endedAt: string;
+    requestPromptSha256: string;
+    finalPromptSha256: string;
+    rawOutputSha256: string;
+    stopReason: string;
+  };
+  parsing: {
+    parser: "judge-six-line-v1";
+    status: "parsed";
+    verdict: IndependentJudgeReceipt["verdict"];
+    parsedVerdictSha256: string;
+  };
+  measurementSources: Array<{
+    metric: string;
+    evidenceRef: string;
+    artifactSha256: string;
+    jsonPointer: string;
+    valueSha256: string;
+  }>;
+  evidenceArtifacts: Array<{
+    evidenceRef: string;
+    path: string;
+    sha256: string;
+    content: string;
+  }>;
+};
+
+export type ControlDirectorCampaignJudgeIssuance = {
+  schema: "openclaw.control-director-campaign-judge-issuance.v1";
+  purpose: "control-director-m01-m106";
+  sourceSha: string;
+  rollbackSha: string;
+  activeReleaseId: string;
+  rollbackReleaseId: string;
+  configurationDigest: string;
+  selectedModel: string;
+  selectedModelIdentity: ControlDirectorImmutableModelIdentity;
+  judgeModelIdentity: ControlDirectorImmutableModelIdentity;
+  claimHash: string;
+  artifactSetSha256: string;
+  certificationLease: ControlDirectorCertificationLeaseBinding;
+  transcript: { path: string; sha256: string; content: string };
+  invocation: {
+    runId: string;
+    sessionId: string;
+    judgeAgentId: string;
+    provider: string;
+    model: string;
+    startedAt: string;
+    endedAt: string;
+    requestPromptSha256: string;
+    finalPromptSha256: string;
+    rawOutputSha256: string;
+    stopReason: string;
+  };
+  parsing: {
+    parser: "judge-six-line-v1";
+    status: "parsed";
+    verdict: IndependentJudgeReceipt["verdict"];
+    parsedVerdictSha256: string;
+  };
+  evidenceArtifacts: Array<{
+    artifactId: string;
+    path: string;
+    sha256: string;
+    content: string;
+  }>;
+};
+
+export type IndependentJudgeReceipt = {
+  schemaVersion: 1;
+  receiptId: string;
+  missionId: string;
+  claimHash: string;
+  verdict: "APPROVE" | "REJECT" | "REQUEST_MORE_EVIDENCE" | "ESCALATE_TO_HUMAN";
+  scope: string;
+  evidenceSummary: string;
+  conditions: string;
+  judgeRunId: string;
+  judgeAgentId: string;
+  model?: string;
+  issuedAt: number;
+  trialIssuance?: ControlDirectorTrialJudgeIssuance;
+  campaignIssuance?: ControlDirectorCampaignJudgeIssuance;
+  signature?: string;
+  publicKeyId?: string;
+};
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalize);

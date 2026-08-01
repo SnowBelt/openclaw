@@ -224,8 +224,8 @@
     },
     {
       "id": "targeted-formatting-gate",
-      "attempts": 7,
-      "repeats": 6,
+      "attempts": 8,
+      "repeats": 7,
       "status": "passed",
       "nextAttemptRequiresApproval": false,
       "attemptLog": [
@@ -263,13 +263,18 @@
           "attempt": 7,
           "outcome": "passed",
           "reason": "All matched formatter-supported changed files passed repository formatting, including repeat-ledger.json as valid JSON, after all source and continuation edits."
+        },
+        {
+          "attempt": 8,
+          "outcome": "passed",
+          "reason": "The bounded formatting repair normalized src/agents/control-director-model-eval.ts; the complete matched formatter set, including repeat-ledger.json as valid JSON, then passed."
         }
       ]
     },
     {
       "id": "mac-studio-type-gate",
-      "attempts": 6,
-      "repeats": 5,
+      "attempts": 7,
+      "repeats": 6,
       "status": "passed",
       "nextAttemptRequiresApproval": false,
       "attemptLog": [
@@ -302,13 +307,18 @@
           "attempt": 6,
           "outcome": "passed",
           "reason": "The complete TypeScript project graph passed outside the sandbox after the final Judge receipt-signer fixture edit with no diagnostics."
+        },
+        {
+          "attempt": 7,
+          "outcome": "passed",
+          "reason": "The complete TypeScript project graph passed outside the sandbox after the bounded shared-Judge-type import-cycle repair with no diagnostics."
         }
       ]
     },
     {
       "id": "targeted-lint-gate",
-      "attempts": 6,
-      "repeats": 5,
+      "attempts": 7,
+      "repeats": 6,
       "status": "passed",
       "nextAttemptRequiresApproval": false,
       "attemptLog": [
@@ -341,6 +351,11 @@
           "attempt": 6,
           "outcome": "passed",
           "reason": "The changed Control Director scripts and core-agent files passed the repository oxlint wrappers after the final Judge receipt-signer fixture edit."
+        },
+        {
+          "attempt": 7,
+          "outcome": "passed",
+          "reason": "The repaired shared-Judge-type core-agent files passed the repository oxlint wrapper after the import-cycle repair."
         }
       ]
     },
@@ -432,6 +447,25 @@
           "attempt": 4,
           "outcome": "passed",
           "reason": "Independent read-only review found no remaining P0 or P1 after environment-wide sanitization, observation-bound browser evidence, test-only injection, and non-overflow uncompactable classification."
+        }
+      ]
+    },
+    {
+      "id": "architecture-gate",
+      "attempts": 2,
+      "repeats": 1,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "Madge found one runtime cycle between control-director-model-eval.ts and independent-judge-service.ts after the clean candidate verifier passed."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The shared Judge receipt and issuance types were relocated to the authorized signer module; Madge, runtime-cycle, deprecated-API/JSDoc, Kysely, and database-first architecture checks all passed without adding a path."
         }
       ]
     }
