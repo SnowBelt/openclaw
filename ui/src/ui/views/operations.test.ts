@@ -114,9 +114,12 @@ describe("Operations Room view", () => {
   });
 
   it("offers a clear, non-mutating local-AI resolution path with complete safeguards", async () => {
-    const container = await renderView({ sessionKey: "agent:main:codex:operations" });
+    const onAction = vi.fn();
+    const container = await renderView({ sessionKey: "agent:main:codex:operations", onAction });
     const resolution = container.querySelector<HTMLDetailsElement>(".operations-resolution");
-    const link = resolution?.querySelector<HTMLAnchorElement>('a[href^="/chat?"]');
+    const investigate = resolution?.querySelector<HTMLButtonElement>(
+      ".operations-resolution__actions button.btn--primary",
+    );
 
     expect(resolution?.querySelector("summary")?.textContent).toContain("Recommended resolution");
     expect(resolution?.textContent?.replace(/\s+/g, " ").trim()).toContain(
@@ -137,14 +140,12 @@ describe("Operations Room view", () => {
     expect(resolution?.textContent).toContain(
       "High-risk, irreversible, security-sensitive, financial, credential, release, destructive, novel, or uncertain changes still require your confirmation.",
     );
-    expect(link?.textContent).toContain("Fix this for me");
-    expect(link?.href).toContain("draft=");
-    const linkUrl = new URL(link?.href ?? "http://localhost/chat");
-    expect(linkUrl.searchParams.get("session")).toBe("agent:main:codex:operations");
-    const draft = linkUrl.searchParams.get("draft");
-    expect(draft).toContain("Read-only investigation only");
-    expect(draft).toContain("independent local Judge");
-    expect(resolution?.textContent).toContain("Opening the draft does not send it or start work.");
+    expect(investigate?.textContent).toContain("Investigate with local AI");
+    investigate?.click();
+    expect(onAction).toHaveBeenCalledWith("remediation.investigate", "skill:requirements:blocked");
+    expect(resolution?.textContent).not.toContain(
+      "Opening the draft does not send it or start work.",
+    );
   });
 
   it("fails closed instead of inventing an owner or next step", async () => {
@@ -250,7 +251,7 @@ describe("Operations Room view", () => {
     expect(issue?.querySelector("summary")?.getAttribute("aria-label")).toContain(
       "recommended resolution",
     );
-    expect(issue?.textContent).toContain("Fix this for me");
+    expect(issue?.textContent).toContain("Investigate with local AI");
     expect(issue?.textContent).not.toContain("Review cancellation");
     expect(issue?.textContent).not.toContain("Prepare a guarded preview");
   });

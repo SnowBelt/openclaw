@@ -30,6 +30,8 @@ function actionSummary(action: OperationsActionKind, targetId: string): string {
       return `Enable scheduled workflow ${targetId}.`;
     case "cron.disable":
       return `Pause scheduled workflow ${targetId}.`;
+    case "remediation.investigate":
+      return `Investigate Operations Room issue ${targetId} with local AI and an independent safety review.`;
     case "remediation.apply":
       return `Apply the independently reviewed Operations Room repair ${targetId}.`;
     case "task.cancel":

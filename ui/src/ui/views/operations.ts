@@ -390,6 +390,10 @@ function renderFindingResolution(
     remediation.judge?.approved === true &&
     props.canAdmin &&
     Boolean(props.snapshot?.controls.supportedActions.includes("remediation.apply"));
+  const canInvestigate =
+    !remediation &&
+    props.canWrite &&
+    Boolean(props.snapshot?.controls.supportedActions.includes("remediation.investigate"));
   const recommendedFix =
     remediation?.recommendedFix ??
     remediation?.exactRepair ??
@@ -612,18 +616,27 @@ function renderFindingResolution(
           >
             ${t("operationsRoom.resolution.fixThis")}
           </button>`
-        : remediation && !needsEscalation
-          ? nothing
-          : html`<a
+        : canInvestigate
+          ? html`<button
+              type="button"
               class="btn btn--sm btn--primary"
-              href=${investigationHref(finding, props.sessionKey)}
+              ?disabled=${props.actionBusy}
+              @click=${() => props.onAction("remediation.investigate", finding.id)}
             >
-              ${needsEscalation
-                ? t("operationsRoom.resolution.reviewEscalation")
-                : t("operationsRoom.resolution.fixThis")}
-            </a>`}
+              ${t("operationsRoom.resolution.investigate")}
+            </button>`
+          : remediation && !needsEscalation
+            ? nothing
+            : html`<a
+                class="btn btn--sm btn--primary"
+                href=${investigationHref(finding, props.sessionKey)}
+              >
+                ${needsEscalation
+                  ? t("operationsRoom.resolution.reviewEscalation")
+                  : t("operationsRoom.resolution.investigate")}
+              </a>`}
     </div>
-    ${canApplyRecommendedRepair || (remediation && !needsEscalation)
+    ${canApplyRecommendedRepair || canInvestigate || (remediation && !needsEscalation)
       ? nothing
       : html`<small class="operations-muted">${t("operationsRoom.resolution.draftNotice")}</small>`}
   </details>`;

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   recoverInterruptedOperationsRemediations,
   applyConfirmedOperationsRemediation,
+  investigateOperationsRemediation,
   runOperationsRemediationSweep,
   type OperationsRepairRecipe,
 } from "./remediation-engine.js";
@@ -512,5 +513,26 @@ describe("Operations remediation engine", () => {
       expectedChange: "No runtime state changes; only a diagnostic bundle is proposed.",
       result: "No automatic change was made.",
     });
+  });
+
+  it("records one explicit investigation and reuses it on repeated clicks", async () => {
+    const reviewer = recommendationAi();
+    const { store } = memoryStore();
+    const first = await investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store,
+      now: () => 10,
+    });
+    const second = await investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store,
+      now: () => 20,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(reviewer.recommend).toHaveBeenCalledOnce();
+    expect(reviewer.judgeRecommendation).toHaveBeenCalledOnce();
   });
 });

@@ -119,6 +119,7 @@ export const OperationsActionKindSchema = Type.Union([
   Type.Literal("cron.run"),
   Type.Literal("cron.enable"),
   Type.Literal("cron.disable"),
+  Type.Literal("remediation.investigate"),
   Type.Literal("remediation.apply"),
   Type.Literal("task.cancel"),
   Type.Literal("flow.cancel"),

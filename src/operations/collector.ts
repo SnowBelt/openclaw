@@ -1622,6 +1622,7 @@ export async function collectOperationsSnapshot(params: {
         "cron.run",
         "cron.enable",
         "cron.disable",
+        "remediation.investigate",
         "remediation.apply",
         "task.cancel",
         "flow.cancel",

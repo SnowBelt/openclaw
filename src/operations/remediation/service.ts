@@ -249,3 +249,31 @@ export async function runOperationsRemediationSweep<Context>(params: {
   }
   return outputs;
 }
+
+/**
+ * Run the explicit, non-mutating recommendation path for one issue.
+ *
+ * A recommendation is persisted as evidence, never as an executable repair.
+ * Existing records win so repeated clicks cannot create competing plans.
+ */
+export async function investigateOperationsRemediation<Context>(params: {
+  finding: OperationsFinding;
+  ai: OperationsRemediationAiReview<Context>;
+  store: OperationsRemediationStore;
+  now?: () => number;
+}): Promise<OperationsRemediationRecord> {
+  const existing = params.store.list().find((record) => record.findingId === params.finding.id);
+  if (existing) {
+    return existing;
+  }
+  const recommendation = await createAdvisoryRemediationRecommendation({
+    finding: params.finding,
+    ai: params.ai,
+    store: params.store,
+    now: params.now ?? Date.now,
+  });
+  if (!recommendation) {
+    throw new Error("Local recommendation is unavailable for this issue");
+  }
+  return recommendation;
+}

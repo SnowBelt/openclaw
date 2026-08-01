@@ -13,6 +13,7 @@ export type {
 } from "./remediation/contracts.js";
 export {
   applyConfirmedOperationsRemediation,
+  investigateOperationsRemediation,
   recoverInterruptedOperationsRemediations,
   runOperationsRemediationSweep,
 } from "./remediation/service.js";
