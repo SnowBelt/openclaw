@@ -1,4 +1,5 @@
 import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/src/index.js";
+import type { PccPrivateTeamPolicy } from "../../../packages/gateway-protocol/src/schema/types.js";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
 import type { PccPlanningPolicy } from "../../../src/pcc/planning.js";
@@ -252,6 +253,7 @@ export type AppViewState = {
   pccReleaseGovernance: ReleaseGovernanceStatus | null;
   pccExecutionCapacity: PccExecutionCapacitySnapshot | null;
   pccPlanningPolicy: PccPlanningPolicy;
+  pccPrivateTeamPolicy?: PccPrivateTeamPolicy;
   pccLoading: boolean;
   pccError: string | null;
   pccUpdatedAt: number | null;

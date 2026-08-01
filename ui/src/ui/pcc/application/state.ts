@@ -26,6 +26,7 @@ import type {
   PccMilestone,
   PccPermissionGrant,
   PccPlanningRun,
+  PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
   PccProjectAiUsageSummary,
@@ -278,6 +279,7 @@ export type PccDashboardState = {
   pccReleaseGovernance?: ReleaseGovernanceStatus | null;
   pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
   pccPlanningPolicy?: PccPlanningPolicy;
+  pccPrivateTeamPolicy?: PccPrivateTeamPolicy;
   pccExecutionProjection?: PccExecutionRuntimeProjection | null;
   pccExecutionProjectionLoading?: boolean;
   pccExecutionProjectionError?: string | null;

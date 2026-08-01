@@ -1008,6 +1008,8 @@ export type PccProjectSummary =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccProjectSummary;
 export type PccPlanningRun =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccPlanningRun;
+export type PccPrivateTeamPolicy =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccPrivateTeamPolicy;
 export type PccAttachment =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccAttachment;
 export type PccPortfolioSummary =

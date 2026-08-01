@@ -139,6 +139,7 @@ import type {
   PccPermissionGrant,
   PccPermissionStatus,
   PccPlanningRun,
+  PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
   PccProjectAiUsageSummary,
@@ -183,6 +184,7 @@ type PccProjectsListResult = {
 type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
   planningPolicy?: PccPlanningPolicy;
+  privateTeamPolicy?: PccPrivateTeamPolicy;
   executionCapacity?: PccExecutionCapacitySnapshot;
   runtimeIdentity?: PccRuntimeIdentity;
   updateSafety?: PccUpdateSafety;
@@ -1884,6 +1886,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
     state.pccPlanningPolicy = summaryResult.planningPolicy ?? DEFAULT_PCC_PLANNING_POLICY;
+    state.pccPrivateTeamPolicy = summaryResult.privateTeamPolicy;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
     state.pccUpdateSafety = summaryResult.updateSafety ?? null;
     state.pccReleaseGovernance = summaryResult.releaseGovernance ?? null;

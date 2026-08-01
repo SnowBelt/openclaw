@@ -459,6 +459,33 @@ describe("renderPccDashboard", () => {
     }
   });
 
+  it("explains the private-team operating envelope without implying per-person permissions", () => {
+    const container = renderView(
+      createProps({
+        privateTeamPolicy: {
+          schemaVersion: 1,
+          accessMode: "authenticated_gateway_operators",
+          memberLimit: 5,
+          maxProjects: 100,
+          maxConcurrentPlanningRuns: 2,
+          maxAttachmentsPerProject: 200,
+          maxAttachmentBytesPerProject: 1_073_741_824,
+          backupMode: "transactional_sqlite_plus_last_known_good",
+          localAiPreferred: true,
+        },
+      }),
+    );
+    const policy = container.querySelector("[data-pcc-private-team-policy]");
+    expect(policy).not.toBeNull();
+    expect(policy?.textContent).toContain("up to 5 authenticated operators");
+    expect(policy?.textContent).toMatch(
+      /does not provide separate\s+per-person project permissions/u,
+    );
+    expect(policy?.textContent).toContain("2 Codex planning runs at once");
+    expect(policy?.textContent).toContain("100 active projects");
+    expect(policy?.textContent).toContain("200 files or 1 GiB per project");
+  });
+
   it("renders mobile PCC section controls over existing project sections", () => {
     const container = renderView(createProps());
     const rail = container.querySelector("[data-pcc-mobile-command-rail]");

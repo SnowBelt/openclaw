@@ -181,6 +181,7 @@ export type PccEvidence = SchemaType<"PccEvidence">;
 export type PccCompletionReceipt = SchemaType<"PccCompletionReceipt">;
 export type PccModelRunReceipt = SchemaType<"PccModelRunReceipt">;
 export type PccProjectAiUsageSummary = SchemaType<"PccProjectAiUsageSummary">;
+export type PccPrivateTeamPolicy = SchemaType<"PccPrivateTeamPolicy">;
 export type PccDecision = SchemaType<"PccDecision">;
 export type PccDecisionsAddParams = SchemaType<"PccDecisionsAddParams">;
 export type PccDecisionsAddResult = SchemaType<"PccDecisionsAddResult">;

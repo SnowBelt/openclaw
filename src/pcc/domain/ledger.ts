@@ -12,6 +12,7 @@ import type {
   PccSubMilestone,
 } from "../../../packages/gateway-protocol/src/schema/types.js";
 import type { PccPlanningPolicy } from "../planning.js";
+import type { PccPrivateTeamPolicy } from "../private-team-policy.js";
 
 /**
  * Storage-independent PCC aggregate consumed by domain and read-model services.
@@ -32,5 +33,6 @@ export type PccLedger = {
   modelRunReceipts?: PccModelRunReceipt[];
   settings?: {
     planningPolicy?: PccPlanningPolicy;
+    privateTeamPolicy?: PccPrivateTeamPolicy;
   };
 };

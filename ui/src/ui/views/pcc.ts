@@ -112,6 +112,7 @@ import type {
   PccPermissionGrant,
   PccPermissionStatus,
   PccPlanningRun,
+  PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
   PccProjectSummary,
@@ -166,6 +167,7 @@ export type PccDashboardProps = {
   releaseGovernance?: ReleaseGovernanceStatus | null;
   executionCapacity?: PccExecutionCapacitySnapshot | null;
   planningPolicy?: PccPlanningPolicy;
+  privateTeamPolicy?: PccPrivateTeamPolicy;
   executionProjection?: PccExecutionRuntimeProjection | null;
   executionProjectionLoading?: boolean;
   executionProjectionError?: string | null;
@@ -6720,6 +6722,37 @@ function renderProjectAiUsage(detail: PccProjectDetail) {
   </section>`;
 }
 
+function renderPrivateTeamPolicy(props: PccDashboardProps) {
+  const policy = props.privateTeamPolicy;
+  if (!policy) {
+    return nothing;
+  }
+  return html`<section class="pcc-private-team-policy" data-pcc-private-team-policy>
+    <div>
+      <span>Private team guardrails</span>
+      <strong>Designed for up to ${policy.memberLimit} authenticated operators</strong>
+      <p>
+        Shared PCC access stays behind Gateway authentication. This MVP does not provide separate
+        per-person project permissions.
+      </p>
+    </div>
+    <dl>
+      <div>
+        <dt>Planning</dt>
+        <dd>${policy.maxConcurrentPlanningRuns} Codex planning runs at once</dd>
+      </div>
+      <div>
+        <dt>Projects</dt>
+        <dd>${policy.maxProjects} active projects</dd>
+      </div>
+      <div>
+        <dt>Files</dt>
+        <dd>${policy.maxAttachmentsPerProject} files or 1 GiB per project</dd>
+      </div>
+    </dl>
+  </section>`;
+}
+
 function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProps) {
   const project = detail.project;
   const percent = clampPercent(detail.summary.percentComplete);
@@ -6896,7 +6929,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             milestones complete</span
           >
         </div>`}
-    ${renderProjectAiUsage(detail)}
+    ${renderProjectAiUsage(detail)} ${renderPrivateTeamPolicy(props)}
     ${terminalWithoutConflict || simple
       ? nothing
       : html`

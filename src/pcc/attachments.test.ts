@@ -3,10 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { PccAttachment } from "../../packages/gateway-protocol/src/index.js";
 import {
   appendPccAttachmentChunk,
   beginPccAttachmentUpload,
   commitPccAttachmentUpload,
+  cleanupExpiredPccAttachmentUploads,
   listPccAttachmentUsage,
   listPccAttachments,
   readPccAttachmentChunk,
@@ -16,6 +18,28 @@ import {
 import { closePccLedgerStorageForTest, withPccLedger } from "./ledger-store.js";
 
 const roots: string[] = [];
+
+function readyAttachment(id: string): PccAttachment {
+  return {
+    id,
+    logicalId: id,
+    version: 1,
+    projectId: "project-1",
+    originalName: `${id}.txt`,
+    title: id,
+    mimeType: "text/plain",
+    sizeBytes: 1,
+    sha256: id.padEnd(64, "0").slice(0, 64),
+    role: "reference",
+    scope: "project",
+    instructions: "",
+    modelAccess: "project_policy",
+    sensitivity: "normal",
+    status: "ready",
+    createdAt: "2026-07-27T00:00:00.000Z",
+    updatedAt: "2026-07-27T00:00:00.000Z",
+  };
+}
 
 function makeEnv(): NodeJS.ProcessEnv {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-pcc-attachments-"));
@@ -227,6 +251,124 @@ describe("PCC attachments", () => {
     await expect(
       commitPccAttachmentUpload({ uploadId: begin.uploadId, sha256: "0".repeat(64) }, env),
     ).rejects.toThrow("SHA-256");
+  });
+
+  it("cleans abandoned uploads and enforces the project storage envelope", async () => {
+    const env = makeEnv();
+    const begin = await beginPccAttachmentUpload(
+      {
+        projectId: "project-1",
+        originalName: "abandoned.txt",
+        mimeType: "text/plain",
+        sizeBytes: 1,
+        role: "reference",
+        scope: "project",
+      },
+      env,
+    );
+    const uploadMetadataPath = path.join(
+      env.OPENCLAW_STATE_DIR!,
+      "pcc",
+      "attachments",
+      "uploads",
+      `${begin.uploadId}.json`,
+    );
+    const pending = JSON.parse(fs.readFileSync(uploadMetadataPath, "utf8")) as {
+      expiresAt: string;
+    };
+    fs.writeFileSync(
+      uploadMetadataPath,
+      JSON.stringify({ ...pending, expiresAt: "2020-01-01T00:00:00.000Z" }),
+    );
+    expect(await cleanupExpiredPccAttachmentUploads(env)).toBe(1);
+    expect(fs.existsSync(uploadMetadataPath)).toBe(false);
+
+    withPccLedger(
+      (ledger) => {
+        ledger.attachments = [
+          {
+            id: "attachment-large",
+            logicalId: "attachment-large",
+            version: 1,
+            projectId: "project-1",
+            originalName: "large.txt",
+            title: "large.txt",
+            mimeType: "text/plain",
+            sizeBytes: 1_073_741_824,
+            sha256: "a".repeat(64),
+            role: "reference",
+            scope: "project",
+            instructions: "",
+            modelAccess: "project_policy",
+            sensitivity: "normal",
+            status: "ready",
+            createdAt: "2026-08-01T00:00:00.000Z",
+            updatedAt: "2026-08-01T00:00:00.000Z",
+          },
+        ];
+      },
+      { write: true, auditKind: "test.large-attachment" },
+      env,
+    );
+    await expect(
+      beginPccAttachmentUpload(
+        {
+          projectId: "project-1",
+          originalName: "another.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          role: "reference",
+          scope: "project",
+        },
+        env,
+      ),
+    ).rejects.toThrow("1 GiB");
+  });
+
+  it("serializes project-level quota checks for concurrent upload starts", async () => {
+    const env = makeEnv();
+    withPccLedger(
+      (ledger) => {
+        ledger.attachments = Array.from({ length: 199 }, (_, index) =>
+          readyAttachment(`attachment-${index}`),
+        );
+      },
+      { write: true, auditKind: "test.attachment-capacity" },
+      env,
+    );
+
+    const starts = await Promise.allSettled([
+      beginPccAttachmentUpload(
+        {
+          projectId: "project-1",
+          originalName: "first.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          role: "reference",
+          scope: "project",
+          idempotencyKey: "first-concurrent-upload",
+        },
+        env,
+      ),
+      beginPccAttachmentUpload(
+        {
+          projectId: "project-1",
+          originalName: "second.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          role: "reference",
+          scope: "project",
+          idempotencyKey: "second-concurrent-upload",
+        },
+        env,
+      ),
+    ]);
+
+    expect(starts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(starts.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(starts.find((result) => result.status === "rejected")?.reason).toMatchObject({
+      message: expect.stringContaining("limited to 200"),
+    });
   });
 
   it("serializes concurrent chunks so the same offset cannot be written twice", async () => {

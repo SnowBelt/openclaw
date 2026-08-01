@@ -43,6 +43,16 @@ Project creation runs as a durable planning job. PCC shows the current stage, ex
 
 Autopilot uses Codex to plan editable prompts, but those prompt slots default to local-model execution. Any later Codex execution remains governed by the project execution profile and a separate project-bound approval.
 
+## Private team operating envelope
+
+For a private team of one to five people, PCC keeps one shared ledger behind the existing Gateway authentication boundary. Every authenticated operator can see the shared projects; this MVP does not pretend to provide per-person project roles or tenant isolation. Keep the Gateway private and use its normal device, token, and scope controls for membership.
+
+PCC records the small-team guardrails in the ledger and exposes them in the dashboard: up to five authenticated operators, 100 active projects, two simultaneous Codex planning runs, and up to 200 files or 1 GiB of attachments per project. A full planning slot returns a retryable message rather than over-admitting work. Abandoned upload parts are removed automatically before a new upload begins, while committed attachments remain content-addressed and untouched.
+
+Every committed ledger mutation preserves the previous committed snapshot in a private last-known-good backup before the next write. SQLite transactions and WAL remain the primary store; the backup is a recovery point, not a claim that a deployment or project is complete. If storage or metadata is corrupt, stop and use the existing Doctor repair path rather than silently rewriting the ledger.
+
+This envelope is intentionally not a scale-out or collaborative-editing design. It favors predictable local behavior, clear recovery, and local AI for routine work. Multi-tenant roles, distributed storage, resumable uploads across machine restarts, and large-team load testing remain separate future work.
+
 ## Project files
 
 Existing projects can attach images, documents, text, audio, video, and common office files. Every file records a role, project or milestone scope, usage instructions, sensitivity, model-access policy, SHA-256 identity, and versioned attachment metadata. Uploads are chunked, resumable for one hour, size-bounded, MIME-checked, content-addressed outside the web root, and idempotent.

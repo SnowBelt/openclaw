@@ -93,6 +93,10 @@ import {
   type PccPlanGenerationRequest,
   type PccPlanningPolicy,
 } from "../../pcc/planning.js";
+import {
+  normalizePccPrivateTeamPolicy,
+  projectCapacityError,
+} from "../../pcc/private-team-policy.js";
 import { buildPccLedgerReadIndex, pccIndexedItems } from "../../pcc/read-model/ledger-index.js";
 import {
   summarizePccPortfolio as summarizePortfolio,
@@ -439,6 +443,12 @@ function upsertProject(
     return { error: transitionError };
   }
   const projectId = existing?.id ?? input.id ?? makeId("project", input.title);
+  if (status !== "archived") {
+    const capacityError = projectCapacityError(ledger, existing ?? undefined);
+    if (capacityError) {
+      return { error: capacityError };
+    }
+  }
   const completionError = ensureProjectCanBeComplete(ledger, projectId, existing?.status, status);
   if (completionError) {
     return { error: completionError };
@@ -1451,11 +1461,14 @@ export const pccHandlers: GatewayRequestHandlers = {
     }
     try {
       const request = params as PccPlanGenerationRequest;
-      const policy = normalizePccPlanningPolicy(readLedger().settings?.planningPolicy);
+      const ledger = readLedger();
+      const policy = normalizePccPlanningPolicy(ledger.settings?.planningPolicy);
+      const privateTeamPolicy = normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy);
       const run = await startPccPlanningRun({
         cfg: context.getRuntimeConfig(),
         request,
         policy,
+        maxConcurrentRuns: privateTeamPolicy.maxConcurrentPlanningRuns,
         ...(isolatedPlanFixtureEnabled()
           ? {
               generatePlan: async () => generateIsolatedPlanFixture(request, policy),
@@ -2333,6 +2346,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           project: summarizeProject(ledger, project, index),
           portfolio: summarizePortfolio(ledger, index),
           planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
+          privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
           updateSafety: readPccUpdateSafety(),
@@ -2343,6 +2357,7 @@ export const pccHandlers: GatewayRequestHandlers = {
       respond(true, {
         portfolio: summarizePortfolio(ledger, index),
         planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
+        privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
         updateSafety: readPccUpdateSafety(),

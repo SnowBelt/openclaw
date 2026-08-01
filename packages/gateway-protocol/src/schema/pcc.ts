@@ -631,6 +631,21 @@ export const PccPlanningPolicyUpsertResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const PccPrivateTeamPolicySchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    accessMode: Type.Literal("authenticated_gateway_operators"),
+    memberLimit: Type.Integer({ minimum: 1, maximum: 5 }),
+    maxProjects: Type.Integer({ minimum: 1, maximum: 100 }),
+    maxConcurrentPlanningRuns: Type.Integer({ minimum: 1, maximum: 2 }),
+    maxAttachmentsPerProject: Type.Integer({ minimum: 1, maximum: 200 }),
+    maxAttachmentBytesPerProject: Type.Integer({ minimum: 1, maximum: 1_073_741_824 }),
+    backupMode: Type.Literal("transactional_sqlite_plus_last_known_good"),
+    localAiPreferred: Type.Literal(true),
+  },
+  { additionalProperties: false },
+);
+
 const PccGeneratedSubMilestoneSchema = Type.Object(
   {
     title: NonEmptyString,
@@ -1258,6 +1273,7 @@ export const PccSummaryGetResultSchema = Type.Object(
     project: Type.Optional(PccProjectSummarySchema),
     portfolio: PccPortfolioSummarySchema,
     planningPolicy: Type.Optional(PccPlanningPolicySchema),
+    privateTeamPolicy: Type.Optional(PccPrivateTeamPolicySchema),
     executionCapacity: Type.Optional(
       Type.Object(
         {
