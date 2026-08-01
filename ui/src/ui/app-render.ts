@@ -27,6 +27,7 @@ import {
   switchChatSession,
   switchChatSessionAndWait,
 } from "./app-render.helpers.ts";
+import { scheduleChatScroll } from "./app-scroll.ts";
 import { hasOperatorAdminAccess, hasOperatorWriteAccess, warnQueryToken } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { createLazyChatRenderer } from "./chat/lazy-render.ts";
@@ -267,8 +268,8 @@ import {
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
 } from "./session-key.ts";
-import type { SidebarContent } from "./sidebar-content.ts";
 import "./components/dashboard-header.ts";
+import type { SidebarContent } from "./sidebar-content.ts";
 import { selectSidebarRecentSessions } from "./sidebar-recents.ts";
 import { loadLocalAssistantIdentity } from "./storage.ts";
 import { normalizeStringEntries } from "./string-coerce.ts";
@@ -306,8 +307,12 @@ import { renderMcp } from "./views/mcp.ts";
 import { renderOverview } from "./views/overview.ts";
 
 let pendingUpdate: (() => void) | undefined;
+let pendingChatLazyViewUpdate: (() => void) | undefined;
 
-const notifyLazyViewChanged = () => pendingUpdate?.();
+const notifyLazyViewChanged = () => {
+  pendingUpdate?.();
+  pendingChatLazyViewUpdate?.();
+};
 
 const renderChat = createLazyChatRenderer(notifyLazyViewChanged);
 
@@ -1526,6 +1531,7 @@ export function renderApp(state: AppViewState) {
       ? () => updatableState.requestUpdate?.()
       : undefined;
   pendingUpdate = requestHostUpdate;
+  pendingChatLazyViewUpdate = undefined;
 
   // Gate: require successful gateway connection before showing the dashboard.
   // The gateway URL confirmation overlay is always rendered so URL-param flows still work.
@@ -1539,6 +1545,14 @@ export function renderApp(state: AppViewState) {
   const cronNext = state.cronStatus?.nextWakeAtMs ?? null;
   const chatDisabledReason = state.connected ? null : t("chat.disconnected");
   const isChat = state.tab === "chat";
+  if (isChat && requestHostUpdate && "updateComplete" in state) {
+    pendingChatLazyViewUpdate = () => {
+      // Lazy chat rendering can complete after the initial history scroll was scheduled.
+      // Re-run the normal scroll after this host update so a cold chat route still opens at
+      // the latest message instead of leaving the transcript at the top.
+      scheduleChatScroll(state as unknown as Parameters<typeof scheduleChatScroll>[0], true);
+    };
+  }
   const headerError = !isChat && state.lastError !== state.chatError ? state.lastError : null;
   const chatViewError = state.lastError;
   const chatHeaderHidden = isChat && (state.onboarding || state.chatHeaderControlsHidden);

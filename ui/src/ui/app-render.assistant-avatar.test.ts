@@ -15,6 +15,7 @@ const chatProps = vi.hoisted(() => ({
 }));
 const localStorageValues = vi.hoisted(() => new Map<string, string>());
 const renderChatControlsMock = vi.hoisted(() => vi.fn(() => "chat-controls"));
+const scheduleChatScrollMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../local-storage.ts", () => ({
   getSafeLocalStorage: () => ({
@@ -45,6 +46,14 @@ vi.mock("./app-render.helpers.ts", async (importOriginal) => {
   return {
     ...actual,
     renderChatControls: renderChatControlsMock,
+  };
+});
+
+vi.mock("./app-scroll.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./app-scroll.ts")>();
+  return {
+    ...actual,
+    scheduleChatScroll: (...args: unknown[]) => scheduleChatScrollMock(...args),
   };
 });
 
@@ -244,9 +253,23 @@ beforeEach(async () => {
   quickSettingsProps.current = null;
   chatProps.current = null;
   renderChatControlsMock.mockClear();
+  scheduleChatScrollMock.mockClear();
 });
 
 describe("renderApp assistant avatar routing", () => {
+  it("retries the initial chat scroll when the lazy chat renderer becomes available", async () => {
+    const state = createState({ tab: "chat" });
+    const requestUpdate = vi.fn();
+    Object.assign(state, { requestUpdate, updateComplete: Promise.resolve() });
+
+    render(renderApp(state), document.createElement("div"));
+
+    await vi.waitFor(() => {
+      expect(requestUpdate).toHaveBeenCalled();
+    });
+    expect(scheduleChatScrollMock).toHaveBeenCalledWith(state, true);
+  });
+
   it("renders update availability as a compact PCC chip", () => {
     const container = document.createElement("div");
 
