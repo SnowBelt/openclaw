@@ -8954,7 +8954,11 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
           ${renderProjectCreationCustomize(props, true)}
           ${canReview
             ? nothing
-            : html`<p class="pcc-create-start-hint" data-pcc-create-start-hint>
+            : html`<p
+                class="pcc-create-start-hint"
+                id="pcc-create-start-hint"
+                data-pcc-create-start-hint
+              >
                 Start by describing the result you want above.
               </p>`}
         `}
@@ -8966,6 +8970,9 @@ function renderProjectEditor(props: PccDashboardProps) {
   const missingIntake = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
   const creating = props.editorMode === "create-project";
   const editMode = props.projectEditMode ?? "simple";
+  const hasProjectRequest = Boolean(
+    form.projectDescription.trim() || form.title.trim() || form.goal.trim(),
+  );
   const projectSaveBlocked = creating
     ? missingIntake.length > 0 || !form.intakeApproved || !form.planPreviewAccepted
     : false;
@@ -9129,10 +9136,14 @@ function renderProjectEditor(props: PccDashboardProps) {
                 </button>
               `
             : html`<button
-                class="btn pcc-action-primary pcc-editor-primary-action"
+                class="btn pcc-action-primary pcc-editor-primary-action pcc-create-review-action"
                 type="button"
                 data-pcc-create-review-plan
                 data-pcc-action-state=${props.actionBusy ? "working" : "ready"}
+                aria-describedby=${hasProjectRequest ? nothing : "pcc-create-start-hint"}
+                title=${hasProjectRequest
+                  ? "Generate a project plan from the information above"
+                  : "Describe the result you want above to enable planning"}
                 ?disabled=${props.actionBusy ||
                 props.planningPolicy?.grant.enabled === false ||
                 !(form.projectDescription.trim() || form.title.trim() || form.goal.trim())}

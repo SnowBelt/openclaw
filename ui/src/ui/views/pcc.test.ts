@@ -3219,6 +3219,14 @@ describe("renderPccDashboard", () => {
         .querySelector("[data-pcc-create-review-plan]")
         ?.classList.contains("pcc-editor-primary-action"),
     ).toBe(true);
+    expect(
+      container
+        .querySelector("[data-pcc-create-review-plan]")
+        ?.classList.contains("pcc-create-review-action"),
+    ).toBe(true);
+    expect(
+      container.querySelector("[data-pcc-create-review-plan]")?.getAttribute("aria-describedby"),
+    ).toBe("pcc-create-start-hint");
   });
 
   it("shows truthful project-planning progress instead of an idle saving state", () => {

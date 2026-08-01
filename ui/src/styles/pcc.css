@@ -43,6 +43,20 @@
   cursor: not-allowed;
 }
 
+/* Keep the next step visually identifiable even before the user has entered a goal. */
+.pcc-shell .pcc-create-review-action:disabled:not([data-pcc-action-state="working"]) {
+  background: color-mix(in srgb, var(--pcc-action-primary) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--pcc-action-primary) 58%, var(--border));
+  color: var(--pcc-action-primary);
+  opacity: 1;
+}
+
+.pcc-shell .pcc-create-review-action:disabled:not([data-pcc-action-state="working"]):hover {
+  background: color-mix(in srgb, var(--pcc-action-primary) 20%, var(--surface));
+  border-color: color-mix(in srgb, var(--pcc-action-primary) 68%, var(--border));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--pcc-action-primary) 12%, transparent);
+}
+
 .pcc-shell .btn.pcc-action-danger {
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   border-color: color-mix(in srgb, var(--danger) 44%, var(--border));
