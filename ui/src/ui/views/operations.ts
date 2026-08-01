@@ -2308,6 +2308,11 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
           ${props.actionNotice}
         </div>`
       : nothing}
+    ${props.actionBusy
+      ? html`<div class="callout info" role="status" aria-live="polite">
+          ${t("operationsRoom.resolution.stages.openclaw_handling")}
+        </div>`
+      : nothing}
 
     <section
       class=${`operations-briefing operations-briefing--${briefingTone}`}

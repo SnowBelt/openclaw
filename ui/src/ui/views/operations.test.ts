@@ -148,6 +148,13 @@ describe("Operations Room view", () => {
     );
   });
 
+  it("shows visible progress while a guarded issue action is running", async () => {
+    const container = await renderView({ actionBusy: true });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "OpenClaw is handling this",
+    );
+  });
+
   it("fails closed instead of inventing an owner or next step", async () => {
     const snapshot = createOperationsTestSnapshot();
     snapshot.findings[0] = {
