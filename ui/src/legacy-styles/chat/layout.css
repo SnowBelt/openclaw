@@ -1488,7 +1488,10 @@
 .chat-queue__actions {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 6px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .chat-queue__steer,

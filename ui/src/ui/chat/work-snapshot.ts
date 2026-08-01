@@ -90,7 +90,9 @@ function normalizeTimestamp(value: unknown): number | undefined {
 function queueTitle(item: ChatQueueItem): string {
   const text = normalizeText(item.text);
   if (text) {
-    return text.length > 80 ? `${text.slice(0, 77)}…` : text;
+    // Working Now must preserve the queued prompt; the panel owns wrapping and
+    // scrolling so a truncated title cannot hide the command an operator needs.
+    return text;
   }
   const count = item.attachments?.length ?? 0;
   if (count > 0) {

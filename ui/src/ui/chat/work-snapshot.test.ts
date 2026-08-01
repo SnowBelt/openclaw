@@ -84,6 +84,16 @@ describe("buildWorkSurfaceSnapshot", () => {
     expect(items[0]?.actions).toEqual([]);
   });
 
+  it("keeps the full queued prompt available in Working Now", () => {
+    const prompt = `Report the error and preserve the full command ${"/Users/openclaw/project/".repeat(8)}`;
+
+    const items = buildWorkSurfaceSnapshot({
+      chatQueue: [{ id: "queue-1", text: prompt, createdAt: 1 }],
+    });
+
+    expect(items[0]?.title).toBe(prompt);
+  });
+
   it("projects a durable goal even when no child task is currently running", () => {
     const items = buildWorkSurfaceSnapshot({
       currentSessionKey: "agent:main:main",

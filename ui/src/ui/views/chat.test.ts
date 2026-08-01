@@ -2954,6 +2954,16 @@ describe("chat queue", () => {
       ),
     ).toEqual(["Running", "Queued", "Failed"]);
   });
+
+  it("renders long queue messages without dropping their text", () => {
+    const prompt = `Report the error ${"/Users/openclaw/project/".repeat(8)}`;
+    const container = renderQueue({
+      queue: [{ id: "long-1", text: prompt, createdAt: 1 }],
+    });
+
+    const text = container.querySelector<HTMLElement>("[data-chat-queue-text]");
+    expect(text?.textContent?.trim()).toBe(prompt);
+  });
 });
 
 describe("chat sidebar raw content", () => {

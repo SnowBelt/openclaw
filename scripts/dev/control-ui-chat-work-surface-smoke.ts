@@ -201,6 +201,10 @@ function clickButtonByText(container: Element, label: string): boolean {
 
 window.runOpenClawChatWorkSurfaceSmoke = async (mode: Mode): Promise<Result> => {
   const checks: Record<string, boolean> = {};
+  const longQueuedMessage =
+    "Report the error to the SIG Command ERROR /bin/zsh -lc 'set -e ROOT=" +
+    "/Users/openclaw/project/".repeat(8) +
+    "'";
 
   await renderState();
   let surface = root.querySelector("[data-chat-work-surface]");
@@ -217,7 +221,7 @@ window.runOpenClawChatWorkSurfaceSmoke = async (mode: Mode): Promise<Result> => 
   await renderState({
     canAbort: true,
     currentRunId: "run-1",
-    queue: [{ id: "queue-1", text: "follow up", createdAt: 90 }],
+    queue: [{ id: "queue-1", text: longQueuedMessage, createdAt: 90 }],
     workTasks: [
       {
         id: "task-1",
@@ -252,9 +256,23 @@ window.runOpenClawChatWorkSurfaceSmoke = async (mode: Mode): Promise<Result> => 
   root.querySelector<HTMLDetailsElement>("[data-chat-work-surface]")!.open = true;
   checks.activeSummary = includes(surface, "Working");
   checks.activeRun = includes(surface, "Val is working…");
-  checks.queuedMessage = includes(surface, "follow up");
+  checks.queuedMessage = includes(surface, longQueuedMessage);
   checks.runningTask = includes(surface, "Remote proof") && includes(surface, "Watching CI");
   checks.activeSession = includes(surface, "Research lane");
+  const workPanel = surface?.querySelector<HTMLElement>(".chat-work-surface__panel");
+  checks.workSurfaceTextFits = workPanel
+    ? workPanel.scrollWidth <= workPanel.clientWidth
+    : false;
+  const queuePopover = root.querySelector<HTMLDetailsElement>("[data-chat-queue-popover]");
+  if (queuePopover) {
+    queuePopover.open = true;
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+  }
+  const queuePanel = root.querySelector<HTMLElement>(".chat-queue-popover__panel");
+  checks.queueFullText = includes(queuePanel, longQueuedMessage);
+  checks.queueTextFits = queuePanel
+    ? queuePanel.scrollWidth <= queuePanel.clientWidth
+    : false;
   checks.stopAction = clickButtonByText(surface!, "Stop") && calls.stopped === 1;
   checks.removeAction = clickButtonByText(surface!, "Remove") && calls.removed[0] === "queue-1";
   checks.cancelAction = clickButtonByText(surface!, "Cancel") && calls.canceled[0] === "task-1";
