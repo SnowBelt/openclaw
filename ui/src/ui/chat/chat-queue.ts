@@ -86,7 +86,7 @@ export function renderChatQueue(props: ChatQueueProps) {
                   ? html`<span class="chat-queue__badge">Steered</span>`
                   : nothing}
                 ${stateLabel ? html`<span class="chat-queue__badge">${stateLabel}</span>` : nothing}
-                <div class="chat-queue__text">
+                <div class="chat-queue__text" data-chat-queue-text>
                   ${item.text ||
                   (item.attachments?.length ? `Image (${item.attachments.length})` : "")}
                 </div>

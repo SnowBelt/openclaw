@@ -68,12 +68,15 @@
 .chat-command-rail .chat-work-surface__panel,
 .chat-queue-popover__panel,
 .chat-system-status__panel {
+  box-sizing: border-box;
   bottom: auto;
   left: 50dvw;
   margin: 0;
   max-height: min(calc(100dvh - 12rem), 39rem);
   max-width: none;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   position: fixed;
   right: auto;
   top: clamp(4.5rem, 10dvh, 7rem);
@@ -197,6 +200,8 @@
   border: 1px solid var(--border);
   border-radius: 1.1rem;
   box-shadow: 0 20px 50px rgb(15 23 42 / 18%);
+  box-sizing: border-box;
+  max-width: 100%;
   min-width: min(32rem, calc(100vw - 3rem));
   padding: 0.8rem;
 }
@@ -266,6 +271,14 @@
     right: 0.75rem;
     width: auto;
     z-index: 58;
+  }
+
+  .chat-queue__item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-queue__actions {
+    justify-content: flex-end;
   }
 
   .chat-system-status[open] .chat-system-status__panel {
@@ -386,13 +399,14 @@
 }
 
 .chat-work-surface__item {
-  align-items: center;
+  align-items: flex-start;
   background: color-mix(in srgb, var(--surface, #ffffff) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--border, #d0d7de) 70%, transparent);
   border-radius: 1rem;
   display: flex;
   gap: 0.85rem;
   justify-content: space-between;
+  min-width: 0;
   padding: 0.78rem;
 }
 
@@ -415,6 +429,8 @@
 }
 
 .chat-work-surface__item-main {
+  flex: 1 1 auto;
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -437,9 +453,8 @@
   font-size: 0.92rem;
   font-weight: 680;
   margin-top: 0.22rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-work-surface__item-detail,
@@ -447,20 +462,23 @@
   color: var(--muted-foreground, #64748b);
   font-size: 0.78rem;
   margin-top: 0.18rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-work-surface__item-meta {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
 }
 
 .chat-work-surface__actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 0.4rem;
+  justify-content: flex-end;
+  max-width: 100%;
 }
 
 .chat-agent-work-tree {
@@ -558,9 +576,8 @@
   font-size: 0.9rem;
   font-weight: 680;
   margin-top: 0.2rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-agent-work-tree__detail,
@@ -568,16 +585,18 @@
   color: var(--muted-foreground, #64748b);
   font-size: 0.76rem;
   margin-top: 0.16rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-agent-work-tree__actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 0.4rem;
+  justify-content: flex-end;
   margin-left: auto;
+  max-width: 100%;
 }
 
 .chat-project-picker {

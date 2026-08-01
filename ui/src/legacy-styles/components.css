@@ -3966,10 +3966,15 @@ td.data-table-key-col {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 12px;
+  min-width: 0;
   padding: 10px 12px;
   border-radius: var(--radius-md);
   border: 1px dashed var(--border-strong);
   background: var(--secondary);
+}
+
+.chat-queue__main {
+  min-width: 0;
 }
 
 .chat-queue__text {
@@ -3977,10 +3982,8 @@ td.data-table-key-col {
   font-size: 13px;
   line-height: 1.45;
   white-space: pre-wrap;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-queue__error {
@@ -3992,6 +3995,7 @@ td.data-table-key-col {
 
 .chat-queue__remove {
   align-self: start;
+  flex: 0 0 auto;
   padding: 4px 10px;
   font-size: 12px;
   line-height: 1;
