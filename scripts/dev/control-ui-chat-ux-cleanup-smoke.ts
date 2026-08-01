@@ -406,7 +406,10 @@ async function main() {
       ...(executablePath ? { executablePath } : {}),
     });
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    // Vite can finish the module graph (and trigger a full reload) after the
+    // document event. Wait for the graph to settle before evaluating the smoke
+    // harness, otherwise Chromium can destroy the evaluation context mid-run.
+    await page.goto(url, { waitUntil: "networkidle" });
     const runs: Array<Awaited<ReturnType<typeof runMode>>> = [];
     for (const mode of Object.keys(MODE_VIEWPORTS) as Mode[]) {
       runs.push(await runMode(page, mode, artifactDir));
