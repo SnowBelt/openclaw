@@ -193,6 +193,7 @@ public enum OperationsActionKind: String, Codable, Sendable {
     case cronRun = "cron.run"
     case cronEnable = "cron.enable"
     case cronDisable = "cron.disable"
+    case remediationApply = "remediation.apply"
     case taskCancel = "task.cancel"
     case flowCancel = "flow.cancel"
 }
@@ -9192,6 +9193,7 @@ public struct OperationsSnapshotV2Result: Codable, Sendable {
     public let findings: [[String: AnyCodable]]
     public let activityrollups: [[String: AnyCodable]]
     public let incidenthistory: [[String: AnyCodable]]
+    public let remediationhistory: [[String: AnyCodable]]?
     public let incidentledger: [String: AnyCodable]
     public let reconciler: [String: AnyCodable]
     public let controls: [String: AnyCodable]
@@ -9221,6 +9223,7 @@ public struct OperationsSnapshotV2Result: Codable, Sendable {
         findings: [[String: AnyCodable]],
         activityrollups: [[String: AnyCodable]],
         incidenthistory: [[String: AnyCodable]],
+        remediationhistory: [[String: AnyCodable]]?,
         incidentledger: [String: AnyCodable],
         reconciler: [String: AnyCodable],
         controls: [String: AnyCodable])
@@ -9249,6 +9252,7 @@ public struct OperationsSnapshotV2Result: Codable, Sendable {
         self.findings = findings
         self.activityrollups = activityrollups
         self.incidenthistory = incidenthistory
+        self.remediationhistory = remediationhistory
         self.incidentledger = incidentledger
         self.reconciler = reconciler
         self.controls = controls
@@ -9279,6 +9283,7 @@ public struct OperationsSnapshotV2Result: Codable, Sendable {
         case findings
         case activityrollups = "activityRollups"
         case incidenthistory = "incidentHistory"
+        case remediationhistory = "remediationHistory"
         case incidentledger = "incidentLedger"
         case reconciler
         case controls
