@@ -5,9 +5,13 @@ import {
   CONTROL_DIRECTOR_READINESS_REPO_ROOT,
   parseOllamaList,
   parseOllamaModelfileBaseDigests,
+  resolveSelectedOllamaModelId,
 } from "../../scripts/control-director-readiness.mjs";
 
 const sha = "a".repeat(40);
+const configDigest = "d".repeat(64);
+const gemmaManifestDigest = "e".repeat(64);
+const qwenManifestDigest = "f".repeat(64);
 
 function config() {
   return {
@@ -76,7 +80,7 @@ function runtimeProof() {
     ]),
   };
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     sigBackgroundEnabled: true,
     lineage: {
       status: "ready",
@@ -142,12 +146,24 @@ function scorecard(overrides: Record<string, unknown> = {}) {
       OLLAMA_KV_CACHE_TYPE: "q8_0",
       OLLAMA_NUM_PARALLEL: "1",
     },
-    ollamaChatSmoke: { ok: true, detail: "status=200" },
+    ollamaChatSmoke: {
+      ok: true,
+      modelId: "openclaw-control-gemma4-31b-q8:latest",
+      detail: "status=200",
+    },
+    ollamaResidency: {
+      modelId: "openclaw-control-gemma4-31b-q8:latest",
+      digest: gemmaManifestDigest,
+      sizeBytes: 32_000_000_000,
+      vramBytes: 24_000_000_000,
+    },
     updateSafety: {
       status: "protected",
       brokerConfigured: true,
       runtimeGuardConfigured: true,
     },
+    configDigest,
+    expectedConfigDigest: configDigest,
     ...overrides,
   });
 }
@@ -159,6 +175,15 @@ describe("Control Director readiness", () => {
     expect(result.productionReady).toBe(true);
     expect(result.passPercent).toBe(100);
     expect(result.nextBuildGap).toContain("No critical");
+    expect(result.roleIdentities).toEqual({
+      controlDirectorAgentId: "director",
+      programManagerAgentId: "program-manager",
+      judgeAgentId: "independent-judge",
+    });
+    expect(JSON.stringify(result.roleIdentities)).not.toMatch(
+      /credential|private|secret|token|password/iu,
+    );
+    expect(result.cacheEvidence?.cacheDigest).toMatch(/^[a-f0-9]{64}$/u);
   });
 
   it("allows safe configured alternatives without changing Control Director identity", () => {
@@ -166,6 +191,15 @@ describe("Control Director readiness", () => {
     alternate.agents.list[0]!.model = "ollama/qwen3.6:27b-q8_0";
     const result = scorecard({
       config: alternate,
+      ollamaModels: new Map([["qwen3.6:27b-q8_0", { digest: "qwen" }]]),
+      ollamaModelBases: new Map([["qwen3.6:27b-q8_0", ["c".repeat(64)]]]),
+      ollamaChatSmoke: { ok: true, modelId: "qwen3.6:27b-q8_0", detail: "status=200" },
+      ollamaResidency: {
+        modelId: "qwen3.6:27b-q8_0",
+        digest: qwenManifestDigest,
+        sizeBytes: 24_000_000_000,
+        vramBytes: 20_000_000_000,
+      },
       runtimeProof: {
         ...runtimeProof(),
         lineage: {
@@ -179,6 +213,40 @@ describe("Control Director readiness", () => {
     });
     expect(result.productionReady).toBe(true);
     expect(result.selectedModel).toBe("ollama/qwen3.6:27b-q8_0");
+  });
+
+  it("fails closed when the selected model is not present in live Ollama residency", () => {
+    const result = scorecard({ ollamaResidency: {} });
+    expect(result.productionReady).toBe(false);
+    expect(result.cacheEvidence).toBeNull();
+    expect(result.facts.find((entry) => entry.id === "runtime-model-residency")).toMatchObject({
+      passed: false,
+    });
+  });
+
+  it("binds Ollama inventory evidence to the selected config-derived model", () => {
+    const alternate = config();
+    alternate.agents.list[0]!.model = "ollama/qwen3.6:27b-q8_0";
+    expect(resolveSelectedOllamaModelId(alternate, "director")).toBe("qwen3.6:27b-q8_0");
+
+    const result = scorecard({
+      config: alternate,
+      runtimeProof: {
+        ...runtimeProof(),
+        lineage: {
+          ...runtimeProof().lineage,
+          selectedModel: "ollama/qwen3.6:27b-q8_0",
+        },
+      },
+    });
+    expect(result.productionReady).toBe(false);
+    expect(result.facts.find((entry) => entry.id === "runtime-model-digest")).toMatchObject({
+      passed: false,
+      detail: "qwen3.6:27b-q8_0",
+    });
+    expect(result.facts.find((entry) => entry.id === "runtime-model-smoke")).toMatchObject({
+      passed: false,
+    });
   });
 
   it("fails closed on dirty source, dead wiring, stale runtime SHA, weak soak, or digest drift", () => {
@@ -215,6 +283,9 @@ describe("Control Director readiness", () => {
           ...runtimeProof(),
           sigBackgroundEnabled: false,
         },
+      },
+      {
+        expectedConfigDigest: "e".repeat(64),
       },
       {
         updateSafety: {

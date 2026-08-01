@@ -6,11 +6,13 @@ import "../../test-helpers/agent-session-token-mock.js";
 import { estimateToolResultReductionPotential } from "../tool-result-truncation.js";
 
 let PREEMPTIVE_OVERFLOW_ERROR_TEXT: typeof import("./preemptive-compaction.js").PREEMPTIVE_OVERFLOW_ERROR_TEXT;
+let PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT: typeof import("./preemptive-compaction.js").PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT;
 let estimateLlmBoundaryTokenPressure: typeof import("./preemptive-compaction.js").estimateLlmBoundaryTokenPressure;
 let buildPrePromptContextBudgetStatus: typeof import("./preemptive-compaction.js").buildPrePromptContextBudgetStatus;
 let estimateRenderedLlmBoundaryTokenPressure: typeof import("./preemptive-compaction.js").estimateRenderedLlmBoundaryTokenPressure;
 let formatPrePromptPrecheckLog: typeof import("./preemptive-compaction.js").formatPrePromptPrecheckLog;
 let shouldPreemptivelyCompactBeforePrompt: typeof import("./preemptive-compaction.js").shouldPreemptivelyCompactBeforePrompt;
+let isContextOverflowError: typeof import("../../embedded-agent-helpers/errors.js").isContextOverflowError;
 
 beforeAll(async () => {
   // Import after the session-token mock is installed so token estimates match
@@ -18,12 +20,14 @@ beforeAll(async () => {
   vi.resetModules();
   ({
     PREEMPTIVE_OVERFLOW_ERROR_TEXT,
+    PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT,
     estimateLlmBoundaryTokenPressure,
     buildPrePromptContextBudgetStatus,
     estimateRenderedLlmBoundaryTokenPressure,
     formatPrePromptPrecheckLog,
     shouldPreemptivelyCompactBeforePrompt,
   } = await import("./preemptive-compaction.js"));
+  ({ isContextOverflowError } = await import("../../embedded-agent-helpers/errors.js"));
 });
 
 let timestamp = 1;
@@ -88,6 +92,10 @@ describe("preemptive-compaction", () => {
     expect(PREEMPTIVE_OVERFLOW_ERROR_TEXT).toContain("(precheck)");
   });
 
+  it("keeps an uncompactable fixed prompt out of overflow recovery", () => {
+    expect(isContextOverflowError(PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT)).toBe(false);
+  });
+
   it("raises the estimate as prompt-side content grows", () => {
     const smaller = estimateLlmBoundaryTokenPressure({
       messages: [makeAssistantHistory(verboseHistory)],
@@ -108,8 +116,8 @@ describe("preemptive-compaction", () => {
       messages: [makeAssistantHistory(verboseHistory)],
       systemPrompt: verboseSystem,
       prompt: verbosePrompt,
-      contextTokenBudget: 500,
-      reserveTokens: 50,
+      contextTokenBudget: 2_000,
+      reserveTokens: 500,
     });
 
     expect(result.shouldCompact).toBe(true);
@@ -228,13 +236,13 @@ describe("preemptive-compaction", () => {
   it("uses rendered LLM-boundary pressure when the runtime owns the final payload shape", () => {
     // Runtime renderers can add large provider-facing payloads after transcript
     // assembly, so the precheck must prefer that boundary estimate when present.
-    const renderedPrompt = "x".repeat(60_000);
+    const renderedPrompt = "x".repeat(50_000);
     const estimatedPromptTokens = estimateRenderedLlmBoundaryTokenPressure({
       systemPrompt: "sys",
       prompt: renderedPrompt,
     });
     const result = shouldPreemptivelyCompactBeforePrompt({
-      messages: [makeAssistantHistory("the transcript view is intentionally small")],
+      messages: [makeAssistantHistory(verboseHistory.repeat(10))],
       systemPrompt: "sys",
       prompt: "small prompt before runtime projection",
       contextTokenBudget: 16_000,
@@ -416,17 +424,53 @@ describe("preemptive-compaction", () => {
   });
 
   it("does not borrow the minimum generation reserve for a near-context fixed prompt", () => {
+    expect(() =>
+      shouldPreemptivelyCompactBeforePrompt({
+        messages: [],
+        systemPrompt: "system ".repeat(15_000),
+        prompt: "respond",
+        contextTokenBudget: 32_768,
+        reserveTokens: 20_000,
+      }),
+    ).toThrow(PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT);
+  });
+
+  it("treats provider-boundary pressure beyond compactable history as fixed", () => {
+    expect(() =>
+      shouldPreemptivelyCompactBeforePrompt({
+        messages: [],
+        systemPrompt: "sys",
+        prompt: "respond",
+        contextTokenBudget: 32_768,
+        reserveTokens: 20_000,
+        llmBoundaryTokenPressure: {
+          estimatedPromptTokens: 30_000,
+          source: "provider_boundary",
+        },
+      }),
+    ).toThrow(PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT);
+  });
+
+  it("does not misclassify provider-boundary history pressure as fixed", () => {
+    const messages = [makeAssistantHistory("old history ".repeat(12_000))];
+    const boundaryPressure = estimateLlmBoundaryTokenPressure({
+      messages,
+      systemPrompt: "sys",
+      prompt: "respond",
+    });
     const result = shouldPreemptivelyCompactBeforePrompt({
-      messages: [],
-      systemPrompt: "system ".repeat(15_000),
+      messages,
+      systemPrompt: "sys",
       prompt: "respond",
       contextTokenBudget: 32_768,
-      reserveTokens: 20_000,
+      reserveTokens: 8_000,
+      llmBoundaryTokenPressure: {
+        estimatedPromptTokens: boundaryPressure,
+        source: "provider_boundary",
+      },
     });
 
-    expect(result.effectiveReserveTokens).toBe(8_000);
-    expect(result.promptBudgetBeforeReserve).toBe(24_768);
-    expect(result.overflowTokens).toBeGreaterThan(0);
+    expect(result.route).toBe("compact_only");
     expect(result.shouldCompact).toBe(true);
   });
 

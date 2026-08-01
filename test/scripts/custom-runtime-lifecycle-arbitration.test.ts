@@ -119,6 +119,13 @@ describe("custom runtime lifecycle arbitration", () => {
       { cwd: process.cwd(), encoding: "utf8", env: input.env },
     );
     expect(acquired.status, acquired.stderr).toBe(0);
+    const replayedAcquire = spawnSync(
+      "sh",
+      [promoteScript, "--lease-acquire", ...leaseBinding, "--ttl-seconds", "600"],
+      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+    );
+    expect(replayedAcquire.status, replayedAcquire.stderr).toBe(0);
+    expect(replayedAcquire.stdout.trim()).toBe(acquired.stdout.trim());
 
     const premature = spawnSync(
       "sh",
@@ -161,6 +168,13 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
       { cwd: process.cwd(), encoding: "utf8", env: input.env },
     );
     expect(authorized.status, authorized.stderr).toBe(0);
+    const replayedAuthorization = spawnSync(
+      "sh",
+      [promoteScript, "--lease-authorize-promotion", ...leaseBinding],
+      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+    );
+    expect(replayedAuthorization.status, replayedAuthorization.stderr).toBe(0);
+    expect(replayedAuthorization.stdout.trim()).toBe(authorized.stdout.trim());
     expect(
       JSON.parse(readFileSync(path.join(input.runtimeHome, "certification-lease.json"), "utf8")),
     ).toMatchObject({
@@ -179,6 +193,180 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
       { cwd: process.cwd(), encoding: "utf8", env: input.env },
     );
     expect(verified.status, verified.stderr).toBe(0);
+  });
+
+  it("retains one exact rollback-and-restoration drill under the promoted lease", () => {
+    const input = fixture();
+    const leasePath = path.join(input.runtimeHome, "certification-lease.json");
+    const runLeaseAction = (action: string, fromSha: string, toSha: string) =>
+      spawnSync(
+        "sh",
+        [
+          "-c",
+          `. "${authScript}"
+custom_runtime_certification_lease "${action}" "$OPENCLAW_CUSTOM_RUNTIME_HOME" "${fromSha}" "${toSha}" "" "" "" "" "" "" ""`,
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env: input.env },
+      );
+    const writePointer = (sourceSha: string) => {
+      writeFileSync(
+        path.join(input.runtimeHome, "active-runtime.json"),
+        `${JSON.stringify({ sourceSha })}\n`,
+        { mode: 0o600 },
+      );
+    };
+
+    expect(
+      spawnSync("sh", [promoteScript, "--lease-acquire", ...leaseBinding, "--ttl-seconds", "600"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: input.env,
+      }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("sh", [promoteScript, "--lease-authorize-promotion", ...leaseBinding], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: input.env,
+      }).status,
+    ).toBe(0);
+    writePointer(candidateSha);
+    const promoted = runLeaseAction("record-promoted", activeSha, candidateSha);
+    expect(promoted.status, promoted.stderr).toBe(0);
+    const replayedPromotion = runLeaseAction("record-promoted", activeSha, candidateSha);
+    expect(replayedPromotion.status, replayedPromotion.stderr).toBe(0);
+    expect(replayedPromotion.stdout.trim()).toBe(promoted.stdout.trim());
+
+    const wrongTarget = runLeaseAction("verify-rollback", candidateSha, "3".repeat(40));
+    expect(wrongTarget.status).toBe(75);
+    expect(wrongTarget.stderr).toContain(
+      "rollback drill does not match the certified active/candidate pair",
+    );
+
+    const authorized = runLeaseAction("verify-rollback", candidateSha, activeSha);
+    expect(authorized.status, authorized.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(authorized.stdout.trim(), "utf8"))).toMatchObject({
+      result: "rollback-authorized",
+    });
+
+    writePointer(activeSha);
+    const rolledBack = runLeaseAction("record-rolled-back", candidateSha, activeSha);
+    expect(rolledBack.status, rolledBack.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(leasePath, "utf8"))).toMatchObject({
+      activeSha,
+      candidateSha,
+      rollbackSha: activeSha,
+      state: "rollback-drill",
+    });
+
+    const heartbeat = spawnSync("sh", [promoteScript, "--lease-heartbeat", ...leaseBinding], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: input.env,
+    });
+    expect(heartbeat.status, heartbeat.stderr).toBe(0);
+    expect(runLeaseAction("verify-restart", activeSha, activeSha).status).toBe(0);
+
+    const repeatedRollback = runLeaseAction("verify-rollback", candidateSha, activeSha);
+    expect(repeatedRollback.status).toBe(75);
+    expect(repeatedRollback.stderr).toContain(
+      "rollback drill requires the certified candidate to be promoted",
+    );
+
+    expect(runLeaseAction("verify-promotion", activeSha, candidateSha).status).toBe(0);
+    writePointer(candidateSha);
+    const restored = runLeaseAction("record-promoted", activeSha, candidateSha);
+    expect(restored.status, restored.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(restored.stdout.trim(), "utf8"))).toMatchObject({
+      result: "restored",
+    });
+    expect(JSON.parse(readFileSync(leasePath, "utf8"))).toMatchObject({
+      activeSha,
+      candidateSha,
+      rollbackSha: activeSha,
+      state: "promoted",
+    });
+  });
+
+  it("binds a distinct rollback SHA and releases for same-active certification", () => {
+    const input = fixture();
+    const rollbackSha = "3".repeat(40);
+    writeFileSync(
+      path.join(input.runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({ sourceSha: activeSha, releaseId: "release-active" })}\n`,
+      { mode: 0o600 },
+    );
+    const sameActiveBinding = [
+      "--active-sha",
+      activeSha,
+      "--candidate-sha",
+      activeSha,
+      "--owner",
+      "codex:same-active",
+      "--operation-class",
+      "release-certification",
+      "--approval-id",
+      "release-governor:same-active",
+      "--operation-id",
+      "certification:same-active",
+      "--invocation-id",
+      "certification-same-active",
+    ];
+    const acquired = spawnSync(
+      "sh",
+      [
+        promoteScript,
+        "--lease-acquire",
+        ...sameActiveBinding,
+        "--rollback-sha",
+        rollbackSha,
+        "--active-release-id",
+        "release-active",
+        "--rollback-release-id",
+        "release-rollback",
+        "--ttl-seconds",
+        "600",
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+    );
+    expect(acquired.status, acquired.stderr).toBe(0);
+    expect(
+      JSON.parse(readFileSync(path.join(input.runtimeHome, "certification-lease.json"), "utf8")),
+    ).toMatchObject({
+      activeSha,
+      candidateSha: activeSha,
+      rollbackSha,
+      activeReleaseId: "release-active",
+      rollbackReleaseId: "release-rollback",
+    });
+
+    expect(
+      spawnSync("sh", [promoteScript, "--lease-authorize-promotion", ...sameActiveBinding], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: input.env,
+      }).status,
+    ).toBe(0);
+    const promoted = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. "${authScript}"
+custom_runtime_certification_lease record-promoted "$OPENCLAW_CUSTOM_RUNTIME_HOME" "${activeSha}" "${activeSha}" "" "" "" "" "" "" ""`,
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+    );
+    expect(promoted.status, promoted.stderr).toBe(0);
+    const rollback = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. "${authScript}"
+custom_runtime_certification_lease verify-rollback "$OPENCLAW_CUSTOM_RUNTIME_HOME" "${activeSha}" "${rollbackSha}" "" "" "" "" "" "" "" "" "${rollbackSha}" "release-active" "release-rollback"`,
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+    );
+    expect(rollback.status, rollback.stderr).toBe(0);
   });
 
   it("fails closed for malformed, future-dated, and excessive-duration leases", () => {
@@ -201,6 +389,7 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
       actor: "codex",
       approvalId: "release-governor:pr-41",
       candidateSha,
+      rollbackSha: activeSha,
       invocationId: "certification-pr-41",
       operationClass: "release-certification",
       operationId: "certification:pr-41",

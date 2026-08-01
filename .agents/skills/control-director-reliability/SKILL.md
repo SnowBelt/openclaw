@@ -61,7 +61,7 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 
 Start with `pnpm control-director:subagent-incident-proof`. Keep its observations synthetic and its output sanitized: receipts may contain scenario ids, typed issue codes, and repository-relative evidence references, but never secrets or raw user diagnostic paths. Do not treat this reproduction baseline as a repair.
 
-Repair in dependency order: task-root inheritance and worktree confinement (M63), worker discovery (M64), role-capability and handoff alignment (M65), deployed skill and workflow consistency (M66), and evidence-bound completion truth (M67). M68 requires the landed exact SHA to pass managed Control Director-to-Program Manager-to-worker-to-Judge execution plus the existing live, device, restart, rollback, and soak gates. A source-only or mock-only pass cannot complete M63-M68.
+Repair in dependency order: task-root inheritance and worktree confinement (M63), worker discovery (M64), role-capability and handoff alignment (M65), deployed skill and workflow consistency (M66), and evidence-bound completion truth (M67). M68 requires the landed exact SHA to pass managed Control Director-to-Program Manager-to-worker-to-Judge execution plus authenticated production Chrome on the real Mac Studio, restart, rollback, and soak gates. A source-only or mock-only pass cannot complete M63-M68.
 
 ## Source workflow
 
@@ -95,13 +95,13 @@ pnpm control-director:deployment-consistency -- \
 
 This gate compares every registered file byte-for-byte with the exact source, verifies bundled plugin manifests, validates the immutable pointer and manifest digest, invokes the managed launcher verifier, and checks only boolean loaded state for Gateway, weekly update broker, and recovery guard services. Never substitute source-only proof for this post-restart receipt.
 
-8. Run `pnpm check:changed` on remote CI or Testbox when it selects broad/shared lanes. Never replace a failed gate with a prose assertion.
+8. Run `pnpm check:changed` locally on the Mac Studio when it selects broad/shared lanes. Split broad work into bounded sequential lanes and use the repository's throttled local-check mode. Never replace a failed gate with a prose assertion or move a locally provable surface to a remote runner.
 
 For Operations Room source work, run `pnpm operations-room:verify`. That canonical command owns the
 complete Operations and task-registry regression list, `tsgo:all`, all three test typecheck lanes
 including `tsgo:test:src`, DOM and browser proof, localization, both capability registries, workflow
-validation, and build. The exact-SHA workflow adds the remote changed gate; do not maintain a shorter
-ad hoc command list in a handoff.
+validation, and build. An optional hosted workflow may supplement this proof only when explicitly
+requested; it is never a Control Director completion gate.
 
 - Treat the current runtime cwd as the trusted task root. `sessions_spawn` must inherit it for both native and ACP workers; an explicit `cwd` may select only an existing real descendant. Reject missing roots, outside paths, and symlink escapes before launch. User-visible diagnostics may expose only the typed issue code and task-root fingerprint, never the raw root.
 - Every orchestrator execution budget must include `agents_list` whenever it includes `sessions_spawn`. Discovery returns only configured, allowlisted, spawnable targets and their operational handoff requirements.
@@ -132,11 +132,11 @@ Source proof is not production proof. Production acceptance requires all of the 
 1. Managed configuration contains exactly one intended `control_director` role and selects the expected config-derived model.
 2. `executionState.get` reports ready source SHA, selected model, runtime process provenance, artifact hash, and matching Dashboard canary.
 3. A safe live diagnostic receives a durable ACK, visible activity, and a usable terminal answer.
-4. Desktop, tablet, and mobile proofs keep transcript and composer visible; no static PCC, Project, Pursue Goal, or Truth & Completion block may obstruct Chat. A collapsed, transcript-owned blocked-claim diagnostic is allowed when it remains non-obstructing. Geometry-only obstruction telemetry is validated server-side and routed to SIG without trusting browser prose.
+4. Authenticated production Chrome on the real Mac Studio keeps transcript and composer visible at the supported window sizes; no static PCC, Project, Pursue Goal, or Truth & Completion block may obstruct Chat. A collapsed, transcript-owned blocked-claim diagnostic is allowed when it remains non-obstructing. Geometry-only obstruction telemetry is validated server-side and routed to SIG without trusting browser prose.
 5. Queue and steer can switch bidirectionally until server admission closes, with revision/idempotency protection.
 6. Pursue Goal create, edit, pause, resume, stop, retry, inspect, terminal notification, and refresh persistence are proven.
 7. Gateway restart proves pending turns, worker mailbox, goals, and terminal delivery recover or reach an honest terminal state.
-8. Soak for at least five minutes while monitoring liveness, memory, CPU, memory pressure, and duplicate delivery.
+8. Use the five-minute runtime-proof soak only as the initial health gate. Final M105 certification requires at least 30 continuous active minutes plus 24 continuous passive exact-runtime monitoring hours while tracking liveness, memory, CPU, memory pressure, route drift, capability loss, and duplicate delivery.
 9. Execute a rollback drill to the previous verified runtime, prove health, then restore and re-prove the intended landed SHA.
 10. Run production readiness with exact gate and runtime receipts:
 
@@ -148,24 +148,23 @@ pnpm control-director:readiness -- \
   --runtime-proof <runtime-proof.json>
 ```
 
-11. Run `pnpm control-director:roadmap-proof` against the landed, active SHA. Bind the clean source gate, managed runtime proof, all-job remote-gate receipt, and production-readiness receipt to that exact SHA.
+11. Run `pnpm control-director:roadmap-proof` against the landed, active SHA and the canonical tracked roadmap specification. Bind the clean Mac Studio source gate, managed runtime proof, local exact-SHA validation, readiness, model-governance, stability, exact 35-capability, selected-model, both configuration-digest, and rollback receipts. The command must generate a private certified M01-M106 projection without changing tracked milestone state; M106 binds the final ledger digest.
 
-Do not claim production completion unless readiness and final-ledger verification exit zero, every critical fact passes, aggregate quality is at least 93, and no P0 defect remains.
+Do not claim production completion unless readiness and final-ledger verification exit zero, every critical fact passes, aggregate quality is at least 93, 30 active soak minutes and 24 passive monitoring hours pass, and no P0 defect remains. Report Matthew's owner acceptance separately and leave it pending until he explicitly accepts the demonstrated runtime.
 
 For Operations Room changes, production acceptance additionally requires the same exact SHA in the
 canonical custom-source branch, immutable runtime pointer, capability manifest, Gateway process,
-desktop and mobile receipts, restart receipt, at least five minutes of bounded soak, and the verified
+Mac Studio browser receipts, restart receipt, the 30-minute active soak, 24-hour passive monitoring, and the verified
 rollback bundle. Source tests, a DOM smoke, and an unpromoted candidate do not satisfy that gate.
 
-The source artifact must include a validated V2 browser receipt, five nonempty desktop/mobile/tablet
-screenshots including `tablet-768-increased-contrast.png`, a browser-receipt checksum, and a passing
-exact-SHA workflow receipt with artifact digests.
+The source artifact must include a validated V2 browser receipt, nonempty Mac Studio Chrome captures
+at the supported window sizes and accessibility modes, a browser-receipt checksum, and a passing
+local exact-SHA proof receipt with artifact digests.
 The production artifact must separately bind that SHA to runtime identity, persistence across
-restart, soak, and rollback proof. It must also include the machine-readable zero-instruction
-usability receipt defined in `docs/automation/operations-room.md`: at least five first-use
-participants spanning 7-12, 13-64, and 65-90, every participant completing all four outcomes in
-60,000 milliseconds or less, with zero hints and zero unsafe actions. Never omit or retry a failed
-attempt to turn the aggregate green.
+restart, soak, and rollback proof. It must also include the machine-readable owner-acceptance
+receipt defined in `docs/automation/operations-room.md`: the known Control Director owner on the
+managed Mac Studio must complete the five outcomes in 60,000 milliseconds or less, with zero hints
+and zero unsafe actions. Never omit or retry a failed attempt for the same exact candidate.
 
 ## Failure handling
 
@@ -182,5 +181,5 @@ attempt to turn the aggregate green.
 - No assistant-prose parsing for project or completion state.
 - No static diagnostic panel inserted between transcript and composer.
 - No hosted-model escalation without the approval envelope.
-- No claim that tests, CI, managed runtime, desktop/tablet/mobile, restart, soak, or rollback passed unless that exact surface was observed.
+- No claim that tests, managed runtime, Mac Studio Chrome, restart, soak, or rollback passed unless that exact surface was observed.
 - No npm publish, release tag, stable release, macOS release, Telegram live E2E, OpenAI API live E2E, or unrelated dirty-root edit without separate explicit approval.

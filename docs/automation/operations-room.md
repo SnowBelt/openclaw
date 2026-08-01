@@ -310,8 +310,8 @@ observability, proof commands, update impact, and rollback path.
 Register custom-runtime additions in both `config/custom-runtime-capabilities.json` and
 `src/pcc/capability-addition-registry.ts`. Operations Room changes must begin from a clean canonical
 custom-source branch at an exact Git SHA. Never edit an immutable release. Candidate staging,
-capability checks, atomic promotion, Gateway restart, desktop and mobile browser receipts, persistence
-proof, at least five minutes of bounded soak, and a verified rollback bundle are separate gates.
+capability checks, atomic promotion, Gateway restart, Mac Studio browser receipts, persistence proof,
+at least five minutes of bounded soak, and a verified rollback bundle are separate gates.
 
 The 93-point target is a release-quality acceptance threshold, not a live reliability score. The
 primary live header reports plain facts such as critical issues, warnings, freshness, and system
@@ -366,8 +366,8 @@ The automated proof artifact is valid only when all of these files are present a
 - `receipt.json` with schema `openclaw.operations-room.e2e-receipt.v3`, route `/operations`, result
   `passed`, valid start and completion timestamps, source SHA and worktree state, runtime versions,
   every required boolean check set to `true`, and byte-count and SHA-256 evidence for every screenshot;
-- `desktop-light.png`, `desktop-dark.png`, `mobile-320.png`, `mobile-rtl.png`, and
-  `tablet-768-increased-contrast.png` named by that browser receipt;
+- the named Mac Studio Chrome window-size and accessibility captures referenced by that browser
+  receipt;
 - `browser-receipt.sha256` covering `receipt.json`; and
 - `local-proof-receipt.json` with status `passed`, identical expected and checked-out SHAs, the
   canonical and changed-lane commands, the browser-receipt digest, and a SHA-256 digest for every
@@ -377,10 +377,11 @@ If the optional GitHub workflow is explicitly requested, its separate receipt mu
 exact candidate SHA. That supplementary receipt does not replace `local-proof-receipt.json`.
 
 The production bundle is separate. It must bind the same landed SHA to the canonical source branch,
-immutable runtime pointer, capability manifest, and Gateway process; include automated desktop,
-mobile, accessibility, localization, and responsive-layout receipts plus a real Chrome receipt from
-the managed Mac Studio; prove incident-ledger and since-last-visit persistence across restart; record at least five
-minutes of bounded liveness, RAM, CPU, focus, refresh, and duplicate-transition soak; verify the
+immutable runtime pointer, capability manifest, and Gateway process; include automated Mac Studio
+Chrome window-size, accessibility, localization, and responsive-layout receipts plus an authenticated
+production Chrome receipt from the managed Mac Studio; prove incident-ledger and since-last-visit
+persistence across restart; record at least five minutes of bounded liveness, RAM, CPU, focus,
+refresh, and duplicate-transition soak; verify the
 preregistered rollback bundle by restoring the prior runtime and then re-proving the candidate; and
 include the owner acceptance receipt below. A missing field, failed check, identity mismatch, omitted
 attempt, or unverifiable artifact fails closed. Blacksmith, Testbox, Crabbox, and equivalent

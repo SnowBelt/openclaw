@@ -132,6 +132,13 @@ with open(os.path.join(bundle, "active-runtime.json"), encoding="utf-8") as f:
     rollback_pointer = json.load(f)
 if rollback_pointer.get("releaseId") != rollback_id:
     raise SystemExit("rollback pointer release mismatch")
+rollback_source_sha = rollback_pointer.get("sourceSha")
+if (
+    not isinstance(rollback_source_sha, str)
+    or len(rollback_source_sha) not in (40, 64)
+    or any(character not in "0123456789abcdefABCDEF" for character in rollback_source_sha)
+):
+    raise SystemExit("rollback pointer source SHA is missing or invalid")
 rollback_root_path = rollback_pointer.get("runtimeRoot")
 if rollback_root_path != manifest.get("rollbackRuntimeRoot"):
     raise SystemExit("rollback runtime root mismatch")
@@ -142,6 +149,8 @@ if os.path.commonpath((real_rollback, real_releases)) != real_releases or real_r
 print(bundle)
 print(source_sha)
 print(runtime_root)
+print(rollback_source_sha)
+print(active.get("releaseId"))
 PY
 ); then
   write_receipt rollback_preflight_failed
@@ -150,6 +159,8 @@ fi
 bundle=$(printf '%s\n' "$rollback_identity" | sed -n '1p')
 candidate_source_sha=$(printf '%s\n' "$rollback_identity" | sed -n '2p')
 candidate_runtime_root=$(printf '%s\n' "$rollback_identity" | sed -n '3p')
+rollback_source_sha=$(printf '%s\n' "$rollback_identity" | sed -n '4p')
+active_release_id=$(printf '%s\n' "$rollback_identity" | sed -n '5p')
 custom_runtime_require_release_governance rollback "$candidate_source_sha" "$candidate_runtime_root"
 custom_runtime_lifecycle_refresh_provenance "$runtime_home" \
   "$candidate_source_sha" "$candidate_source_sha"
@@ -159,7 +170,8 @@ if [ "$verify_only" = false ]; then
       "" "" "" "" "" "" "" "" "$emergency_reason" >/dev/null
   else
     custom_runtime_certification_lease verify-rollback "$runtime_home" \
-      "$candidate_source_sha" "$candidate_source_sha" "" "" "" "" "" "" ""
+      "$candidate_source_sha" "$rollback_source_sha" "" "" "" "" "" "" "" "" \
+      "$rollback_source_sha" "$active_release_id" "$rollback_release" >/dev/null
   fi
 fi
 
@@ -298,6 +310,17 @@ PY
 
 install_state "$bundle"
 if verify_gateway "$rollback_runtime_root"; then
+  if ! custom_runtime_certification_lease record-rolled-back "$runtime_home" \
+    "$candidate_source_sha" "$rollback_source_sha" "" "" "" "" "" "" "" "" \
+    "$rollback_source_sha" "$active_release_id" "$rollback_release" >/dev/null; then
+    install_state "$backup"
+    if verify_gateway "$candidate_runtime_root"; then
+      write_receipt rollback_lease_record_failed_candidate_restored
+    else
+      write_receipt rollback_lease_record_failed_candidate_unhealthy
+    fi
+    exit 1
+  fi
   cp -p "$pointer" "$runtime_home/last-known-good.json"
   mv "$registration" "$runtime_home/receipts/rollback-registration-used-$timestamp.json"
   write_receipt rolled_back_verified

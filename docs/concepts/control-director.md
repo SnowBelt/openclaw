@@ -73,7 +73,7 @@ A completion claim still requires the independent Judge's valid signed receipt f
 
 An accepted turn receives a durable run identity and visible acknowledgement before long work begins. The server owns the mutable turn inbox and outbox, so a browser refresh or second client cannot lose or duplicate the turn.
 
-The Chat transcript remains the primary surface on desktop, tablet, and mobile:
+The Chat transcript remains the primary surface in authenticated production Chrome on the managed Mac Studio. Supported Mac Studio window sizes and accessibility modes are exercised locally; mobile and secondary-device proof is not a Control Director certification gate:
 
 - activity is condensed inline and can be expanded when detail is useful;
 - Project, Pursue Goal, PCC, and System Quality are compact controls or destinations, not static blocks between transcript and composer;
@@ -142,7 +142,7 @@ Automatic repair is limited to allowlisted, reversible actions with an attempt b
 
 The independent Judge is deliberately separate from the Control Director and workers. It validates the immutable mission against observed evidence and signs the exact claim it approved. A plan, progress update, plausible prose answer, or worker self-report is not completion evidence by itself.
 
-The M62-M68 orchestration repair lane begins with a deterministic, sanitized reproduction baseline for missing task roots, workspace mismatches, unavailable worker discovery, self-spawn, role-capability conflicts, and unsupported completion claims. Later milestones repair those contracts in dependency order and finish only after the landed exact SHA completes managed Control Director-to-Program Manager-to-worker-to-Judge execution together with live device, restart, rollback, and soak proof.
+The M62-M68 orchestration repair lane begins with a deterministic, sanitized reproduction baseline for missing task roots, workspace mismatches, unavailable worker discovery, self-spawn, role-capability conflicts, and unsupported completion claims. Later milestones repair those contracts in dependency order and finish only after the landed exact SHA completes managed Control Director-to-Program Manager-to-worker-to-Judge execution together with authenticated Mac Studio Chrome, restart, rollback, and soak proof.
 
 ## Managed role activation and rollback
 
@@ -187,38 +187,148 @@ pnpm ui:smoke:control-director-no-response
 
 `control-director:verify` runs the curated source, protocol, plugin, and UI tests, script lint, required typechecks, production build, and source-only readiness sequentially. Its ignored receipt is written under `.artifacts/control-director/`.
 
-Source acceptance is not production acceptance. A production claim also requires exact managed-runtime lineage, explicitly enabled managed SIG background processing, the selected model and runtime process, a matching Dashboard canary, a safe live diagnostic, desktop, tablet, and mobile proof, restart recovery, at least a five-minute soak, and a rollback-and-restore drill. Run `control-director:readiness` with both the source-gate receipt and runtime-proof receipt; it fails closed if any critical surface is absent or refers to another SHA.
+Source acceptance is not production acceptance. A production claim also requires exact managed-runtime lineage, explicitly enabled managed SIG background processing, the selected model and runtime process, a matching Dashboard canary, a safe live diagnostic, authenticated production Chrome proof on the real Mac Studio, restart recovery, at least a 30-minute active soak, 24-hour passive monitoring, and a rollback-and-restore drill. Run `control-director:readiness` with both the source-gate receipt and runtime-proof receipt; it fails closed if any critical surface is absent or refers to another SHA.
 
 Assemble the production receipt from separate exact-SHA evidence files instead of hand-editing a passing boolean:
 
 ```bash
 pnpm control-director:runtime-proof -- \
   --source-sha "$SHA" --lineage lineage.json --model-eval model-eval.json \
-  --desktop desktop.json --tablet tablet.json --mobile mobile.json \
+  --macStudioDashboard mac-studio-chrome.json \
   --restartRecovery restart.json \
   --soak soak.json --rollback rollback.json --liveDiagnostic live.json \
   --output runtime-proof.json
 ```
 
-The assembler hashes every input, requires timestamps and evidence references, rejects a soak shorter than five minutes, and refuses mismatched source SHAs or incomplete cold/warm model-evaluation coverage.
+The assembler hashes every input, requires timestamps and evidence references, rejects a soak shorter than five minutes at the runtime-proof stage, and refuses mismatched source SHAs or incomplete cold/warm model-evaluation coverage. The later stability proof raises the final campaign requirement to 30 active minutes plus 24 passive hours.
 
-For a milestone program, the roadmap's `passed` fields are not sufficient by themselves. Bind the final committed ledger to the clean source gate, managed runtime proof, all-job remote gates, and production-readiness scorecard after the final SHA is landed and active:
+For a milestone program, the tracked roadmap is an immutable specification rather than a mutable completion ledger. After the final SHA is landed and active, the command audits all 106 implementation contracts, validates every exact-SHA receipt, and writes a private certified projection plus the final ledger:
+
+Before each capability observation, set `OPENCLAW_CONTROL_DIRECTOR_BROWSER_AUTH_URL` to the secret-bearing authenticated loopback Dashboard URL without placing it in command arguments or evidence. With explicit credential-use approval, `OPENCLAW_CONTROL_DIRECTOR_ALLOW_LOCAL_TOKEN_RESOLUTION=1` may instead resolve the literal token from the already digest-approved, owner-only managed configuration entirely in process memory. The observer launches visible Google Chrome itself on the arm64 Mac Studio, verifies visible route markers and the connected authenticated UI, captures every required route directly, and stores only bounded captured marker evidence, private PNGs, browser metadata, a hashed host identity, and exact-runtime bindings. It does not accept a caller-supplied browser receipt or persist the token.
 
 ```bash
+pnpm control-director:capability-observe -- \
+  --phase active \
+  --active-source-sha "$SHA" --rollback-source-sha "$ROLLBACK_SHA" \
+  --active-release-id "$ACTIVE_RELEASE_ID" \
+  --rollback-release-id "$ROLLBACK_RELEASE_ID" \
+  --config-artifact "$CONFIG_ARTIFACT" \
+  --secondary-config-artifact "$SECONDARY_CONFIG_ARTIFACT" \
+  --expected-config-digest "$CONFIG_DIGEST" \
+  --expected-secondary-config-digest "$SECONDARY_CONFIG_DIGEST" \
+  --runtime-home "$RUNTIME_HOME" --releases-root "$RELEASES_ROOT" \
+  --control-ui-url "http://127.0.0.1:18789" \
+  --ollama-url "http://127.0.0.1:11434" \
+  --selected-model-id "openclaw-control-qwen25-32b:latest" \
+  --pointer "$RUNTIME_HOME/active-runtime.json" \
+  --lease "$RUNTIME_HOME/certification-lease.json" \
+  --lifecycle-receipt "$ACQUIRED_RECEIPT" \
+  --lifecycle-receipt "$PROMOTED_RECEIPT" \
+  --restart-receipt "$ACTIVE_RESTART_RECEIPT" \
+  --lease-owner "$LEASE_OWNER" --approval-id "$APPROVAL_ID" \
+  --operation-id "$OPERATION_ID" --invocation-id "$INVOCATION_ID" \
+  --artifact-root ".artifacts/control-director/capability-active-$SHA" \
+  --output active-capabilities.json
+
+# Repeat for rollback with rollback-authorized and rolled-back receipts.
+# Repeat for restored with the restored receipt, restart receipt, and each
+# immediately preceding observation supplied through --previous-observation.
+
+pnpm control-director:capability-proof -- \
+  --source-sha "$SHA" --rollback-sha "$ROLLBACK_SHA" \
+  --active-release-id "$ACTIVE_RELEASE_ID" \
+  --rollback-release-id "$ROLLBACK_RELEASE_ID" \
+  --config-digest "$CONFIG_DIGEST" \
+  --secondary-config-digest "$SECONDARY_CONFIG_DIGEST" \
+  --lease-owner "$LEASE_OWNER" --approval-id "$APPROVAL_ID" \
+  --operation-id "$OPERATION_ID" --invocation-id "$INVOCATION_ID" \
+  --active active-capabilities.json \
+  --rollback rollback-capabilities.json \
+  --restored restored-capabilities.json \
+  --output ".artifacts/control-director/capabilities-$SHA.json"
+
 pnpm control-director:roadmap-proof -- \
   --source-sha "$SHA" \
+  --expected-model "$SELECTED_MODEL" \
+  --expected-config-digest "$CONFIG_DIGEST" \
+  --expected-secondary-config-digest "$SECONDARY_CONFIG_DIGEST" \
+  --expected-rollback-sha "$ROLLBACK_SHA" \
+  --expected-active-release-id "$ACTIVE_RELEASE_ID" \
+  --expected-rollback-release-id "$ROLLBACK_RELEASE_ID" \
+  --expected-lease-owner "$LEASE_OWNER" \
+  --expected-approval-id "$APPROVAL_ID" \
+  --expected-operation-id "$OPERATION_ID" \
+  --expected-invocation-id "$INVOCATION_ID" \
   --roadmap work/control-director/reliability-v1/roadmap.json \
   --source-proof ".artifacts/control-director/source-gates-$SHA.json" \
   --update-survival ".artifacts/control-director/update-survival-$SHA.json" \
   --runtime-proof ".artifacts/control-director/runtime-$SHA/runtime-proof.json" \
-  --remote-proof ".artifacts/control-director/remote-gates-$SHA.json" \
+  --local-validation-proof ".artifacts/control-director/mac-studio-validation-$SHA.json" \
   --readiness ".artifacts/control-director/runtime-$SHA/readiness.json" \
+  --model-governance-proof ".artifacts/control-director/model-governance-$SHA.json" \
+  --stability-proof ".artifacts/control-director/stability-$SHA.json" \
+  --capability-proof ".artifacts/control-director/capabilities-$SHA.json" \
   --output ".artifacts/control-director/final-ledger-$SHA.json"
 ```
 
-The final-ledger command rejects a dirty or mismatched checkout, any milestone from M01 through M86 not implemented and marked `passed`, contradictory implementation and certification state, missing milestone evidence, a quality score below 93, partial CI, a non-exact landing, an invalid update-survival proof, or an incomplete managed-runtime truth surface. The official completion percentage is certification coverage; implementation coverage is reported separately so source progress remains visible without being confused with exact-SHA runtime certification. M61 requires every Dashboard and custom capability to survive an exact-parent official-update candidate with monotonic capability/path preservation, proof-bound approval, and loaded prepare-only weekly broker and recovery guard. M69-M86 add canonical lineage, automatic proof, one-shot blocker enumeration, lifecycle arbitration, lease provenance, legacy evidence audit, candidate freeze, and final managed-runtime certification. The ledger independently rechecks each strict runtime contract, timestamped evidence, exact selected-model route and cold/warm task coverage, canary lineage, soak duration, and the all-passed readiness fact ledger instead of trusting summary booleans. This post-commit receipt avoids the impossible and unsafe pattern of embedding a Git commit's own SHA inside that commit.
+The capability observer does not accept caller-authored pass, status, evidence-reference, command, or artifact-digest claims. Its static registry must exactly equal the 35-entry capability manifest. For each active, rollback, and restored phase it executes the immutable launcher verification, hashes every required release path and Dashboard or bundled-plugin contract, recomputes both configuration digests, validates the exact lifecycle receipts, and runs Tailscale checks through direct read-only status commands rather than the mutating lifecycle helper. Each observation has a canonical content digest; rollback must bind active, and restored must bind rollback. Stateful queue, steer, cancel, Pursue Goal, Judge, model, and authenticated visible-Chrome behavior remain separate runtime-proof surfaces.
 
-The remote-gates input uses `openclaw.control-director-remote-gates.v1`. It must retain each Workflow Sanity and non-Android CI run ID, run URL, checked timestamp, evidence references, exact head SHA, and complete job ledger. Every job must be completed with an accepted conclusion, and the landing record must name the exact merged SHA, pull request, merge timestamp, and evidence reference. Summary counts without the underlying job ledger are rejected.
+The capability-proof assembler reopens every referenced file, rehashes probe transcripts and lifecycle/configuration/runtime artifacts, recomputes the exact 35-capability projection, and emits a v3 proof only after the complete observation chain passes. The final-ledger command independently recomputes phase digests, identities, probe results, manifest paths, lifecycle order, and artifact bindings. It also rejects a dirty or mismatched checkout, a noncanonical roadmap path, an incomplete implementation audit, contradictory milestone state, synthetic evidence, a quality score below 93, a non-exact landing, an invalid update-survival proof, an incomplete managed-runtime truth surface, either approved configuration-digest mismatch, selected-model drift, or rollback-target drift. It does not mutate tracked milestone status. It publishes a content-addressed ledger/projection generation and atomically replaces one authority pointer last, then re-reads every digest-bound artifact. M106 binds the exact generation ledger path and SHA-256. The projection reports 100 percent non-human certification while Matthew's owner acceptance remains a distinct pending human-only gate until explicitly recorded.
+
+After generation, verify the committed authority in a separate clean exact-SHA process. The verifier confines generation paths to the checkout, reopens the authority, manifest, ledger, projection, managed Judge key, and all eight proof artifacts, reconstructs the certified projection from the tracked roadmap and current implementation audit, and reruns the complete semantic validator with the expected Release Governor identities:
+
+```bash
+pnpm control-director:verify-authority -- \
+  --authority ".artifacts/control-director/final-ledger-$SHA.json" \
+  --source-sha "$SHA" \
+  --expected-model "$SELECTED_MODEL" \
+  --expected-config-digest "$CONFIG_DIGEST" \
+  --expected-secondary-config-digest "$SECONDARY_CONFIG_DIGEST" \
+  --expected-rollback-sha "$ROLLBACK_SHA" \
+  --expected-active-release-id "$ACTIVE_RELEASE_ID" \
+  --expected-rollback-release-id "$ROLLBACK_RELEASE_ID" \
+  --expected-lease-owner "$LEASE_OWNER" \
+  --expected-approval-id "$APPROVAL_ID" \
+  --expected-operation-id "$OPERATION_ID" \
+  --expected-invocation-id "$INVOCATION_ID"
+```
+
+Capture cache identity and the resolved fallback chain through the fixed read-only runtime collector immediately before rollback and again after restoration. The collector snapshots raw Ollama list, Modelfile, `/api/ps`, managed LaunchAgent, sanitized config-registry, and lifecycle-receipt transcripts; binds them to the exact phase and transition; and writes separate immutable cache and fallback receipts:
+
+```bash
+pnpm control-director:stability-sample capture-runtime-identity -- \
+  --phase restored \
+  --source-sha "$SHA" \
+  --active-release-id "$ACTIVE_RELEASE_ID" \
+  --selected-model "$SELECTED_MODEL" \
+  --config "$HOME/.openclaw/openclaw.director.json" \
+  --config-digest "$CONFIG_DIGEST" \
+  --invocation-id "$INVOCATION_ID" \
+  --lifecycle-receipt "$RESTORED_LIFECYCLE_RECEIPT" \
+  --artifact-root ".artifacts/control-director/runtime-identity/$CAPTURE_ID" \
+  --cache-output ".artifacts/control-director/cache/$CAPTURE_ID.json" \
+  --fallback-output ".artifacts/control-director/fallback/$CAPTURE_ID.json"
+```
+
+After restoration, every active-soak or passive-monitor sample is derived from a fresh restored-phase capability observation and a runtime-captured cache-identity receipt no more than five minutes old. The sampler verifies and replays the complete 35-capability observation before writing an immutable receipt with `wx`; the stability proof and final ledger reopen the sample, cache receipt, capability observation, and every raw runtime transcript:
+
+```bash
+pnpm control-director:stability-sample -- \
+  --mode passive \
+  --capability-observation "$RESTORED_CAPABILITY_OBSERVATION" \
+  --capability-observation-artifact-path ".artifacts/control-director/capabilities/$OBSERVATION_ID.json" \
+  --cache-evidence "$CACHE_EVIDENCE" \
+  --cache-evidence-artifact-path ".artifacts/control-director/cache/$CACHE_ID.json" \
+  --expected-source-sha "$SHA" \
+  --expected-active-release-id "$ACTIVE_RELEASE_ID" \
+  --expected-selected-model "$SELECTED_MODEL" \
+  --expected-config-digest "$CONFIG_DIGEST" \
+  --artifact-path ".artifacts/control-director/monitor/$SAMPLE_ID.json" \
+  --output-receipt ".artifacts/control-director/monitor/$SAMPLE_ID.json" \
+  --output-binding ".artifacts/control-director/monitor/$SAMPLE_ID.binding.json"
+```
+
+The final stability assembler additionally reopens pre-rollback and post-restoration cache and fallback-order receipts, verifies each file digest, recomputes each semantic digest, and requires equality. It cannot report cache or fallback restoration from caller-authored booleans or repeated unverified digest strings. Passive-monitor duration and continuity are calculated only from passive samples; active-soak samples cannot substitute for the 24-hour passive window.
 
 ## Questions to ask during a reliability review
 
