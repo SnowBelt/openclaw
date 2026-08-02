@@ -2,6 +2,7 @@
 import { expect, it } from "vitest";
 import {
   hasVisibleActiveSessionRun,
+  listAllActiveSessionRuns,
   listVisibleActiveSessionRuns,
   resolveVisibleActiveSessionRunState,
 } from "./session-active-runs.js";
@@ -86,5 +87,27 @@ it("lists only visible active runs in newest-first order for operational project
   expect(listVisibleActiveSessionRuns(context)).toEqual([
     expect.objectContaining({ runId: "run-new", agentId: "beta", startedAtMs: 20 }),
     expect.objectContaining({ runId: "run-old", agentId: "alpha", startedAtMs: 10 }),
+  ]);
+});
+
+it("lists hidden background runs for Operations Room truth without changing visible session semantics", () => {
+  const context = {
+    chatAbortControllers: new Map([
+      ["run-visible", { sessionKey: "agent:alpha:main", startedAtMs: 10 }],
+      [
+        "run-hidden",
+        {
+          sessionKey: "agent:background:main",
+          startedAtMs: 30,
+          controlUiVisible: false,
+        },
+      ],
+    ]),
+  } as never;
+
+  expect(listVisibleActiveSessionRuns(context).map((run) => run.runId)).toEqual(["run-visible"]);
+  expect(listAllActiveSessionRuns(context).map((run) => run.runId)).toEqual([
+    "run-hidden",
+    "run-visible",
   ]);
 });

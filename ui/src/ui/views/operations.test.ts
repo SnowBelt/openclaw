@@ -113,9 +113,55 @@ describe("Operations Room view", () => {
     );
   });
 
+  it("keeps owner acceptance discoverable above the main dashboard sections", async () => {
+    const container = await renderView();
+    const ownerEntry = container.querySelector(".operations-owner-check--entry");
+    const system = container.querySelector("#operations-system");
+    const quickNav = container.querySelector(".operations-quick-nav");
+
+    expect(ownerEntry?.textContent).toContain("60-second Operations Room check");
+    expect(ownerEntry?.textContent).toContain("Not completed yet");
+    expect(ownerEntry).not.toBeNull();
+    expect(system).not.toBeNull();
+    expect(quickNav).not.toBeNull();
+    expect(ownerEntry!.compareDocumentPosition(system!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(system!.compareDocumentPosition(quickNav!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("reuses an issue chat and exposes a direct open action after the first handoff", async () => {
+    const onOpenIssueChat = vi.fn();
+    const container = await renderView({
+      issueChats: { "operations:skill:requirements:blocked": "agent:main:dashboard:issue" },
+      onOpenIssueChat,
+    });
+    const action = [
+      ...(container.querySelectorAll<HTMLButtonElement>(".operations-resolution__actions button") ??
+        []),
+    ].find((button) => button.textContent?.includes("Open remediation"));
+
+    expect(action).not.toBeUndefined();
+    action?.click();
+    expect(onOpenIssueChat).toHaveBeenCalledWith("agent:main:dashboard:issue");
+  });
+
+  it("shows a per-issue live status while the linked chat is being created", async () => {
+    const container = await renderView({
+      issueChatBusyId: "operations:skill:requirements:blocked",
+    });
+    const resolution = container.querySelector(".operations-resolution");
+    expect(resolution?.querySelector('[role="status"]')?.textContent).toContain(
+      "OpenClaw is handling this",
+    );
+  });
+
   it("offers a clear, non-mutating local-AI resolution path with complete safeguards", async () => {
     const onAction = vi.fn();
-    const container = await renderView({ sessionKey: "agent:main:codex:operations", onAction });
+    const onStartIssueChat = vi.fn();
+    const container = await renderView({
+      sessionKey: "agent:main:codex:operations",
+      onAction,
+      onStartIssueChat,
+    });
     const resolution = container.querySelector<HTMLDetailsElement>(".operations-resolution");
     const investigate = resolution?.querySelector<HTMLButtonElement>(
       ".operations-resolution__actions button.btn--primary",
@@ -140,9 +186,15 @@ describe("Operations Room view", () => {
     expect(resolution?.textContent).toContain(
       "High-risk, irreversible, security-sensitive, financial, credential, release, destructive, novel, or uncertain changes still require your confirmation.",
     );
-    expect(investigate?.textContent).toContain("Investigate with local AI");
+    expect(investigate?.textContent).toContain("Fix this for me");
     investigate?.click();
-    expect(onAction).toHaveBeenCalledWith("remediation.investigate", "skill:requirements:blocked");
+    expect(onAction).not.toHaveBeenCalled();
+    expect(onStartIssueChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "operations",
+        sourceId: "skill:requirements:blocked",
+      }),
+    );
     expect(resolution?.textContent).not.toContain(
       "Opening the draft does not send it or start work.",
     );
@@ -251,14 +303,14 @@ describe("Operations Room view", () => {
     expect(issue?.textContent).toContain("Remediation task");
     expect(issue?.textContent).toContain("task-1");
     issue?.querySelector<HTMLButtonElement>(".operations-remediation-link")?.click();
-    issue?.querySelector<HTMLAnchorElement>(".operations-resolution__actions a")?.click();
+    expect(issue?.querySelector<HTMLAnchorElement>(".operations-resolution__actions a")).toBeNull();
 
     expect(onNavigate).toHaveBeenCalledWith("workboard");
     expect(onAction).not.toHaveBeenCalled();
     expect(issue?.querySelector("summary")?.getAttribute("aria-label")).toContain(
       "recommended resolution",
     );
-    expect(issue?.textContent).toContain("Investigate with local AI");
+    expect(issue?.textContent).toContain("Fix this for me");
     expect(issue?.textContent).not.toContain("Review cancellation");
     expect(issue?.textContent).not.toContain("Prepare a guarded preview");
   });
@@ -340,14 +392,16 @@ describe("Operations Room view", () => {
         result: "Rollback could not be verified.",
       },
     };
-    const failedContainer = await renderView({ snapshot });
-    const escalation = failedContainer.querySelector<HTMLAnchorElement>(
-      ".operations-issue .operations-resolution__actions a",
+    const onStartIssueChat = vi.fn();
+    const failedContainer = await renderView({ snapshot, onStartIssueChat });
+    const escalation = failedContainer.querySelector<HTMLButtonElement>(
+      ".operations-issue .operations-resolution__actions button.btn--primary",
     );
     expect(escalation?.textContent).toContain("Review with Codex");
-    const escalationUrl = new URL(escalation!.href);
-    expect(escalationUrl.searchParams.get("session")).toBe("main");
-    expect(escalationUrl.searchParams.get("draft")).toContain("Automatic repair status: failed");
+    escalation?.click();
+    expect(onStartIssueChat).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "operations", sourceId: "skill:requirements:blocked" }),
+    );
   });
 
   it("explains agent attention and routes review without implying an automatic fix", async () => {

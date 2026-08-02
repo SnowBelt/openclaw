@@ -82,8 +82,11 @@ type CreateSessionParams = {
   agentId?: string;
   label?: string;
   model?: string;
+  projectId?: string;
   parentSessionKey?: string;
   emitCommandHooks?: boolean;
+  task?: string;
+  message?: string;
 };
 
 type CreateSessionResult = {

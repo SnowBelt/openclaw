@@ -1185,12 +1185,12 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       }
       const investigation = page
         .locator(".operations-issue", { hasText: "Release approval needed" })
-        .getByRole("button", { name: "Investigate with local AI" });
+        .getByRole("button", { name: "Fix this for me" });
       await investigation.waitFor();
       expect(
         await page
           .locator(".operations-issue", { hasText: "Release approval needed" })
-          .getByRole("link", { name: "Investigate with local AI" })
+          .getByRole("link", { name: "Fix this for me" })
           .count(),
       ).toBe(0);
       expect(

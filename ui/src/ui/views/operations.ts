@@ -12,6 +12,7 @@ import {
   type OperationsSection,
 } from "../controllers/operations-navigation.ts";
 import type { OperationsAgentSort } from "../controllers/operations-preferences.ts";
+import { issueChatKey, type IssueChatDescriptor } from "../issue-chat.ts";
 import type {
   OperationsActionKind,
   OperationsActivityState,
@@ -29,7 +30,6 @@ import {
   isOperationsSnapshotStale,
   operationsChangesSince,
   operationsFindingRisk,
-  operationsInvestigationDraft,
   operationsResolutionStage,
   operationsWorkingItems,
   type OperationsAgentGroup,
@@ -54,6 +54,8 @@ export type OperationsProps = {
   refreshFailedAt: number | null;
   section: OperationsSection | null;
   sessionKey?: string;
+  issueChats?: Readonly<Record<string, string>>;
+  issueChatBusyId?: string | null;
   agentQuery: string;
   agentSort: OperationsAgentSort;
   pinnedAgentIds: string[];
@@ -67,6 +69,8 @@ export type OperationsProps = {
   onToggleAgentPin: (agentId: string) => void;
   onOpenAgent: (agentId: string) => void;
   onNavigate: (target: OperationsNavigateTarget) => void;
+  onStartIssueChat?: (descriptor: IssueChatDescriptor) => void;
+  onOpenIssueChat?: (sessionKey: string) => void;
 };
 
 const ATTENTION_LANE_PREVIEW_LIMIT = 4;
@@ -353,20 +357,6 @@ function findingOwnerLabel(finding: OperationsFinding): string {
     : (finding.ownerId ?? t("operationsRoom.attention.unassignedOwner"));
 }
 
-function investigationHref(finding: OperationsFinding, sessionKey?: string): string {
-  const url = new URL(window.location.href);
-  const gateway = url.searchParams.get("gateway");
-  url.pathname = "/chat";
-  url.search = "";
-  if (gateway) {
-    url.searchParams.set("gateway", gateway);
-  }
-  url.searchParams.set("session", sessionKey?.trim() || "main");
-  url.searchParams.set("draft", operationsInvestigationDraft(finding));
-  url.hash = "";
-  return `${url.pathname}${url.search}`;
-}
-
 function resolutionStageLabel(finding: OperationsFinding): string {
   return t(`operationsRoom.resolution.stages.${operationsResolutionStage(finding)}`);
 }
@@ -390,10 +380,6 @@ function renderFindingResolution(
     remediation.judge?.approved === true &&
     props.canAdmin &&
     Boolean(props.snapshot?.controls.supportedActions.includes("remediation.apply"));
-  const canInvestigate =
-    !remediation &&
-    props.canWrite &&
-    Boolean(props.snapshot?.controls.supportedActions.includes("remediation.investigate"));
   const recommendedFix =
     remediation?.recommendedFix ??
     remediation?.exactRepair ??
@@ -410,6 +396,18 @@ function renderFindingResolution(
     Boolean(remediation.undoTargetId) &&
     props.canAdmin &&
     Boolean(props.snapshot?.controls.supportedActions.includes(remediation.undoAction!));
+  const issueChatDescriptor: IssueChatDescriptor = {
+    source: "operations",
+    sourceId: finding.id,
+    title: finding.title,
+    detail: finding.detail,
+    impact: finding.impact,
+    owner: findingOwnerLabel(finding),
+    recommendedAction: recommendedFix,
+  };
+  const issueChatId = issueChatKey(issueChatDescriptor);
+  const issueChatSessionKey = props.issueChats?.[issueChatId];
+  const issueChatBusy = props.issueChatBusyId === issueChatId;
   return html`<details
     class="operations-resolution"
     @toggle=${(event: Event) => {
@@ -602,43 +600,50 @@ function renderFindingResolution(
       ${canUndo
         ? html`<button
             type="button"
-            class="btn btn--sm btn--primary operations-remediation-undo"
+            class="btn btn--sm btn--subtle operations-remediation-undo"
             @click=${() => props.onAction(remediation!.undoAction!, remediation!.undoTargetId!)}
           >
             ${t("operationsRoom.resolution.undo")}
           </button>`
         : nothing}
-      ${canApplyRecommendedRepair
+      ${issueChatSessionKey
         ? html`<button
+            type="button"
             class="btn btn--sm btn--primary"
-            ?disabled=${props.actionBusy}
-            @click=${() => props.onAction("remediation.apply", remediation!.id)}
+            @click=${() => props.onOpenIssueChat?.(issueChatSessionKey)}
           >
-            ${t("operationsRoom.resolution.fixThis")}
+            ${t("operationsRoom.attention.openRemediation")}
           </button>`
-        : canInvestigate
+        : canApplyRecommendedRepair
           ? html`<button
-              type="button"
               class="btn btn--sm btn--primary"
               ?disabled=${props.actionBusy}
-              @click=${() => props.onAction("remediation.investigate", finding.id)}
+              @click=${() => props.onAction("remediation.apply", remediation!.id)}
             >
-              ${t("operationsRoom.resolution.investigate")}
+              ${t("operationsRoom.resolution.fixThis")}
             </button>`
           : remediation && !needsEscalation
             ? nothing
-            : html`<a
+            : html`<button
+                type="button"
                 class="btn btn--sm btn--primary"
-                href=${investigationHref(finding, props.sessionKey)}
+                ?disabled=${issueChatBusy || props.actionBusy}
+                @click=${() => props.onStartIssueChat?.(issueChatDescriptor)}
               >
                 ${needsEscalation
                   ? t("operationsRoom.resolution.reviewEscalation")
-                  : t("operationsRoom.resolution.investigate")}
-              </a>`}
+                  : t("operationsRoom.resolution.fixThis")}
+              </button>`}
     </div>
-    ${canApplyRecommendedRepair || canInvestigate || (remediation && !needsEscalation)
-      ? nothing
-      : html`<small class="operations-muted">${t("operationsRoom.resolution.draftNotice")}</small>`}
+    ${issueChatBusy
+      ? html`<small class="operations-muted" role="status" aria-live="polite">
+          ${t("operationsRoom.resolution.stages.openclaw_handling")}
+        </small>`
+      : canApplyRecommendedRepair || (remediation && !needsEscalation)
+        ? nothing
+        : html`<small class="operations-muted"
+            >${t("operationsRoom.resolution.previewOnlyDetail")}</small
+          >`}
   </details>`;
 }
 
@@ -758,6 +763,27 @@ function renderAttentionUncertainty(params: {
         : nothing}
     </div>
   </div>`;
+}
+
+function renderOwnerAcceptanceEntry() {
+  return html`<section
+    class="operations-owner-check operations-owner-check--entry"
+    aria-labelledby="operations-owner-check-entry-title"
+  >
+    <div class="operations-owner-check__header">
+      <div>
+        <p class="operations-eyebrow">${t("operationsRoom.ownerAcceptance.eyebrow")}</p>
+        <h2 id="operations-owner-check-entry-title">
+          ${t("operationsRoom.ownerAcceptance.title")}
+        </h2>
+        <p>${t("operationsRoom.ownerAcceptance.subtitle")}</p>
+      </div>
+      <span class="operations-status operations-status--unknown">
+        <span class="operations-status__icon" aria-hidden="true">?</span>
+        ${t("operationsRoom.ownerAcceptance.resolvePending")}
+      </span>
+    </div>
+  </section>`;
 }
 
 function renderAttention(
@@ -2347,7 +2373,8 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
           .config=${acceptanceConfig}
           .facts=${acceptanceFacts}
         ></operations-owner-acceptance>`
-      : nothing}
+      : renderOwnerAcceptanceEntry()}
+    ${renderSystem(snapshot, stale)}
 
     <nav class="operations-quick-nav" aria-label=${t("operationsRoom.overviewNav")}>
       ${quickLink({
@@ -2425,8 +2452,7 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
     ${renderAttention(snapshot, { stale, partial }, props)}
     ${renderWorking(snapshot, { stale, partial }, props)}
     ${renderChanges(snapshot, props.lastVisitedAt, props)} ${renderAgents(snapshot, props)}
-    ${renderAutomations(snapshot, props)} ${renderSystem(snapshot, stale)}
-    ${renderMore(snapshot, props)}
+    ${renderAutomations(snapshot, props)} ${renderMore(snapshot, props)}
 
     <footer class="operations-footer">
       ${t("operationsRoom.footer")} · ${snapshot.reconciler.note}

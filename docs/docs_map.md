@@ -213,6 +213,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H1: PCC Codex planning
   - H2: Planning contract
   - H2: Plan generation
+  - H2: Private team operating envelope
   - H2: Project files
   - H2: Changing An Existing Project
   - H2: Execution boundary

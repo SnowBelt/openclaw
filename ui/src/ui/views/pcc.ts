@@ -73,7 +73,9 @@ import {
   type PccWorkLoopSettings,
 } from "../../../../src/pcc/work-loop.js";
 import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
+import { t } from "../../i18n/index.ts";
 import { buildQualifiedChatModelValue } from "../chat-model-ref.ts";
+import type { IssueChatDescriptor } from "../issue-chat.ts";
 import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
 import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
 import {
@@ -224,6 +226,7 @@ export type PccDashboardProps = {
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
   onPrepareNextWorkItem: () => void;
   onResumeProject?: () => void;
+  onStartIssueChat?: (descriptor: IssueChatDescriptor) => void;
   onPreviewSetupAutofill?: () => void;
   onPreviewSectionAutofill?: (section: PccAiRegenerateSection) => void;
   onApplySetupAutofill?: () => void;
@@ -4419,6 +4422,26 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
           >
             Open
           </button>
+          ${props.onStartIssueChat
+            ? html`<button
+                class="btn btn--subtle"
+                type="button"
+                data-pcc-issue-chat
+                @click=${() =>
+                  props.onStartIssueChat?.({
+                    source: "pcc",
+                    sourceId: project.id,
+                    title: project.title,
+                    detail: projectAttentionLine(project),
+                    impact: projectBlockerLine(project),
+                    owner: "Control Director",
+                    recommendedAction: projectBlockerLine(project),
+                    projectId: project.id,
+                  })}
+              >
+                ${t("operationsRoom.resolution.fixThis")}
+              </button>`
+            : nothing}
         </article>`,
       )}
     </div>
@@ -6472,6 +6495,16 @@ function renderBlockerClarityCenter(
         const canFixSetup = fixLabel === "Plan Setup with Codex" && props.onPreviewSetupAutofill;
         const canReviewPermission =
           fixLabel === "Review Permission" && pendingPermissionForDetail(detail);
+        const issueChatDescriptor: IssueChatDescriptor = {
+          source: "pcc",
+          sourceId: `${detail.project.id}:${index}`,
+          title: `${blockerKindForLine(line)} · ${detail.project.title}`,
+          detail: line,
+          impact: blockerImpactForLine(line),
+          owner: blockerOwnerForLine(line),
+          recommendedAction: fixLabel,
+          projectId: detail.project.id,
+        };
         return html`<li>
           <span>${index + 1}</span>
           <div>
@@ -6513,6 +6546,16 @@ function renderBlockerClarityCenter(
                     Review Permission
                   </button>`
                 : html`<span class="pcc-blocker-center__fix">${fixLabel}</span>`}
+          ${props.onStartIssueChat
+            ? html`<button
+                class="btn btn--subtle"
+                type="button"
+                data-pcc-blocker-issue-chat
+                @click=${() => props.onStartIssueChat?.(issueChatDescriptor)}
+              >
+                ${t("operationsRoom.resolution.fixThis")}
+              </button>`
+            : nothing}
         </li>`;
       })}
     </ol>

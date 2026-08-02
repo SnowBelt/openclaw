@@ -504,6 +504,8 @@ export class OpenClawApp extends LitElement {
   @state() operationsUpdatedAt: number | null = null;
   @state() operationsLastSuccessfulAt: number | null = null;
   @state() operationsRefreshFailedAt: number | null = null;
+  @state() operationsIssueChats: Record<string, string> = {};
+  @state() operationsIssueChatBusyId: string | null = null;
   @state() operationsSection: OperationsSection | null = null;
   @state() operationsAgentQuery = "";
   @state() operationsAgentSort: OperationsAgentSort = "priority";

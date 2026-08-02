@@ -33,7 +33,7 @@ import {
 } from "../../operations/remediation-store.js";
 import type { OperationsActionReceipt } from "../../operations/types.js";
 import { cancelDetachedTaskRunById, cancelFlowById } from "../../tasks/task-executor.js";
-import { listVisibleActiveSessionRuns } from "./session-active-runs.js";
+import { listAllActiveSessionRuns } from "./session-active-runs.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
 function invalidParams(
@@ -73,7 +73,7 @@ export const operationsHandlers: GatewayRequestHandlers = {
         modelCatalogAvailable,
         eventLoop: context.getEventLoopHealth?.(),
         includeProcesses: params.includeProcesses !== false,
-        activeRuns: listVisibleActiveSessionRuns(context),
+        activeRuns: listAllActiveSessionRuns(context),
       });
       respond(true, projectOperationsSnapshotV1(snapshot), undefined);
     } catch (err) {
@@ -101,7 +101,7 @@ export const operationsHandlers: GatewayRequestHandlers = {
         modelCatalogAvailable,
         eventLoop: context.getEventLoopHealth?.(),
         includeProcesses: params.includeProcesses !== false,
-        activeRuns: listVisibleActiveSessionRuns(context),
+        activeRuns: listAllActiveSessionRuns(context),
       });
       respond(true, snapshot, undefined);
     } catch (err) {
@@ -237,7 +237,7 @@ export const operationsHandlers: GatewayRequestHandlers = {
             modelCatalogAvailable: false,
             eventLoop: context.getEventLoopHealth?.(),
             includeProcesses: false,
-            activeRuns: listVisibleActiveSessionRuns(context),
+            activeRuns: listAllActiveSessionRuns(context),
           });
           const finding = snapshot.findings.find((entry) => entry.id === params.targetId);
           if (!finding) {
@@ -272,7 +272,7 @@ export const operationsHandlers: GatewayRequestHandlers = {
             modelCatalogAvailable: false,
             eventLoop: context.getEventLoopHealth?.(),
             includeProcesses: false,
-            activeRuns: listVisibleActiveSessionRuns(context),
+            activeRuns: listAllActiveSessionRuns(context),
           });
           const finding = snapshot.findings.find((entry) => entry.id === record.findingId);
           if (!finding) {
