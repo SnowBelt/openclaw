@@ -10,7 +10,7 @@ import {
 } from "../../agents/agent-scope.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
 import { applyControlDirectorDeliveryGuards } from "../../agents/control-director-delivery-guards.js";
-import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
+import { resolveDefaultContextTokens } from "../../agents/defaults.js";
 import { isLikelyContextOverflowError } from "../../agents/embedded-agent-helpers/errors.js";
 import {
   hasCommittedSourceReplyDeliveryEvidence,
@@ -2003,10 +2003,10 @@ export async function runReplyAgent(params: {
         provider: providerUsed,
         model: modelUsed,
         contextTokensOverride: agentCfgContextTokens,
-        fallbackContextTokens: activeSessionEntry?.contextTokens ?? DEFAULT_CONTEXT_TOKENS,
+        fallbackContextTokens: resolveDefaultContextTokens(providerUsed, modelUsed),
         allowAsyncLoad: false,
       }) ??
-      DEFAULT_CONTEXT_TOKENS;
+      resolveDefaultContextTokens(providerUsed, modelUsed);
 
     await persistRunSessionUsage({
       storePath,

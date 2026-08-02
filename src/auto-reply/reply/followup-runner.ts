@@ -10,7 +10,7 @@ import {
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { getCliSessionBinding } from "../../agents/cli-session.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
-import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
+import { resolveDefaultContextTokens } from "../../agents/defaults.js";
 import {
   hasCommittedSourceReplyDeliveryEvidence,
   hasVisibleOutboundDeliveryEvidence,
@@ -1532,9 +1532,9 @@ export function createFollowupRunner(params: {
           provider: providerUsed,
           model: modelUsed,
           contextTokensOverride: agentCfgContextTokens,
-          fallbackContextTokens: activeSessionEntry?.contextTokens ?? DEFAULT_CONTEXT_TOKENS,
+          fallbackContextTokens: resolveDefaultContextTokens(providerUsed, modelUsed),
           allowAsyncLoad: false,
-        }) ?? DEFAULT_CONTEXT_TOKENS;
+        }) ?? resolveDefaultContextTokens(providerUsed, modelUsed);
 
       if (storePath && replySessionKey) {
         await persistRunSessionUsage({
