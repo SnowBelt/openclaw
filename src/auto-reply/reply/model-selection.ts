@@ -6,7 +6,7 @@ import {
 import { isStoredCredentialCompatibleWithAuthProvider } from "../../agents/auth-profiles/order.js";
 import { clearSessionAuthProfileOverride } from "../../agents/auth-profiles/session-override.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
-import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
+import { resolveDefaultContextTokens } from "../../agents/defaults.js";
 import { resolveAgentHarnessPolicy } from "../../agents/harness/policy.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.js";
 import { parseConfiguredModelVisibilityEntries } from "../../agents/model-selection-shared.js";
@@ -692,5 +692,5 @@ export function resolveContextTokens(params: {
       : agentContextTokens;
   }
 
-  return modelContextTokens ?? DEFAULT_CONTEXT_TOKENS;
+  return modelContextTokens ?? resolveDefaultContextTokens(params.provider, params.model);
 }

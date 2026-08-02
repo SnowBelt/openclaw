@@ -919,7 +919,7 @@ function sendStateLabel(item: ChatQueueItem): string | null {
     case "failed":
       return "Failed";
     default:
-      return item.localCommandName ? "Queued command" : "Queued";
+      return item.localCommandName ? "Queued command" : null;
   }
 }
 

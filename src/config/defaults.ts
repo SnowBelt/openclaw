@@ -6,7 +6,7 @@ import {
 } from "@openclaw/model-catalog-core/provider-model-id-normalization";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import { DEFAULT_CONTEXT_TOKENS } from "../agents/defaults.js";
+import { resolveDefaultContextTokens } from "../agents/defaults.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import {
   DEFAULT_AGENT_MAX_CONCURRENT,
@@ -221,7 +221,7 @@ export function applyModelDefaults(
 
         const contextWindow = isPositiveNumber(raw.contextWindow)
           ? raw.contextWindow
-          : DEFAULT_CONTEXT_TOKENS;
+          : resolveDefaultContextTokens(providerId, id);
         if (raw.contextWindow !== contextWindow) {
           modelMutated = true;
         }

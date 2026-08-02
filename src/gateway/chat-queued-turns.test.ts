@@ -219,4 +219,43 @@ describe("chat-queued-turns", () => {
     expect(b.signal.aborted).toBe(true);
     expect(map.size).toBe(0);
   });
+
+  it("keeps six concurrent session queues isolated through cancellation and completion", () => {
+    const map = emptyMap();
+    const sessions = Array.from({ length: 6 }, (_, index) => `agent:main:user-${index}`);
+
+    for (const sessionKey of sessions) {
+      for (let turn = 0; turn < 3; turn += 1) {
+        registerQueuedChatTurn({
+          chatQueuedTurns: map,
+          runId: `${sessionKey}:run-${turn}`,
+          controller: new AbortController(),
+          sessionId: `${sessionKey}:session`,
+          sessionKey,
+        });
+      }
+    }
+
+    expect(map.size).toBe(18);
+    expect(
+      listQueuedChatTurnsForSession({ chatQueuedTurns: map, sessionKeys: [sessions[2]] }),
+    ).toHaveLength(3);
+
+    const cancelled = listQueuedChatTurnsForSession({
+      chatQueuedTurns: map,
+      sessionKeys: [sessions[2]],
+    });
+    expect(abortQueuedChatTurns(map, cancelled, "user")).toHaveLength(3);
+    expect(map.size).toBe(15);
+    for (const sessionKey of sessions.filter((key) => key !== sessions[2])) {
+      expect(
+        listQueuedChatTurnsForSession({ chatQueuedTurns: map, sessionKeys: [sessionKey] }),
+      ).toHaveLength(3);
+    }
+
+    for (const runId of map.keys()) {
+      expect(completeQueuedChatTurn(map, runId)).toBe(true);
+    }
+    expect(map.size).toBe(0);
+  });
 });
