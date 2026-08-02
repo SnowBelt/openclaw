@@ -1,0 +1,117 @@
+{
+  "id": "research-manager",
+  "activation": {
+    "onStartup": true
+  },
+  "name": "Research Manager",
+  "description": "Local-first research orchestration with Sol planning/finalization, evidence ledgers, and fail-closed quality certification.",
+  "commandAliases": [{ "name": "research" }],
+  "contracts": {
+    "tools": ["research-manager"]
+  },
+  "toolMetadata": {
+    "research-manager": {
+      "optional": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultMode": {
+        "type": "string",
+        "enum": ["certified", "best-effort"],
+        "default": "certified"
+      },
+      "certificationThreshold": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 100,
+        "default": 93
+      },
+      "models": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "provider", "model", "roles", "remote", "memoryGb", "contextTokens", "maxParallel", "qualificationScore"],
+          "properties": {
+            "id": { "type": "string" },
+            "provider": { "type": "string" },
+            "model": { "type": "string" },
+            "authProfileId": { "type": "string" },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["planner", "scout", "researcher", "verifier", "critic", "finalizer"]
+              }
+            },
+            "remote": { "type": "boolean" },
+            "memoryGb": { "type": "number", "minimum": 0 },
+            "contextTokens": { "type": "number", "minimum": 1024 },
+            "maxParallel": { "type": "number", "minimum": 1 },
+            "thinking": {
+              "type": "string",
+              "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+            },
+            "qualificationScore": { "type": "number", "minimum": 0, "maximum": 100 },
+            "enabled": { "type": "boolean", "default": true },
+            "exclusive": { "type": "boolean", "default": false }
+          }
+        }
+      },
+      "resourceLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "softMemoryGb": { "type": "number", "minimum": 1, "default": 130 },
+          "hardMemoryGb": { "type": "number", "minimum": 1, "default": 145 },
+          "absoluteMemoryGb": { "type": "number", "minimum": 1, "default": 150 },
+          "maxLocalParallel": { "type": "number", "minimum": 1, "maximum": 8, "default": 1 },
+          "maxLoadedModels": { "type": "number", "minimum": 1, "maximum": 8, "default": 3 },
+          "maxLogicalWorkers": { "type": "number", "minimum": 3, "maximum": 5, "default": 5 },
+          "queueLimit": { "type": "number", "minimum": 1, "maximum": 128, "default": 32 },
+          "queueDeadlineMs": { "type": "number", "minimum": 1000, "default": 900000 }
+        }
+      },
+      "retrieval": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "providerOrder": {
+            "type": "array",
+            "maxItems": 8,
+            "items": { "type": "string" },
+            "default": []
+          },
+          "searchConcurrency": { "type": "number", "minimum": 1, "maximum": 8, "default": 3 },
+          "fallbackDelayMs": { "type": "number", "minimum": 0, "maximum": 30000, "default": 2000 },
+          "queryCount": { "type": "number", "minimum": 1, "maximum": 24, "default": 24 },
+          "resultsPerQuery": { "type": "number", "minimum": 1, "maximum": 20, "default": 8 },
+          "maxSources": { "type": "number", "minimum": 1, "maximum": 100, "default": 36 },
+          "fetchConcurrency": { "type": "number", "minimum": 1, "maximum": 12, "default": 4 },
+          "fetchTimeoutMs": { "type": "number", "minimum": 1000, "default": 20000 },
+          "maxBytesPerSource": { "type": "number", "minimum": 1024, "default": 1500000 },
+          "maxCharsPerSource": { "type": "number", "minimum": 1000, "default": 50000 },
+          "requireHttps": { "type": "boolean", "default": true }
+        }
+      },
+      "certification": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minSources": { "type": "number", "minimum": 1, "default": 8 },
+          "minDomains": { "type": "number", "minimum": 1, "default": 4 },
+          "maxRepairPasses": { "type": "number", "minimum": 0, "maximum": 5, "default": 2 },
+          "requireFrontierPlan": { "type": "boolean", "default": true },
+          "requireFrontierFinalizer": { "type": "boolean", "default": true },
+          "requireVerifiedCitations": { "type": "boolean", "default": true }
+        }
+      },
+      "modelTimeoutMs": { "type": "number", "minimum": 1000, "default": 900000 },
+      "maxModelAttempts": { "type": "number", "minimum": 1, "maximum": 8, "default": 3 },
+      "stateTtlDays": { "type": "number", "minimum": 1, "maximum": 365, "default": 30 }
+    }
+  }
+}

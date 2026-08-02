@@ -318,6 +318,12 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/memory-wiki/**"
+"extensions: research-manager":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/research-manager/**"
+          - "docs/plugins/research-manager.md"
+          - "docs/plugins/reference/research-manager.md"
 "extensions: oc-path":
   - changed-files:
       - any-glob-to-any-file:

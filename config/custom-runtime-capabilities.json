@@ -77,6 +77,17 @@
       "requiredPaths": ["extensions/book-writer/openclaw.plugin.json"]
     },
     {
+      "id": "plugin:research-manager",
+      "kind": "plugin",
+      "pluginId": "research-manager",
+      "requiredPaths": [
+        "extensions/research-manager/index.ts",
+        "extensions/research-manager/openclaw.plugin.json",
+        "extensions/research-manager/package.json",
+        "extensions/research-manager/src/tool-descriptor.ts"
+      ]
+    },
+    {
       "id": "workflow:pcc-project-management",
       "kind": "workflow",
       "requiredPaths": [
@@ -558,6 +569,8 @@
         "src/pcc/release-governance/evidence.ts",
         "src/pcc/release-governance/cli.ts",
         "src/pcc/release-governance/governor.ts",
+        "scripts/custom-runtime/custom-runtime-package.mjs",
+        "scripts/custom-runtime/runtime-package-integrity.mjs",
         "scripts/custom-runtime/custom-runtime-activate.sh",
         "scripts/custom-runtime/custom-runtime-auth.sh",
         "scripts/custom-runtime/custom-runtime-promote.sh",
@@ -569,6 +582,8 @@
         "scripts/custom-runtime/custom-runtime-updater.sh",
         "scripts/dev/control-ui-pcc-release-governor-smoke.ts",
         "test/scripts/custom-runtime-lifecycle-arbitration.test.ts",
+        "test/scripts/custom-runtime-package.test.ts",
+        "test/scripts/runtime-package-integrity.test.ts",
         "test/scripts/custom-runtime-stage-promote.test.ts",
         "test/scripts/custom-runtime-usability-coordinator.test.ts",
         "ui/src/ui/views/pcc.ts"

@@ -13,13 +13,19 @@ describe("Control UI production Chat stack", () => {
     const html = source("ui/index.html");
     const main = source("ui/src/main.ts");
     const appRender = source("ui/src/ui/app-render.ts");
+    const lazyChatRenderer = source("ui/src/ui/chat/lazy-render.ts");
 
     expect(html.match(/<script\s+type="module"\s+src="\/src\/main\.ts"><\/script>/g)).toHaveLength(
       1,
     );
     expect(main).toContain('import "./ui/app.ts";');
     expect(main).not.toMatch(/app-routes|pages\/chat/);
-    expect(appRender).toContain('import { renderChat } from "./views/chat.ts";');
+    expect(
+      appRender.includes('import { renderChat } from "./views/chat.ts";') ||
+        (appRender.includes("createLazyChatRenderer") &&
+          lazyChatRenderer.includes('createLazyView(() => import("../views/chat.ts")') &&
+          lazyChatRenderer.includes("module.renderChat")),
+    ).toBe(true);
     expect(appRender).not.toMatch(/pages\/chat\/chat-view/);
   });
 });

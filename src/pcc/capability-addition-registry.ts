@@ -100,6 +100,21 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
   { id: "plugin:apps", kind: "plugin", owner: "Apps plugin" },
   { id: "plugin:book-writer", kind: "plugin", owner: "Book Writer plugin" },
   {
+    id: "plugin:research-manager",
+    kind: "plugin",
+    owner: "Research Manager plugin",
+    tests: [
+      "extensions/research-manager/index.test.ts",
+      "extensions/research-manager/manifest.test.ts",
+      "extensions/research-manager/src/runtime.test.ts",
+    ],
+    proofSurfaces: [
+      "pnpm test extensions/research-manager",
+      "sterile managed-runtime plugin discovery and execution smoke",
+    ],
+    docs: ["docs/plugins/research-manager.md"],
+  },
+  {
     id: "workflow:pcc-project-management",
     kind: "workflow",
     owner: "Project Command Center",
@@ -403,7 +418,9 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     owner: "PCC Release Governor",
     tests: [
       "src/pcc/release-governance/release-governance.test.ts",
+      "test/scripts/custom-runtime-package.test.ts",
       "test/scripts/custom-runtime-lifecycle.test.ts",
+      "test/scripts/runtime-package-integrity.test.ts",
     ],
     proofSurfaces: ["pnpm check:release-governor-policy", "PCC deployment-governance view"],
   },

@@ -10,6 +10,7 @@ import { extractTextCached } from "./message-extract.ts";
 import { normalizeMessage, stripMessageDisplayMetadataText } from "./message-normalizer.ts";
 import { normalizeRoleForGrouping } from "./role-normalizer.ts";
 import { messageMatchesSearchQuery } from "./search-match.ts";
+import { getOrCreateSessionCacheValue } from "./session-cache.ts";
 import { trimAccumulatedStreamPrefix } from "./stream-text.ts";
 import { extractToolCardsCached, extractToolPreview } from "./tool-cards.ts";
 import { buildUserChatMessageContentBlocks } from "./user-message-content.ts";
@@ -27,6 +28,22 @@ export type BuildChatItemsProps = {
   searchQuery?: string;
   historyRenderLimit?: number;
 };
+
+type BuildChatItemsCacheEntry = {
+  messages: unknown[] | null;
+  toolMessages: unknown[] | null;
+  streamSegments: Array<{ text: string; ts: number }> | null;
+  stream: string | null;
+  streamStartedAt: number | null;
+  queue: ChatQueueItem[] | undefined;
+  showToolCalls: boolean;
+  searchOpen: boolean | undefined;
+  searchQuery: string | undefined;
+  historyRenderLimit: number | undefined;
+  result: Array<ChatItem | MessageGroup>;
+};
+
+const chatItemsBySession = new Map<string, BuildChatItemsCacheEntry>();
 
 function appendCanvasBlockToAssistantMessage(
   message: unknown,
@@ -645,7 +662,7 @@ function resolveHistoryStartIndex(
   return startIndex;
 }
 
-export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | MessageGroup> {
+function buildChatItemsUncached(props: BuildChatItemsProps): Array<ChatItem | MessageGroup> {
   let items: ChatItem[] = [];
   const historyRenderLimit = resolveHistoryRenderLimit(props.historyRenderLimit);
   const history = (Array.isArray(props.messages) ? props.messages : []).filter(
@@ -818,6 +835,50 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   }
 
   return groupMessages(collapseSequentialDuplicateMessages(sortChatItemsByVisibleTime(items)));
+}
+
+export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | MessageGroup> {
+  const cached = getOrCreateSessionCacheValue(chatItemsBySession, props.sessionKey, () => ({
+    messages: null,
+    toolMessages: null,
+    streamSegments: null,
+    stream: null,
+    streamStartedAt: null,
+    queue: undefined,
+    showToolCalls: false,
+    searchOpen: undefined,
+    searchQuery: undefined,
+    historyRenderLimit: undefined,
+    result: [],
+  }));
+  if (
+    cached.messages === props.messages &&
+    cached.toolMessages === props.toolMessages &&
+    cached.streamSegments === props.streamSegments &&
+    cached.stream === props.stream &&
+    cached.streamStartedAt === props.streamStartedAt &&
+    cached.queue === props.queue &&
+    cached.showToolCalls === props.showToolCalls &&
+    cached.searchOpen === props.searchOpen &&
+    cached.searchQuery === props.searchQuery &&
+    cached.historyRenderLimit === props.historyRenderLimit
+  ) {
+    return cached.result;
+  }
+
+  const result = buildChatItemsUncached(props);
+  cached.messages = props.messages;
+  cached.toolMessages = props.toolMessages;
+  cached.streamSegments = props.streamSegments;
+  cached.stream = props.stream;
+  cached.streamStartedAt = props.streamStartedAt;
+  cached.queue = props.queue;
+  cached.showToolCalls = props.showToolCalls;
+  cached.searchOpen = props.searchOpen;
+  cached.searchQuery = props.searchQuery;
+  cached.historyRenderLimit = props.historyRenderLimit;
+  cached.result = result;
+  return result;
 }
 
 function messageKey(message: unknown, index: number): string {

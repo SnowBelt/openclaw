@@ -68,6 +68,7 @@ case "$runtime_root" in *'/tmp/'*|*'/private/tmp/'*|*'/.worktrees/'*|*'/.npm-glo
 [ -f "$capability_manifest" ] || fail "capability manifest missing"
 [ -f "$runtime_root/.openclaw-production-sha" ] || fail "release source stamp missing"
 [ "$(tr -d '[:space:]' < "$runtime_root/.openclaw-production-sha")" = "$source_sha" ] || fail "source stamp mismatch"
+seal_marker="$runtime_root/.openclaw-runtime-sealed"
 source_provenance="$runtime_root/.openclaw-runtime-provenance.json"
 if [ -f "$source_provenance" ]; then
   [ "$(shasum -a 256 "$source_provenance" | awk '{print $1}')" = "$source_sha" ] || \
@@ -169,6 +170,40 @@ expected_paths = {
 if not isinstance(paths, dict) or any(paths.get(key) != value for key, value in expected_paths.items()):
     raise SystemExit("runtime provenance path mismatch")
 PY
+
+closure_identity=$(python3 - "$runtime_snapshot" "$seal_marker" "$source_sha" <<'PY'
+import json, os, re, sys
+snapshot_path, marker_path, expected_sha = sys.argv[1:]
+with open(snapshot_path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+marker = []
+if os.path.isfile(marker_path) and not os.path.islink(marker_path):
+    with open(marker_path, encoding="utf-8") as handle:
+        marker = handle.read().strip().split()
+version = snapshot.get("runtimeClosureVersion")
+digest = snapshot.get("runtimeClosureHash")
+requires_integrity = len(marker) == 2 or version is not None or digest is not None
+if not requires_integrity:
+    if marker and (len(marker) != 1 or marker[0] != expected_sha):
+        raise SystemExit("invalid legacy release seal marker")
+    print("")
+elif (
+    len(marker) == 2
+    and version == 1
+    and isinstance(digest, str)
+    and re.fullmatch(r"[a-f0-9]{64}", digest)
+    and marker[1] == digest
+):
+    print(digest)
+else:
+    raise SystemExit("release closure identity mismatch")
+PY
+) || fail "invalid release closure identity"
+if [ -n "$closure_identity" ]; then
+  integrity="$runtime_root/scripts/custom-runtime/runtime-package-integrity.mjs"
+  [ -f "$integrity" ] && [ ! -L "$integrity" ] || fail "runtime integrity verifier missing"
+  "$node_bin" "$integrity" verify --release "$runtime_root" || fail "runtime package integrity mismatch"
+fi
 
 for surface in $required_surfaces; do
   if ! python3 - "$manifest" "$runtime_root/dist/control-ui" "$surface" <<'PY'

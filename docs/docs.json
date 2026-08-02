@@ -1849,6 +1849,7 @@
                 "pages": [
                   "plugins/plugin-inventory",
                   "plugins/reference",
+                  "plugins/research-manager",
                   "plugins/dependency-resolution",
                   "plugins/install-overrides"
                 ]

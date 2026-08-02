@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "program": "research-manager",
+  "sourceOfTruth": "extensions/research-manager/ROADMAP.md",
+  "generatedAt": "2026-07-16T00:00:00.000Z",
+  "weightedCompletion": 0,
+  "status": "in_progress",
+  "milestones": [
+    { "id": "RM-00", "weight": 4, "status": "in_progress", "evidence": [] },
+    { "id": "RM-01", "weight": 6, "status": "in_progress", "evidence": [] },
+    { "id": "RM-02", "weight": 8, "status": "pending", "evidence": [] },
+    { "id": "RM-03", "weight": 6, "status": "pending", "evidence": [] },
+    { "id": "RM-04", "weight": 12, "status": "pending", "evidence": [] },
+    { "id": "RM-05", "weight": 8, "status": "pending", "evidence": [] },
+    { "id": "RM-06", "weight": 12, "status": "pending", "evidence": [] },
+    { "id": "RM-07", "weight": 10, "status": "pending", "evidence": [] },
+    { "id": "RM-08", "weight": 8, "status": "pending", "evidence": [] },
+    { "id": "RM-09", "weight": 6, "status": "pending", "evidence": [] },
+    { "id": "RM-10", "weight": 8, "status": "pending", "evidence": [] },
+    { "id": "RM-11", "weight": 7, "status": "pending", "evidence": [] },
+    { "id": "RM-12", "weight": 5, "status": "pending", "evidence": [] }
+  ],
+  "verifiedState": [
+    "No pre-existing Research Manager implementation was found.",
+    "Implementation is isolated under extensions/research-manager because the checkout contains unrelated user changes."
+  ],
+  "nextHighestPriorityBuildGap": "Complete RM-00 and RM-01 contracts, then implement the model registry and scheduler.",
+  "blockers": []
+}

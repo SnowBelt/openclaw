@@ -63,6 +63,24 @@ The active runtime pointer records an exact 40-character Git commit, canonical s
 
 This prevents an update from rebasing custom behavior from an unrelated or incomplete checkout.
 
+## Canonical production package
+
+Build and package an approved candidate from its clean exact-SHA source checkout. The package command rejects a candidate unless its `HEAD` equals the requested SHA and the currently active source SHA is an ancestor:
+
+```bash
+pnpm build
+pnpm custom-runtime:package -- \
+  --source /path/to/candidate \
+  --releases "$HOME/.openclaw-runtime-releases" \
+  --source-sha <candidate-sha> \
+  --active-sha <active-sha> \
+  --release-id <unique-release-id>
+```
+
+The packager uses the exact build snapshot, creates a production-only dependency closure, copies every registered capability path directly from the candidate Git commit rather than mutable working-tree bytes, and writes an additive runtime-closure inventory and SHA-256 digest into `snapshot.json`. It rechecks the candidate after dependency deployment to stop if packaging dirtied the source. Before sealing, after sealing, and before every managed launch, the packaged verifier recomputes both the build-artifact hash and the complete runtime-closure hash. It rejects missing Research Manager dependencies, changed bytes or executable bits, broken or release-escaping symlinks, special filesystem entries, unregistered capability paths, sensitive key or environment files outside dependencies, and forbidden source, state, or build-artifact directories.
+
+The seal marker binds both the exact source SHA and the runtime-closure digest. Legacy sealed runtimes remain valid rollback targets, but every newly closure-enabled package must pass the packaged verifier. A packaging failure never changes the active pointer and leaves no accepted unsealed release.
+
 ## Prepare, review, approve
 
 The scheduled broker only prepares a candidate:

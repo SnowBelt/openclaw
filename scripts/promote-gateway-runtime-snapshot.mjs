@@ -151,11 +151,13 @@ export function promoteGatewayRuntimeSnapshot(options = {}) {
       recursive: true,
       errorOnExist: true,
       force: false,
+      verbatimSymlinks: true,
     });
     fs.cpSync(path.join(rootDir, "dist-runtime"), path.join(temporaryRoot, "dist-runtime"), {
       recursive: true,
       errorOnExist: true,
       force: false,
+      verbatimSymlinks: true,
     });
     fs.copyFileSync(path.join(rootDir, "package.json"), path.join(temporaryRoot, "package.json"));
     const artifactPaths = ["dist", "dist-runtime", "package.json"];

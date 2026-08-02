@@ -46,6 +46,64 @@ function messageRecord(group: MessageGroup, index = 0): Record<string, unknown> 
 }
 
 describe("buildChatItems", () => {
+  it("reuses the completed render model while all immutable inputs are unchanged", () => {
+    const props = createProps({
+      messages: [{ role: "assistant", content: "Stable result", timestamp: 1 }],
+    });
+
+    const first = buildChatItems(props);
+    expect(buildChatItems(props)).toBe(first);
+
+    const changed = buildChatItems({
+      ...props,
+      messages: [...props.messages, { role: "user", content: "Changed", timestamp: 2 }],
+    });
+    expect(changed).not.toBe(first);
+    expect(changed).toHaveLength(2);
+  });
+
+  it("invalidates the render cache when the history window changes", () => {
+    const messages = Array.from({ length: 60 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `message ${index}`,
+      timestamp: index,
+    }));
+    const first = buildChatItems(
+      createProps({ sessionKey: "history-cache", messages, historyRenderLimit: 30 }),
+    );
+    const expanded = buildChatItems(
+      createProps({ sessionKey: "history-cache", messages, historyRenderLimit: 60 }),
+    );
+
+    expect(expanded).not.toBe(first);
+    expect(messageRecord(requireGroup(expanded[0])).content).toBe("message 0");
+  });
+
+  it("invalidates the render cache when a queued send changes", () => {
+    const messages: unknown[] = [];
+    const first = buildChatItems(createProps({ sessionKey: "queue-cache", messages, queue: [] }));
+    const expanded = buildChatItems(
+      createProps({
+        sessionKey: "queue-cache",
+        messages,
+        queue: [
+          {
+            id: "cache-pending-send",
+            text: "queued after cache",
+            createdAt: 1,
+            sendSubmittedAtMs: 2,
+            sendState: "sending",
+          },
+        ],
+      }),
+    );
+
+    expect(expanded).not.toBe(first);
+    expect(messageRecord(requireGroup(expanded[0])).content).toStrictEqual([
+      { type: "text", text: "queued after cache" },
+    ]);
+  });
+
   it("keeps consecutive user messages from different senders in separate groups", () => {
     const groups = messageGroups({
       messages: [

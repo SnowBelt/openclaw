@@ -6,6 +6,7 @@ import type {
   ReleaseEvidenceBundleInput,
   ReleaseGovernorInput,
   ReleaseOperation,
+  ReleaseProofProfile,
 } from "./contracts.js";
 import {
   canonicalReleaseJson,
@@ -15,6 +16,7 @@ import {
 } from "./evidence.js";
 import { evaluateReleaseGovernor } from "./governor.js";
 import { recordReleaseEvidenceInPccLedger } from "./ledger.js";
+import { captureReleaseLocalProof } from "./local-proof.js";
 import { readReleaseGovernorPolicy } from "./policy.js";
 import { readReleaseGovernanceStatus, writeReleaseEvidenceBundle } from "./store.js";
 
@@ -147,6 +149,20 @@ function recordLedger(args: Arguments): void {
   writeJson(null, recordReleaseEvidenceInPccLedger(evidence));
 }
 
+function captureProof(args: Arguments): void {
+  const timeout = stringValue(args, "timeout-ms", false);
+  const result = captureReleaseLocalProof({
+    candidateSha: stringValue(args, "candidate-sha")!,
+    proofProfile: stringValue(args, "proof-profile") as ReleaseProofProfile,
+    checkId: stringValue(args, "check-id")!,
+    command: stringValue(args, "command")!,
+    output: stringValue(args, "output")!,
+    cwd: stringValue(args, "cwd", false) ?? undefined,
+    timeoutMs: timeout ? Number(timeout) : undefined,
+  });
+  writeJson(null, result.receipt);
+}
+
 function main(): void {
   const args = parseArguments(process.argv.slice(2));
   switch (args.command) {
@@ -162,12 +178,15 @@ function main(): void {
     case "ledger-record":
       recordLedger(args);
       return;
+    case "capture-proof":
+      captureProof(args);
+      return;
     case "status":
       writeJson(null, readReleaseGovernanceStatus());
       return;
     default:
       process.stderr.write(
-        "usage: release-governor <evaluate|bundle|verify|status|ledger-record> [options]\n",
+        "usage: release-governor <evaluate|bundle|verify|capture-proof|status|ledger-record> [options]\n",
       );
       process.exitCode = 64;
   }

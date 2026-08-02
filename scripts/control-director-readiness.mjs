@@ -196,6 +196,7 @@ export function collectControlDirectorActiveWiring() {
   const gatewayStartup = source("src/gateway/server-startup-early.ts");
   const appMain = source("ui/src/main.ts");
   const appRender = source("ui/src/ui/app-render.ts");
+  const lazyChatRenderer = source("ui/src/ui/chat/lazy-render.ts");
   const pccSync = source("ui/src/ui/pcc-chat-sync.ts");
   const customRuntimePromote = source("scripts/custom-runtime/custom-runtime-promote.sh");
   const customRuntimeUpdater = source("scripts/custom-runtime/custom-runtime-updater.sh");
@@ -309,7 +310,10 @@ export function collectControlDirectorActiveWiring() {
     singleProductionChat:
       appMain.includes('import "./ui/app.ts";') &&
       !/app-routes|pages\/chat/u.test(appMain) &&
-      appRender.includes('import { renderChat } from "./views/chat.ts";'),
+      (appRender.includes('import { renderChat } from "./views/chat.ts";') ||
+        (appRender.includes("createLazyChatRenderer") &&
+          lazyChatRenderer.includes('createLazyView(() => import("../views/chat.ts")') &&
+          lazyChatRenderer.includes("module.renderChat"))),
     typedPccBoundary:
       !/milestone.*(?:complete|status).*regex/iu.test(pccSync) &&
       pccSync.includes("hasExplicitPlanEnvelope"),

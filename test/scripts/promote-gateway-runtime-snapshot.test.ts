@@ -31,7 +31,12 @@ function fixtureRoot() {
   );
   write("dist/.buildstamp", `${JSON.stringify({ head: "a".repeat(40) })}\n`);
   write("dist/.runtime-postbuildstamp", `${JSON.stringify({ head: "a".repeat(40) })}\n`);
+  write("dist/extensions/example/index.d.ts", "export {}\n");
   write("dist-runtime/extensions/example/package.json", "{}\n");
+  fs.symlinkSync(
+    "../../../dist/extensions/example/index.d.ts",
+    path.join(root, "dist-runtime/extensions/example/index.d.ts"),
+  );
   return root;
 }
 
@@ -96,6 +101,12 @@ describe("Gateway runtime snapshot promotion", () => {
     expect(fs.existsSync(path.join(result.releaseRoot, "dist", "control-ui", "index.html"))).toBe(
       true,
     );
+    expect(
+      fs.readlinkSync(path.join(result.releaseRoot, "dist-runtime/extensions/example/index.d.ts")),
+    ).toBe("../../../dist/extensions/example/index.d.ts");
+    expect(
+      fs.realpathSync(path.join(result.releaseRoot, "dist-runtime/extensions/example/index.d.ts")),
+    ).toBe(fs.realpathSync(path.join(result.releaseRoot, "dist/extensions/example/index.d.ts")));
     expect(
       fs.readdirSync(path.join(root, ".artifacts", "openclaw-gateway-runtime", "releases")),
     ).not.toContainEqual(expect.stringMatching(/^\.promoting-/u));
