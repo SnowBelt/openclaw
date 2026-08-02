@@ -686,6 +686,50 @@ describe("createModelSelectionState catalog loading", () => {
 });
 
 describe("resolveContextTokens", () => {
+  it("uses the OAuth GPT runtime fallback when catalog metadata is unavailable", () => {
+    const result = resolveContextTokens({
+      cfg: {} as OpenClawConfig,
+      agentCfg: undefined,
+      provider: "openai",
+      model: "gpt-5.5",
+    });
+
+    expect(result).toBe(272_000);
+  });
+
+  it("keeps the generic fallback for local models without catalog metadata", () => {
+    const result = resolveContextTokens({
+      cfg: {} as OpenClawConfig,
+      agentCfg: undefined,
+      provider: "ollama",
+      model: "openclaw-control-qwen25-32b",
+    });
+
+    expect(result).toBe(200_000);
+  });
+
+  it("keeps the generic fallback when provider metadata is unknown", () => {
+    const result = resolveContextTokens({
+      cfg: {} as OpenClawConfig,
+      agentCfg: undefined,
+      provider: "stale-provider",
+      model: "gpt-5.5",
+    });
+
+    expect(result).toBe(200_000);
+  });
+
+  it("keeps the generic fallback when model metadata is blank", () => {
+    const result = resolveContextTokens({
+      cfg: {} as OpenClawConfig,
+      agentCfg: undefined,
+      provider: "openai",
+      model: "",
+    });
+
+    expect(result).toBe(200_000);
+  });
+
   it("prefers provider-qualified cache keys over bare model ids", () => {
     MODEL_CONTEXT_TOKEN_CACHE.set("gemini-3.1-pro-preview", 200_000);
     MODEL_CONTEXT_TOKEN_CACHE.set(

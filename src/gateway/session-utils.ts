@@ -24,7 +24,11 @@ import {
   resolveDefaultAgentId,
 } from "../agents/agent-scope.js";
 import { lookupContextTokens, resolveContextTokensForModel } from "../agents/context.js";
-import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  resolveDefaultContextTokens,
+} from "../agents/defaults.js";
 import { resolveFastModeState } from "../agents/fast-mode.js";
 import {
   findModelCatalogEntry,
@@ -1821,7 +1825,7 @@ export function getSessionDefaults(
   const contextTokens =
     cfg.agents?.defaults?.contextTokens ??
     lookupContextTokens(resolved.model, { allowAsyncLoad: false }) ??
-    DEFAULT_CONTEXT_TOKENS;
+    resolveDefaultContextTokens(resolved.provider, resolved.model);
   const agentId = normalizeAgentId(resolveDefaultAgentId(cfg));
   const sessionKey = resolveAgentMainSessionKey({ cfg, agentId });
   const agentRuntime = resolveModelAgentRuntimeMetadata({
@@ -2338,9 +2342,7 @@ export function buildGatewaySessionRow(params: {
     cfg,
     provider: rowModelProvider,
     model: rowModel,
-    fallbackContextTokens: isOpenAiCodexSessionContextModel(rowModelProvider, rowModel)
-      ? DEFAULT_CONTEXT_TOKENS
-      : undefined,
+    fallbackContextTokens: resolveDefaultContextTokens(rowModelProvider, rowModel),
     allowAsyncLoad: false,
   });
   const contextTokens = resolveSessionRowContextTokens({

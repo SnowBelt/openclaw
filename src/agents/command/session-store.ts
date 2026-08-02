@@ -14,7 +14,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { resolveNonNegativeNumber } from "../../shared/number-coercion.js";
 import { clearCliSession, setCliSessionBinding, setCliSessionId } from "../cli-session.js";
-import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
+import { resolveDefaultContextTokens } from "../defaults.js";
 import { isCliProvider } from "../model-selection.js";
 import { deriveSessionTotalTokens, hasNonzeroUsage } from "../usage.js";
 
@@ -106,9 +106,9 @@ export async function updateSessionStoreAfterAgentRun(params: {
           provider: providerUsed,
           model: modelUsed,
           contextTokensOverride: params.contextTokensOverride,
-          fallbackContextTokens: DEFAULT_CONTEXT_TOKENS,
+          fallbackContextTokens: resolveDefaultContextTokens(providerUsed, modelUsed),
           allowAsyncLoad: false,
-        }) ?? DEFAULT_CONTEXT_TOKENS);
+        }) ?? resolveDefaultContextTokens(providerUsed, modelUsed));
 
   const preserveUserFacingRunState = params.preserveUserFacingSessionModelState === true;
   const preserveRuntimeModel = params.preserveRuntimeModel === true || preserveUserFacingRunState;
