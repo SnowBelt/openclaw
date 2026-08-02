@@ -58,7 +58,7 @@ import {
   type OperationsSection,
 } from "./controllers/operations-navigation.ts";
 import { loadOperationsRoom, type OperationsState } from "./controllers/operations.ts";
-import { loadPccDashboard } from "./controllers/pcc.ts";
+import { loadPccDashboard, restorePccLocation } from "./controllers/pcc.ts";
 import { loadPresence, type PresenceState } from "./controllers/presence.ts";
 import {
   loadSelfImprovementRecommendations,
@@ -743,6 +743,11 @@ export function onPopState(host: SettingsHost) {
   host.operationsSection = resolved === "operations" ? operationsSectionFromUrl(url) : null;
 
   setTabFromRoute(host, resolved);
+  if (resolved === "pcc") {
+    const pccHost = host as SettingsHost & PccDashboardState;
+    restorePccLocation(pccHost);
+    void loadPccDashboard(pccHost);
+  }
   if (resolved === "operations" && host.operationsSection) {
     const section = host.operationsSection;
     void Promise.resolve(host.updateComplete).then(() => focusOperationsSection(section));

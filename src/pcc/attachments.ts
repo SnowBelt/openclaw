@@ -397,6 +397,7 @@ export async function commitPccAttachmentUpload(
     const now = new Date().toISOString();
     const attachment: PccAttachment = {
       id: `attachment-${randomUUID()}`,
+      revision: 1,
       logicalId: `attachment-${randomUUID()}`,
       version: 1,
       projectId: upload.request.projectId,
@@ -521,8 +522,15 @@ export function updatePccAttachment(
       if (!current) {
         throw new Error("PCC attachment not found");
       }
+      const currentRevision = current.revision ?? 1;
+      if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) {
+        throw new Error(
+          `Review latest changes before saving ${current.id}. Expected revision ${input.expectedRevision}, but the current revision is ${currentRevision}.`,
+        );
+      }
       const next: PccAttachment = {
         ...current,
+        revision: currentRevision + 1,
         ...(input.title !== undefined ? { title: input.title.trim() } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
         ...(input.scope !== undefined ? { scope: input.scope } : {}),

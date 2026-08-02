@@ -618,6 +618,9 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
     methods: [
       "pcc.projects.list",
+      "pcc.overview.get",
+      "pcc.presence.list",
+      "pcc.presence.update",
       "pcc.projects.get",
       "pcc.plans.generate",
       "pcc.plans.start",
@@ -636,6 +639,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "pcc.planningPolicy.upsert",
       "pcc.ledger.repairCanonicalMetadata",
       "pcc.projects.upsert",
+      "pcc.projects.commitPlan",
       "pcc.milestones.upsert",
       "pcc.subMilestones.list",
       "pcc.subMilestones.upsert",

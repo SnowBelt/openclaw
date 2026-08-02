@@ -24,8 +24,10 @@ import type {
   PccEvidence,
   PccLastKnownGood,
   PccMilestone,
+  PccOverviewGetResult,
   PccPermissionGrant,
   PccPlanningRun,
+  PccPresenceEntry,
   PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
@@ -100,6 +102,8 @@ export type PccEditorMode =
   | null;
 
 export type PccViewMode = "simple" | "detailed" | "agent";
+
+export type PccSurface = "overview" | "projects" | "activity" | "system" | "project";
 
 export type PccProjectEditMode = "simple" | "advanced" | "ai";
 
@@ -248,6 +252,12 @@ export type PccDashboardState = {
   connected: boolean;
   pccProjects: PccProjectSummary[];
   pccPortfolioSummary: PccPortfolioSummary | null;
+  pccOverview?: PccOverviewGetResult | null;
+  pccPresence?: PccPresenceEntry[];
+  pccSurface?: PccSurface;
+  pccFavorites?: string[];
+  pccRecentProjectIds?: string[];
+  pccAttentionRecordId?: string | null;
   pccLoading: boolean;
   pccError: string | null;
   pccUpdatedAt: number | null;

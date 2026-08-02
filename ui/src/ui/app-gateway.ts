@@ -68,6 +68,7 @@ import {
   pruneExecApprovalQueue,
 } from "./controllers/exec-approval.ts";
 import { loadHealthState, type HealthState } from "./controllers/health.ts";
+import { loadPccDashboard } from "./controllers/pcc.ts";
 import {
   applySessionsChangedEvent,
   loadSessions,
@@ -82,6 +83,7 @@ import {
 } from "./gateway.ts";
 import { GatewayBrowserClient } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
+import type { PccDashboardState } from "./pcc/application/state.ts";
 import {
   areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
@@ -188,6 +190,11 @@ type GatewayHostWithChatWorkRefresh = GatewayHost & {
   chatGoalEventRefreshTimer?: ReturnType<typeof globalThis.setTimeout> | null;
   chatTaskEventRefreshTimer?: ReturnType<typeof globalThis.setTimeout> | null;
 };
+
+type GatewayHostWithPcc = GatewayHost &
+  PccDashboardState & {
+    pccChangedReloadTimer?: ReturnType<typeof globalThis.setTimeout> | null;
+  };
 
 const SESSIONS_CHANGED_RELOAD_DEBOUNCE_MS = 5_000;
 const DEFERRED_SESSION_MESSAGE_REPLAY_POLL_MS = 250;
@@ -1327,6 +1334,27 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
   ].slice(0, 250);
   if (host.tab === "debug" || host.tab === "overview") {
     host.eventLog = host.eventLogBuffer;
+  }
+
+  if (evt.event === "pcc.changed") {
+    const pccHost = host as GatewayHostWithPcc;
+    if (pccHost.tab !== "pcc" || pccHost.pccChangedReloadTimer) {
+      return;
+    }
+    pccHost.pccChangedReloadTimer = globalThis.setTimeout(() => {
+      pccHost.pccChangedReloadTimer = null;
+      void loadPccDashboard(pccHost);
+    }, 50);
+    return;
+  }
+
+  if (evt.event === "pcc.presence") {
+    const payload = evt.payload as { presence?: unknown } | undefined;
+    if (Array.isArray(payload?.presence)) {
+      (host as GatewayHostWithPcc).pccPresence =
+        payload.presence as GatewayHostWithPcc["pccPresence"];
+    }
+    return;
   }
 
   if (evt.event === "agent" || evt.event === "session.tool") {

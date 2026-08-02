@@ -196,6 +196,8 @@ export type PccProjectsGetParams = SchemaType<"PccProjectsGetParams">;
 export type PccProjectsGetResult = SchemaType<"PccProjectsGetResult">;
 export type PccProjectsUpsertParams = SchemaType<"PccProjectsUpsertParams">;
 export type PccProjectsUpsertResult = SchemaType<"PccProjectsUpsertResult">;
+export type PccProjectPlanCommitParams = SchemaType<"PccProjectPlanCommitParams">;
+export type PccProjectPlanCommitResult = SchemaType<"PccProjectPlanCommitResult">;
 export type PccPlansGenerateParams = SchemaType<"PccPlansGenerateParams">;
 export type PccPlansGenerateResult = SchemaType<"PccPlansGenerateResult">;
 export type PccPlanningRun = SchemaType<"PccPlanningRun">;
@@ -243,6 +245,14 @@ export type PccReceiptsAddParams = SchemaType<"PccReceiptsAddParams">;
 export type PccReceiptsAddResult = SchemaType<"PccReceiptsAddResult">;
 export type PccSummaryGetParams = SchemaType<"PccSummaryGetParams">;
 export type PccSummaryGetResult = SchemaType<"PccSummaryGetResult">;
+export type PccOverviewGetParams = SchemaType<"PccOverviewGetParams">;
+export type PccOverviewGetResult = SchemaType<"PccOverviewGetResult">;
+export type PccChangedEvent = SchemaType<"PccChangedEvent">;
+export type PccPresenceEntry = SchemaType<"PccPresenceEntry">;
+export type PccPresenceUpdateParams = SchemaType<"PccPresenceUpdateParams">;
+export type PccPresenceUpdateResult = SchemaType<"PccPresenceUpdateResult">;
+export type PccPresenceListParams = SchemaType<"PccPresenceListParams">;
+export type PccPresenceListResult = SchemaType<"PccPresenceListResult">;
 
 /** Operations Room runtime truth and guarded control payloads. */
 export type OperationsStatus = SchemaType<"OperationsStatus">;
