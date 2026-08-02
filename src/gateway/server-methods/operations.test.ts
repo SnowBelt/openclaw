@@ -85,4 +85,20 @@ describe("Operations Room gateway methods", () => {
     expect(replayCall.call[2]?.message).toContain("already used");
     expect(runtime.cron.update).toHaveBeenCalledTimes(1);
   });
+
+  it("previews investigation as a bounded low-risk action", async () => {
+    const result = await invoke("operations.action.preview", {
+      action: "remediation.investigate",
+      targetId: "plugin:example:failed",
+    });
+
+    expect(result.call[0]).toBe(true);
+    expect(result.call[1]).toMatchObject({
+      action: "remediation.investigate",
+      targetId: "plugin:example:failed",
+      risk: "low",
+      requiresConfirmation: true,
+    });
+    expect((result.call[1] as { summary: string }).summary).toContain("No runtime change");
+  });
 });

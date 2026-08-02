@@ -384,7 +384,14 @@ export function createOperationsTestSnapshot(now = Date.now()): OperationsSnapsh
     controls: {
       mode: "guarded",
       previewRequired: true,
-      supportedActions: ["cron.run", "cron.enable", "cron.disable", "task.cancel", "flow.cancel"],
+      supportedActions: [
+        "cron.run",
+        "cron.enable",
+        "cron.disable",
+        "remediation.investigate",
+        "task.cancel",
+        "flow.cancel",
+      ],
       note: "Confirmation required.",
     },
   };

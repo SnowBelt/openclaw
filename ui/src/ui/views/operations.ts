@@ -53,6 +53,7 @@ export type OperationsProps = {
   lastSuccessfulAt: number | null;
   refreshFailedAt: number | null;
   section: OperationsSection | null;
+  sessionKey?: string;
   agentQuery: string;
   agentSort: OperationsAgentSort;
   pinnedAgentIds: string[];
@@ -352,7 +353,7 @@ function findingOwnerLabel(finding: OperationsFinding): string {
     : (finding.ownerId ?? t("operationsRoom.attention.unassignedOwner"));
 }
 
-function investigationHref(finding: OperationsFinding): string {
+function investigationHref(finding: OperationsFinding, sessionKey?: string): string {
   const url = new URL(window.location.href);
   const gateway = url.searchParams.get("gateway");
   url.pathname = "/chat";
@@ -360,6 +361,7 @@ function investigationHref(finding: OperationsFinding): string {
   if (gateway) {
     url.searchParams.set("gateway", gateway);
   }
+  url.searchParams.set("session", sessionKey?.trim() || "main");
   url.searchParams.set("draft", operationsInvestigationDraft(finding));
   url.hash = "";
   return `${url.pathname}${url.search}`;
@@ -388,6 +390,10 @@ function renderFindingResolution(
     remediation.judge?.approved === true &&
     props.canAdmin &&
     Boolean(props.snapshot?.controls.supportedActions.includes("remediation.apply"));
+  const canInvestigate =
+    !remediation &&
+    props.canWrite &&
+    Boolean(props.snapshot?.controls.supportedActions.includes("remediation.investigate"));
   const recommendedFix =
     remediation?.recommendedFix ??
     remediation?.exactRepair ??
@@ -610,15 +616,27 @@ function renderFindingResolution(
           >
             ${t("operationsRoom.resolution.fixThis")}
           </button>`
-        : remediation && !needsEscalation
-          ? nothing
-          : html`<a class="btn btn--sm btn--primary" href=${investigationHref(finding)}>
-              ${needsEscalation
-                ? t("operationsRoom.resolution.reviewEscalation")
-                : t("operationsRoom.resolution.fixThis")}
-            </a>`}
+        : canInvestigate
+          ? html`<button
+              type="button"
+              class="btn btn--sm btn--primary"
+              ?disabled=${props.actionBusy}
+              @click=${() => props.onAction("remediation.investigate", finding.id)}
+            >
+              ${t("operationsRoom.resolution.investigate")}
+            </button>`
+          : remediation && !needsEscalation
+            ? nothing
+            : html`<a
+                class="btn btn--sm btn--primary"
+                href=${investigationHref(finding, props.sessionKey)}
+              >
+                ${needsEscalation
+                  ? t("operationsRoom.resolution.reviewEscalation")
+                  : t("operationsRoom.resolution.investigate")}
+              </a>`}
     </div>
-    ${canApplyRecommendedRepair || (remediation && !needsEscalation)
+    ${canApplyRecommendedRepair || canInvestigate || (remediation && !needsEscalation)
       ? nothing
       : html`<small class="operations-muted">${t("operationsRoom.resolution.draftNotice")}</small>`}
   </details>`;
@@ -2288,6 +2306,11 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
           aria-live="polite"
         >
           ${props.actionNotice}
+        </div>`
+      : nothing}
+    ${props.actionBusy
+      ? html`<div class="callout info" role="status" aria-live="polite">
+          ${t("operationsRoom.resolution.stages.openclaw_handling")}
         </div>`
       : nothing}
 

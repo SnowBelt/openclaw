@@ -14,6 +14,74 @@ import { createAdvisoryRemediationRecommendation } from "./recommendation.js";
 import { createInitialRemediationRecord, updateRemediationRecord } from "./records.js";
 import { boundedRemediationFailure, boundedRemediationText } from "./text.js";
 
+type AdvisoryRemediationRequest = {
+  fingerprint: string;
+  promise: Promise<OperationsRemediationRecord | null>;
+};
+
+const advisoryRemediationRequests = new Map<string, AdvisoryRemediationRequest>();
+
+function advisoryFindingFingerprint(finding: OperationsFinding): string {
+  return JSON.stringify([
+    finding.id,
+    finding.category,
+    finding.entityId ?? null,
+    finding.severity,
+    finding.title,
+    finding.impact ?? null,
+    finding.ownerId ?? null,
+    finding.nextAction ?? finding.recommendedAction ?? null,
+  ]);
+}
+
+function latestRemediationForFinding(
+  store: OperationsRemediationStore,
+  findingId: string,
+): OperationsRemediationRecord | undefined {
+  return store
+    .list()
+    .filter((record) => record.findingId === findingId)
+    .toSorted(
+      (left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+    )[0];
+}
+
+async function createAdvisoryRemediationRecommendationOnce<Context>(params: {
+  finding: OperationsFinding;
+  ai: OperationsRemediationAiReview<Context>;
+  store: OperationsRemediationStore;
+  now: () => number;
+}): Promise<OperationsRemediationRecord | null> {
+  const existing = latestRemediationForFinding(params.store, params.finding.id);
+  if (existing) {
+    return existing;
+  }
+
+  const fingerprint = advisoryFindingFingerprint(params.finding);
+  const current = advisoryRemediationRequests.get(params.finding.id);
+  if (current) {
+    if (current.fingerprint !== fingerprint) {
+      throw new Error("Issue identity changed while local investigation was already running");
+    }
+    const sharedRecord = await current.promise;
+    if (sharedRecord && !params.store.list().some((record) => record.id === sharedRecord.id)) {
+      params.store.upsert(sharedRecord);
+    }
+    return sharedRecord;
+  }
+
+  const promise = createAdvisoryRemediationRecommendation(params);
+  advisoryRemediationRequests.set(params.finding.id, { fingerprint, promise });
+  try {
+    return await promise;
+  } finally {
+    const latest = advisoryRemediationRequests.get(params.finding.id);
+    if (latest?.promise === promise) {
+      advisoryRemediationRequests.delete(params.finding.id);
+    }
+  }
+}
+
 export function recoverInterruptedOperationsRemediations(params: {
   store: OperationsRemediationStore;
   now?: () => number;
@@ -180,7 +248,7 @@ export async function runOperationsRemediationSweep<Context>(params: {
     );
     if (matchingRecipes.length === 0) {
       try {
-        const advisory = await createAdvisoryRemediationRecommendation({
+        const advisory = await createAdvisoryRemediationRecommendationOnce({
           finding,
           ai: params.ai,
           store: params.store,
@@ -248,4 +316,32 @@ export async function runOperationsRemediationSweep<Context>(params: {
     }
   }
   return outputs;
+}
+
+/**
+ * Run the explicit, non-mutating recommendation path for one issue.
+ *
+ * A recommendation is persisted as evidence, never as an executable repair.
+ * Existing records win so repeated clicks cannot create competing plans.
+ */
+export async function investigateOperationsRemediation<Context>(params: {
+  finding: OperationsFinding;
+  ai: OperationsRemediationAiReview<Context>;
+  store: OperationsRemediationStore;
+  now?: () => number;
+}): Promise<OperationsRemediationRecord> {
+  const existing = latestRemediationForFinding(params.store, params.finding.id);
+  if (existing) {
+    return existing;
+  }
+  const recommendation = await createAdvisoryRemediationRecommendationOnce({
+    finding: params.finding,
+    ai: params.ai,
+    store: params.store,
+    now: params.now ?? Date.now,
+  });
+  if (!recommendation) {
+    throw new Error("Local recommendation is unavailable for this issue");
+  }
+  return recommendation;
 }

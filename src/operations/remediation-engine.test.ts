@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   recoverInterruptedOperationsRemediations,
   applyConfirmedOperationsRemediation,
+  investigateOperationsRemediation,
   runOperationsRemediationSweep,
   type OperationsRepairRecipe,
 } from "./remediation-engine.js";
@@ -512,5 +513,141 @@ describe("Operations remediation engine", () => {
       expectedChange: "No runtime state changes; only a diagnostic bundle is proposed.",
       result: "No automatic change was made.",
     });
+  });
+
+  it("records one explicit investigation and reuses it on repeated clicks", async () => {
+    const reviewer = recommendationAi();
+    const { store } = memoryStore();
+    const first = await investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store,
+      now: () => 10,
+    });
+    const second = await investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store,
+      now: () => 20,
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(reviewer.recommend).toHaveBeenCalledOnce();
+    expect(reviewer.judgeRecommendation).toHaveBeenCalledOnce();
+  });
+
+  it("coalesces concurrent investigations for the same finding", async () => {
+    const reviewer = recommendationAi();
+    const { records: firstRecords, store: firstStore } = memoryStore();
+    const { records: secondRecords, store: secondStore } = memoryStore();
+    let releaseRecommendation!: () => void;
+    const recommendationGate = new Promise<void>((resolve) => {
+      releaseRecommendation = resolve;
+    });
+    reviewer.recommend.mockImplementation(async () => {
+      await recommendationGate;
+      return {
+        risk: "high" as const,
+        domain: "novel" as const,
+        confidence: 0.94,
+        recommendedFix: "Collect a read-only diagnostic bundle for Codex review.",
+        reason: "No approved bounded recipe matches this issue yet.",
+        expectedChange: "No runtime state changes; only a diagnostic bundle is proposed.",
+        verificationPlan: "Verify the bundle contains no secrets and matches the issue identity.",
+        rollback: "No rollback is needed because the recommendation is read-only.",
+      };
+    });
+
+    const first = investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store: firstStore,
+      now: () => 10,
+    });
+    const second = investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store: secondStore,
+      now: () => 20,
+    });
+    await vi.waitFor(() => expect(reviewer.recommend).toHaveBeenCalled());
+    releaseRecommendation();
+
+    const [firstRecord, secondRecord] = await Promise.all([first, second]);
+    expect(firstRecord.id).toBe(secondRecord.id);
+    expect(reviewer.recommend).toHaveBeenCalledOnce();
+    expect(reviewer.judgeRecommendation).toHaveBeenCalledOnce();
+    expect(firstRecords).toHaveLength(1);
+    expect(secondRecords).toHaveLength(1);
+  });
+
+  it("rejects changed issue identity instead of sharing a stale in-flight recommendation", async () => {
+    const reviewer = recommendationAi();
+    const { records, store } = memoryStore();
+    let releaseRecommendation!: () => void;
+    const recommendationGate = new Promise<void>((resolve) => {
+      releaseRecommendation = resolve;
+    });
+    reviewer.recommend.mockImplementation(async () => {
+      await recommendationGate;
+      return {
+        risk: "high" as const,
+        domain: "novel" as const,
+        confidence: 0.94,
+        recommendedFix: "Collect a read-only diagnostic bundle for Codex review.",
+        reason: "No approved bounded recipe matches this issue yet.",
+        expectedChange: "No runtime state changes; only a diagnostic bundle is proposed.",
+        verificationPlan: "Verify the bundle contains no secrets and matches the issue identity.",
+        rollback: "No rollback is needed because the recommendation is read-only.",
+      };
+    });
+
+    const first = investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store,
+      now: () => 10,
+    });
+    await vi.waitFor(() => expect(reviewer.recommend).toHaveBeenCalled());
+    await expect(
+      investigateOperationsRemediation({
+        finding: { ...finding(), title: "Schedule failed with a different identity" },
+        ai: reviewer,
+        store,
+        now: () => 20,
+      }),
+    ).rejects.toThrow("Issue identity changed while local investigation was already running");
+    releaseRecommendation();
+
+    await expect(first).resolves.toMatchObject({ findingId: finding().id });
+    expect(reviewer.recommend).toHaveBeenCalledOnce();
+    expect(records).toHaveLength(1);
+  });
+
+  it("clears a failed concurrent-investigation guard so a later retry can succeed", async () => {
+    const reviewer = recommendationAi();
+    const { records, store } = memoryStore();
+    reviewer.recommend.mockRejectedValueOnce(new Error("local model unavailable"));
+
+    await expect(
+      investigateOperationsRemediation({
+        finding: finding(),
+        ai: reviewer,
+        store,
+        now: () => 10,
+      }),
+    ).rejects.toThrow("local model unavailable");
+
+    const recovered = await investigateOperationsRemediation({
+      finding: finding(),
+      ai: reviewer,
+      store,
+      now: () => 20,
+    });
+
+    expect(recovered.status).toBe("approval_required");
+    expect(reviewer.recommend).toHaveBeenCalledTimes(2);
+    expect(reviewer.judgeRecommendation).toHaveBeenCalledOnce();
+    expect(records).toHaveLength(1);
   });
 });

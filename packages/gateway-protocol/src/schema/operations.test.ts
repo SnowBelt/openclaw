@@ -21,6 +21,12 @@ describe("Operations Room protocol", () => {
       true,
     );
     expect(
+      validateOperationsActionPreviewParams({
+        action: "remediation.investigate",
+        targetId: "plugin:example:failed",
+      }),
+    ).toBe(true);
+    expect(
       validateOperationsActionApplyParams({
         token: "preview-1",
         action: "flow.cancel",

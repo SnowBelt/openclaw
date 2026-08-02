@@ -128,7 +128,13 @@ export async function runGuardedOperationsAction(
       "operations.action.preview",
       { action: params.action, targetId: params.targetId },
     );
-    if (!(await params.confirm(preview))) {
+    // Investigation only records bounded local-AI/Judge evidence and never
+    // mutates runtime state, so the primary one-click action does not add a
+    // second confirmation dialog. All repair actions still use the caller's
+    // explicit confirmation callback.
+    const confirmed =
+      preview.action === "remediation.investigate" ? true : await params.confirm(preview);
+    if (!confirmed) {
       state.operationsActionNotice = t("operationsRoom.actions.cancelled");
       state.operationsActionNoticeTone = "info";
       return;
