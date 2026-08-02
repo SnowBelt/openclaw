@@ -1,5 +1,6 @@
 // Operations Room gateway handlers expose one bounded snapshot and guarded,
-// two-step controls. They never invoke an LLM or mutate live state implicitly.
+// two-step controls. Investigation is explicit, bounded, and non-mutating:
+// it records local-AI/Judge evidence only after the operator clicks the action.
 import {
   ErrorCodes,
   errorShape,
@@ -18,8 +19,10 @@ import { collectOperationsSnapshot } from "../../operations/collector.js";
 import { projectOperationsSnapshotV1 } from "../../operations/compat.js";
 import {
   applyConfirmedOperationsRemediation,
+  investigateOperationsRemediation,
   type OperationsRemediationStore,
 } from "../../operations/remediation-engine.js";
+import { createOperationsRemediationLocalAi } from "../../operations/remediation-local-ai.js";
 import {
   createOperationsRemediationContext,
   createOperationsRepairRecipes,
@@ -146,6 +149,20 @@ export const operationsHandlers: GatewayRequestHandlers = {
       }
       return;
     }
+    if (params.action === "remediation.investigate") {
+      respond(
+        true,
+        createOperationsActionPreview({
+          action: params.action,
+          targetId: params.targetId,
+          summary:
+            "Run a bounded local-AI investigation and independent Judge review. No runtime change will be made.",
+          risk: "low",
+        }),
+        undefined,
+      );
+      return;
+    }
     respond(
       true,
       createOperationsActionPreview({ action: params.action, targetId: params.targetId }),
@@ -204,6 +221,37 @@ export const operationsHandlers: GatewayRequestHandlers = {
           await context.cron.update(params.targetId, { enabled });
           applied = true;
           summary = `${enabled ? "Enabled" : "Paused"} scheduled workflow ${params.targetId}.`;
+          break;
+        }
+        case "remediation.investigate": {
+          const store = {
+            list: () => loadOperationsRemediationRecords(),
+            upsert: (record) => {
+              upsertOperationsRemediationRecord(record);
+            },
+          } satisfies OperationsRemediationStore;
+          const snapshot = await collectOperationsSnapshot({
+            cfg,
+            cron: context.cron,
+            modelCatalog: [],
+            modelCatalogAvailable: false,
+            eventLoop: context.getEventLoopHealth?.(),
+            includeProcesses: false,
+            activeRuns: listVisibleActiveSessionRuns(context),
+          });
+          const finding = snapshot.findings.find((entry) => entry.id === params.targetId);
+          if (!finding) {
+            throw new Error("current issue no longer matches the investigation request");
+          }
+          const record = await investigateOperationsRemediation({
+            finding,
+            ai: createOperationsRemediationLocalAi(),
+            store,
+          });
+          applied = true;
+          summary = record.recommendedFix
+            ? `Investigation complete. Recommendation recorded: ${record.recommendedFix}`
+            : "Investigation complete. The recommendation is ready for review.";
           break;
         }
         case "remediation.apply": {

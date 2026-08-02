@@ -1185,17 +1185,20 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       }
       const investigation = page
         .locator(".operations-issue", { hasText: "Release approval needed" })
-        .getByRole("link", { name: "Fix this for me" });
-      const investigationUrl = new URL((await investigation.getAttribute("href"))!, server.baseUrl);
-      expect(investigationUrl.pathname).toBe("/chat");
-      expect(investigationUrl.searchParams.get("draft")).toContain(
-        "Read-only investigation only; do not make changes.",
-      );
-      expect(investigationUrl.searchParams.get("draft")).toContain("independent local Judge");
-      await page
-        .getByText("Opening the draft does not send it or start work.", { exact: true })
-        .first()
-        .waitFor();
+        .getByRole("button", { name: "Investigate with local AI" });
+      await investigation.waitFor();
+      expect(
+        await page
+          .locator(".operations-issue", { hasText: "Release approval needed" })
+          .getByRole("link", { name: "Investigate with local AI" })
+          .count(),
+      ).toBe(0);
+      expect(
+        await page
+          .locator(".operations-issue", { hasText: "Release approval needed" })
+          .getByText("Opening the draft does not send it or start work.", { exact: true })
+          .count(),
+      ).toBe(0);
       const watchedStatus = await page
         .locator(".operations-issue", { hasText: "Response delay is being watched" })
         .locator(".operations-issue__status")

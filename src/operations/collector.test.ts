@@ -270,6 +270,13 @@ describe("Operations Room collector", () => {
       startedAt: now - 2_000,
       updatedAt: now - 500,
     };
+    const staleRemediation = {
+      ...remediation,
+      id: "repair-stale",
+      status: "approval_required" as const,
+      progress: "An older recommendation is waiting for review.",
+      updatedAt: now - 1_000,
+    };
     const snapshot = await collectOperationsSnapshot({
       cfg: cfg(),
       cron: cronService([failedCron]),
@@ -277,7 +284,7 @@ describe("Operations Room collector", () => {
       now,
       taskRecords: [],
       flowRecords: [],
-      remediationRecords: [remediation],
+      remediationRecords: [staleRemediation, remediation],
       monitorState: {
         running: true,
         autoRemediationEnabled: true,
@@ -300,9 +307,9 @@ describe("Operations Room collector", () => {
       disposition: "handling",
       responseState: "in_progress",
       ownerId: "OpenClaw",
-      remediation: { status: "verifying" },
+      remediation: { id: remediation.id, status: "verifying" },
     });
-    expect(snapshot.remediationHistory).toEqual([remediation]);
+    expect(snapshot.remediationHistory).toEqual([staleRemediation, remediation]);
     expect(snapshot.reconciler).toMatchObject({
       mode: "supervised",
       autoRemediationEnabled: true,

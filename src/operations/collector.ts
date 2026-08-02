@@ -1327,11 +1327,14 @@ export async function collectOperationsSnapshot(params: {
   } catch {
     remediationStoreAvailable = false;
   }
-  const remediationByFinding = new Map(
-    remediationHistory
-      .toSorted((left, right) => right.updatedAt - left.updatedAt)
-      .map((record) => [record.findingId, record]),
-  );
+  const remediationByFinding = new Map<string, OperationsRemediationRecord>();
+  for (const record of remediationHistory.toSorted(
+    (left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+  )) {
+    if (!remediationByFinding.has(record.findingId)) {
+      remediationByFinding.set(record.findingId, record);
+    }
+  }
   trackedFindings = trackedFindings.map((entry) => {
     const remediation = remediationByFinding.get(entry.id);
     if (!remediation) {
@@ -1622,6 +1625,7 @@ export async function collectOperationsSnapshot(params: {
         "cron.run",
         "cron.enable",
         "cron.disable",
+        "remediation.investigate",
         "remediation.apply",
         "task.cancel",
         "flow.cancel",

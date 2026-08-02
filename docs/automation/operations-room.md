@@ -216,15 +216,16 @@ impact, owner, recommended fix, why it is recommended, confidence, risk, exact e
 verification, approval requirement, where progress and completion evidence will appear, and how a
 proposed change would be undone.
 
-The primary action is **Fix this for me**. For an eligible reviewed medium-risk repair, it opens the
-same exact guarded preview and requires one concise confirmation. For a deterministic low-risk
-recipe, OpenClaw may repair immediately and verify it. When no approved recipe exists, the action
-opens a visible read-only Chat draft for local investigation and a concrete recommendation. Opening
-the draft does not send it or start work. The operator reviews and sends it explicitly. The draft
-requires deterministic checks first, local AI for investigation and recommendations, an independent
-local Judge safety review, Codex only for high-risk or low-confidence escalation, and a proposed
-change/verification/rollback plan before any separate approval. **Not now** only defers the
-recommendation; it is never presented as a repair.
+The primary action is **Fix this for me** when an executable repair has passed the required safety
+review. For an eligible reviewed medium-risk repair, it opens the same exact guarded preview and
+requires one concise confirmation. For a deterministic low-risk recipe, OpenClaw may repair
+immediately and verify it. When no approved recipe exists, **Investigate with local AI** starts a
+bounded read-only investigation in the Operations Room, runs an independent local Judge review, and
+persists the resulting recommendation without mutating runtime state. Progress stays visible on the
+issue, and repeated or concurrent clicks for the same unchanged finding reuse one investigation.
+High-risk or low-confidence recommendations remain approval-gated; their exact recommendation,
+verification plan, and rollback plan are shown before any separate change is authorized. **Not now**
+only defers the recommendation; it is never presented as a repair.
 
 The UI never labels an issue as investigating, applying, verifying, or resolved unless the
 authoritative finding state supports that label. Missing, stale, partial, ambiguous, or unsupported

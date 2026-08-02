@@ -285,6 +285,43 @@ describe("Operations Room controller", () => {
     expect(host.operationsActionBusy).toBe(false);
   });
 
+  it("runs a non-mutating investigation with one click", async () => {
+    const preview: OperationsActionPreview = {
+      token: "preview-investigation",
+      action: "remediation.investigate",
+      targetId: "plugin:example:failed",
+      summary: "Run a bounded local-AI investigation.",
+      risk: "low",
+      expiresAt: Date.now() + 60_000,
+      requiresConfirmation: true,
+    };
+    const receipt: OperationsActionReceipt = {
+      action: preview.action,
+      targetId: preview.targetId,
+      status: "applied",
+      summary: "Investigation complete.",
+      appliedAt: Date.now(),
+    };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(preview)
+      .mockResolvedValueOnce(receipt)
+      .mockResolvedValueOnce(createOperationsTestSnapshot(123));
+    const host = state(request);
+    const confirm = vi.fn(() => false);
+
+    await runGuardedOperationsAction(host, {
+      action: preview.action,
+      targetId: preview.targetId,
+      confirm,
+    });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(host.operationsActionNotice).toBe("Investigation complete.");
+    expect(host.operationsActionNoticeTone).toBe("success");
+  });
+
   it("does not apply an action when confirmation is declined", async () => {
     const preview = {
       token: "preview-1",
