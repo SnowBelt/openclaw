@@ -49,6 +49,20 @@ describe("PCC overview read model", () => {
     expect(JSON.stringify(overview).length).toBeLessThan(500_000);
   });
 
+  it("keeps archived user projects available to the explicit Projects archive view", () => {
+    const ledger = ledgerWithProjects(2);
+    ledger.projects[2] = { ...ledger.projects[2]!, status: "archived" };
+
+    const overview = buildPccOverview(ledger, 43);
+
+    expect(overview.projects.map((item) => item.id)).toEqual(["user-1", "user-2"]);
+    expect(overview.projects.find((item) => item.id === "user-2")).toMatchObject({
+      status: "archived",
+      workState: "complete",
+    });
+    expect(overview.projects.some((item) => item.id === "project-command-center")).toBe(false);
+  });
+
   it("builds the 100-project overview with a local p95 below 250ms", () => {
     const ledger = ledgerWithProjects(100);
     const timings = Array.from({ length: 30 }, (_, index) => {

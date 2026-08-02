@@ -194,6 +194,14 @@ type PccPresenceListResult = { presence: PccPresenceEntry[] };
 
 const PCC_FAVORITES_KEY = "openclaw.pcc.favorites.v1";
 const PCC_RECENTS_KEY = "openclaw.pcc.recents.v1";
+const PCC_PROJECT_FILTERS = new Set<PccProjectFilter>([
+  "active",
+  "needs_you",
+  "on_hold",
+  "completed",
+  "archived",
+  "all",
+]);
 
 function readProjectPreference(key: string): string[] {
   try {
@@ -225,7 +233,35 @@ function syncPccUrl(surface: PccSurface, projectId?: string): void {
   } else {
     url.searchParams.delete("project");
   }
+  if (surface !== "projects") {
+    url.searchParams.delete("pccFilter");
+    url.searchParams.delete("pccQuery");
+  }
   globalThis.history.pushState({}, "", url);
+}
+
+function syncPccDirectoryUrl(
+  filter: PccProjectFilter | undefined,
+  query: string | undefined,
+  replace: boolean,
+): void {
+  if (globalThis.location === undefined || globalThis.history === undefined) {
+    return;
+  }
+  const url = new URL(globalThis.location.href);
+  url.searchParams.set("pcc", "projects");
+  if (filter && filter !== "active") {
+    url.searchParams.set("pccFilter", filter);
+  } else {
+    url.searchParams.delete("pccFilter");
+  }
+  const normalizedQuery = query?.trim();
+  if (normalizedQuery) {
+    url.searchParams.set("pccQuery", normalizedQuery);
+  } else {
+    url.searchParams.delete("pccQuery");
+  }
+  globalThis.history[replace ? "replaceState" : "pushState"]({}, "", url);
 }
 
 export function restorePccLocation(state: PccDashboardState): void {
@@ -242,6 +278,11 @@ export function restorePccLocation(state: PccDashboardState): void {
       ? requested
       : "overview";
   const projectId = url.searchParams.get("project")?.trim();
+  const requestedFilter = url.searchParams.get("pccFilter");
+  const directoryFilter = PCC_PROJECT_FILTERS.has(requestedFilter as PccProjectFilter)
+    ? (requestedFilter as PccProjectFilter)
+    : undefined;
+  const directoryQuery = url.searchParams.get("pccQuery")?.trim() ?? "";
   if (surface === "project" && projectId) {
     state.pccSurface = "project";
     state.pccSelectedProjectId = projectId;
@@ -252,6 +293,8 @@ export function restorePccLocation(state: PccDashboardState): void {
     state.pccProjectDetail = null;
     state.pccExecutionProjection = null;
   }
+  state.pccProjectFilter = surface === "projects" ? directoryFilter : undefined;
+  state.pccProjectSearchQuery = surface === "projects" ? directoryQuery : "";
   state.requestUpdate?.();
 }
 
@@ -2078,7 +2121,11 @@ export function updatePccSurface(state: PccDashboardState, surface: PccSurface):
     state.pccProjectDetail = null;
     state.pccExecutionProjection = null;
   }
-  syncPccUrl(surface);
+  if (surface === "projects") {
+    syncPccDirectoryUrl(state.pccProjectFilter, state.pccProjectSearchQuery, false);
+  } else {
+    syncPccUrl(surface);
+  }
   state.requestUpdate?.();
   void updatePccPresence(state);
 }
@@ -2434,11 +2481,17 @@ export function updatePccProjectEditMode(state: PccDashboardState, mode: PccProj
 
 export function updatePccProjectFilter(state: PccDashboardState, filter: PccProjectFilter): void {
   state.pccProjectFilter = filter;
+  if (state.pccSurface === "projects") {
+    syncPccDirectoryUrl(filter, state.pccProjectSearchQuery, false);
+  }
   state.requestUpdate?.();
 }
 
 export function updatePccProjectSearchQuery(state: PccDashboardState, query: string): void {
   state.pccProjectSearchQuery = query;
+  if (state.pccSurface === "projects") {
+    syncPccDirectoryUrl(state.pccProjectFilter, query, true);
+  }
   state.requestUpdate?.();
 }
 

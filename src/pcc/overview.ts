@@ -103,6 +103,9 @@ function workState(
   plan: ExecutionPlan | undefined,
   permissionNeeded: boolean,
 ): PccOverviewProject["workState"] {
+  if (project.status === "archived") {
+    return "complete";
+  }
   if (
     permissionNeeded ||
     project.status === "needs_approval" ||
@@ -155,9 +158,7 @@ export function buildPccOverview(
 ): PccOverviewGetResult {
   const index = buildPccLedgerReadIndex(ledger);
   const systemProject = ledger.projects.find((project) => project.id === "project-command-center");
-  const userProjects = ledger.projects.filter(
-    (project) => project.id !== "project-command-center" && project.status !== "archived",
-  );
+  const userProjects = ledger.projects.filter((project) => project.id !== "project-command-center");
   const activeAgents: PccOverviewAgentAssignment[] = [];
   const projects = userProjects.map((project) => {
     const summary = summarizePccProject(ledger, project, index);

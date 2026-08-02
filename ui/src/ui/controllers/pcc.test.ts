@@ -56,8 +56,10 @@ import {
   updatePccPlanningPolicy,
   updatePccViewMode,
   updatePccProjectEditMode,
+  updatePccProjectFilter,
   updatePccProjectForm,
   updatePccProjectSearchQuery,
+  updatePccSurface,
   type PccDashboardState,
 } from "./pcc.ts";
 
@@ -484,6 +486,50 @@ describe("loadPccDashboard", () => {
     expect(requestUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it("restores and updates Projects filter and search deep links", () => {
+    const requestUpdate = vi.fn();
+    const state = createState({ requestUpdate, pccSurface: "overview" });
+    const pushState = vi.fn();
+    const replaceState = vi.fn();
+    vi.stubGlobal("history", { pushState, replaceState });
+    vi.stubGlobal("location", {
+      href: "http://localhost/pcc?pcc=projects&pccFilter=archived&pccQuery=SNES",
+    });
+
+    restorePccLocation(state);
+
+    expect(state.pccSurface).toBe("projects");
+    expect(state.pccProjectFilter).toBe("archived");
+    expect(state.pccProjectSearchQuery).toBe("SNES");
+
+    updatePccProjectFilter(state, "completed");
+    expect(pushState).toHaveBeenCalledWith(
+      {},
+      "",
+      expect.objectContaining({ search: expect.stringContaining("pccFilter=completed") }),
+    );
+
+    updatePccProjectSearchQuery(state, "finished build");
+    expect(replaceState).toHaveBeenCalledWith(
+      {},
+      "",
+      expect.objectContaining({ search: expect.stringContaining("pccQuery=finished+build") }),
+    );
+
+    updatePccSurface(state, "overview");
+    updatePccSurface(state, "projects");
+    expect(pushState).toHaveBeenLastCalledWith(
+      {},
+      "",
+      expect.objectContaining({
+        search: expect.stringMatching(
+          /pcc=projects.*pccFilter=completed.*pccQuery=finished\+build/u,
+        ),
+      }),
+    );
+    vi.unstubAllGlobals();
+  });
+
   it("loads project list and portfolio summary", async () => {
     const releaseGovernance = {
       schema: "openclaw.release-governance-status.v1",
@@ -534,6 +580,35 @@ describe("loadPccDashboard", () => {
     expect(state.pccSurface).toBe("overview");
     expect(state.pccSelectedProjectId).toBeNull();
     expect(state.pccProjectDetails["project-command-center"]).toBeUndefined();
+  });
+
+  it("replaces cached data atomically without hiding live user projects", async () => {
+    const cachedPcc = {
+      ...summary,
+      id: "project-command-center",
+      title: "Project Command Center",
+    };
+    const liveProjects = [
+      { ...summary, id: "snes-one", title: "SNES One" },
+      { ...summary, id: "snes-two", title: "SNES Two" },
+    ];
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ projects: liveProjects })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({ presence: [] });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjects: [cachedPcc],
+      pccSelectedProjectId: cachedPcc.id,
+      pccSurface: "overview",
+    });
+
+    await loadPccDashboard(state);
+
+    expect(state.pccProjects.map((item) => item.id)).toEqual(["snes-one", "snes-two"]);
+    expect(state.pccSurface).toBe("overview");
+    expect(state.pccSelectedProjectId).toBeNull();
   });
 
   it("computes fallback portfolio attention metrics when summary omits them", async () => {

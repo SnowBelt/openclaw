@@ -6840,6 +6840,49 @@
   align-items: end !important;
 }
 
+.pcc-directory-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.pcc-work-overview .pcc-project-tabs {
+  background: color-mix(in srgb, var(--surface-muted) 82%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  gap: 4px;
+  padding: 4px;
+}
+
+.pcc-work-overview .pcc-project-tabs button {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.pcc-work-overview .pcc-project-tabs button.is-selected {
+  background: var(--surface);
+  border-color: var(--border-subtle);
+  box-shadow: 0 2px 8px color-mix(in srgb, #000 8%, transparent);
+}
+
+.pcc-directory-result-count {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.pcc-directory-result-count strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
 .pcc-directory-search {
   max-width: 360px;
   width: 100%;
@@ -6918,6 +6961,10 @@
   width: 100%;
 }
 
+.pcc-project-workspace__body .pcc-primary-action {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pcc-work-card {
     transition: none;
@@ -6942,12 +6989,15 @@
   }
 
   .pcc-work-nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow-x: visible;
     top: 4px;
   }
 
   .pcc-work-nav__item {
-    min-width: 92px;
-    padding-inline: 12px;
+    min-width: 0;
+    padding-inline: 6px;
   }
 
   .pcc-agent-row {
@@ -6977,10 +7027,31 @@
 
   .pcc-project-workspace__header .btn,
   .pcc-system-overview .btn {
+    min-height: 44px;
     width: 100%;
   }
 
   .pcc-directory-header {
     align-items: stretch !important;
+  }
+
+  .pcc-directory-controls {
+    align-items: stretch;
+  }
+
+  .pcc-work-overview .pcc-project-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+    width: 100%;
+  }
+
+  .pcc-work-overview .pcc-project-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .pcc-work-overview .pcc-project-tabs button {
+    flex: 0 0 auto;
   }
 }

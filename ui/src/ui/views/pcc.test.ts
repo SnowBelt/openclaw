@@ -381,6 +381,7 @@ describe("renderPccDashboard", () => {
         surface: "projects",
         overview: { ...workOverview, projects: [...workOverview.projects, secondProject] },
         projects: [...workOverview.projects, secondProject],
+        projectFilter: "all",
         selectedProjectId: null,
         projectDetail: null,
       }),
@@ -390,6 +391,187 @@ describe("renderPccDashboard", () => {
     expect(container.querySelectorAll("[data-pcc-overview-project]")).toHaveLength(2);
     expect(container.textContent).toContain("Family Fighters");
     expect(container.textContent).toContain("Finished Project");
+  });
+
+  it("filters the Projects directory without hiding projects from All", () => {
+    const projects = [
+      {
+        ...workOverview.projects[0],
+        id: "active-project",
+        title: "Active Project",
+        status: "active" as const,
+        workState: "ready" as const,
+        milestoneCounts: {
+          ...workOverview.projects[0].milestoneCounts,
+          blocked: 0,
+          needsApproval: 0,
+        },
+        proofGaps: [],
+        health: "On track",
+        updatedAt: "2026-08-02T14:00:00.000Z",
+      },
+      {
+        ...workOverview.projects[0],
+        id: "needs-you-project",
+        title: "Needs You Project",
+        status: "needs_approval" as const,
+        workState: "needs_you" as const,
+      },
+      {
+        ...workOverview.projects[0],
+        id: "on-hold-project",
+        title: "On Hold Project",
+        status: "on_hold" as const,
+        workState: "paused" as const,
+      },
+      {
+        ...workOverview.projects[0],
+        id: "completed-project",
+        title: "Completed Project",
+        status: "complete_with_maintenance" as const,
+        workState: "complete" as const,
+      },
+      {
+        ...workOverview.projects[0],
+        id: "archived-project",
+        title: "Archived Project",
+        status: "archived" as const,
+        workState: "complete" as const,
+      },
+    ];
+    const overview = { ...workOverview, projects };
+
+    const expectedByFilter = {
+      active: ["active-project", "needs-you-project"],
+      needs_you: ["needs-you-project"],
+      on_hold: ["on-hold-project"],
+      completed: ["completed-project"],
+      archived: ["archived-project"],
+      all: projects.map((item) => item.id),
+    } as const;
+
+    for (const [projectFilter, expectedIds] of Object.entries(expectedByFilter)) {
+      const container = renderView(
+        createProps({
+          surface: "projects",
+          overview,
+          projects,
+          projectFilter: projectFilter as PccDashboardProps["projectFilter"],
+          selectedProjectId: null,
+          projectDetail: null,
+        }),
+      );
+      const visibleIds = [...container.querySelectorAll<HTMLElement>("[data-pcc-overview-project]")]
+        .map((item) => item.dataset.pccOverviewProject)
+        .filter((item): item is string => Boolean(item));
+      expect(visibleIds.toSorted()).toEqual([...expectedIds].toSorted());
+      expect(container.querySelectorAll("[data-pcc-project-tabs] button")).toHaveLength(6);
+    }
+  });
+
+  it("combines project status filters with search and exposes a clear zero state", () => {
+    const activeProject = {
+      ...workOverview.projects[0],
+      id: "active-search-target",
+      title: "Active Search Target",
+      status: "active" as const,
+      workState: "ready" as const,
+    };
+    const completedProject = {
+      ...workOverview.projects[0],
+      id: "completed-search-target",
+      title: "Completed Search Target",
+      status: "complete" as const,
+      workState: "complete" as const,
+    };
+    const projects = [activeProject, completedProject];
+    const overview = { ...workOverview, projects };
+
+    const searched = renderView(
+      createProps({
+        surface: "projects",
+        overview,
+        projects,
+        projectFilter: "active",
+        projectSearchQuery: "search target",
+        selectedProjectId: null,
+        projectDetail: null,
+      }),
+    );
+    expect(searched.querySelectorAll("[data-pcc-overview-project]")).toHaveLength(1);
+    expect(searched.textContent).toContain("Active Search Target");
+    expect(searched.textContent).not.toContain("Completed Search Target");
+    expect(searched.querySelector("[data-pcc-shell]")?.getAttribute("data-pcc-surface")).toBe(
+      "projects",
+    );
+
+    const empty = renderView(
+      createProps({
+        surface: "projects",
+        overview,
+        projects,
+        projectFilter: "archived",
+        selectedProjectId: null,
+        projectDetail: null,
+      }),
+    );
+    expect(empty.querySelector("[data-pcc-project-empty-state='archived']")).not.toBeNull();
+    expect(empty.textContent).toContain("No projects in this view");
+  });
+
+  it("opens active projects directly and keeps PCC Product under System", () => {
+    const onSelectProject = vi.fn();
+    const onSetSurface = vi.fn();
+    const container = renderView(
+      createProps({
+        surface: "overview",
+        overview: workOverview,
+        projects: workOverview.projects,
+        selectedProjectId: null,
+        projectDetail: null,
+        onSelectProject,
+        onSetSurface,
+      }),
+    );
+
+    (
+      container.querySelector(
+        "[data-pcc-overview-project='family-fighters'] footer button",
+      ) as HTMLButtonElement
+    ).click();
+    expect(onSelectProject).toHaveBeenCalledWith("family-fighters");
+    expect(
+      container.querySelector("[data-pcc-overview-project='project-command-center']"),
+    ).toBeNull();
+
+    (container.querySelector(".pcc-system-pill") as HTMLButtonElement).click();
+    expect(onSetSurface).toHaveBeenCalledWith("system");
+  });
+
+  it("keeps the current project action and status in the compact workspace header", () => {
+    const container = renderView(
+      createProps({
+        surface: "project",
+        overview: workOverview,
+        projects: workOverview.projects,
+        selectedProjectId: project.id,
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+
+    const header = container.querySelector(".pcc-project-workspace__header");
+    expect(header?.textContent).toContain(project.title);
+    expect(header?.textContent).toContain("Active");
+    expect(header?.querySelector("[data-pcc-primary-action-id]")).not.toBeNull();
   });
 
   it("renders fail-closed release governance with exact blockers and approval wording", () => {
@@ -1145,6 +1327,7 @@ describe("renderPccDashboard", () => {
   it("renders last-known-good verified state in project history details", () => {
     const container = renderView(
       createProps({
+        surface: "project",
         viewMode: "detailed",
         projectDetail: {
           project,
@@ -1239,6 +1422,9 @@ describe("renderPccDashboard", () => {
     expect(
       container.querySelector<HTMLElement>('[data-pcc-detail-tab-panel="decisions"]')?.hidden,
     ).toBe(false);
+    expect(
+      container.querySelector<HTMLDetailsElement>('details[data-pcc-mobile-section="more"]')?.open,
+    ).toBe(true);
     container.querySelector<HTMLButtonElement>("[data-pcc-open-decision-form]")?.click();
     expect(onOpenDecisionForm).toHaveBeenCalledTimes(2);
 

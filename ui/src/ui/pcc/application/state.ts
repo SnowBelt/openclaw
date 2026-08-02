@@ -126,7 +126,13 @@ export type PccPlannerMode =
   | "codex"
   | "high_reasoning_codex";
 
-export type PccProjectFilter = "active" | "needs_you" | "on_hold" | "archived" | "all";
+export type PccProjectFilter =
+  | "active"
+  | "needs_you"
+  | "on_hold"
+  | "completed"
+  | "archived"
+  | "all";
 export type PccAutopilotAction =
   | "start"
   | "pause"

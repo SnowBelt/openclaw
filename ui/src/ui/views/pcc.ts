@@ -665,6 +665,7 @@ const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
   ["active", "Active"],
   ["needs_you", "Needs You"],
   ["on_hold", "On Hold"],
+  ["completed", "Completed"],
   ["archived", "Archived"],
   ["all", "All"],
 ];
@@ -4482,6 +4483,9 @@ function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilt
   if (filter === "on_hold") {
     return project.status === "on_hold" || project.status === "deferred";
   }
+  if (filter === "completed") {
+    return isPccCompleteStatus(project.status) || project.status === "skipped";
+  }
   if (filter === "needs_you") {
     return projectNeedsAttention(project);
   }
@@ -7402,6 +7406,7 @@ function renderProjectDetail(props: PccDashboardProps) {
   }
   try {
     const permissions = detail.permissions ?? [];
+    const activeDetailTab = props.decisionFormOpen ? "decisions" : "plan";
     return html`
       <aside
         class="pcc-detail pcc-detail--${mode}"
@@ -7417,7 +7422,7 @@ function renderProjectDetail(props: PccDashboardProps) {
         <details
           class="pcc-detail-drawer"
           data-pcc-mobile-section="more"
-          ?open=${!modernWorkspace && mode !== "simple"}
+          ?open=${props.decisionFormOpen || (!modernWorkspace && mode !== "simple")}
         >
           <summary>Details</summary>
           ${mode === "simple"
@@ -7444,8 +7449,8 @@ function renderProjectDetail(props: PccDashboardProps) {
                       type="button"
                       role="tab"
                       data-pcc-detail-tab=${id}
-                      aria-selected=${id === "plan" ? "true" : "false"}
-                      tabindex=${id === "plan" ? "0" : "-1"}
+                      aria-selected=${id === activeDetailTab ? "true" : "false"}
+                      tabindex=${id === activeDetailTab ? "0" : "-1"}
                       @click=${(event: Event) =>
                         activatePccDetailTab(
                           id,
@@ -7458,7 +7463,11 @@ function renderProjectDetail(props: PccDashboardProps) {
                     </button>`,
                   )}
                 </div>
-                <section data-pcc-detail-tab-panel="plan" role="tabpanel">
+                <section
+                  data-pcc-detail-tab-panel="plan"
+                  role="tabpanel"
+                  ?hidden=${activeDetailTab !== "plan"}
+                >
                   ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
                   ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
                 </section>
@@ -7468,7 +7477,11 @@ function renderProjectDetail(props: PccDashboardProps) {
                 <section data-pcc-detail-tab-panel="proof" role="tabpanel" hidden>
                   ${renderProjectReceiptsAndArtifacts(detail, props)}
                 </section>
-                <section data-pcc-detail-tab-panel="decisions" role="tabpanel" hidden>
+                <section
+                  data-pcc-detail-tab-panel="decisions"
+                  role="tabpanel"
+                  ?hidden=${activeDetailTab !== "decisions"}
+                >
                   ${renderDecisionCapturePanel(detail, props)} ${renderDecisionList(detail, props)}
                 </section>
                 <section data-pcc-detail-tab-panel="automation" role="tabpanel" hidden>
@@ -9529,7 +9542,7 @@ function renderProjectListEmptyState(
   allProjects: readonly PccProjectSummary[],
   filteredByTabCount: number,
 ) {
-  const selected = props.projectFilter ?? "active";
+  const selected = effectiveProjectFilter(props, allProjects);
   const searchActive = Boolean(props.projectSearchQuery?.trim());
   const needsYouCount = allProjects.filter((project) =>
     projectMatchesFilter(project, "needs_you"),
@@ -9596,13 +9609,14 @@ function overviewProjects(props: PccDashboardProps): PccOverviewProject[] {
   }
   return props.projects.map((project) => ({
     ...project,
-    workState: isPccCompleteStatus(project.status)
-      ? "complete"
-      : project.status === "blocked"
-        ? "blocked"
-        : project.status === "needs_approval"
-          ? "needs_you"
-          : "ready",
+    workState:
+      isPccCompleteStatus(project.status) || project.status === "archived"
+        ? "complete"
+        : project.status === "blocked"
+          ? "blocked"
+          : project.status === "needs_approval"
+            ? "needs_you"
+            : "ready",
     activeAgentCount: 0,
   }));
 }
@@ -9803,22 +9817,6 @@ function renderWorkOverview(props: PccDashboardProps) {
           </p>`}
     </section>
 
-    ${recent?.length
-      ? html`<section class="pcc-recent-shortcuts" aria-label="Recently opened projects">
-          <span>Recent</span>
-          ${recent
-            .slice(0, 4)
-            .map(
-              (project) => html`<button
-                type="button"
-                @click=${() => props.onSelectProject(project.id)}
-              >
-                ${project.title}
-              </button>`,
-            )}
-        </section>`
-      : nothing}
-
     <section class="pcc-work-section" aria-labelledby="pcc-projects-title">
       <header>
         <div>
@@ -9857,6 +9855,22 @@ function renderWorkOverview(props: PccDashboardProps) {
             </button>
           </div>`}
     </section>
+
+    ${recent?.length
+      ? html`<section class="pcc-recent-shortcuts" aria-label="Recently opened projects">
+          <span>Recently opened</span>
+          ${recent
+            .slice(0, 4)
+            .map(
+              (project) => html`<button
+                type="button"
+                @click=${() => props.onSelectProject(project.id)}
+              >
+                ${project.title}
+              </button>`,
+            )}
+        </section>`
+      : nothing}
 
     <section
       class="pcc-work-section pcc-work-section--activity"
@@ -9901,14 +9915,21 @@ function renderWorkOverview(props: PccDashboardProps) {
 
 function renderProjectsDirectory(props: PccDashboardProps) {
   const query = props.projectSearchQuery?.trim().toLowerCase() ?? "";
-  const projects = overviewProjects(props).filter((project) => {
-    if (!query) {
-      return true;
-    }
-    return [project.title, project.currentMilestone, project.nextAction, project.blocker]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(query));
-  });
+  const allProjects = overviewProjects(props);
+  const selectedFilter = effectiveProjectFilter(props, allProjects);
+  const filteredByStatus = allProjects.filter((project) =>
+    projectMatchesFilter(project, selectedFilter),
+  );
+  const projects = filteredByStatus.filter((project) =>
+    query
+      ? projectMatchesSearch(
+          project,
+          query,
+          props.projectDetails?.[project.id] ??
+            (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined),
+        )
+      : true,
+  );
   const favorites = new Set(props.favorites ?? []);
   projects.sort(
     (left, right) =>
@@ -9922,7 +9943,7 @@ function renderProjectsDirectory(props: PccDashboardProps) {
           <span>Projects</span>
           <h2>Everything in one place</h2>
         </div>
-        <label class="pcc-directory-search">
+        <label class="pcc-directory-search" data-pcc-project-search>
           <span class="pcc-sr-only">Search projects</span>
           <input
             type="search"
@@ -9933,11 +9954,28 @@ function renderProjectsDirectory(props: PccDashboardProps) {
           />
         </label>
       </header>
+      <div class="pcc-directory-controls">
+        ${renderProjectFilterTabs(props, allProjects)}
+        <div class="pcc-directory-result-count" role="status" aria-live="polite">
+          <strong>${projects.length}</strong>
+          <span>shown</span>
+          ${query
+            ? html`<button
+                class="btn btn--subtle"
+                type="button"
+                aria-label="Clear search"
+                @click=${() => props.onSetProjectSearchQuery?.("")}
+              >
+                Clear search
+              </button>`
+            : nothing}
+        </div>
+      </div>
       <div class="pcc-work-project-grid">
         ${projects.map((project) => renderOverviewProjectCard(project, props))}
       </div>
       ${projects.length === 0
-        ? html`<p class="pcc-work-empty">No projects match this search.</p>`
+        ? renderProjectListEmptyState(props, allProjects, filteredByStatus.length)
         : nothing}
     </section>
   </main>`;
@@ -10006,6 +10044,16 @@ function renderProjectWorkspaceSurface(props: PccDashboardProps) {
   const activeAgents =
     props.overview?.activeAgents.filter((agent) => agent.projectId === detail.project.id).length ??
     0;
+  const resolvedAction = resolvePccProjectAction(detail);
+  const setupEvaluation = setupEvaluationForDetail(detail);
+  const terminal = PROJECT_TERMINAL_STATUSES.has(detail.project.status);
+  const primaryActionDisabled =
+    props.actionBusy ||
+    resolvedAction.primaryActionId === "no_action_required" ||
+    (!terminal &&
+      !projectIsOnHold(detail.project) &&
+      !setupEvaluation.runnable &&
+      !props.onPreviewSetupAutofill);
   return html`<main class="pcc-project-workspace" data-pcc-project-workspace>
     <header class="pcc-project-workspace__header">
       <button
@@ -10018,19 +10066,29 @@ function renderProjectWorkspaceSurface(props: PccDashboardProps) {
       <div>
         <h2>${detail.project.title}</h2>
         <span
-          >${Math.round(detail.summary.percentComplete)}% complete · ${activeAgents}
+          >${Math.round(detail.summary.percentComplete)}% complete ·
+          ${formatStatus(detail.project.status)} · ${activeAgents}
           agent${activeAgents === 1 ? "" : "s"} working</span
         >
       </div>
-      ${pendingPermissionForDetail(detail, props.attentionRecordId)
-        ? html`<button
-            class="btn pcc-action-primary"
-            type="button"
-            @click=${(event: Event) =>
-              openPccPermissionReview(detail, event.currentTarget as HTMLElement)}
-          >
-            Review permission
-          </button>`
+      ${resolvedAction.primaryActionId !== "no_action_required"
+        ? html`<div data-pcc-primary-action>
+            <button
+              class="btn pcc-action-primary"
+              type="button"
+              data-pcc-primary-action-id=${resolvedAction.primaryActionId}
+              ?disabled=${primaryActionDisabled}
+              @click=${(event: Event) =>
+                runResolvedProjectPrimaryAction(
+                  resolvedAction,
+                  detail,
+                  props,
+                  event.currentTarget as HTMLElement,
+                )}
+            >
+              ${resolvedAction.primaryLabel}
+            </button>
+          </div>`
         : nothing}
     </header>
     <section class="pcc-project-workspace__body">
