@@ -8,9 +8,10 @@ Land and deploy only the behavior-preserving Chat rendering optimization and Res
 
 ## Immutable boundaries
 
-- Recovery worktree: `/private/tmp/openclaw-performance-release-recovery-b7ac-20260802`
-- Recovery branch: `codex/performance-release-recovery-b7ac-20260802`
-- Starting active source SHA: `b7ac7399f94050a9df34b7b2c1259403ba3dcfb3`
+- Initial recovery worktree: `/private/tmp/openclaw-performance-release-recovery-b7ac-20260802`
+- Active-first successor worktree: `/private/tmp/openclaw-performance-release-recovery-active-b4c5-20260802`
+- Active-first successor source: detached candidate based on `b4c5cd959c79333507932a3735379d5bbf51e2b5`
+- Initially discovered active source SHA: `b7ac7399f94050a9df34b7b2c1259403ba3dcfb3`; it advanced independently to `b4c5cd959c79333507932a3735379d5bbf51e2b5` before promotion, so the candidate was rebuilt from the current active source with only the exact scoped patch applied.
 - Original performance candidate provenance: `cd2a5cfa5e948c7b86884f49f4e96afb389445f4`
 - The exact active runtime must be rediscovered immediately before packaging and mutation.
 - The dirty main checkout remains untouched.
@@ -19,7 +20,7 @@ Land and deploy only the behavior-preserving Chat rendering optimization and Res
 
 | ID     | Scope                                                    | Status      | Completion | Required proof                                                                                                                           |
 | ------ | -------------------------------------------------------- | ----------- | ---------: | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| REC-01 | Active-first source integration and exact-scope recovery | in progress |        95% | Clean candidate commit containing only Chat, Research Manager, required capability/docs/dependency closure, and packaging repair         |
+| REC-01 | Active-first source integration and exact-scope recovery | complete    |       100% | Clean candidate commit containing only Chat, Research Manager, required capability/docs/dependency closure, and packaging repair         |
 | REC-02 | Fail-closed self-contained package implementation        | in progress |        95% | Exact-SHA production build after the already-passed source gates                                                                         |
 | REC-03 | Exact-SHA source certification                           | pending     |         0% | Clean exact-SHA build snapshot, full affected tests, independent review, Release Governor receipts                                       |
 | REC-04 | Immutable package assembly and sealing                   | pending     |         0% | Production dependency closure, artifact hash, closure hash, packaged verifier, seal verifier, sterile startup                            |
@@ -38,4 +39,4 @@ Land and deploy only the behavior-preserving Chat rendering optimization and Res
 
 ## Next action
 
-Finish formatting and the complete affected source gate. Repair every in-scope failure, commit the exact candidate, rebuild from that SHA, then continue through Release Governor authorization, immutable packaging, managed local deployment, browser proof, rollback verification, and soak.
+Run the final successor source gates and exact-SHA build from the current active parent, then continue through Release Governor authorization, immutable packaging, managed local deployment, browser proof, rollback verification, and soak.
