@@ -10,6 +10,7 @@ import {
   type PccAutopilotModeId,
   type PccAutopilotPromptSlot,
 } from "../../../../src/pcc/autopilot.js";
+import { isPccCompleteStatus } from "../../../../src/pcc/domain/completion-policy.js";
 import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
@@ -94,6 +95,7 @@ import type {
   PccPlannerMode,
   PccProjectFilter,
   PccProjectFormState,
+  PccSurface,
   PccViewMode,
 } from "../pcc/application/state.ts";
 import {
@@ -108,10 +110,12 @@ import type {
   PccEvidence,
   PccLastKnownGood,
   PccMilestone,
+  PccOverviewGetResult,
   PccSubMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
   PccPlanningRun,
+  PccPresenceEntry,
   PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
@@ -134,6 +138,12 @@ export type PccDashboardProps = {
   connected?: boolean;
   projects: PccProjectSummary[];
   portfolio: PccPortfolioSummary | null;
+  overview?: PccOverviewGetResult | null;
+  presence?: PccPresenceEntry[];
+  surface?: PccSurface;
+  favorites?: string[];
+  recentProjectIds?: string[];
+  attentionRecordId?: string | null;
   updatedAt: number | null;
   selectedProjectId: string | null;
   projectDetail: PccProjectDetail | null;
@@ -182,6 +192,9 @@ export type PccDashboardProps = {
   onDismissActionNotice?: () => void;
   onUndoAction?: () => void;
   onRefresh: () => void;
+  onSetSurface?: (surface: PccSurface) => void;
+  onToggleFavorite?: (projectId: string) => void;
+  onOpenAttention?: (projectId: string, recordId?: string) => void;
   onSelectProject: (projectId: string) => void;
   onOpenProjectEditor: (project?: PccProject) => void;
   onOpenMilestoneEditor: (milestone?: PccMilestone) => void;
@@ -1208,7 +1221,18 @@ function runResolvedProjectPrimaryAction(
 
 const pccPermissionReviewTriggers = new WeakMap<HTMLDialogElement, HTMLElement>();
 
-function pendingPermissionForDetail(detail: PccProjectDetail): PccPermissionGrant | undefined {
+function pendingPermissionForDetail(
+  detail: PccProjectDetail,
+  preferredId?: string | null,
+): PccPermissionGrant | undefined {
+  const preferred = preferredId
+    ? detail.permissions.find(
+        (permission) => permission.id === preferredId && permission.status === "needed",
+      )
+    : undefined;
+  if (preferred) {
+    return preferred;
+  }
   const currentMilestoneId = currentMilestoneForDetail(detail)?.id;
   return detail.permissions
     .filter((permission) => permission.status === "needed")
@@ -3342,7 +3366,7 @@ function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboar
 
 function renderPccPermissionReviewDialog(detail: PccProjectDetail, props: PccDashboardProps) {
   const pending = detail.permissions.filter((permission) => permission.status === "needed");
-  const permission = pendingPermissionForDetail(detail);
+  const permission = pendingPermissionForDetail(detail, props.attentionRecordId);
   if (!permission) {
     return nothing;
   }
@@ -7323,7 +7347,8 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
 
 function renderProjectDetail(props: PccDashboardProps) {
   const detail = props.projectDetail;
-  const mode = pccViewMode(props);
+  const modernWorkspace = props.surface === "project";
+  const mode = modernWorkspace ? "detailed" : pccViewMode(props);
   if (!detail) {
     return html`
       <aside class="pcc-detail" data-pcc-detail-empty>
@@ -7349,7 +7374,7 @@ function renderProjectDetail(props: PccDashboardProps) {
         <details
           class="pcc-detail-drawer"
           data-pcc-mobile-section="more"
-          ?open=${mode !== "simple"}
+          ?open=${!modernWorkspace && mode !== "simple"}
         >
           <summary>Details</summary>
           ${mode === "simple"
@@ -9349,6 +9374,10 @@ function renderPccBusyFeedback(props: PccDashboardProps) {
       const elapsedSeconds = Number.isFinite(started)
         ? Math.max(0, Math.round((Date.now() - started) / 1000))
         : 0;
+      const activity =
+        run.status === "queued"
+          ? `Waiting for a planning slot${run.queuePosition ? ` · position ${run.queuePosition}` : ""}`
+          : stageText[run.stage];
       return html`<div
         class="pcc-callout pcc-callout--busy pcc-planning-progress"
         data-pcc-planning-progress
@@ -9358,8 +9387,12 @@ function renderPccBusyFeedback(props: PccDashboardProps) {
       >
         <div class="pcc-planning-progress__indicator" aria-hidden="true"></div>
         <div>
-          <strong>Creating your project plan</strong>
-          <span>${stageText[run.stage]}</span>
+          <strong
+            >${run.status === "queued"
+              ? "Your project plan is queued"
+              : "Creating your project plan"}</strong
+          >
+          <span>${activity}</span>
           <small
             >${modelLabel} · ${effortLabel} · ${elapsedSeconds}s elapsed. You can leave this screen;
             PCC keeps the run record so you can reconnect.</small
@@ -9507,7 +9540,463 @@ function renderProjectListEmptyState(
   </div>`;
 }
 
-export function renderPccDashboard(props: PccDashboardProps) {
+type PccOverviewProject = PccOverviewGetResult["projects"][number];
+type PccOverviewAttention = PccOverviewGetResult["attention"][number];
+
+function pccSurface(props: PccDashboardProps): PccSurface {
+  return props.surface ?? (props.projectDetail ? "project" : "overview");
+}
+
+function overviewProjects(props: PccDashboardProps): PccOverviewProject[] {
+  if (props.overview?.projects) {
+    return props.overview.projects;
+  }
+  return props.projects.map((project) => ({
+    ...project,
+    workState: isPccCompleteStatus(project.status)
+      ? "complete"
+      : project.status === "blocked"
+        ? "blocked"
+        : project.status === "needs_approval"
+          ? "needs_you"
+          : "ready",
+    activeAgentCount: 0,
+  }));
+}
+
+function workStateLabel(state: PccOverviewProject["workState"]): string {
+  return {
+    needs_you: "Needs You",
+    working: "Working",
+    ready: "Ready",
+    paused: "Paused",
+    blocked: "Blocked",
+    failed: "Failed",
+    complete: "Complete",
+  }[state];
+}
+
+function renderWorkOverviewNav(props: PccDashboardProps) {
+  const surface = pccSurface(props);
+  const items: Array<{ id: Exclude<PccSurface, "project">; label: string }> = [
+    { id: "overview", label: "Overview" },
+    { id: "projects", label: "Projects" },
+    { id: "activity", label: "Activity" },
+    { id: "system", label: "System" },
+  ];
+  return html`<nav class="pcc-work-nav" aria-label="Project Command Center">
+    ${items.map(
+      (item) => html`<button
+        class=${surface === item.id ? "pcc-work-nav__item is-active" : "pcc-work-nav__item"}
+        type="button"
+        aria-current=${surface === item.id ? "page" : nothing}
+        @click=${() => props.onSetSurface?.(item.id)}
+      >
+        ${item.label}
+      </button>`,
+    )}
+  </nav>`;
+}
+
+function renderOverviewProjectCard(project: PccOverviewProject, props: PccDashboardProps) {
+  const favorite = props.favorites?.includes(project.id) ?? false;
+  const complete = project.milestoneCounts.complete;
+  const total = project.milestoneCounts.total;
+  return html`<article
+    class="pcc-work-card pcc-work-card--project"
+    data-pcc-overview-project=${project.id}
+  >
+    <header>
+      <div>
+        <span class="pcc-work-state pcc-work-state--${project.workState}">
+          ${workStateLabel(project.workState)}
+        </span>
+        <h3>${project.title}</h3>
+      </div>
+      <button
+        class=${favorite ? "pcc-favorite is-active" : "pcc-favorite"}
+        type="button"
+        aria-label=${favorite
+          ? `Remove ${project.title} from favorites`
+          : `Favorite ${project.title}`}
+        aria-pressed=${favorite}
+        @click=${() => props.onToggleFavorite?.(project.id)}
+      >
+        ${favorite ? "★" : "☆"}
+      </button>
+    </header>
+    <div class="pcc-project-progress" aria-label=${`${project.percentComplete}% complete`}>
+      <div>
+        <strong>${Math.round(project.percentComplete)}%</strong>
+        <span>${complete}/${total} milestones</span>
+      </div>
+      <progress max="100" value=${project.percentComplete}></progress>
+    </div>
+    <dl class="pcc-work-card__facts">
+      <div>
+        <dt>Now</dt>
+        <dd>${project.currentMilestone ?? "Ready for the next step"}</dd>
+      </div>
+      <div>
+        <dt>Next</dt>
+        <dd>${project.nextAction ?? project.nextActions[0] ?? "Open project"}</dd>
+      </div>
+      ${project.activeAgentCount > 0
+        ? html`<div>
+            <dt>Agents</dt>
+            <dd>${project.activeAgentCount} working now</dd>
+          </div>`
+        : nothing}
+      ${project.blocker
+        ? html`<div class="pcc-work-card__blocker">
+            <dt>Blocked by</dt>
+            <dd>${project.blocker}</dd>
+          </div>`
+        : nothing}
+    </dl>
+    <footer>
+      <button
+        class="btn pcc-action-primary"
+        type="button"
+        @click=${() => props.onSelectProject(project.id)}
+      >
+        Open project
+      </button>
+    </footer>
+  </article>`;
+}
+
+function renderAttentionCard(item: PccOverviewAttention, props: PccDashboardProps) {
+  return html`<article class="pcc-attention-row" data-pcc-attention=${item.id}>
+    <div>
+      <span>${item.kind === "permission" ? "Permission" : "Needs attention"}</span>
+      <h3>${item.title}</h3>
+      ${item.detail ? html`<p>${item.detail}</p>` : nothing}
+    </div>
+    <button
+      class="btn pcc-action-primary"
+      type="button"
+      @click=${() => props.onOpenAttention?.(item.projectId, item.recordId)}
+    >
+      ${item.actionLabel}
+    </button>
+  </article>`;
+}
+
+function formatAgentElapsed(startedAt?: string): string {
+  if (!startedAt) {
+    return "Waiting";
+  }
+  const elapsed = Math.max(0, Date.now() - Date.parse(startedAt));
+  const minutes = Math.floor(elapsed / 60_000);
+  return minutes < 1 ? "Just started" : `${minutes}m elapsed`;
+}
+
+function renderWorkOverview(props: PccDashboardProps) {
+  const overview = props.overview;
+  const projects = overviewProjects(props);
+  const activeProjects = projects.filter((project) => project.workState !== "complete");
+  const attention = overview?.attention ?? [];
+  const agents = overview?.activeAgents ?? [];
+  const recent = props.recentProjectIds
+    ?.map((id) => projects.find((project) => project.id === id))
+    .filter((project): project is PccOverviewProject => Boolean(project));
+  return html`<main class="pcc-work-overview" data-pcc-work-overview>
+    ${attention.length
+      ? html`<section
+          class="pcc-work-section pcc-work-section--attention"
+          aria-labelledby="pcc-needs-you-title"
+        >
+          <header>
+            <div>
+              <span>Needs You</span>
+              <h2 id="pcc-needs-you-title">
+                ${attention.length} item${attention.length === 1 ? "" : "s"} waiting
+              </h2>
+            </div>
+          </header>
+          <div class="pcc-attention-list">
+            ${attention.map((item) => renderAttentionCard(item, props))}
+          </div>
+        </section>`
+      : nothing}
+
+    <section class="pcc-work-section" aria-labelledby="pcc-working-now-title">
+      <header>
+        <div>
+          <span>Working Now</span>
+          <h2 id="pcc-working-now-title">
+            ${agents.length
+              ? `${agents.length} active agent${agents.length === 1 ? "" : "s"}`
+              : "No agents running"}
+          </h2>
+        </div>
+        <span class="pcc-team-presence">${props.presence?.length ?? 0}/6 team members online</span>
+      </header>
+      ${agents.length
+        ? html`<div class="pcc-agent-list">
+            ${agents.map(
+              (agent) => html`<button
+                class="pcc-agent-row"
+                type="button"
+                @click=${() => props.onSelectProject(agent.projectId)}
+              >
+                <span class="pcc-agent-avatar" aria-hidden="true"
+                  >${agent.agentName.slice(0, 1).toUpperCase()}</span
+                >
+                <span class="pcc-agent-row__body">
+                  <strong>${agent.agentName}</strong>
+                  <span>${agent.projectTitle} · ${agent.task}</span>
+                </span>
+                <span class="pcc-agent-row__status">
+                  ${formatStatus(agent.status)} · ${formatAgentElapsed(agent.startedAt)}
+                </span>
+              </button>`,
+            )}
+          </div>`
+        : html`<p class="pcc-work-empty">
+            Start a ready project when you want agents to begin. PCC will show verified live work
+            here.
+          </p>`}
+    </section>
+
+    ${recent?.length
+      ? html`<section class="pcc-recent-shortcuts" aria-label="Recently opened projects">
+          <span>Recent</span>
+          ${recent
+            .slice(0, 4)
+            .map(
+              (project) => html`<button
+                type="button"
+                @click=${() => props.onSelectProject(project.id)}
+              >
+                ${project.title}
+              </button>`,
+            )}
+        </section>`
+      : nothing}
+
+    <section class="pcc-work-section" aria-labelledby="pcc-projects-title">
+      <header>
+        <div>
+          <span>Active Projects</span>
+          <h2 id="pcc-projects-title">
+            ${activeProjects.length} project${activeProjects.length === 1 ? "" : "s"}
+          </h2>
+        </div>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          @click=${() => props.onSetSurface?.("projects")}
+        >
+          View all
+        </button>
+      </header>
+      ${activeProjects.length
+        ? html`<div class="pcc-work-project-grid">
+            ${activeProjects
+              .slice(0, 8)
+              .map((project) => renderOverviewProjectCard(project, props))}
+          </div>`
+        : html`<div class="pcc-work-empty pcc-work-empty--large">
+            <h3>${projects.length ? "No active projects" : "No projects yet"}</h3>
+            <p>
+              ${projects.length
+                ? "Open Projects to review completed work, or create something new."
+                : "Create a project and PCC will keep its work, progress, agents, and next action together."}
+            </p>
+            <button
+              class="btn pcc-action-primary"
+              type="button"
+              @click=${() => props.onOpenProjectEditor()}
+            >
+              New project
+            </button>
+          </div>`}
+    </section>
+
+    <section
+      class="pcc-work-section pcc-work-section--activity"
+      aria-labelledby="pcc-recent-activity-title"
+    >
+      <header>
+        <div>
+          <span>Recent Activity</span>
+          <h2 id="pcc-recent-activity-title">What changed</h2>
+        </div>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          @click=${() => props.onSetSurface?.("activity")}
+        >
+          See history
+        </button>
+      </header>
+      <ol class="pcc-activity-list">
+        ${(overview?.recentActivity ?? []).slice(0, 5).map(
+          (activity) => html`<li>
+            <button type="button" @click=${() => props.onSelectProject(activity.projectId)}>
+              <strong>${activity.projectTitle}</strong>
+              <span>${activity.actor} · ${activity.action}</span>
+              <time>${formatUpdatedAt(Date.parse(activity.at))}</time>
+            </button>
+          </li>`,
+        )}
+      </ol>
+    </section>
+
+    <button class="pcc-system-pill" type="button" @click=${() => props.onSetSurface?.("system")}>
+      <span
+        class="pcc-system-pill__dot pcc-system-pill__dot--${overview?.system.status ??
+        "unavailable"}"
+      ></span>
+      <strong>${overview?.system.label ?? "PCC status unavailable"}</strong>
+      <span>System details</span>
+    </button>
+  </main>`;
+}
+
+function renderProjectsDirectory(props: PccDashboardProps) {
+  const query = props.projectSearchQuery?.trim().toLowerCase() ?? "";
+  const projects = overviewProjects(props).filter((project) => {
+    if (!query) {
+      return true;
+    }
+    return [project.title, project.currentMilestone, project.nextAction, project.blocker]
+      .filter(Boolean)
+      .some((value) => value!.toLowerCase().includes(query));
+  });
+  const favorites = new Set(props.favorites ?? []);
+  projects.sort(
+    (left, right) =>
+      Number(favorites.has(right.id)) - Number(favorites.has(left.id)) ||
+      right.updatedAt.localeCompare(left.updatedAt),
+  );
+  return html`<main class="pcc-work-overview" data-pcc-projects-directory>
+    <section class="pcc-work-section">
+      <header class="pcc-directory-header">
+        <div>
+          <span>Projects</span>
+          <h2>Everything in one place</h2>
+        </div>
+        <label class="pcc-directory-search">
+          <span class="pcc-sr-only">Search projects</span>
+          <input
+            type="search"
+            placeholder="Search projects"
+            .value=${props.projectSearchQuery ?? ""}
+            @input=${(event: Event) =>
+              props.onSetProjectSearchQuery?.((event.currentTarget as HTMLInputElement).value)}
+          />
+        </label>
+      </header>
+      <div class="pcc-work-project-grid">
+        ${projects.map((project) => renderOverviewProjectCard(project, props))}
+      </div>
+      ${projects.length === 0
+        ? html`<p class="pcc-work-empty">No projects match this search.</p>`
+        : nothing}
+    </section>
+  </main>`;
+}
+
+function renderActivityDirectory(props: PccDashboardProps) {
+  const activity = props.overview?.recentActivity ?? [];
+  return html`<main class="pcc-work-overview" data-pcc-activity-directory>
+    <section class="pcc-work-section">
+      <header>
+        <div>
+          <span>Activity</span>
+          <h2>Recent project changes</h2>
+        </div>
+      </header>
+      <ol class="pcc-activity-list pcc-activity-list--full">
+        ${activity.map(
+          (item) => html`<li>
+            <button type="button" @click=${() => props.onSelectProject(item.projectId)}>
+              <strong>${item.projectTitle}</strong>
+              <span
+                >${item.actor} ·
+                ${item.action}${item.progress == null
+                  ? ""
+                  : ` · ${Math.round(item.progress)}%`}</span
+              >
+              <time>${formatUpdatedAt(Date.parse(item.at))}</time>
+            </button>
+          </li>`,
+        )}
+      </ol>
+    </section>
+  </main>`;
+}
+
+function renderSystemOverview(props: PccDashboardProps) {
+  const system = props.overview?.system;
+  return html`<main class="pcc-work-overview" data-pcc-system-overview>
+    <section class="pcc-work-section pcc-system-overview">
+      <span
+        class="pcc-system-pill__dot pcc-system-pill__dot--${system?.status ?? "unavailable"}"
+      ></span>
+      <div>
+        <span>System</span>
+        <h2>${system?.label ?? "PCC status unavailable"}</h2>
+        <p>${system?.detail ?? "Project Command Center is serving the shared work ledger."}</p>
+      </div>
+      <button
+        class="btn pcc-action-primary"
+        type="button"
+        @click=${() => props.onSelectProject("project-command-center")}
+      >
+        Open system record
+      </button>
+    </section>
+  </main>`;
+}
+
+function renderProjectWorkspaceSurface(props: PccDashboardProps) {
+  const detail = props.projectDetail;
+  if (!detail) {
+    return html`<main class="pcc-work-overview">
+      <p class="pcc-work-empty">Loading project…</p>
+    </main>`;
+  }
+  const activeAgents =
+    props.overview?.activeAgents.filter((agent) => agent.projectId === detail.project.id).length ??
+    0;
+  return html`<main class="pcc-project-workspace" data-pcc-project-workspace>
+    <header class="pcc-project-workspace__header">
+      <button
+        class="btn btn--subtle"
+        type="button"
+        @click=${() => props.onSetSurface?.("overview")}
+      >
+        ← Overview
+      </button>
+      <div>
+        <h2>${detail.project.title}</h2>
+        <span
+          >${Math.round(detail.summary.percentComplete)}% complete · ${activeAgents}
+          agent${activeAgents === 1 ? "" : "s"} working</span
+        >
+      </div>
+      ${pendingPermissionForDetail(detail, props.attentionRecordId)
+        ? html`<button
+            class="btn pcc-action-primary"
+            type="button"
+            @click=${(event: Event) =>
+              openPccPermissionReview(detail, event.currentTarget as HTMLElement)}
+          >
+            Review permission
+          </button>`
+        : nothing}
+    </header>
+    <section class="pcc-project-workspace__body">
+      ${renderProjectDetail({ ...props, viewMode: "detailed" })}
+    </section>
+  </main>`;
+}
+
+function renderLegacyPccDashboard(props: PccDashboardProps) {
   const scopedProjects = focusScopedProjectsForToday(props, props.projects);
   const selectedProjectSummary = props.projectDetail
     ? props.projects.find((project) => project.id === props.projectDetail?.project.id)
@@ -9549,23 +10038,133 @@ export function renderPccDashboard(props: PccDashboardProps) {
   const mode = pccViewMode(props);
   const deferTodayUntilAfterWorkspace = mode === "simple" && Boolean(props.projectDetail);
   const focusWorkspace = mode === "simple" && Boolean(props.projectDetail);
+  return html`<section
+    class="pcc-shell"
+    data-pcc-shell
+    data-pcc-product-focus=${effectivePccFocusMode(props)}
+  >
+    <header class="pcc-hero pcc-hero--compact">
+      <div>
+        <p class="pcc-kicker">Projects</p>
+        <h2>Project Command Center</h2>
+        <p class="pcc-hero__subtitle">PCC product status, project work, and safe next actions.</p>
+      </div>
+      <div class="pcc-hero__actions">
+        <span class="pcc-updated">${formatUpdatedAt(props.updatedAt)}</span>
+        ${renderViewModeSwitcher(props)}
+        <button
+          class="btn"
+          type="button"
+          data-pcc-new-project
+          @click=${() => props.onOpenProjectEditor()}
+        >
+          New project
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.loading}
+          @click=${props.onRefresh}
+        >
+          ${props.loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+    </header>
+    ${props.error
+      ? html`<div class="pcc-callout" role="alert">
+          <strong>Project Command Center unavailable</strong><span>${props.error}</span>
+        </div>`
+      : nothing}
+    ${props.editorMode === "create-project" || props.editorMode === "edit-project"
+      ? nothing
+      : renderPccActionFeedback(props)}
+    ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
+    ${renderPccOfflineState(props)}
+    ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
+    ${renderPccMobileCommandRail(props)} ${renderReleaseGovernance(props)}
+    <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
+      <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
+        ${renderProjectFocusBar(
+          props,
+          allProjects,
+          projects.length,
+          filteredByTab.length,
+          selectedFilter,
+        )}
+        ${props.loading && projects.length === 0
+          ? renderPccLoadingState()
+          : !props.loading && projects.length === 0
+            ? renderProjectListEmptyState(
+                { ...props, projectFilter: selectedFilter },
+                allProjects,
+                filteredByTab.length,
+              )
+            : html`<section class="pcc-project-grid" aria-label="Project cards">
+                ${repeat(
+                  projects,
+                  (project) => project.id,
+                  (project) => renderProjectCard(project, props),
+                )}
+              </section>`}
+      </section>
+      <section class="pcc-workspace" data-pcc-selected-project-workspace>
+        ${renderProjectDetail(props)}
+        ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
+      </section>
+    </div>
+    ${deferTodayUntilAfterWorkspace
+      ? html`<div class="pcc-today-slot pcc-today-slot--after-workspace">
+          ${renderTodayView(props)}
+        </div>`
+      : nothing}
+    ${mode === "simple"
+      ? nothing
+      : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
+          <summary>Needs You list</summary>
+          ${renderNeedsAttentionNow(props)}
+        </details>`}
+    ${mode === "simple"
+      ? nothing
+      : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
+          <summary>Needs You details</summary>
+          ${renderImpactAttentionInbox(props)}
+        </details>`}
+    ${mode === "simple"
+      ? renderUpdateSafetyDrawer(props)
+      : html`${renderProductionTruthDrawer(props)} ${renderUpdateSafetyDrawer(props)}
+        ${renderRecentActivityFeed(props)}`}
+    ${props.editorMode === "create-project" || props.editorMode === "edit-project"
+      ? renderProjectEditor(props)
+      : nothing}
+    ${props.editorMode === "create-milestone" || props.editorMode === "edit-milestone"
+      ? renderMilestoneEditor(props)
+      : nothing}
+  </section>`;
+}
+
+export function renderPccDashboard(props: PccDashboardProps) {
+  if (props.surface === undefined) {
+    return renderLegacyPccDashboard(props);
+  }
+  const surface = pccSurface(props);
   return html`
-    <section
-      class="pcc-shell"
-      data-pcc-shell
-      data-pcc-product-focus=${effectivePccFocusMode(props)}
-    >
-      <header class="pcc-hero pcc-hero--compact">
+    <section class="pcc-shell pcc-shell--work-overview" data-pcc-shell data-pcc-surface=${surface}>
+      <header class="pcc-work-hero">
         <div>
-          <p class="pcc-kicker">Projects</p>
-          <h2>Project Command Center</h2>
-          <p class="pcc-hero__subtitle">PCC product status, project work, and safe next actions.</p>
+          <p class="pcc-kicker">Project Command Center</p>
+          <h1>
+            ${surface === "overview"
+              ? "Your work"
+              : surface === "project"
+                ? "Project"
+                : surface[0]!.toUpperCase() + surface.slice(1)}
+          </h1>
+          <p>See what needs you, what agents are doing, and what happens next.</p>
         </div>
-        <div class="pcc-hero__actions">
+        <div class="pcc-work-hero__actions">
           <span class="pcc-updated">${formatUpdatedAt(props.updatedAt)}</span>
-          ${renderViewModeSwitcher(props)}
           <button
-            class="btn"
+            class="btn pcc-action-primary"
             type="button"
             data-pcc-new-project
             @click=${() => props.onOpenProjectEditor()}
@@ -9582,7 +10181,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
           </button>
         </div>
       </header>
-
+      ${renderWorkOverviewNav(props)}
       ${props.error
         ? html`<div class="pcc-callout" role="alert">
             <strong>Project Command Center unavailable</strong><span>${props.error}</span>
@@ -9591,62 +10190,18 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? nothing
         : renderPccActionFeedback(props)}
-      ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)}
-      ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
-      ${renderPccMobileCommandRail(props)} ${renderReleaseGovernance(props)}
-
-      <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
-        <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
-          ${renderProjectFocusBar(
-            props,
-            allProjects,
-            projects.length,
-            filteredByTab.length,
-            selectedFilter,
-          )}
-          ${props.loading && projects.length === 0
-            ? renderPccLoadingState()
-            : !props.loading && projects.length === 0
-              ? renderProjectListEmptyState(
-                  { ...props, projectFilter: selectedFilter },
-                  allProjects,
-                  filteredByTab.length,
-                )
-              : html`<section class="pcc-project-grid" aria-label="Project cards">
-                  ${repeat(
-                    projects,
-                    (project) => project.id,
-                    (project) => renderProjectCard(project, props),
-                  )}
-                </section>`}
-        </section>
-        <section class="pcc-workspace" data-pcc-selected-project-workspace>
-          ${renderProjectDetail(props)}
-          ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
-        </section>
-      </div>
-      ${deferTodayUntilAfterWorkspace
-        ? html`<div class="pcc-today-slot pcc-today-slot--after-workspace">
-            ${renderTodayView(props)}
-          </div>`
-        : nothing}
-      ${mode === "simple"
-        ? nothing
-        : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
-            <summary>Needs You list</summary>
-            ${renderNeedsAttentionNow(props)}
-          </details>`}
-      ${mode === "simple"
-        ? nothing
-        : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
-            <summary>Needs You details</summary>
-            ${renderImpactAttentionInbox(props)}
-          </details>`}
-      ${mode === "simple"
-        ? renderUpdateSafetyDrawer(props)
-        : html`${renderProductionTruthDrawer(props)} ${renderUpdateSafetyDrawer(props)}
-          ${renderRecentActivityFeed(props)}`}
+      ${props.loading && !props.overview
+        ? renderPccLoadingState()
+        : surface === "overview"
+          ? renderWorkOverview(props)
+          : surface === "projects"
+            ? renderProjectsDirectory(props)
+            : surface === "activity"
+              ? renderActivityDirectory(props)
+              : surface === "system"
+                ? renderSystemOverview(props)
+                : renderProjectWorkspaceSurface(props)}
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? renderProjectEditor(props)
         : nothing}

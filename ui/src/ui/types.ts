@@ -1014,6 +1014,10 @@ export type PccAttachment =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccAttachment;
 export type PccPortfolioSummary =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccPortfolioSummary;
+export type PccOverviewGetResult =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccOverviewGetResult;
+export type PccPresenceEntry =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccPresenceEntry;
 export type PccWorkLoopSettings = import("../../../src/pcc/work-loop.js").PccWorkLoopSettings;
 export type PccWorkLoopState = import("../../../src/pcc/work-loop.js").PccWorkLoopState;
 export type {

@@ -177,6 +177,73 @@ const summary = {
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
+const workOverview = {
+  ledgerRevision: 12,
+  generatedAt: "2026-08-02T14:00:00.000Z",
+  projects: [
+    {
+      ...summary,
+      id: "family-fighters",
+      title: "Family Fighters",
+      workState: "needs_you" as const,
+      currentMilestone: "Approve fighter references",
+      nextAction: "Review permission",
+      activeAgentCount: 1,
+    },
+  ],
+  attention: [
+    {
+      id: "permission:permission-1",
+      projectId: "family-fighters",
+      kind: "permission" as const,
+      title: "Family Fighters needs permission",
+      detail: "Review high reasoning model before work continues.",
+      actionLabel: "Review permission",
+      recordId: "permission-1",
+      updatedAt: "2026-08-02T13:59:00.000Z",
+    },
+  ],
+  activeAgents: [
+    {
+      id: "plan-1:task-1",
+      projectId: "family-fighters",
+      projectTitle: "Family Fighters",
+      agentName: "pixel-artist",
+      task: "Prepare fighter references",
+      status: "running" as const,
+      startedAt: "2026-08-02T13:45:00.000Z",
+      lastActivityAt: "2026-08-02T13:59:00.000Z",
+    },
+  ],
+  recentActivity: [
+    {
+      id: "activity:family-fighters",
+      projectId: "family-fighters",
+      projectTitle: "Family Fighters",
+      actor: "pixel-artist",
+      action: "Prepared source references",
+      progress: 42,
+      at: "2026-08-02T13:59:00.000Z",
+    },
+  ],
+  portfolio: {
+    projectsTotal: 1,
+    active: 1,
+    blocked: 0,
+    needsApproval: 1,
+    complete: 0,
+    archived: 0,
+    averagePercentComplete: 42,
+    nextActions: ["Review permission"],
+  },
+  system: {
+    status: "healthy" as const,
+    label: "PCC healthy",
+    detail: "Runtime proof is current.",
+    projectId: "project-command-center" as const,
+  },
+} satisfies NonNullable<PccDashboardProps["overview"]>;
+
 function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardProps {
   return {
     loading: false,
@@ -255,6 +322,76 @@ afterEach(() => {
 });
 
 describe("renderPccDashboard", () => {
+  it("opens on a high-signal work overview without presenting PCC Product as a user project", () => {
+    const onSelectProject = vi.fn();
+    const onOpenAttention = vi.fn();
+    const onSetSurface = vi.fn();
+    const container = renderView(
+      createProps({
+        surface: "overview",
+        overview: workOverview,
+        projects: workOverview.projects,
+        presence: Array.from({ length: 6 }, (_, index) => ({
+          displayName: `Operator ${index + 1}`,
+          status: "online" as const,
+          surface: "overview" as const,
+          updatedAt: "2026-08-02T14:00:00.000Z",
+        })),
+        selectedProjectId: null,
+        projectDetail: null,
+        onSelectProject,
+        onOpenAttention,
+        onSetSurface,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-work-overview]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-overview-project]")).toHaveLength(1);
+    expect(
+      container.querySelector("[data-pcc-overview-project='project-command-center']"),
+    ).toBeNull();
+    expect(container.textContent).toContain("Needs You");
+    expect(container.textContent).toContain("pixel-artist");
+    expect(container.textContent).toContain("42%");
+    expect(container.textContent).toContain("6/6 team members online");
+    expect(container.textContent).toContain("PCC healthy");
+
+    (container.querySelector("[data-pcc-attention] button") as HTMLButtonElement).click();
+    expect(onOpenAttention).toHaveBeenCalledWith("family-fighters", "permission-1");
+
+    (container.querySelector(".pcc-agent-row") as HTMLButtonElement).click();
+    expect(onSelectProject).toHaveBeenCalledWith("family-fighters");
+
+    (container.querySelector(".pcc-system-pill") as HTMLButtonElement).click();
+    expect(onSetSurface).toHaveBeenCalledWith("system");
+  });
+
+  it("keeps all user projects discoverable on the Projects surface", () => {
+    const secondProject = {
+      ...workOverview.projects[0],
+      id: "finished-project",
+      title: "Finished Project",
+      status: "complete" as const,
+      workState: "complete" as const,
+      percentComplete: 100,
+      activeAgentCount: 0,
+    };
+    const container = renderView(
+      createProps({
+        surface: "projects",
+        overview: { ...workOverview, projects: [...workOverview.projects, secondProject] },
+        projects: [...workOverview.projects, secondProject],
+        selectedProjectId: null,
+        projectDetail: null,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-projects-directory]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-overview-project]")).toHaveLength(2);
+    expect(container.textContent).toContain("Family Fighters");
+    expect(container.textContent).toContain("Finished Project");
+  });
+
   it("renders fail-closed release governance with exact blockers and approval wording", () => {
     const container = renderView(
       createProps({
@@ -3262,6 +3399,40 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
       "Generating project plan…",
     );
+  });
+
+  it("shows planning queue position and keeps cancellation visible", () => {
+    const onCancelProjectPlan = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        actionBusy: true,
+        onCancelProjectPlan,
+        planningRun: {
+          schemaVersion: 1,
+          id: "run-queued",
+          requestFingerprint: "fingerprint-queued",
+          surface: "project_creation",
+          status: "queued",
+          stage: "preparing",
+          queuePosition: 3,
+          model: "openai/gpt-5.6-sol",
+          effort: "medium",
+          createdAt: "2026-08-02T00:00:00.000Z",
+          updatedAt: "2026-08-02T00:00:01.000Z",
+        },
+      }),
+    );
+
+    const progress = container.querySelector("[data-pcc-planning-progress]");
+    expect(progress?.textContent).toContain("Your project plan is queued");
+    expect(progress?.textContent).toContain("position 3");
+    const cancel = Array.from(progress?.querySelectorAll("button") ?? []).find((button) =>
+      button.textContent?.includes("Cancel generation"),
+    );
+    expect(cancel).toBeTruthy();
+    cancel?.click();
+    expect(onCancelProjectPlan).toHaveBeenCalledTimes(1);
   });
 
   it("captures a file's role, project target, instructions, and AI access in one form", () => {

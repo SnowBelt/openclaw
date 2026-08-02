@@ -13,7 +13,7 @@ type PccProjectLedgerView = {
  * small team responsive and make failure/recovery behavior predictable.
  */
 export const PCC_PRIVATE_TEAM_POLICY_SCHEMA_VERSION = 1 as const;
-export const PCC_PRIVATE_TEAM_MAX_MEMBERS = 5 as const;
+export const PCC_PRIVATE_TEAM_MAX_MEMBERS = 6 as const;
 export const PCC_PRIVATE_TEAM_MAX_PROJECTS = 100 as const;
 export const PCC_PRIVATE_TEAM_MAX_CONCURRENT_PLANNING_RUNS = 2 as const;
 export const PCC_PRIVATE_TEAM_MAX_ATTACHMENTS_PER_PROJECT = 200 as const;

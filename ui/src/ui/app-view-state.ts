@@ -1,5 +1,9 @@
 import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/src/index.js";
-import type { PccPrivateTeamPolicy } from "../../../packages/gateway-protocol/src/schema/types.js";
+import type {
+  PccOverviewGetResult,
+  PccPresenceEntry,
+  PccPrivateTeamPolicy,
+} from "../../../packages/gateway-protocol/src/schema/types.js";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
 import type { PccPlanningPolicy } from "../../../src/pcc/planning.js";
@@ -72,6 +76,7 @@ import type {
   PccProjectEditMode,
   PccProjectFilter,
   PccProjectFormState,
+  PccSurface,
   PccUndoAction,
   PccViewMode,
 } from "./pcc/application/state.ts";
@@ -248,6 +253,12 @@ export type AppViewState = {
   operationsLastVisitedAt: number | null;
   pccProjects: PccProjectSummary[];
   pccPortfolioSummary: PccPortfolioSummary | null;
+  pccOverview: PccOverviewGetResult | null;
+  pccPresence: PccPresenceEntry[];
+  pccSurface: PccSurface;
+  pccFavorites: string[];
+  pccRecentProjectIds: string[];
+  pccAttentionRecordId: string | null;
   pccRuntimeIdentity: PccRuntimeIdentity | null;
   pccUpdateSafety: PccUpdateSafety | null;
   pccReleaseGovernance: ReleaseGovernanceStatus | null;

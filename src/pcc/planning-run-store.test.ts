@@ -55,6 +55,19 @@ async function waitForTerminal(runId: string, env: NodeJS.ProcessEnv) {
   throw new Error("planning run did not reach a terminal state");
 }
 
+async function waitForAdmission(runId: string, env: NodeJS.ProcessEnv) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const run = await readPccPlanningRun(runId, env);
+    if (run && run.status !== "queued") {
+      return run;
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+  }
+  throw new Error("planning run did not leave the queue");
+}
+
 afterEach(() => {
   resetPccPlanningRunsForTest();
   for (const root of roots.splice(0)) {
@@ -114,7 +127,7 @@ describe("PCC durable planning runs", () => {
     await waitForTerminal(first.id, env);
   });
 
-  it("fails closed when the private-team planning capacity is full", async () => {
+  it("queues additional plans and automatically admits them when capacity is available", async () => {
     const env = makeEnv();
     let releaseFirst!: () => void;
     let releaseSecond!: () => void;
@@ -139,21 +152,6 @@ describe("PCC durable planning runs", () => {
 
     const first = await start("First bounded plan.", firstGate);
     const second = await start("Second bounded plan.", secondGate);
-    await expect(
-      startPccPlanningRun({
-        cfg: {} as OpenClawConfig,
-        request: { surface: "project_creation", description: "Third bounded plan." },
-        policy: DEFAULT_PCC_PLANNING_POLICY,
-        env,
-        maxConcurrentRuns: 2,
-        generatePlan: async () => plan(),
-      }),
-    ).rejects.toThrow("planning capacity is full");
-
-    releaseFirst();
-    releaseSecond();
-    await waitForTerminal(first.id, env);
-    await waitForTerminal(second.id, env);
     const third = await startPccPlanningRun({
       cfg: {} as OpenClawConfig,
       request: { surface: "project_creation", description: "Third bounded plan." },
@@ -162,6 +160,13 @@ describe("PCC durable planning runs", () => {
       maxConcurrentRuns: 2,
       generatePlan: async () => plan(),
     });
+    expect(third).toMatchObject({ status: "queued", queuePosition: 1 });
+
+    releaseFirst();
+    await waitForTerminal(first.id, env);
+    expect(["running", "succeeded"]).toContain((await waitForAdmission(third.id, env)).status);
+    releaseSecond();
+    await waitForTerminal(second.id, env);
     expect((await waitForTerminal(third.id, env)).status).toBe("succeeded");
   });
 
