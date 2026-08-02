@@ -37,7 +37,7 @@ function run(command, args, options = {}) {
   if (result.error || result.status !== 0) {
     const detail =
       result.error?.message || result.stderr || result.stdout || `status ${result.status}`;
-    throw new Error(`${command} ${args.join(" ")} failed: ${String(detail).trim()}`);
+    throw new Error(`${command} ${args.join(" ")} failed: ${detail.trim()}`);
   }
   return typeof result.stdout === "string" ? result.stdout.trim() : "";
 }
@@ -56,7 +56,7 @@ function runBuffer(command, args, options = {}) {
       result.stderr?.toString("utf8") ||
       result.stdout?.toString("utf8") ||
       `status ${result.status}`;
-    throw new Error(`${command} ${args.join(" ")} failed: ${String(detail).trim()}`);
+    throw new Error(`${command} ${args.join(" ")} failed: ${detail.trim()}`);
   }
   return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? "");
 }

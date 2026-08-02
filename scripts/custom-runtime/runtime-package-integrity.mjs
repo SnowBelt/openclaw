@@ -205,7 +205,9 @@ function verifyCapabilityClosure(root) {
       requiredPaths.add(normalizeRelativePath(requiredPath));
     }
   }
-  for (const requiredPath of [...requiredPaths].toSorted()) {
+  for (const requiredPath of [...requiredPaths].toSorted((left, right) =>
+    left.localeCompare(right),
+  )) {
     const absolutePath = path.join(root, requiredPath);
     try {
       const stat = fs.lstatSync(absolutePath);
