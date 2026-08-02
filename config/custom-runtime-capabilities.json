@@ -519,7 +519,11 @@
         "docs/automation/control-director-source-handoff.md",
         "docs/automation/operations-room-architecture.md",
         "docs/automation/pcc-operational-excellence.md",
-        "docs/concepts/control-director.md"
+        "docs/concepts/control-director.md",
+        "scripts/custom-runtime/custom-runtime-customization-inventory.ts",
+        "scripts/custom-runtime/custom-runtime-retention-plan.ts",
+        "scripts/custom-runtime/custom-runtime-storage-inventory.ts",
+        "scripts/custom-runtime/custom-runtime-source-migrate.sh"
       ]
     },
     {

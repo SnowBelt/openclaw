@@ -14,6 +14,7 @@ worktrees=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES:-"$HOME/OpenClaw-runtime-up
 receipts=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}/receipts
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
+durable_source_root=${OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT:-"$HOME"}
 mkdir -p "$worktrees" "$receipts"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 candidate="$worktrees/$stamp"
@@ -33,25 +34,125 @@ pointer_fields=$(python3 - "$active_pointer" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     value = json.load(f)
-for key in ("sourceSha", "sourceRepo", "sourceBranch", "capabilityManifestPath"):
+for key in (
+    "sourceSha",
+    "sourceRepo",
+    "sourceGitCommonDir",
+    "sourceBranch",
+    "sourceRemoteUrl",
+    "sourceRemoteRef",
+    "sourceRemoteSha",
+    "capabilityManifestPath",
+):
     item = value.get(key, "")
     print(item if isinstance(item, str) else "")
 PY
 ) || fail active_pointer
 active_sha=$(printf '%s\n' "$pointer_fields" | sed -n '1p')
 pointer_repo=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
-pointer_branch=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
-active_capability_manifest=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
+pointer_git_common_dir=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
+pointer_branch=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
+source_remote_url=$(printf '%s\n' "$pointer_fields" | sed -n '5p')
+source_remote_ref=$(printf '%s\n' "$pointer_fields" | sed -n '6p')
+source_remote_sha=$(printf '%s\n' "$pointer_fields" | sed -n '7p')
+active_capability_manifest=$(printf '%s\n' "$pointer_fields" | sed -n '8p')
 [ -n "$repo" ] || repo=$pointer_repo
 [ -n "$branch" ] || branch=$pointer_branch
 [ -n "$repo" ] && [ -n "$branch" ] || fail durable_source_config
 case "$active_sha" in *[!0-9a-fA-F]*|'') fail durable_source_sha ;; esac
 [ "${#active_sha}" -eq 40 ] || fail durable_source_sha
 [ -d "$repo/.git" ] || git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || fail durable_source_repo
+[ ! -L "$repo" ] || fail durable_source_symlink
+repo=$(cd "$repo" && pwd -P) || fail durable_source_repo
+[ -d "$durable_source_root" ] || fail durable_source_root
+durable_source_root=$(cd "$durable_source_root" && pwd -P) || fail durable_source_root
+case "$repo" in
+  "$durable_source_root"|"$durable_source_root"/*) ;;
+  *) fail durable_source_transient_path ;;
+esac
+case "$worktrees" in
+  "$durable_source_root"|"$durable_source_root"/*) ;;
+  *) fail durable_update_worktrees_transient ;;
+esac
 [ -z "$(git -C "$repo" status --porcelain)" ] || fail durable_source_dirty
+[ "$(git -C "$repo" rev-parse --verify HEAD^{commit})" = "$active_sha" ] || fail durable_source_head
+repo_git_common_dir=$(git -C "$repo" rev-parse --git-common-dir) || fail durable_source_git_common_dir
+case "$repo_git_common_dir" in
+  /*) ;;
+  *) repo_git_common_dir="$repo/$repo_git_common_dir" ;;
+esac
+repo_git_common_dir=$(cd "$(dirname "$repo_git_common_dir")" && pwd -P)/$(basename "$repo_git_common_dir")
+case "$repo_git_common_dir" in
+  "$durable_source_root"|"$durable_source_root"/*) ;;
+  *) fail durable_source_git_common_dir_transient ;;
+esac
+[ "$pointer_git_common_dir" = "$repo_git_common_dir" ] || fail durable_source_git_common_dir_mismatch
 git -C "$repo" cat-file -e "$active_sha^{commit}" 2>/dev/null || fail durable_source_missing_commit
-git -C "$repo" rev-parse --verify "$branch^{commit}" >/dev/null 2>&1 || fail durable_source_branch
-git -C "$repo" merge-base --is-ancestor "$active_sha" "$branch" || fail durable_source_branch_history
+case "$branch" in refs/heads/*) branch_ref=$branch ;; *) branch_ref="refs/heads/$branch" ;; esac
+git check-ref-format "$branch_ref" >/dev/null 2>&1 || fail durable_source_branch
+git -C "$repo" rev-parse --verify "$branch_ref^{commit}" >/dev/null 2>&1 || fail durable_source_branch
+git -C "$repo" merge-base --is-ancestor "$active_sha" "$branch_ref" || fail durable_source_branch_history
+[ -n "$source_remote_url" ] && [ -n "$source_remote_ref" ] || fail durable_source_remote_config
+[ "$source_remote_sha" = "$active_sha" ] || fail durable_source_remote_sha
+case "$source_remote_ref" in refs/heads/*|refs/tags/*) ;; *) fail durable_source_remote_ref ;; esac
+git check-ref-format "$source_remote_ref" >/dev/null 2>&1 || fail durable_source_remote_ref
+python3 - "$source_remote_url" <<'PY' || fail durable_source_remote_url
+import os
+import re
+import sys
+from urllib.parse import urlsplit
+
+value = sys.argv[1]
+if not value or any(character in value for character in ("\r", "\n", "\0")):
+    raise SystemExit(1)
+if os.path.isabs(value):
+    raise SystemExit(0)
+if "://" not in value:
+    if not re.fullmatch(r"(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
+        raise SystemExit(1)
+    raise SystemExit(0)
+parsed = urlsplit(value)
+if parsed.scheme not in {"file", "git", "https", "ssh"}:
+    raise SystemExit(1)
+if parsed.password or parsed.query or parsed.fragment:
+    raise SystemExit(1)
+if parsed.username and parsed.scheme != "ssh":
+    raise SystemExit(1)
+PY
+remote_result=$(git ls-remote --exit-code -- "$source_remote_url" "$source_remote_ref" "${source_remote_ref}^{}" 2>/dev/null) || fail durable_source_remote_lookup
+remote_sha=$(printf '%s\n' "$remote_result" | awk -v peeled="${source_remote_ref}^{}" '
+  $2 == peeled { peeled_sha = $1 }
+  !first_sha { first_sha = $1 }
+  END { print peeled_sha ? peeled_sha : first_sha }
+')
+[ "$remote_sha" = "$active_sha" ] || fail durable_source_remote_mismatch
+source_provenance_receipt="$receipts/source-provenance-$stamp.json"
+python3 - "$source_provenance_receipt" "$active_sha" "$source_remote_url" "$source_remote_ref" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+target, source_sha, remote_url, remote_ref = sys.argv[1:]
+temporary = target + ".tmp"
+with open(temporary, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "schema": "openclaw.custom-runtime-source-provenance.v1",
+            "result": "passed",
+            "sourceRemoteRef": remote_ref,
+            "sourceRemoteSha": source_sha,
+            "sourceRemoteUrl": remote_url,
+            "sourceSha": source_sha,
+            "verifiedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+        f,
+        indent=2,
+        sort_keys=True,
+    )
+    f.write("\n")
+os.replace(temporary, target)
+PY
 [ -f "$repo/config/custom-runtime-capabilities.json" ] || fail durable_source_capabilities
 [ -f "$repo/scripts/custom-runtime/custom-runtime-activate.sh" ] || fail durable_source_control_plane
 active_source_manifest="$receipts/active-capabilities-$stamp.json"
@@ -91,6 +192,15 @@ pnpm -C "$candidate" install --frozen-lockfile || fail install
 pnpm -C "$candidate" deps:shrinkwrap:generate || fail shrinkwrap_generate
 git -C "$candidate" diff --quiet || fail generated_drift
 sha=$(git -C "$candidate" rev-parse HEAD)
+candidate_remote_url=$repo
+candidate_remote_ref="refs/heads/$update_branch"
+candidate_remote_result=$(git ls-remote --exit-code -- "$candidate_remote_url" "$candidate_remote_ref" "${candidate_remote_ref}^{}" 2>/dev/null) || fail candidate_source_provenance
+candidate_remote_sha=$(printf '%s\n' "$candidate_remote_result" | awk -v peeled="${candidate_remote_ref}^{}" '
+  $2 == peeled { peeled_sha = $1 }
+  !first_sha { first_sha = $1 }
+  END { print peeled_sha ? peeled_sha : first_sha }
+')
+[ "$candidate_remote_sha" = "$sha" ] || fail candidate_source_provenance
 survival_receipt="$receipts/update-survival-$stamp.json"
 pnpm -C "$candidate" custom-runtime:update-survival -- \
   --repo "$candidate" \
@@ -212,10 +322,29 @@ with open(target, "w", encoding="utf-8") as f:
 PY
 "$(dirname "$0")/custom-runtime-seal.sh" --seal --release "$release" || fail release_seal
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
-  "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" "$survival_receipt" \
+  "$official_ref" "$active_sha" "$sha" "$repo" "$repo_git_common_dir" "$update_branch" \
+  "$candidate_remote_url" "$candidate_remote_ref" "$candidate_remote_sha" "$survival_receipt" \
   "$survival_receipt_sha" "$verification_commands" <<'PY'
 import json, os, sys
-receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, proof_path, proof_sha, commands_path = sys.argv[1:]
+(
+    receipt,
+    pending,
+    at,
+    worktree,
+    release,
+    stable_ref,
+    base_sha,
+    source_sha,
+    repo,
+    git_common_dir,
+    branch,
+    remote_url,
+    remote_ref,
+    remote_sha,
+    proof_path,
+    proof_sha,
+    commands_path,
+) = sys.argv[1:]
 with open(commands_path, encoding="utf-8") as f:
     verification_commands = [line.rstrip("\n") for line in f if line.strip()]
 data = {
@@ -227,8 +356,12 @@ data = {
     "stableRef": stable_ref,
     "baseSha": base_sha,
     "sourceSha": source_sha,
-    "sourceRepo": repo,
+    "sourceRepo": worktree,
+    "sourceGitCommonDir": git_common_dir,
     "sourceBranch": branch,
+    "sourceRemoteUrl": remote_url,
+    "sourceRemoteRef": remote_ref,
+    "sourceRemoteSha": remote_sha,
     "preservationProof": {
         "path": os.path.realpath(proof_path),
         "sha256": proof_sha,

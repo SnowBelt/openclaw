@@ -2038,7 +2038,10 @@
     "ui:smoke:projects": "node --import tsx scripts/dev/control-ui-projects-smoke.ts",
     "ui:smoke:self-improvement": "node --import tsx scripts/dev/control-ui-self-improvement-smoke.ts",
     "ui:smoke:snes-studio": "node scripts/ensure-playwright-chromium.mjs && node --import tsx scripts/dev/control-ui-snes-studio-smoke.ts",
-    "ui:smoke:snes-studio:dom": "node --import tsx scripts/dev/control-ui-snes-studio-dom-smoke.ts"
+    "ui:smoke:snes-studio:dom": "node --import tsx scripts/dev/control-ui-snes-studio-dom-smoke.ts",
+    "custom-runtime:customization-inventory": "node --import tsx scripts/custom-runtime/custom-runtime-customization-inventory.ts",
+    "custom-runtime:retention-plan": "node --import tsx scripts/custom-runtime/custom-runtime-retention-plan.ts",
+    "custom-runtime:storage-inventory": "node --import tsx scripts/custom-runtime/custom-runtime-storage-inventory.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.1.0",

@@ -7,23 +7,27 @@ releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releas
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
-managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh control-director-role-config.py copy_stage_state.py'
+managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh custom-runtime-source-migrate.sh control-director-role-config.py copy_stage_state.py'
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 
 usage() {
-  printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--stage-port 18790] [--port 18789] [--enable-sig-background]' >&2
+  printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF --source-git-common-dir PATH --source-remote-url URL --source-remote-ref REF --source-remote-sha SHA] [--stage-port 18790] [--port 18789] [--enable-sig-background]' >&2
   exit 64
 }
 
-release= source_sha= source_repo= source_branch= stage_port=18790 port=18789 enable_sig_background=false
+release= source_sha= source_repo= source_branch= source_git_common_dir= source_remote_url= source_remote_ref= source_remote_sha= stage_port=18790 port=18789 enable_sig_background=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --source-repo) source_repo=${2:-}; shift 2 ;;
     --source-branch) source_branch=${2:-}; shift 2 ;;
+    --source-git-common-dir) source_git_common_dir=${2:-}; shift 2 ;;
+    --source-remote-url) source_remote_url=${2:-}; shift 2 ;;
+    --source-remote-ref) source_remote_ref=${2:-}; shift 2 ;;
+    --source-remote-sha) source_remote_sha=${2:-}; shift 2 ;;
     --stage-port) stage_port=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
@@ -34,6 +38,10 @@ done
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
   [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
+  if [ -n "$source_git_common_dir" ] || [ -n "$source_remote_url" ] || [ -n "$source_remote_ref" ] || [ -n "$source_remote_sha" ]; then
+    [ -n "$source_git_common_dir" ] && [ -n "$source_remote_url" ] && [ -n "$source_remote_ref" ] && [ -n "$source_remote_sha" ] || usage
+    [ "$source_remote_sha" = "$source_sha" ] || usage
+  fi
   source_repo=$(cd "$source_repo" && pwd -P)
   case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
 fi
@@ -174,6 +182,11 @@ rollback_launcher=
 set -- --release "$release" --source-sha "$source_sha"
 if [ -n "$source_repo" ]; then
   set -- "$@" --source-repo "$source_repo" --source-branch "$source_branch"
+fi
+if [ -n "$source_git_common_dir" ]; then
+  set -- "$@" --source-git-common-dir "$source_git_common_dir" \
+    --source-remote-url "$source_remote_url" --source-remote-ref "$source_remote_ref" \
+    --source-remote-sha "$source_remote_sha"
 fi
 if [ "$enable_sig_background" = true ]; then
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \

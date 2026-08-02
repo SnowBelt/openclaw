@@ -478,7 +478,7 @@ lease_path = os.path.join(runtime_home, "certification-lease.json")
 now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
 sha_pattern = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
 identity_pattern = re.compile(r"[A-Za-z0-9._:@/+~-]{1,160}")
-allowed_operations = {"activation", "certification-lease", "guard", "promotion", "restart", "rollback"}
+allowed_operations = {"activation", "certification-lease", "guard", "promotion", "restart", "rollback", "source-migration"}
 
 
 def fail(message, code=78):

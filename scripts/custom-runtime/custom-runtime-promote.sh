@@ -4,6 +4,7 @@ set -eu
 
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
+durable_source_root=${OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT:-"$HOME"}
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 env_wrapper=${OPENCLAW_GATEWAY_ENV_WRAPPER:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway-env-wrapper.sh"}
 env_file=${OPENCLAW_GATEWAY_ENV_FILE:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway.env"}
@@ -23,15 +24,41 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 
+validate_source_remote_url() {
+  python3 - "$1" <<'PY'
+import os
+import re
+import sys
+from urllib.parse import urlsplit
+
+value = sys.argv[1]
+if not value or any(character in value for character in ("\r", "\n", "\0")):
+    raise SystemExit(1)
+if os.path.isabs(value):
+    raise SystemExit(0)
+if "://" not in value:
+    if not re.fullmatch(r"(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
+        raise SystemExit(1)
+    raise SystemExit(0)
+parsed = urlsplit(value)
+if parsed.scheme not in {"file", "git", "https", "ssh"}:
+    raise SystemExit(1)
+if parsed.password or parsed.query or parsed.fragment:
+    raise SystemExit(1)
+if parsed.username and parsed.scheme != "ssh":
+    raise SystemExit(1)
+PY
+}
+
 usage() {
   printf '%s\n' \
-    'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' \
+    'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF --source-git-common-dir PATH --source-remote-url URL --source-remote-ref REF --source-remote-sha SHA] [--port 18789] [--enable-sig-background]' \
     '       custom-runtime-promote.sh --lease-acquire|--lease-heartbeat|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification|human-usability-finalization --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600] [--usability-campaign PATH]' \
     '       custom-runtime-promote.sh --lease-recover-orphaned --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification --approval-id ID --operation-id ID --invocation-id ID --recovery-approval-id ID --activity-proof PATH --github-repo OWNER/REPO --reason ID' \
     '       custom-runtime-promote.sh --lease-status' >&2
   exit 64
 }
-release= source_sha= source_repo= source_branch= port=18789 enable_sig_background=false
+release= source_sha= source_repo= source_branch= source_git_common_dir= source_remote_url= source_remote_ref= source_remote_sha= port=18789 enable_sig_background=false
 lease_action= lease_active_sha= lease_candidate_sha= lease_owner= lease_operation_class=
 lease_ttl_seconds= lease_approval_id= lease_operation_id= lease_invocation_id=
 lease_usability_campaign=
@@ -42,6 +69,10 @@ while [ $# -gt 0 ]; do
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --source-repo) source_repo=${2:-}; shift 2 ;;
     --source-branch) source_branch=${2:-}; shift 2 ;;
+    --source-git-common-dir) source_git_common_dir=${2:-}; shift 2 ;;
+    --source-remote-url) source_remote_url=${2:-}; shift 2 ;;
+    --source-remote-ref) source_remote_ref=${2:-}; shift 2 ;;
+    --source-remote-sha) source_remote_sha=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
     --lease-acquire) [ -z "$lease_action" ] || usage; lease_action=acquire; shift ;;
@@ -70,6 +101,8 @@ done
 if [ -n "$lease_action" ]; then
   [ -z "$release" ] && [ -z "$source_sha" ] && [ -z "$source_repo" ] && \
     [ -z "$source_branch" ] && [ "$port" = 18789 ] && \
+    [ -z "$source_git_common_dir" ] && [ -z "$source_remote_url" ] && \
+    [ -z "$source_remote_ref" ] && [ -z "$source_remote_sha" ] && \
     [ "$enable_sig_background" = false ] || usage
   case "$lease_action" in
     acquire) lease_ttl_seconds=${lease_ttl_seconds:-3600} ;;
@@ -149,8 +182,42 @@ fi
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
   [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
-  source_repo=$(cd "$source_repo" && pwd -P)
+  [ -d "$durable_source_root" ] || usage
+  durable_source_root=$(cd "$durable_source_root" && pwd -P) || usage
+  [ ! -L "$source_repo" ] || usage
+  source_repo=$(cd "$source_repo" && pwd -P) || usage
+  case "$source_repo" in
+    "$durable_source_root"|"$durable_source_root"/*) ;;
+    *) usage ;;
+  esac
   case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
+fi
+if [ -n "$source_git_common_dir" ] || [ -n "$source_remote_url" ] || [ -n "$source_remote_ref" ] || [ -n "$source_remote_sha" ]; then
+  [ -n "$source_repo" ] && [ -n "$source_branch" ] && [ -n "$source_git_common_dir" ] && \
+    [ -n "$source_remote_url" ] && [ -n "$source_remote_ref" ] && [ -n "$source_remote_sha" ] || usage
+  [ "$source_remote_sha" = "$source_sha" ] || usage
+  actual_git_common_dir=$(git -C "$source_repo" rev-parse --git-common-dir) || usage
+  case "$actual_git_common_dir" in
+    /*) ;;
+    *) actual_git_common_dir="$source_repo/$actual_git_common_dir" ;;
+  esac
+  [ ! -L "$actual_git_common_dir" ] || usage
+  actual_git_common_dir=$(cd "$(dirname "$actual_git_common_dir")" && pwd -P)/$(basename "$actual_git_common_dir")
+  [ "$source_git_common_dir" = "$actual_git_common_dir" ] || usage
+  case "$actual_git_common_dir" in
+    "$durable_source_root"|"$durable_source_root"/*) ;;
+    *) usage ;;
+  esac
+  case "$source_remote_ref" in refs/heads/*|refs/tags/*) ;; *) usage ;; esac
+  git check-ref-format "$source_remote_ref" >/dev/null 2>&1 || usage
+  validate_source_remote_url "$source_remote_url" || usage
+  remote_result=$(git ls-remote --exit-code -- "$source_remote_url" "$source_remote_ref" "${source_remote_ref}^{}" 2>/dev/null) || usage
+  remote_sha=$(printf '%s\n' "$remote_result" | awk -v peeled="${source_remote_ref}^{}" '
+    $2 == peeled { peeled_sha = $1 }
+    !first_sha { first_sha = $1 }
+    END { print peeled_sha ? peeled_sha : first_sha }
+  ')
+  [ "$remote_sha" = "$source_sha" ] || usage
 fi
 [ -d "$releases_dir" ] || { printf '%s\n' 'immutable releases root is missing' >&2; exit 64; }
 releases_dir=$(cd "$releases_dir" && pwd -P)
@@ -258,6 +325,14 @@ if [ -n "$active_source_sha" ] && [ "$active_source_sha" != "$source_sha" ]; the
   }
   git -C "$source_repo" merge-base --is-ancestor "$active_source_sha" "$source_sha" || {
     printf '%s\n' 'promotion blocked: active managed runtime is not an ancestor of the candidate' >&2
+    exit 64
+  }
+fi
+
+if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
+  [ -n "$source_git_common_dir" ] && [ -n "$source_remote_url" ] && \
+    [ -n "$source_remote_ref" ] && [ -n "$source_remote_sha" ] || {
+    printf '%s\n' 'promotion blocked: full durable source provenance is required' >&2
     exit 64
   }
 fi
@@ -387,10 +462,11 @@ fi
 
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
 capability_manifest_sha=$(shasum -a 256 "$capability_manifest" | awk '{print $1}')
+verified_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 pointer_tmp="$runtime_home/active-runtime.$$.json"
-python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" "$source_repo" "$source_branch" <<'PY'
+python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" "$verified_at" "$source_repo" "$source_branch" "$source_git_common_dir" "$source_remote_url" "$source_remote_ref" "$source_remote_sha" <<'PY'
 import json, os, sys
-target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at, source_repo, source_branch = sys.argv[1:]
+target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at, source_remote_verified_at, source_repo, source_branch, source_git_common_dir, source_remote_url, source_remote_ref, source_remote_sha = sys.argv[1:]
 previous = None
 previous_required = []
 previous_capabilities = []
@@ -460,6 +536,12 @@ data = {"schemaVersion": 1, "releaseId": os.path.basename(root), "runtimeRoot": 
 if source_repo and source_branch:
     data["sourceRepo"] = source_repo
     data["sourceBranch"] = source_branch
+if source_git_common_dir:
+    data["sourceGitCommonDir"] = source_git_common_dir
+    data["sourceRemoteRef"] = source_remote_ref
+    data["sourceRemoteSha"] = source_remote_sha
+    data["sourceRemoteUrl"] = source_remote_url
+    data["sourceRemoteVerifiedAt"] = source_remote_verified_at
 with open(target, "w", encoding="utf-8") as f: json.dump(data, f, indent=2, sort_keys=True); f.write("\n")
 PY
 if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer_tmp" "$launcher" --verify >/dev/null; then

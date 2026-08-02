@@ -1269,6 +1269,7 @@ describe("custom runtime canary and rollback", () => {
     const promotedEnv = path.join(input.home, "promoted-gateway.env");
     const rollbackLauncher = path.join(input.home, "rollback-launcher.sh");
     const sourceRepo = path.join(input.home, "source");
+    const sourceGitCommonDir = path.join(sourceRepo, ".git");
     const activeSourceSha = "1".repeat(40);
     mkdirSync(fakeBin, { recursive: true });
     mkdirSync(sourceRepo);
@@ -1294,10 +1295,15 @@ describe("custom runtime canary and rollback", () => {
     executable(
       path.join(fakeBin, "git"),
       `#!/bin/sh
-shift 2
+[ "\${1:-}" = -C ] && shift 2
 case "$1" in
+  check-ref-format) exit 0 ;;
   cat-file|merge-base) exit 0 ;;
-  rev-parse) printf '%s\\n' "$CANDIDATE_SHA"; exit 0 ;;
+  rev-parse)
+    [ "\${2:-}" = --git-common-dir ] && printf '%s\\n' "$SOURCE_GIT_COMMON_DIR" || printf '%s\\n' "$CANDIDATE_SHA"
+    exit 0
+    ;;
+  ls-remote) printf '%s\\n' "$CANDIDATE_SHA refs/heads/candidate"; exit 0 ;;
 esac
 exit 64
 `,
@@ -1339,6 +1345,14 @@ esac
         sourceRepo,
         "--source-branch",
         "candidate",
+        "--source-git-common-dir",
+        sourceGitCommonDir,
+        "--source-remote-url",
+        sourceRepo,
+        "--source-remote-ref",
+        "refs/heads/candidate",
+        "--source-remote-sha",
+        input.sourceSha,
       ],
       {
         cwd: process.cwd(),
@@ -1350,6 +1364,7 @@ esac
           FAKE_PROMOTED_PLIST: promotedPlist,
           FAKE_PROMOTED_ENV: promotedEnv,
           CANDIDATE_SHA: input.sourceSha,
+          SOURCE_GIT_COMMON_DIR: sourceGitCommonDir,
           HOME: input.home,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
@@ -1383,16 +1398,22 @@ esac
     const activePointer = path.join(input.runtimeHome, "active-runtime.json");
     const activeSourceSha = "1".repeat(40);
     const sourceRepo = path.join(input.home, "source");
+    const sourceGitCommonDir = path.join(sourceRepo, ".git");
     const fakeBin = path.join(input.home, "lineage-bin");
     mkdirSync(sourceRepo);
     mkdirSync(fakeBin);
     executable(
       path.join(fakeBin, "git"),
       `#!/bin/sh
-shift 2
+[ "\${1:-}" = -C ] && shift 2
 case "$1" in
+  check-ref-format) exit 0 ;;
   cat-file) exit 0 ;;
-  rev-parse) printf '%s\\n' "$CANDIDATE_SHA"; exit 0 ;;
+  rev-parse)
+    [ "\${2:-}" = --git-common-dir ] && printf '%s\\n' "$SOURCE_GIT_COMMON_DIR" || printf '%s\\n' "$CANDIDATE_SHA"
+    exit 0
+    ;;
+  ls-remote) printf '%s\\n' "$CANDIDATE_SHA refs/heads/candidate"; exit 0 ;;
   merge-base) exit 1 ;;
 esac
 exit 64
@@ -1420,6 +1441,14 @@ exit 64
         sourceRepo,
         "--source-branch",
         "candidate",
+        "--source-git-common-dir",
+        sourceGitCommonDir,
+        "--source-remote-url",
+        sourceRepo,
+        "--source-remote-ref",
+        "refs/heads/candidate",
+        "--source-remote-sha",
+        input.sourceSha,
       ],
       {
         cwd: process.cwd(),
@@ -1433,6 +1462,7 @@ exit 64
           OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
           OPENCLAW_NODE_BIN: process.execPath,
           CANDIDATE_SHA: input.sourceSha,
+          SOURCE_GIT_COMMON_DIR: sourceGitCommonDir,
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       },

@@ -4,6 +4,7 @@ set -eu
 
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
+durable_source_root=${OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT:-"$HOME"}
 pending=${OPENCLAW_CUSTOM_RUNTIME_PENDING_UPDATE:-"$runtime_home/pending-update.json"}
 mkdir -p "$runtime_home/receipts"
 
@@ -105,20 +106,44 @@ except ValueError:
 official_sha = str(proof.get("officialSha", ""))
 if not re.fullmatch(r"[0-9a-f]{40}", official_sha) or proof.get("mergeParents") != [base_sha, official_sha]:
     raise SystemExit("prepared update preservation proof parents are invalid")
-for value in (release, source_sha, str(receipt.get("sourceRepo", "")), str(receipt.get("sourceBranch", "")), proof_path, proof_sha):
+for value in (
+    release,
+    source_sha,
+    str(receipt.get("sourceRepo", "")),
+    str(receipt.get("sourceGitCommonDir", "")),
+    str(receipt.get("sourceBranch", "")),
+    str(receipt.get("sourceRemoteUrl", "")),
+    str(receipt.get("sourceRemoteRef", "")),
+    str(receipt.get("sourceRemoteSha", "")),
+    proof_path,
+    proof_sha,
+):
     print(value)
 PY
 ) || exit 64
 release=$(printf '%s\n' "$fields" | sed -n '1p')
 source_sha=$(printf '%s\n' "$fields" | sed -n '2p')
 source_repo=$(printf '%s\n' "$fields" | sed -n '3p')
-source_branch=$(printf '%s\n' "$fields" | sed -n '4p')
-preservation_proof=$(printf '%s\n' "$fields" | sed -n '5p')
-preservation_proof_sha=$(printf '%s\n' "$fields" | sed -n '6p')
+source_git_common_dir=$(printf '%s\n' "$fields" | sed -n '4p')
+source_branch=$(printf '%s\n' "$fields" | sed -n '5p')
+source_remote_url=$(printf '%s\n' "$fields" | sed -n '6p')
+source_remote_ref=$(printf '%s\n' "$fields" | sed -n '7p')
+source_remote_sha=$(printf '%s\n' "$fields" | sed -n '8p')
+preservation_proof=$(printf '%s\n' "$fields" | sed -n '9p')
+preservation_proof_sha=$(printf '%s\n' "$fields" | sed -n '10p')
 [ -d "$source_repo/.git" ] || git -C "$source_repo" rev-parse --git-dir >/dev/null 2>&1 || {
   printf '%s\n' 'prepared update source repository is unavailable' >&2
   exit 64
 }
+source_repo=$(cd "$source_repo" && pwd -P)
+durable_source_root=$(cd "$durable_source_root" && pwd -P)
+case "$source_repo" in
+  "$durable_source_root"|"$durable_source_root"/*) ;;
+  *)
+    printf '%s\n' 'prepared update source repository is outside the durable source root' >&2
+    exit 64
+    ;;
+esac
 [ -z "$(git -C "$source_repo" status --porcelain)" ] || {
   printf '%s\n' 'prepared update source repository is dirty' >&2
   exit 64
@@ -133,6 +158,109 @@ branch_sha=$(git -C "$source_repo" rev-parse --verify "$source_branch^{commit}" 
 }
 [ "$branch_sha" = "$source_sha" ] || {
   printf '%s\n' 'prepared update source branch does not identify the candidate commit' >&2
+  exit 64
+}
+actual_git_common_dir=$(git -C "$source_repo" rev-parse --git-common-dir) || {
+  printf '%s\n' 'prepared update source Git object store is unavailable' >&2
+  exit 64
+}
+case "$actual_git_common_dir" in
+  /*) ;;
+  *) actual_git_common_dir="$source_repo/$actual_git_common_dir" ;;
+esac
+actual_git_common_dir=$(cd "$(dirname "$actual_git_common_dir")" && pwd -P)/$(basename "$actual_git_common_dir")
+if [ -z "$source_git_common_dir" ]; then
+  source_git_common_dir=$actual_git_common_dir
+elif [ "$source_git_common_dir" != "$actual_git_common_dir" ]; then
+  printf '%s\n' 'prepared update source Git object store does not match provenance' >&2
+  exit 64
+fi
+if [ -z "$source_remote_url" ]; then
+  source_remote_url=$source_repo
+fi
+if [ -z "$source_remote_ref" ]; then
+  case "$source_branch" in
+    refs/heads/*|refs/tags/*) source_remote_ref=$source_branch ;;
+    *) source_remote_ref="refs/heads/$source_branch" ;;
+  esac
+fi
+if [ -z "$source_remote_sha" ]; then
+  source_remote_sha=$source_sha
+fi
+validate_source_remote_url() {
+  python3 - "$1" <<'PY'
+import os
+import re
+import sys
+from urllib.parse import urlsplit
+
+value = sys.argv[1]
+if not value or any(character in value for character in ("\r", "\n", "\0")):
+    raise SystemExit(1)
+if os.path.isabs(value):
+    raise SystemExit(0)
+if "://" not in value:
+    if not re.fullmatch(r"(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
+        raise SystemExit(1)
+    raise SystemExit(0)
+parsed = urlsplit(value)
+if parsed.scheme not in {"file", "git", "https", "ssh"}:
+    raise SystemExit(1)
+if parsed.password or parsed.query or parsed.fragment:
+    raise SystemExit(1)
+if parsed.username and parsed.scheme != "ssh":
+    raise SystemExit(1)
+PY
+}
+validate_source_remote_url "$source_remote_url" || {
+  printf '%s\n' 'prepared update recovery source remote URL is invalid or credential-bearing' >&2
+  exit 64
+}
+case "$source_remote_url" in
+  /*)
+    [ -d "$source_remote_url" ] || {
+      printf '%s\n' 'prepared update recovery source repository is unavailable' >&2
+      exit 64
+    }
+    source_remote_url=$(cd "$source_remote_url" && pwd -P) || {
+      printf '%s\n' 'prepared update recovery source repository cannot be resolved' >&2
+      exit 64
+    }
+    case "$source_remote_url" in
+      "$durable_source_root"|"$durable_source_root"/*) ;;
+      *)
+        printf '%s\n' 'prepared update recovery source repository is outside the durable source root' >&2
+        exit 64
+        ;;
+    esac
+    ;;
+esac
+[ "$source_remote_sha" = "$source_sha" ] || {
+  printf '%s\n' 'prepared update recovery SHA does not match the candidate' >&2
+  exit 64
+}
+case "$source_remote_ref" in
+  refs/heads/*|refs/tags/*) ;;
+  *)
+    printf '%s\n' 'prepared update recovery ref must be a branch or tag ref' >&2
+    exit 64
+    ;;
+esac
+git check-ref-format "$source_remote_ref" >/dev/null 2>&1 || {
+  printf '%s\n' 'prepared update recovery ref is invalid' >&2
+  exit 64
+}
+remote_result=$(git ls-remote --exit-code -- "$source_remote_url" "$source_remote_ref" "${source_remote_ref}^{}" 2>/dev/null) || {
+  printf '%s\n' 'prepared update recovery ref is unavailable' >&2
+  exit 64
+}
+remote_sha=$(printf '%s\n' "$remote_result" | awk -v peeled="${source_remote_ref}^{}" '
+  $2 == peeled { peeled_sha = $1 }
+  !first_sha { first_sha = $1 }
+  END { print peeled_sha ? peeled_sha : first_sha }
+')
+[ "$remote_sha" = "$source_sha" ] || {
+  printf '%s\n' 'prepared update recovery ref does not identify the candidate' >&2
   exit 64
 }
 [ -f "$release/.openclaw-production-sha" ] || { printf '%s\n' 'prepared release source stamp is missing' >&2; exit 64; }
@@ -152,7 +280,9 @@ seal_verifier="$runtime_home/bin/custom-runtime-seal.sh"
 
 "$release/scripts/custom-runtime/custom-runtime-activate.sh" \
   --release "$release" --source-sha "$source_sha" --source-repo "$source_repo" \
-  --source-branch "$source_branch" --stage-port 18790 --port 18789
+  --source-branch "$source_branch" --source-git-common-dir "$source_git_common_dir" \
+  --source-remote-url "$source_remote_url" --source-remote-ref "$source_remote_ref" \
+  --source-remote-sha "$source_remote_sha" --stage-port 18790 --port 18789
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 approval_receipt="$runtime_home/receipts/update-approval-$stamp.json"

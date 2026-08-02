@@ -4,6 +4,8 @@ Docs: https://docs.openclaw.ai
 
 ## 2026.6.11
 
+- **Custom runtime source durability:** add deterministic customization, storage, and retention inventories plus transactional exact-SHA source migration without Gateway restart.
+
 ### Highlights
 
 - **More capable channel control:** Slack relay mode, native Mattermost `/oc_queue`, and per-DM model overrides make channel operations easier to automate and tune. (#94707, #95546, #95120) Thanks @sjf-oa, @amknight, @xydigit-zt, @thomaszta, and @gandalf-at-lerian.

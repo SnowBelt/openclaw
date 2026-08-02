@@ -219,3 +219,15 @@ verified. Run the Control Director owner acceptance protocol in
 its exact-SHA receipt; the owner must complete all five outcomes in 60 seconds or less without a
 hint or unsafe action. If any identity or proof surface differs, a receipt is missing, or the owner
 attempt fails, stop and restore the previous immutable runtime.
+
+## Durable source and customization inventory
+
+The active runtime must be backed by a persistent source checkout under the operator-owned durable
+source root. Use `custom-runtime-source-migrate.sh` to create a detached exact-SHA checkout, verify
+its Git object store and credential-free recovery ref, and atomically update source provenance
+without rebuilding or restarting the Gateway.
+
+Use `custom-runtime:customization-inventory` to classify the delta against an exact official ref,
+`custom-runtime:storage-inventory` to measure retained release and Git storage, and
+`custom-runtime:retention-plan` for a read-only retention plan. Retention planning never deletes or
+moves artifacts; destructive cleanup requires a separate reviewed milestone and explicit approval.

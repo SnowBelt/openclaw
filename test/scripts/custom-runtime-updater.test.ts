@@ -130,6 +130,7 @@ describe("custom runtime update broker", () => {
     const base = root("openclaw-update-broker-dirty-");
     const runtimeHome = path.join(base, "runtime-home");
     const repo = path.join(base, "source");
+    const remote = path.join(base, "remote.git");
     fs.mkdirSync(repo, { recursive: true });
     expect(spawnSync("git", ["init", "-q", repo]).status).toBe(0);
     expect(
@@ -142,11 +143,22 @@ describe("custom runtime update broker", () => {
     const sourceSha = spawnSync("git", ["-C", repo, "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).stdout.trim();
+    expect(spawnSync("git", ["-C", repo, "switch", "-qc", "codex/custom-runtime"]).status).toBe(0);
+    expect(spawnSync("git", ["init", "--bare", "-q", remote]).status).toBe(0);
+    expect(spawnSync("git", ["-C", repo, "remote", "add", "backup", remote]).status).toBe(0);
+    expect(
+      spawnSync("git", ["-C", repo, "push", "-q", "backup", "HEAD:refs/heads/codex/custom-runtime"])
+        .status,
+    ).toBe(0);
     fs.writeFileSync(path.join(repo, "untracked.txt"), "dirty\n");
     writeJson(path.join(runtimeHome, "active-runtime.json"), {
       sourceSha,
       sourceRepo: repo,
-      sourceBranch: "HEAD",
+      sourceGitCommonDir: path.join(repo, ".git"),
+      sourceBranch: "codex/custom-runtime",
+      sourceRemoteUrl: remote,
+      sourceRemoteRef: "refs/heads/codex/custom-runtime",
+      sourceRemoteSha: sourceSha,
     });
 
     const result = spawnSync(updater, [], {
@@ -154,6 +166,7 @@ describe("custom runtime update broker", () => {
       env: {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
         OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES: path.join(base, "updates"),
       },
     });
@@ -228,6 +241,7 @@ describe("custom runtime update broker", () => {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
       },
     });
     expect(result.status).toBe(64);
@@ -253,6 +267,7 @@ describe("custom runtime update broker", () => {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
       },
     });
     expect(result.status).toBe(64);
@@ -277,6 +292,7 @@ describe("custom runtime update broker", () => {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
       },
     });
     expect(result.status).toBe(64);
@@ -302,6 +318,7 @@ describe("custom runtime update broker", () => {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
       },
     });
     expect(result.status).toBe(64);
@@ -327,6 +344,7 @@ describe("custom runtime update broker", () => {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
         OPENCLAW_TEST_SEAL_FAIL: "1",
       },
     });
@@ -344,6 +362,7 @@ describe("custom runtime update broker", () => {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
       },
     });
     expect(result.status).toBe(64);
@@ -351,6 +370,34 @@ describe("custom runtime update broker", () => {
     expect(fs.existsSync(marker)).toBe(false);
 
     preservationProof = writePreservationProof(runtimeHome, baseSha, sourceSha, release);
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+      sourceRemoteUrl: "ext::sh -c touch /tmp/openclaw-unsafe-remote",
+      sourceRemoteRef: "refs/heads/codex/runtime-update-test",
+      sourceRemoteSha: sourceSha,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
+    });
+    result = spawnSync(approve, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("source remote URL is invalid");
+    expect(fs.existsSync(marker)).toBe(false);
+
     writeJson(pending, {
       schema: "openclaw.custom-runtime-update-candidate.v1",
       result: "ready_for_approval",
@@ -369,11 +416,18 @@ describe("custom runtime update broker", () => {
         ...process.env,
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: base,
       },
     });
     expect(result.status, result.stderr).toBe(0);
     expect(fs.readFileSync(marker, "utf8")).toContain("--source-sha");
     expect(fs.readFileSync(marker, "utf8")).toContain(sourceBranch);
+    expect(fs.readFileSync(marker, "utf8")).toContain("--source-git-common-dir");
+    expect(fs.readFileSync(marker, "utf8")).toContain(path.join(sourceRepo, ".git"));
+    expect(fs.readFileSync(marker, "utf8")).toContain("--source-remote-url");
+    expect(fs.readFileSync(marker, "utf8")).toContain(sourceRepo);
+    expect(fs.readFileSync(marker, "utf8")).toContain("refs/heads/codex/runtime-update-test");
+    expect(fs.readFileSync(marker, "utf8")).toContain("--source-remote-sha");
     expect(fs.readFileSync(sealMarker, "utf8")).toContain("--verify");
     expect(fs.existsSync(pending)).toBe(false);
     const approval = fs

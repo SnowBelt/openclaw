@@ -25,6 +25,7 @@ const controlPlaneFiles = [
   "custom-runtime-tailscale-primary.sh",
   "custom-runtime-updater.sh",
   "custom-runtime-update-approve.sh",
+  "custom-runtime-source-migrate.sh",
   "control-director-role-config.py",
   "copy_stage_state.py",
 ] as const;
