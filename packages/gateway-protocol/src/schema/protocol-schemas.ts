@@ -275,6 +275,8 @@ import {
 } from "./operations.js";
 import {
   PccCompletionReceiptSchema,
+  PccModelRunReceiptSchema,
+  PccProjectAiUsageSummarySchema,
   PccDecisionSchema,
   PccDecisionsAddParamsSchema,
   PccDecisionsAddResultSchema,
@@ -342,6 +344,7 @@ import {
   PccPlanningPolicyGetResultSchema,
   PccPlanningPolicyUpsertParamsSchema,
   PccPlanningPolicyUpsertResultSchema,
+  PccPrivateTeamPolicySchema,
   PccProofLevelSchema,
   PccReceiptsAddParamsSchema,
   PccReceiptsAddResultSchema,
@@ -848,6 +851,8 @@ export const ProtocolSchemas = {
   PccPermissionGrant: PccPermissionGrantSchema,
   PccEvidence: PccEvidenceSchema,
   PccCompletionReceipt: PccCompletionReceiptSchema,
+  PccModelRunReceipt: PccModelRunReceiptSchema,
+  PccProjectAiUsageSummary: PccProjectAiUsageSummarySchema,
   PccDecision: PccDecisionSchema,
   PccDecisionsAddParams: PccDecisionsAddParamsSchema,
   PccDecisionsAddResult: PccDecisionsAddResultSchema,
@@ -895,6 +900,7 @@ export const ProtocolSchemas = {
   PccPlanningPolicyGetResult: PccPlanningPolicyGetResultSchema,
   PccPlanningPolicyUpsertParams: PccPlanningPolicyUpsertParamsSchema,
   PccPlanningPolicyUpsertResult: PccPlanningPolicyUpsertResultSchema,
+  PccPrivateTeamPolicy: PccPrivateTeamPolicySchema,
   PccMilestonesUpsertParams: PccMilestonesUpsertParamsSchema,
   PccMilestonesUpsertResult: PccMilestonesUpsertResultSchema,
   PccSubMilestonesListParams: PccSubMilestonesListParamsSchema,

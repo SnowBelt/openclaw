@@ -2,6 +2,7 @@
 import { LitElement } from "lit";
 import { state } from "lit/decorators.js";
 import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/src/index.js";
+import type { PccPrivateTeamPolicy } from "../../../packages/gateway-protocol/src/schema/types.js";
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
@@ -517,6 +518,7 @@ export class OpenClawApp extends LitElement {
   @state() pccReleaseGovernance: ReleaseGovernanceStatus | null = null;
   @state() pccExecutionCapacity: PccExecutionCapacitySnapshot | null = null;
   @state() pccPlanningPolicy: PccPlanningPolicy = DEFAULT_PCC_PLANNING_POLICY;
+  @state() pccPrivateTeamPolicy: PccPrivateTeamPolicy | undefined;
   @state() pccExecutionProjection: PccExecutionRuntimeProjection | null = null;
   @state() pccExecutionProjectionLoading = false;
   @state() pccExecutionProjectionError: string | null = null;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PccAttachment } from "../../packages/gateway-protocol/src/index.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import {
@@ -5,6 +6,7 @@ import {
   prepareSimpleCompletionModelForAgent,
 } from "../agents/simple-completion-runtime.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { PccModelUsage } from "./planning-runtime.js";
 
 const LOCAL_PROVIDERS = new Set(["ollama", "lmstudio", "llama.cpp", "llamacpp", "vllm", "local"]);
 
@@ -32,8 +34,10 @@ export async function clarifyPccAttachmentInstructions(params: {
   complete?: typeof completeWithPreparedSimpleCompletionModel;
   now?: () => Date;
 }): Promise<{
+  runId: string;
   clarifiedInstructions: string;
   provenance: { provider: string; model: string; generatedAt: string };
+  usage?: PccModelUsage;
 }> {
   const instructions = params.instructions.trim();
   if (!instructions) {
@@ -84,8 +88,20 @@ export async function clarifyPccAttachmentInstructions(params: {
   if (!clarifiedInstructions) {
     throw new Error("The local model returned no clarified file instruction");
   }
+  const usage: PccModelUsage = {
+    input: result.usage.input,
+    output: result.usage.output,
+    cacheRead: result.usage.cacheRead,
+    cacheWrite: result.usage.cacheWrite,
+    totalTokens: result.usage.totalTokens,
+  };
+  const hasReportedUsage = Object.values(usage).some(
+    (value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+  );
   return {
+    runId: `pcc-attachment-clarification-${randomUUID()}`,
     clarifiedInstructions,
+    ...(hasReportedUsage ? { usage } : {}),
     provenance: {
       provider: prepared.selection.provider,
       model: prepared.selection.modelId,

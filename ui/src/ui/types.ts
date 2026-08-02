@@ -996,6 +996,8 @@ export type PccEvidence =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccEvidence;
 export type PccCompletionReceipt =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccCompletionReceipt;
+export type PccProjectAiUsageSummary =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccProjectAiUsageSummary;
 export type PccDecision =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccDecision;
 export type PccLastKnownGood =
@@ -1006,6 +1008,8 @@ export type PccProjectSummary =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccProjectSummary;
 export type PccPlanningRun =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccPlanningRun;
+export type PccPrivateTeamPolicy =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccPrivateTeamPolicy;
 export type PccAttachment =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccAttachment;
 export type PccPortfolioSummary =

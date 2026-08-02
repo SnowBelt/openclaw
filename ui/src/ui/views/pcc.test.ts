@@ -459,6 +459,33 @@ describe("renderPccDashboard", () => {
     }
   });
 
+  it("explains the private-team operating envelope without implying per-person permissions", () => {
+    const container = renderView(
+      createProps({
+        privateTeamPolicy: {
+          schemaVersion: 1,
+          accessMode: "authenticated_gateway_operators",
+          memberLimit: 5,
+          maxProjects: 100,
+          maxConcurrentPlanningRuns: 2,
+          maxAttachmentsPerProject: 200,
+          maxAttachmentBytesPerProject: 1_073_741_824,
+          backupMode: "transactional_sqlite_plus_last_known_good",
+          localAiPreferred: true,
+        },
+      }),
+    );
+    const policy = container.querySelector("[data-pcc-private-team-policy]");
+    expect(policy).not.toBeNull();
+    expect(policy?.textContent).toContain("up to 5 authenticated operators");
+    expect(policy?.textContent).toMatch(
+      /does not provide separate\s+per-person project permissions/u,
+    );
+    expect(policy?.textContent).toContain("2 Codex planning runs at once");
+    expect(policy?.textContent).toContain("100 active projects");
+    expect(policy?.textContent).toContain("200 files or 1 GiB per project");
+  });
+
   it("renders mobile PCC section controls over existing project sections", () => {
     const container = renderView(createProps());
     const rail = container.querySelector("[data-pcc-mobile-command-rail]");
@@ -514,7 +541,8 @@ describe("renderPccDashboard", () => {
 
   it("uses one resolved primary action across hero and mobile rail", () => {
     const onSetViewMode = vi.fn();
-    const container = renderView(createProps({ onSetViewMode }));
+    const onSetPermissionStatus = vi.fn();
+    const container = renderView(createProps({ onSetViewMode, onSetPermissionStatus }));
     const heroAction = container.querySelector("[data-pcc-primary-action] button");
     const mobileAction = container.querySelector("[data-pcc-mobile-primary-action]");
 
@@ -522,7 +550,60 @@ describe("renderPccDashboard", () => {
     expect(mobileAction?.textContent).toContain("Review Permission");
     expect(heroAction?.getAttribute("data-pcc-primary-action-id")).toBe("review_permission");
     (heroAction as HTMLButtonElement).click();
-    expect(onSetViewMode).toHaveBeenCalledWith("detailed");
+    const dialog = container.querySelector<HTMLDialogElement>(
+      '[data-pcc-permission-review-dialog="project-1"]',
+    );
+    expect(dialog?.hasAttribute("open")).toBe(true);
+    expect(dialog?.textContent).toContain("May do");
+    expect(dialog?.textContent).toContain("Still forbidden");
+    dialog?.querySelector<HTMLButtonElement>("[data-pcc-permission-grant]")?.click();
+    expect(onSetPermissionStatus).toHaveBeenCalledWith(permission, "granted");
+  });
+
+  it("uses an explicit file chooser and enables attachment only after selection", () => {
+    const container = renderView(createProps());
+    const chooser = container.querySelector<HTMLButtonElement>("[data-pcc-attachment-choose]");
+    const input = container.querySelector<HTMLInputElement>("[data-pcc-attachment-file]");
+    const submit = container.querySelector<HTMLButtonElement>("[data-pcc-attachment-submit]");
+    const click = vi.spyOn(input!, "click");
+
+    chooser?.click();
+    expect(click).toHaveBeenCalledOnce();
+    expect(submit?.disabled).toBe(true);
+
+    const file = new File(["reference"], "fighter-reference.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input?.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(container.querySelector("[data-pcc-attachment-selection]")?.textContent).toContain(
+      "fighter-reference.png",
+    );
+    expect(submit?.disabled).toBe(false);
+  });
+
+  it("shows Codex share and reported tokens separately from project progress", () => {
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          ...createProps().projectDetail!,
+          aiUsage: {
+            completedRuns: 18,
+            codexRuns: 2,
+            localRuns: 16,
+            codexSharePercent: 11.1,
+            reportedTokens: { total: 45_000, codex: 31_400, local: 13_600 },
+            missingUsageRuns: 0,
+            tokenCoverage: "complete",
+            recordingStartedAt: "2026-08-01T00:00:00.000Z",
+            byPurpose: [{ purpose: "planning", runs: 1, codexRuns: 1, reportedTokens: 20_000 }],
+          },
+        },
+      }),
+    );
+    const usage = container.querySelector("[data-pcc-ai-usage]");
+    expect(usage?.textContent).toContain("Codex: 2 of 18 recorded AI runs (11.1%)");
+    expect(usage?.textContent).toContain("31.4K");
+    expect(container.querySelector("[data-pcc-project-snapshot]")?.textContent).toContain("42%");
   });
 
   it("shows complete projects as maintenance with no misleading work CTA", () => {
@@ -3138,6 +3219,14 @@ describe("renderPccDashboard", () => {
         .querySelector("[data-pcc-create-review-plan]")
         ?.classList.contains("pcc-editor-primary-action"),
     ).toBe(true);
+    expect(
+      container
+        .querySelector("[data-pcc-create-review-plan]")
+        ?.classList.contains("pcc-create-review-action"),
+    ).toBe(true);
+    expect(
+      container.querySelector("[data-pcc-create-review-plan]")?.getAttribute("aria-describedby"),
+    ).toBe("pcc-create-start-hint");
   });
 
   it("shows truthful project-planning progress instead of an idle saving state", () => {

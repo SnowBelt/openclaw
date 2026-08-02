@@ -7,10 +7,12 @@ import {
   closePccLedgerStorageForTest,
   detectPccLedgerStorageMigration,
   migrateLegacyPccLedgerStorage,
+  pccLedgerBackupPath,
   pccLedgerJsonPath,
   pccLedgerRevision,
   pccLedgerSqlitePath,
   readPccLedger,
+  readPccLedgerBackup,
   withPccLedger,
 } from "./ledger-store.js";
 
@@ -84,6 +86,11 @@ describe("PCC ledger storage", () => {
 
     expect(readPccLedger(env).projects[0]?.title).toBe("Renamed Project");
     expect(pccLedgerRevision(env)).toBe(2);
+    expect(readPccLedgerBackup(env)).toMatchObject({
+      revision: 1,
+      ledger: { projects: [{ title: "Project" }] },
+    });
+    expect(fs.statSync(pccLedgerBackupPath(env)).mode & 0o777).toBe(0o600);
     closePccLedgerStorageForTest();
     const { DatabaseSync } = requireNodeSqlite();
     const db = new DatabaseSync(pccLedgerSqlitePath(env), { readOnly: true });

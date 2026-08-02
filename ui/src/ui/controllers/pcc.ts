@@ -139,8 +139,10 @@ import type {
   PccPermissionGrant,
   PccPermissionStatus,
   PccPlanningRun,
+  PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
+  PccProjectAiUsageSummary,
   PccProjectSummary,
   PccStatus,
   SessionsListResult,
@@ -182,6 +184,7 @@ type PccProjectsListResult = {
 type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
   planningPolicy?: PccPlanningPolicy;
+  privateTeamPolicy?: PccPrivateTeamPolicy;
   executionCapacity?: PccExecutionCapacitySnapshot;
   runtimeIdentity?: PccRuntimeIdentity;
   updateSafety?: PccUpdateSafety;
@@ -197,6 +200,7 @@ type PccProjectsGetResult = {
   receipts: PccCompletionReceipt[];
   decisions?: PccDecision[];
   lastKnownGood?: PccLastKnownGood[];
+  aiUsage?: PccProjectAiUsageSummary;
   summary: PccProjectSummary;
 };
 
@@ -1750,6 +1754,7 @@ function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDeta
     lastKnownGood: (detail.lastKnownGood ?? []).toSorted(
       (a, b) => Date.parse(b.verifiedAt) - Date.parse(a.verifiedAt),
     ),
+    aiUsage: detail.aiUsage,
     summary: safeProjectSummary(detail.summary),
   };
 }
@@ -1881,6 +1886,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
     state.pccPlanningPolicy = summaryResult.planningPolicy ?? DEFAULT_PCC_PLANNING_POLICY;
+    state.pccPrivateTeamPolicy = summaryResult.privateTeamPolicy;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
     state.pccUpdateSafety = summaryResult.updateSafety ?? null;
     state.pccReleaseGovernance = summaryResult.releaseGovernance ?? null;
@@ -2039,7 +2045,30 @@ export async function clarifyPccAttachmentDraft(
   if (!state.client) {
     throw new Error("PCC is disconnected; local AI cannot clarify the file instructions.");
   }
-  return state.client.request("pcc.attachments.clarify", input);
+  const projectId = state.pccProjectDetail?.project.id;
+  if (!projectId) {
+    throw new Error("Choose a project before clarifying file instructions.");
+  }
+  const result = await state.client.request<{
+    clarifiedInstructions: string;
+    provenance: { provider: string; model: string; generatedAt: string };
+  }>("pcc.attachments.clarify", { ...input, projectId });
+  try {
+    const refreshed = normalizePccProjectDetail(
+      await state.client.request<PccProjectsGetResult>("pcc.projects.get", { projectId }),
+    );
+    if (state.pccProjectDetail?.project.id === projectId) {
+      state.pccProjectDetail = {
+        ...refreshed,
+        attachments: state.pccProjectDetail.attachments,
+      };
+      rememberPccProjectDetailForState(state, state.pccProjectDetail);
+      state.requestUpdate?.();
+    }
+  } catch {
+    // Clarification and its receipt are already durable; the usage card refreshes on the next load.
+  }
+  return result;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -3100,7 +3129,12 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       subMilestones: form.id ? (state.pccProjectDetail?.subMilestones ?? []) : draftSubMilestones,
     });
     const projectForUpsert = withPccPhase2Metadata(baseProject as PccProject, evaluation, now);
+    const planningRunId =
+      creating && state.pccPlanningRun?.status === "succeeded"
+        ? state.pccPlanningRun.id
+        : undefined;
     const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
+      ...(planningRunId ? { planningRunId } : {}),
       project: projectUpsertPayload(projectForUpsert),
     });
     const previousDetail = form.id ? state.pccProjectDetail : null;

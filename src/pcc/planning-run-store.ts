@@ -4,10 +4,14 @@ import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readDurableJsonFile, writeJsonAtomic } from "../infra/json-files.js";
-import type { PccPlannerRunner } from "./planning-runtime.js";
+import type { PccModelUsage, PccPlannerRunner } from "./planning-runtime.js";
 import { generatePccPlanWithCodex } from "./planning-runtime.js";
 import type { PccPlanGenerationRequest, PccPlanGenerationResult } from "./planning.js";
 import type { PccPlanningPolicy } from "./planning.js";
+import {
+  DEFAULT_PCC_PRIVATE_TEAM_POLICY,
+  PCC_PRIVATE_TEAM_MAX_CONCURRENT_PLANNING_RUNS,
+} from "./private-team-policy.js";
 
 export type PccPlanningRunStatus =
   | "queued"
@@ -33,6 +37,7 @@ export type PccPlanningRun = {
   startedAt?: string;
   endedAt?: string;
   error?: string;
+  usage?: PccModelUsage;
   plan?: PccPlanGenerationResult;
 };
 
@@ -125,6 +130,21 @@ async function findMatchingActiveRun(
   return null;
 }
 
+async function countDurableActiveRuns(env: NodeJS.ProcessEnv): Promise<number> {
+  await fs.mkdir(runsRoot(env), { recursive: true, mode: 0o700 });
+  let count = 0;
+  for (const name of await fs.readdir(runsRoot(env))) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    const run = await readDurableJsonFile<PccPlanningRun>(path.join(runsRoot(env), name));
+    if (run?.status === "queued" || run?.status === "running") {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 export async function startPccPlanningRun(params: {
   cfg: OpenClawConfig;
   request: PccPlanGenerationRequest;
@@ -133,15 +153,32 @@ export async function startPccPlanningRun(params: {
   generatePlan?: typeof generatePccPlanWithCodex;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
+  maxConcurrentRuns?: number;
 }): Promise<PccPlanningRun> {
   const env = params.env ?? process.env;
   const requestFingerprint = fingerprint(params.request);
   const lockKey = `${runsRoot(env)}:${requestFingerprint}`;
   const releaseStartLock = await acquireStartRunLock(lockKey);
+  const releaseCapacityLock = await acquireStartRunLock(`${runsRoot(env)}:capacity`);
   try {
     const existing = await findMatchingActiveRun(requestFingerprint, env);
     if (existing) {
       return existing;
+    }
+    const requestedMaxConcurrentRuns = params.maxConcurrentRuns;
+    const maxCandidate =
+      typeof requestedMaxConcurrentRuns === "number" && Number.isInteger(requestedMaxConcurrentRuns)
+        ? requestedMaxConcurrentRuns
+        : DEFAULT_PCC_PRIVATE_TEAM_POLICY.maxConcurrentPlanningRuns;
+    const maxConcurrentRuns = Math.max(
+      1,
+      Math.min(maxCandidate, PCC_PRIVATE_TEAM_MAX_CONCURRENT_PLANNING_RUNS),
+    );
+    const activeRunCount = await countDurableActiveRuns(env);
+    if (activeRunCount >= maxConcurrentRuns) {
+      throw new Error(
+        `PCC planning capacity is full (${maxConcurrentRuns} active runs maximum). Wait for a run to finish or cancel it, then retry.`,
+      );
     }
     const clock = params.now ?? (() => new Date());
     const createdAt = clock().toISOString();
@@ -183,6 +220,7 @@ export async function startPccPlanningRun(params: {
           now: clock,
           abortSignal: controller.signal,
           onStage: (stage) => update({ stage }),
+          onUsage: (usage) => update({ usage }),
         });
         controller.signal.throwIfAborted();
         await update({
@@ -209,6 +247,7 @@ export async function startPccPlanningRun(params: {
     activeRuns.set(run.id, { controller, promise });
     return run;
   } finally {
+    releaseCapacityLock();
     releaseStartLock();
   }
 }
@@ -241,6 +280,11 @@ export async function cancelPccPlanningRun(
 export function resetPccPlanningRunsForTest(): void {
   for (const active of activeRuns.values()) {
     active.controller.abort();
+    // Test roots are removed immediately after this synchronous reset. The
+    // aborted runner may still be unwinding and attempting its terminal write;
+    // consume that expected cleanup rejection instead of leaking an unhandled
+    // promise into the next test.
+    void active.promise.catch(() => undefined);
   }
   activeRuns.clear();
   startRunLocks.clear();

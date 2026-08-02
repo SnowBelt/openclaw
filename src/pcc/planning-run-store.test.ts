@@ -70,8 +70,9 @@ describe("PCC durable planning runs", () => {
       request: { surface: "project_creation", description: "Build a durable project planner." },
       policy: DEFAULT_PCC_PLANNING_POLICY,
       env,
-      generatePlan: async ({ onStage }) => {
+      generatePlan: async ({ onStage, onUsage }) => {
         await onStage?.("planner_running");
+        await onUsage?.({ input: 900, output: 100, totalTokens: 1_000 });
         await onStage?.("validating");
         return plan();
       },
@@ -82,6 +83,7 @@ describe("PCC durable planning runs", () => {
     expect(completed).toMatchObject({
       status: "succeeded",
       stage: "ready",
+      usage: { input: 900, output: 100, totalTokens: 1_000 },
       plan: { title: "Durable Planning Proof" },
     });
   });
@@ -110,6 +112,57 @@ describe("PCC durable planning runs", () => {
     expect(duplicate.id).toBe(first.id);
     release();
     await waitForTerminal(first.id, env);
+  });
+
+  it("fails closed when the private-team planning capacity is full", async () => {
+    const env = makeEnv();
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const start = (description: string, gate: Promise<void>) =>
+      startPccPlanningRun({
+        cfg: {} as OpenClawConfig,
+        request: { surface: "project_creation", description },
+        policy: DEFAULT_PCC_PLANNING_POLICY,
+        env,
+        maxConcurrentRuns: 2,
+        generatePlan: async () => {
+          await gate;
+          return plan();
+        },
+      });
+
+    const first = await start("First bounded plan.", firstGate);
+    const second = await start("Second bounded plan.", secondGate);
+    await expect(
+      startPccPlanningRun({
+        cfg: {} as OpenClawConfig,
+        request: { surface: "project_creation", description: "Third bounded plan." },
+        policy: DEFAULT_PCC_PLANNING_POLICY,
+        env,
+        maxConcurrentRuns: 2,
+        generatePlan: async () => plan(),
+      }),
+    ).rejects.toThrow("planning capacity is full");
+
+    releaseFirst();
+    releaseSecond();
+    await waitForTerminal(first.id, env);
+    await waitForTerminal(second.id, env);
+    const third = await startPccPlanningRun({
+      cfg: {} as OpenClawConfig,
+      request: { surface: "project_creation", description: "Third bounded plan." },
+      policy: DEFAULT_PCC_PLANNING_POLICY,
+      env,
+      maxConcurrentRuns: 2,
+      generatePlan: async () => plan(),
+    });
+    expect((await waitForTerminal(third.id, env)).status).toBe("succeeded");
   });
 
   it("cancels immediately and never overwrites cancellation with success", async () => {

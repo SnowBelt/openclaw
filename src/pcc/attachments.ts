@@ -13,6 +13,11 @@ import type {
 import { resolveStateDir } from "../config/paths.js";
 import { readDurableJsonFile, writeJsonAtomic } from "../infra/json-files.js";
 import { readPccLedger, withPccLedger } from "./ledger-store.js";
+import {
+  DEFAULT_PCC_PRIVATE_TEAM_POLICY,
+  attachmentCapacityError,
+  projectAttachmentUsage,
+} from "./private-team-policy.js";
 
 const UPLOAD_TTL_MS = 60 * 60 * 1_000;
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
@@ -29,23 +34,35 @@ type PendingUpload = {
   expiresAt: string;
 };
 
-async function withUploadLock<T>(uploadId: string, work: () => Promise<T>): Promise<T> {
-  const previous = uploadLocks.get(uploadId) ?? Promise.resolve();
+async function withPccUploadLock<T>(lockKey: string, work: () => Promise<T>): Promise<T> {
+  const previous = uploadLocks.get(lockKey) ?? Promise.resolve();
   let releaseCurrent!: () => void;
   const current = new Promise<void>((resolve) => {
     releaseCurrent = resolve;
   });
   const tail = previous.then(() => current);
-  uploadLocks.set(uploadId, tail);
+  uploadLocks.set(lockKey, tail);
   await previous;
   try {
     return await work();
   } finally {
     releaseCurrent();
-    if (uploadLocks.get(uploadId) === tail) {
-      uploadLocks.delete(uploadId);
+    if (uploadLocks.get(lockKey) === tail) {
+      uploadLocks.delete(lockKey);
     }
   }
+}
+
+async function withUploadLock<T>(uploadId: string, work: () => Promise<T>): Promise<T> {
+  return withPccUploadLock(`upload:${uploadId}`, work);
+}
+
+async function withProjectUploadLock<T>(
+  projectId: string,
+  env: NodeJS.ProcessEnv,
+  work: () => Promise<T>,
+): Promise<T> {
+  return withPccUploadLock(`project:${uploadRoot(env)}:${projectId}`, work);
 }
 
 function attachmentRoot(env: NodeJS.ProcessEnv): string {
@@ -108,6 +125,44 @@ async function discardPending(uploadId: string, env: NodeJS.ProcessEnv): Promise
     fs.rm(uploadMetadataPath(uploadId, env), { force: true }),
     fs.rm(uploadDataPath(uploadId, env), { force: true }),
   ]);
+}
+
+/** Remove abandoned upload parts without touching committed attachments. */
+export async function cleanupExpiredPccAttachmentUploads(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<number> {
+  await ensureRoots(env);
+  let removed = 0;
+  for (const name of await fs.readdir(uploadRoot(env))) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    const upload = await readDurableJsonFile<PendingUpload>(path.join(uploadRoot(env), name));
+    if (upload && Date.parse(upload.expiresAt) <= Date.now()) {
+      await discardPending(upload.id, env);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+async function pendingUploadUsage(
+  projectId: string,
+  env: NodeJS.ProcessEnv,
+): Promise<{ count: number; bytes: number }> {
+  let count = 0;
+  let bytes = 0;
+  for (const name of await fs.readdir(uploadRoot(env))) {
+    if (!name.endsWith(".json")) {
+      continue;
+    }
+    const upload = await readDurableJsonFile<PendingUpload>(path.join(uploadRoot(env), name));
+    if (upload?.request.projectId === projectId && Date.parse(upload.expiresAt) > Date.now()) {
+      count += 1;
+      bytes += upload.request.sizeBytes;
+    }
+  }
+  return { count, bytes };
 }
 
 function validateScope(request: PccAttachmentsUploadBeginParams): void {
@@ -207,43 +262,61 @@ export async function beginPccAttachmentUpload(
   if (request.sizeBytes <= 0 || request.sizeBytes > MAX_FILE_BYTES) {
     throw new Error("PCC attachments must be between 1 byte and 100 MiB");
   }
-  await ensureRoots(env);
-  if (request.idempotencyKey) {
-    for (const name of await fs.readdir(uploadRoot(env))) {
-      if (!name.endsWith(".json")) {
-        continue;
-      }
-      const existing = await readDurableJsonFile<PendingUpload>(path.join(uploadRoot(env), name));
-      if (
-        existing?.request.projectId === request.projectId &&
-        existing.request.idempotencyKey === request.idempotencyKey &&
-        Date.parse(existing.expiresAt) > Date.now()
-      ) {
-        return {
-          uploadId: existing.id,
-          offset: existing.receivedBytes,
-          expiresAt: existing.expiresAt,
-        };
+  return withProjectUploadLock(request.projectId, env, async () => {
+    await ensureRoots(env);
+    await cleanupExpiredPccAttachmentUploads(env);
+    if (request.idempotencyKey) {
+      for (const name of await fs.readdir(uploadRoot(env))) {
+        if (!name.endsWith(".json")) {
+          continue;
+        }
+        const existing = await readDurableJsonFile<PendingUpload>(path.join(uploadRoot(env), name));
+        if (
+          existing?.request.projectId === request.projectId &&
+          existing.request.idempotencyKey === request.idempotencyKey &&
+          Date.parse(existing.expiresAt) > Date.now()
+        ) {
+          return {
+            uploadId: existing.id,
+            offset: existing.receivedBytes,
+            expiresAt: existing.expiresAt,
+          };
+        }
       }
     }
-  }
-  const now = new Date();
-  const upload: PendingUpload = {
-    schemaVersion: 1,
-    id: randomUUID(),
-    request: {
-      ...request,
-      originalName: path.basename(request.originalName).slice(0, 512),
-      mimeType: normalizeMimeType(request.mimeType) || "application/octet-stream",
-    },
-    receivedBytes: 0,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + UPLOAD_TTL_MS).toISOString(),
-  };
-  await fs.writeFile(uploadDataPath(upload.id, env), Buffer.alloc(0), { mode: 0o600 });
-  await writePending(upload, env);
-  return { uploadId: upload.id, offset: 0, expiresAt: upload.expiresAt };
+    const pending = await pendingUploadUsage(request.projectId, env);
+    const ready = projectAttachmentUsage(readPccLedger(env).attachments ?? [], request.projectId);
+    if (ready.count + pending.count >= DEFAULT_PCC_PRIVATE_TEAM_POLICY.maxAttachmentsPerProject) {
+      throw new Error(
+        `This project is limited to ${DEFAULT_PCC_PRIVATE_TEAM_POLICY.maxAttachmentsPerProject} attached files. Remove an unused file before adding another.`,
+      );
+    }
+    if (
+      ready.bytes + pending.bytes + request.sizeBytes >
+      DEFAULT_PCC_PRIVATE_TEAM_POLICY.maxAttachmentBytesPerProject
+    ) {
+      throw new Error(
+        "This project's attachment storage limit is 1 GiB. Remove an unused file or attach a smaller file.",
+      );
+    }
+    const now = new Date();
+    const upload: PendingUpload = {
+      schemaVersion: 1,
+      id: randomUUID(),
+      request: {
+        ...request,
+        originalName: path.basename(request.originalName).slice(0, 512),
+        mimeType: normalizeMimeType(request.mimeType) || "application/octet-stream",
+      },
+      receivedBytes: 0,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + UPLOAD_TTL_MS).toISOString(),
+    };
+    await fs.writeFile(uploadDataPath(upload.id, env), Buffer.alloc(0), { mode: 0o600 });
+    await writePending(upload, env);
+    return { uploadId: upload.id, offset: 0, expiresAt: upload.expiresAt };
+  });
 }
 
 export async function appendPccAttachmentChunk(
@@ -354,6 +427,14 @@ export async function commitPccAttachmentUpload(
       withPccLedger(
         (ledger) => {
           ledger.attachments ??= [];
+          const capacityError = attachmentCapacityError(
+            ledger.attachments,
+            attachment.projectId,
+            attachment.sizeBytes,
+          );
+          if (capacityError) {
+            throw new Error(capacityError);
+          }
           ledger.attachments.push(attachment);
         },
         { write: true, auditKind: "pcc.attachments.upload.commit" },

@@ -18,6 +18,10 @@ import {
   type SqliteWalMaintenance,
 } from "../infra/sqlite-wal.js";
 import type { PccLedger } from "./domain/ledger.js";
+import {
+  DEFAULT_PCC_PRIVATE_TEAM_POLICY,
+  normalizePccPrivateTeamPolicy,
+} from "./private-team-policy.js";
 
 export type { PccLedger } from "./domain/ledger.js";
 
@@ -75,6 +79,7 @@ const PCC_LEDGER_SQLITE_FILE = "ledger.sqlite";
 const PCC_LEDGER_BUSY_TIMEOUT_MS = 30_000;
 const PCC_DIR_MODE = 0o700;
 const PCC_FILE_MODE = 0o600;
+const PCC_LEDGER_BACKUP_FILE = "ledger.last-known-good.json";
 const cachedDatabases = new Map<string, OpenLedgerDatabase>();
 
 function stateRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -87,6 +92,10 @@ export function pccLedgerJsonPath(env: NodeJS.ProcessEnv = process.env): string 
 
 export function pccLedgerSqlitePath(env: NodeJS.ProcessEnv = process.env): string {
   return path.join(stateRoot(env), PCC_DIR_NAME, PCC_LEDGER_SQLITE_FILE);
+}
+
+export function pccLedgerBackupPath(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(stateRoot(env), PCC_DIR_NAME, PCC_LEDGER_BACKUP_FILE);
 }
 
 function nowIso(): string {
@@ -110,7 +119,8 @@ function defaultLedger(): PccLedger {
     lastKnownGood: [],
     attachments: [],
     attachmentUsageReceipts: [],
-    settings: {},
+    modelRunReceipts: [],
+    settings: { privateTeamPolicy: DEFAULT_PCC_PRIVATE_TEAM_POLICY },
   };
 }
 
@@ -133,10 +143,14 @@ export function assertPccLedger(value: unknown): PccLedger {
     attachmentUsageReceipts: Array.isArray(raw.attachmentUsageReceipts)
       ? raw.attachmentUsageReceipts
       : [],
+    modelRunReceipts: Array.isArray(raw.modelRunReceipts) ? raw.modelRunReceipts : [],
     settings:
       raw.settings && typeof raw.settings === "object" && !Array.isArray(raw.settings)
-        ? raw.settings
-        : {},
+        ? {
+            ...raw.settings,
+            privateTeamPolicy: normalizePccPrivateTeamPolicy(raw.settings.privateTeamPolicy),
+          }
+        : { privateTeamPolicy: DEFAULT_PCC_PRIVATE_TEAM_POLICY },
   };
 }
 
@@ -307,6 +321,64 @@ function writeSnapshot(
   );
 }
 
+function writeLedgerBackupSync(ledger: PccLedger, revision: number, env: NodeJS.ProcessEnv): void {
+  const pathname = pccLedgerBackupPath(env);
+  ensurePrivateStoragePath(pathname);
+  const payload = JSON.stringify({
+    schemaVersion: 1,
+    revision,
+    savedAt: nowIso(),
+    ledger,
+  });
+  const temporary = `${pathname}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, `${payload}\n`, { encoding: "utf8", mode: PCC_FILE_MODE });
+    privateMode(temporary, PCC_FILE_MODE);
+    fs.renameSync(temporary, pathname);
+    privateMode(pathname, PCC_FILE_MODE);
+  } finally {
+    try {
+      fs.rmSync(temporary, { force: true });
+    } catch {
+      // The atomic rename already completed, or the temporary file was never created.
+    }
+  }
+}
+
+export function readPccLedgerBackup(
+  env: NodeJS.ProcessEnv = process.env,
+): { schemaVersion: 1; revision: number; savedAt: string; ledger: PccLedger } | null {
+  const pathname = pccLedgerBackupPath(env);
+  if (!fs.existsSync(pathname)) {
+    return null;
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(pathname, "utf8")) as {
+      schemaVersion?: unknown;
+      revision?: unknown;
+      savedAt?: unknown;
+      ledger?: unknown;
+    };
+    if (
+      raw.schemaVersion !== 1 ||
+      typeof raw.revision !== "number" ||
+      !Number.isInteger(raw.revision) ||
+      typeof raw.savedAt !== "string" ||
+      !raw.ledger
+    ) {
+      throw new Error("invalid backup envelope");
+    }
+    return {
+      schemaVersion: 1,
+      revision: raw.revision,
+      savedAt: raw.savedAt,
+      ledger: assertPccLedger(raw.ledger),
+    };
+  } catch (error) {
+    throw new Error(`PCC last-known-good ledger backup is corrupt: ${pathname}`, { cause: error });
+  }
+}
+
 function readLegacyLedger(env: NodeJS.ProcessEnv): PccLedger | null {
   const file = pccLedgerJsonPath(env);
   if (!fs.existsSync(file)) {
@@ -401,6 +473,11 @@ export function withPccLedger<T>(
   const mutationResult = runSqliteImmediateTransactionSync(database.db, () => {
     const current = selectSnapshot(database.db);
     const ledger = current ? parseSnapshot(current) : defaultLedger();
+    if (current) {
+      // Preserve the last committed state before applying the next mutation.
+      // If the mutation fails, this file remains a usable recovery point.
+      writeLedgerBackupSync(ledger, current.revision, env);
+    }
     const result = mutator(ledger);
     writeSnapshot(
       database.db,

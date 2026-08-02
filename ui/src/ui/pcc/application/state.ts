@@ -26,8 +26,10 @@ import type {
   PccMilestone,
   PccPermissionGrant,
   PccPlanningRun,
+  PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
+  PccProjectAiUsageSummary,
   PccProjectSummary,
   PccStatus,
   PccSubMilestone,
@@ -44,6 +46,7 @@ export type PccProjectDetail = {
   decisions?: PccDecision[];
   lastKnownGood?: PccLastKnownGood[];
   attachments?: PccAttachment[];
+  aiUsage?: PccProjectAiUsageSummary;
   summary: PccProjectSummary;
 };
 
@@ -276,6 +279,7 @@ export type PccDashboardState = {
   pccReleaseGovernance?: ReleaseGovernanceStatus | null;
   pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
   pccPlanningPolicy?: PccPlanningPolicy;
+  pccPrivateTeamPolicy?: PccPrivateTeamPolicy;
   pccExecutionProjection?: PccExecutionRuntimeProjection | null;
   pccExecutionProjectionLoading?: boolean;
   pccExecutionProjectionError?: string | null;

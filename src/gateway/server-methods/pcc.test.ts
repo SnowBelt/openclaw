@@ -780,12 +780,22 @@ describe("Project Command Center gateway methods", () => {
         safeLocalAgentSlots: number;
         warnings: string[];
       };
+      privateTeamPolicy: {
+        memberLimit: number;
+        maxConcurrentPlanningRuns: number;
+        backupMode: string;
+      };
     }>(await invoke("pcc.summary.get", { projectId: project.id }));
     expect(capacitySummary.executionCapacity.configuredSubagentLimit).toBe(4);
     expect(capacitySummary.executionCapacity.safeLocalAgentSlots).toBeGreaterThanOrEqual(0);
     expect(capacitySummary.executionCapacity.warnings).toContain(
       "External local-model process occupancy is unavailable; this is a CPU/RAM safety ceiling, not a throughput guarantee.",
     );
+    expect(capacitySummary.privateTeamPolicy).toMatchObject({
+      memberLimit: 5,
+      maxConcurrentPlanningRuns: 2,
+      backupMode: "transactional_sqlite_plus_last_known_good",
+    });
 
     await invoke("pcc.milestones.upsert", {
       milestone: {

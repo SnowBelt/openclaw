@@ -6,11 +6,13 @@ import type {
   PccAttachment,
   PccAttachmentUsageReceipt,
   PccMilestone,
+  PccModelRunReceipt,
   PccPermissionGrant,
   PccProject,
   PccSubMilestone,
 } from "../../../packages/gateway-protocol/src/schema/types.js";
 import type { PccPlanningPolicy } from "../planning.js";
+import type { PccPrivateTeamPolicy } from "../private-team-policy.js";
 
 /**
  * Storage-independent PCC aggregate consumed by domain and read-model services.
@@ -28,7 +30,9 @@ export type PccLedger = {
   lastKnownGood: PccLastKnownGood[];
   attachments?: PccAttachment[];
   attachmentUsageReceipts?: PccAttachmentUsageReceipt[];
+  modelRunReceipts?: PccModelRunReceipt[];
   settings?: {
     planningPolicy?: PccPlanningPolicy;
+    privateTeamPolicy?: PccPrivateTeamPolicy;
   };
 };

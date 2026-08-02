@@ -3019,6 +3019,7 @@ export function renderApp(state: AppViewState) {
                 releaseGovernance: state.pccReleaseGovernance,
                 executionCapacity: state.pccExecutionCapacity,
                 planningPolicy: state.pccPlanningPolicy,
+                privateTeamPolicy: state.pccPrivateTeamPolicy,
                 executionProjection: state.pccExecutionProjection,
                 executionProjectionLoading: state.pccExecutionProjectionLoading,
                 executionProjectionError: state.pccExecutionProjectionError,
