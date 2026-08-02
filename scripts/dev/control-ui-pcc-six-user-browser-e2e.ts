@@ -193,6 +193,7 @@ async function main(): Promise<void> {
   fs.mkdirSync(artifactDir, { recursive: true });
   const summary: Record<string, unknown> = { checks: {}, artifactDir };
   let browser: import("playwright").Browser | undefined;
+  let proofError: unknown;
   const contexts: import("playwright").BrowserContext[] = [];
 
   try {
@@ -219,28 +220,46 @@ async function main(): Promise<void> {
       pages.push(page);
     }
 
-    await Promise.all(
+    const coldOverviewReadyMs = await Promise.all(
       pages.map(async (page) => {
         await page.goto(connection().dashboardUrl, { waitUntil: "domcontentloaded" });
         await page
           .locator('[data-pcc-shell][data-pcc-surface="overview"]')
           .waitFor({ state: "visible", timeout: 45_000 });
         await page.locator("[data-pcc-overview-project]").first().waitFor({ state: "visible" });
+        return Math.round(await page.evaluate(() => performance.now()));
       }),
     );
+    const coldOverviewReadyP95Ms = coldOverviewReadyMs.toSorted((a, b) => a - b)[
+      Math.floor(coldOverviewReadyMs.length * 0.95)
+    ]!;
+
+    const overviewInteractiveMs: number[] = [];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await pages[0]?.reload({ waitUntil: "domcontentloaded" });
+      await pages[0]
+        ?.locator('[data-pcc-shell][data-pcc-surface="overview"]')
+        .waitFor({ state: "visible", timeout: 15_000 });
+      await pages[0]
+        ?.locator("[data-pcc-overview-project]")
+        .first()
+        .waitFor({ state: "visible", timeout: 15_000 });
+      overviewInteractiveMs.push(Math.round(await pages[0]!.evaluate(() => performance.now())));
+    }
+    const overviewInteractiveP95Ms = overviewInteractiveMs.toSorted((a, b) => a - b)[
+      Math.floor(overviewInteractiveMs.length * 0.95)
+    ]!;
 
     const projectCounts = await Promise.all(
       pages.map((page) => page.locator("[data-pcc-overview-project]").count()),
     );
     const allProjectsVisible = projectCounts.every((count) => count === 6);
     const pccProductIsNotDefault = await Promise.all(
-      pages.map(async (page) =>
-        Boolean(
-          await page
-            .locator('[data-pcc-shell][data-pcc-surface="overview"]')
-            .isVisible()
-            .catch(() => false),
-        ),
+      pages.map((page) =>
+        page
+          .locator('[data-pcc-shell][data-pcc-surface="overview"]')
+          .isVisible()
+          .catch(() => false),
       ),
     );
 
@@ -313,6 +332,29 @@ async function main(): Promise<void> {
     const liveSyncP95Ms = convergenceMs.toSorted((a, b) => a - b)[
       Math.floor(convergenceMs.length * 0.95)
     ]!;
+
+    const reconnectIndex = 4;
+    const reconnectProjectId = projectIds[reconnectIndex]!;
+    await contexts[reconnectIndex]?.setOffline(true);
+    const reconnectProject = await gateway<ProjectResult>("pcc.projects.get", {
+      projectId: reconnectProjectId,
+    });
+    const reconnectTitle = `${currentTitles[reconnectIndex]} · reconnected`;
+    await gateway("pcc.projects.upsert", {
+      expectedRevision: reconnectProject.project.revision,
+      project: { id: reconnectProjectId, title: reconnectTitle },
+    });
+    await pages[reconnectIndex]?.waitForTimeout(300);
+    await contexts[reconnectIndex]?.setOffline(false);
+    await pages[reconnectIndex]
+      ?.locator(`[data-pcc-overview-project="${reconnectProjectId}"] h3`)
+      .getByText(reconnectTitle, { exact: true })
+      .waitFor({ state: "visible", timeout: 15_000 });
+    currentTitles[reconnectIndex] = reconnectTitle;
+    const reconnectCaughtUp =
+      (await pages[reconnectIndex]
+        ?.locator(`[data-pcc-overview-project="${reconnectProjectId}"] h3`)
+        .textContent()) === reconnectTitle;
 
     await Promise.all(
       [pages[0], pages[1]].map(async (page) => {
@@ -389,15 +431,24 @@ async function main(): Promise<void> {
       liveUpdateConverged: true,
       boundedSixUserSoak: convergenceMs.length === 6,
       liveSyncWithinTwoSeconds: liveSyncP95Ms <= 2_000,
+      overviewInteractiveWithinOneSecond: overviewInteractiveP95Ms <= 1_000,
+      reconnectCaughtUp,
       conflictWasReviewable,
-      noHorizontalOverflow: visualAudit?.noHorizontalOverflow === true,
-      shellFitsNarrowViewport: visualAudit?.shellFits === true,
-      primaryTarget44px: visualAudit?.primaryTarget44px === true,
+      noHorizontalOverflow: visualAudit?.noHorizontalOverflow,
+      shellFitsNarrowViewport: visualAudit?.shellFits,
+      primaryTarget44px: visualAudit?.primaryTarget44px,
       activeNavContrastAA:
         visualAudit !== undefined &&
         contrastRatio(visualAudit.activeNavColor, visualAudit.activeNavBackground) >= 4.5,
     };
-    summary.metrics = { convergenceMs, liveSyncP95Ms };
+    summary.metrics = {
+      coldOverviewReadyMs,
+      coldOverviewReadyP95Ms,
+      overviewInteractiveMs,
+      overviewInteractiveP95Ms,
+      convergenceMs,
+      liveSyncP95Ms,
+    };
     summary.checks = checks;
     summary.ok = Object.values(checks).every(Boolean);
     fs.writeFileSync(
@@ -408,6 +459,8 @@ async function main(): Promise<void> {
       throw new Error(`six-user PCC browser proof failed: ${JSON.stringify(checks)}`);
     }
     console.log(JSON.stringify({ ...summary, projectIds: projectIds.length }, null, 2));
+  } catch (error) {
+    proofError = error;
   } finally {
     await Promise.allSettled(contexts.map((context) => context.close()));
     await browser?.close();
@@ -416,8 +469,13 @@ async function main(): Promise<void> {
       includeArchived: false,
     }).catch(() => ({ projects: [] }));
     if (remaining.projects.some((project) => projectIds.includes(project.id))) {
-      throw new Error("six-user PCC proof cleanup left an active disposable project");
+      proofError ??= new Error("six-user PCC proof cleanup left an active disposable project");
     }
+  }
+  if (proofError) {
+    throw proofError instanceof Error
+      ? proofError
+      : new Error(typeof proofError === "string" ? proofError : "unknown PCC six-user proof error");
   }
 }
 
