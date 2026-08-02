@@ -1513,13 +1513,13 @@ importers:
   extensions/research-manager:
     dependencies:
       '@mozilla/readability':
-        specifier: ^0.6.0
+        specifier: 0.6.0
         version: 0.6.0
       linkedom:
-        specifier: ^0.18.12
+        specifier: 0.18.12
         version: 0.18.12
       pdfjs-dist:
-        specifier: ^5.7.284
+        specifier: 5.7.284
         version: 5.7.284
       typebox:
         specifier: 1.3.3
