@@ -459,6 +459,23 @@ describe("renderPccDashboard", () => {
     }
   });
 
+  it("offers a context-rich PCC issue chat handoff from Needs You", () => {
+    const onStartIssueChat = vi.fn();
+    const container = renderView(createProps({ onStartIssueChat }));
+    const action = container.querySelector<HTMLButtonElement>("[data-pcc-issue-chat]");
+
+    expect(action).not.toBeNull();
+    action?.click();
+    expect(onStartIssueChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "pcc",
+        sourceId: "project-1",
+        title: "Project Command Center",
+        projectId: "project-1",
+      }),
+    );
+  });
+
   it("explains the private-team operating envelope without implying per-person permissions", () => {
     const container = renderView(
       createProps({

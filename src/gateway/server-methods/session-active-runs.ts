@@ -20,13 +20,18 @@ export type VisibleActiveSessionRun = {
 
 function collectTrackedActiveSessionRuns(
   context: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,
+  opts?: { includeHidden?: boolean },
 ): VisibleActiveSessionRun[] {
   const runs: VisibleActiveSessionRun[] = [];
   if (!(context.chatAbortControllers instanceof Map)) {
     return runs;
   }
   for (const [runId, active] of context.chatAbortControllers) {
-    if (active.projectSessionActive !== false && active.controlUiVisible !== false) {
+    const includeHidden = opts?.includeHidden === true;
+    if (
+      active.projectSessionActive !== false &&
+      (includeHidden || active.controlUiVisible !== false)
+    ) {
       const sessionKey = active.sessionKey?.trim();
       const sessionId = active.sessionId?.trim();
       if (!sessionKey && !sessionId) {
@@ -49,6 +54,15 @@ export function listVisibleActiveSessionRuns(
   context: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,
 ): VisibleActiveSessionRun[] {
   return collectTrackedActiveSessionRuns(context).toSorted(
+    (left, right) => right.startedAtMs - left.startedAtMs || left.runId.localeCompare(right.runId),
+  );
+}
+
+/** Returns every active project session run, including background runs hidden from the UI. */
+export function listAllActiveSessionRuns(
+  context: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,
+): VisibleActiveSessionRun[] {
+  return collectTrackedActiveSessionRuns(context, { includeHidden: true }).toSorted(
     (left, right) => right.startedAtMs - left.startedAtMs || left.runId.localeCompare(right.runId),
   );
 }

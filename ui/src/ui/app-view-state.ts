@@ -241,6 +241,8 @@ export type AppViewState = {
   operationsUpdatedAt: number | null;
   operationsLastSuccessfulAt: number | null;
   operationsRefreshFailedAt: number | null;
+  operationsIssueChats: Record<string, string>;
+  operationsIssueChatBusyId: string | null;
   operationsSection: import("./controllers/operations-navigation.ts").OperationsSection | null;
   operationsAgentQuery: string;
   operationsAgentSort: import("./controllers/operations-preferences.ts").OperationsAgentSort;

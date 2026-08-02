@@ -246,6 +246,12 @@ import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
 import { formatTimeMs } from "./format.ts";
 import { formatRelativeTimestamp } from "./format.ts";
 import { icons } from "./icons.ts";
+import {
+  issueChatKey,
+  issueChatLabel,
+  startIssueChat,
+  type IssueChatDescriptor,
+} from "./issue-chat.ts";
 import { createLazyView, renderLazyView } from "./lazy-view.ts";
 import {
   iconForTab,
@@ -449,6 +455,48 @@ function findSkillWorkshopRevisionSessionRow(
     }
   }
   return null;
+}
+
+async function startIssueChatFromDashboard(
+  state: AppViewState,
+  descriptor: IssueChatDescriptor,
+): Promise<void> {
+  const key = issueChatKey(descriptor);
+  if (state.operationsIssueChats[key] || state.operationsIssueChatBusyId === key) {
+    return;
+  }
+  state.operationsIssueChatBusyId = key;
+  state.operationsError = null;
+  (state as { requestUpdate?: () => void }).requestUpdate?.();
+  try {
+    const existing = state.sessionsResult?.sessions.find(
+      (session) => session.label === issueChatLabel(descriptor),
+    );
+    if (existing?.key) {
+      state.operationsIssueChats = { ...state.operationsIssueChats, [key]: existing.key };
+      return;
+    }
+    const sessionKey = await startIssueChat(state, descriptor);
+    if (!sessionKey) {
+      throw new Error(
+        "The issue chat could not be created. Check the Chat session list and try again.",
+      );
+    }
+    state.operationsIssueChats = { ...state.operationsIssueChats, [key]: sessionKey };
+  } catch (err) {
+    state.operationsError = err instanceof Error ? err.message : String(err);
+  } finally {
+    state.operationsIssueChatBusyId = null;
+    (state as { requestUpdate?: () => void }).requestUpdate?.();
+  }
+}
+
+function openIssueChatFromDashboard(state: AppViewState, sessionKey: string): void {
+  if (!sessionKey.trim()) {
+    return;
+  }
+  state.setTab("chat" as Tab);
+  switchChatSession(state, sessionKey);
 }
 
 function isUsableSkillWorkshopRevisionSession(
@@ -2939,6 +2987,8 @@ export function renderApp(state: AppViewState) {
                   : (state.operationsRefreshFailedAt ?? Date.now()),
                 section: state.operationsSection,
                 sessionKey: state.sessionKey,
+                issueChats: state.operationsIssueChats,
+                issueChatBusyId: state.operationsIssueChatBusyId,
                 agentQuery: state.operationsAgentQuery,
                 agentSort: state.operationsAgentSort,
                 pinnedAgentIds: state.operationsPinnedAgentIds,
@@ -2962,6 +3012,10 @@ export function renderApp(state: AppViewState) {
                 onNavigate: (target) => {
                   state.setTab(target as import("./navigation.ts").Tab);
                 },
+                onStartIssueChat: (descriptor) => {
+                  void startIssueChatFromDashboard(state, descriptor);
+                },
+                onOpenIssueChat: (sessionKey) => openIssueChatFromDashboard(state, sessionKey),
                 onAction: (action, targetId) => {
                   void runGuardedOperationsAction(state, {
                     action,
@@ -3095,6 +3149,9 @@ export function renderApp(state: AppViewState) {
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
                 onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
                 onResumeProject: () => void resumePccProjectForWork(state),
+                onStartIssueChat: (descriptor) => {
+                  void startIssueChatFromDashboard(state, descriptor);
+                },
                 onPreviewSetupAutofill: () => void previewPccSetupAutofill(state),
                 onPreviewSectionAutofill: (section) =>
                   void previewPccSectionAutofill(state, section),
