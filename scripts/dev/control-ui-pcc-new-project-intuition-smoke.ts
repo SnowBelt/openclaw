@@ -233,9 +233,9 @@ async function main(): Promise<void> {
     );
     if (
       projectForm.executionProfile.speed !== "ultra" ||
-      projectForm.executionProfile.codexPolicyId !== "recommended_minimum"
+      projectForm.executionProfile.codexPolicyId !== "local_only"
     ) {
-      throw new Error("local speed changed the independent Codex policy");
+      throw new Error("local speed changed the local-only default policy");
     }
     requireSelector(root, '[data-pcc-codex-policy="custom"]').dispatchEvent(
       new dom.window.Event("change", { bubbles: true }),

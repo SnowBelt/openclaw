@@ -3689,7 +3689,7 @@ describe("renderPccDashboard", () => {
       expect.objectContaining({
         executionProfile: expect.objectContaining({
           speed: "ultra",
-          codexPolicyId: "recommended_minimum",
+          codexPolicyId: "local_only",
         }),
       }),
     );
