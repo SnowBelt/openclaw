@@ -2,6 +2,11 @@ import type { PccWorkflowTemplateId } from "./domain/workflow.js";
 
 export const PCC_PLANNING_SCHEMA_VERSION = 1 as const;
 export const PCC_CODEX_PLANNER_MODEL = "openai/gpt-5.6-sol" as const;
+export const PCC_LOCAL_PLANNER_MODEL = "ollama/qwen3.5:4b" as const;
+
+export type PccPlanningProvider = "openai" | "ollama";
+export type PccPlanningRuntime = "codex" | "openclaw";
+export type PccPlannerSelection = "local" | "codex";
 
 export type PccPlanningEffort = "medium" | "high";
 export type PccPlanningDepth = "automatic" | PccPlanningEffort;
@@ -13,9 +18,9 @@ export type PccPlanningSurface =
 
 export type PccPlanningPolicy = {
   schemaVersion: typeof PCC_PLANNING_SCHEMA_VERSION;
-  provider: "openai";
+  provider: PccPlanningProvider;
   model: string;
-  runtime: "codex";
+  runtime: PccPlanningRuntime;
   depth: PccPlanningDepth;
   grant: {
     kind: "persistent_planning_only";
@@ -27,6 +32,8 @@ export type PccPlanningPolicy = {
 
 export type PccPlanGenerationRequest = {
   surface: PccPlanningSurface;
+  /** Local AI is the safe default. Codex must be selected explicitly per request. */
+  plannerMode?: PccPlannerSelection;
   description: string;
   existingTitle?: string;
   existingGoal?: string;
@@ -52,12 +59,12 @@ export type PccGeneratedMilestone = PccGeneratedSubMilestone & {
 
 export type PccPlanProvenance = {
   generatedAt: string;
-  provider: "openai";
+  provider: PccPlanningProvider;
   model: string;
-  runtime: "codex";
+  runtime: PccPlanningRuntime;
   effort: PccPlanningEffort;
   auth: "oauth" | "none";
-  source: "live_codex" | "isolated_test_fixture";
+  source: "live_local" | "live_codex" | "isolated_test_fixture";
   planningOnly: true;
 };
 
@@ -73,7 +80,7 @@ export type PccPlanGenerationResult = {
   provenance: PccPlanProvenance;
 };
 
-export const DEFAULT_PCC_PLANNING_POLICY: PccPlanningPolicy = {
+export const CODEX_PCC_PLANNING_POLICY: PccPlanningPolicy = {
   schemaVersion: PCC_PLANNING_SCHEMA_VERSION,
   provider: "openai",
   model: PCC_CODEX_PLANNER_MODEL,
@@ -95,6 +102,27 @@ export const DEFAULT_PCC_PLANNING_POLICY: PccPlanningPolicy = {
   },
 };
 
+/** Local AI is the default planner. It cannot perform tools or external writes. */
+export const DEFAULT_PCC_PLANNING_POLICY: PccPlanningPolicy = {
+  ...CODEX_PCC_PLANNING_POLICY,
+  provider: "ollama",
+  model: PCC_LOCAL_PLANNER_MODEL,
+  runtime: "openclaw",
+};
+
+function defaultPolicyForProvider(provider: PccPlanningProvider): PccPlanningPolicy {
+  return provider === "openai" ? CODEX_PCC_PLANNING_POLICY : DEFAULT_PCC_PLANNING_POLICY;
+}
+
+function validPlannerModel(provider: PccPlanningProvider, value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    (provider === "openai"
+      ? /^openai\/gpt-5\.6-(?:sol|terra|luna)$/u.test(value)
+      : /^ollama\/\S+$/u.test(value))
+  );
+}
+
 export function normalizePccPlanningPolicy(value: unknown): PccPlanningPolicy {
   const source =
     value && typeof value === "object" && !Array.isArray(value)
@@ -105,17 +133,44 @@ export function normalizePccPlanningPolicy(value: unknown): PccPlanningPolicy {
       ? (source.grant as Record<string, unknown>)
       : {};
   const depth = source.depth;
-  const model =
-    typeof source.model === "string" && /^openai\/gpt-5\.6-(?:sol|terra|luna)$/u.test(source.model)
-      ? source.model
-      : DEFAULT_PCC_PLANNING_POLICY.model;
+  const provider =
+    source.provider === "openai" || source.provider === "ollama" ? source.provider : "ollama";
+  const defaults = defaultPolicyForProvider(provider);
+  const model = validPlannerModel(provider, source.model) ? source.model : defaults.model;
   return {
-    ...DEFAULT_PCC_PLANNING_POLICY,
+    ...defaults,
+    provider,
     model,
+    runtime: provider === "openai" ? "codex" : "openclaw",
     depth: depth === "medium" || depth === "high" || depth === "automatic" ? depth : "automatic",
     grant: {
-      ...DEFAULT_PCC_PLANNING_POLICY.grant,
+      ...defaults.grant,
       enabled: typeof grant.enabled === "boolean" ? grant.enabled : true,
+    },
+  };
+}
+
+/**
+ * Select the planner for one request. A legacy/shared Codex policy never silently
+ * turns the default local planner back into hosted planning.
+ */
+export function resolvePccPlanningPolicy(
+  value: unknown,
+  plannerMode: PccPlannerSelection = "local",
+): PccPlanningPolicy {
+  const configured = normalizePccPlanningPolicy(value);
+  const defaults =
+    plannerMode === "codex" ? CODEX_PCC_PLANNING_POLICY : DEFAULT_PCC_PLANNING_POLICY;
+  const keepConfiguredModel =
+    (plannerMode === "codex" && configured.provider === "openai") ||
+    (plannerMode === "local" && configured.provider === "ollama");
+  return {
+    ...defaults,
+    ...(keepConfiguredModel ? { model: configured.model } : {}),
+    depth: configured.depth,
+    grant: {
+      ...defaults.grant,
+      enabled: configured.grant.enabled,
     },
   };
 }
@@ -146,11 +201,11 @@ export function assertPccPlanningAuthorized(
   request: PccPlanGenerationRequest,
   policy: PccPlanningPolicy = DEFAULT_PCC_PLANNING_POLICY,
 ): void {
-  if (!policy.grant.enabled) {
+  if (policy.runtime === "codex" && !policy.grant.enabled) {
     throw new Error("Codex planning is disabled. Enable the planning-only grant to continue.");
   }
   if (!policy.grant.allowedSurfaces.includes(request.surface)) {
-    throw new Error(`Codex planning is not authorized for ${request.surface}.`);
+    throw new Error(`PCC planning is not authorized for ${request.surface}.`);
   }
   if (!request.description.trim()) {
     throw new Error("Describe what the project should accomplish before generating a plan.");
@@ -221,7 +276,7 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`Codex plan is missing ${field}.`);
+    throw new Error(`PCC planner is missing ${field}.`);
   }
   return value.trim();
 }
@@ -241,18 +296,18 @@ const INVALID_PROJECT_TITLES = new Set([
 function projectTitle(value: unknown): string {
   const title = requiredString(value, "project title");
   if (title.length < 3 || INVALID_PROJECT_TITLES.has(title.toLowerCase())) {
-    throw new Error("Codex returned a placeholder instead of a real project title.");
+    throw new Error("PCC planner returned a placeholder instead of a real project title.");
   }
   return title;
 }
 
 function stringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value)) {
-    throw new Error(`Codex plan is missing ${field}.`);
+    throw new Error(`PCC planner is missing ${field}.`);
   }
   const result = value.map((item) => requiredString(item, field));
   if (result.length === 0) {
-    throw new Error(`Codex plan requires at least one ${field}.`);
+    throw new Error(`PCC planner requires at least one ${field}.`);
   }
   return result;
 }
@@ -293,7 +348,7 @@ const PROOF_LEVELS = new Set(["local", "remote", "runtime", "production"]);
 
 function assertPlanningEnum(value: string, allowed: ReadonlySet<string>, field: string): void {
   if (!allowed.has(value)) {
-    throw new Error(`Codex plan contains unsupported ${field} ${value}.`);
+    throw new Error(`PCC planner contains unsupported ${field} ${value}.`);
   }
 }
 
@@ -303,10 +358,10 @@ function parseMilestone(value: unknown, milestoneCount: number): PccGeneratedMil
     ? item.subMilestones.map(parseSubMilestone)
     : [];
   if (subMilestones.length === 0) {
-    throw new Error("Every Codex milestone requires at least one sub-milestone.");
+    throw new Error("Every PCC milestone requires at least one sub-milestone.");
   }
   if (subMilestones.length > 8) {
-    throw new Error("A Codex milestone cannot contain more than eight sub-milestones.");
+    throw new Error("A PCC milestone cannot contain more than eight sub-milestones.");
   }
   const dependencies = Array.isArray(item.dependencies)
     ? item.dependencies.map((dependency) => {
@@ -315,7 +370,7 @@ function parseMilestone(value: unknown, milestoneCount: number): PccGeneratedMil
           Number(dependency) < 0 ||
           Number(dependency) >= milestoneCount
         ) {
-          throw new Error("Codex plan contains an invalid milestone dependency.");
+          throw new Error("PCC planner contains an invalid milestone dependency.");
         }
         return Number(dependency);
       })
@@ -339,37 +394,39 @@ function parseMilestone(value: unknown, milestoneCount: number): PccGeneratedMil
 export function parsePccPlanGenerationResult(params: {
   text: string;
   effort: PccPlanningEffort;
+  policy?: PccPlanningPolicy;
   model?: string;
   generatedAt?: string;
   auth?: PccPlanProvenance["auth"];
   source?: PccPlanProvenance["source"];
 }): PccPlanGenerationResult {
+  const policy = params.policy ?? CODEX_PCC_PLANNING_POLICY;
   const match = params.text.match(/\{[\s\S]*\}/u);
   if (!match) {
-    throw new Error("Codex did not return a JSON project plan.");
+    throw new Error("PCC planner did not return a JSON project plan.");
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(match[0]);
   } catch {
-    throw new Error("Codex returned malformed project-plan JSON.");
+    throw new Error("PCC planner returned malformed project-plan JSON.");
   }
   const value = objectValue(parsed);
   if (!Array.isArray(value.milestones) || value.milestones.length === 0) {
-    throw new Error("Codex plan requires at least one milestone.");
+    throw new Error("PCC planner requires at least one milestone.");
   }
   if (value.milestones.length > 10) {
-    throw new Error("Codex plan cannot contain more than ten milestones.");
+    throw new Error("PCC planner cannot contain more than ten milestones.");
   }
   const rawMilestones = value.milestones;
   const templateId = requiredString(value.workflowTemplateId, "workflow template");
   if (!TEMPLATE_IDS.has(templateId as PccWorkflowTemplateId)) {
-    throw new Error(`Codex returned unsupported workflow template ${templateId}.`);
+    throw new Error(`PCC planner returned unsupported workflow template ${templateId}.`);
   }
   const milestones = rawMilestones.map((item) => parseMilestone(item, rawMilestones.length));
   milestones.forEach((milestone, index) => {
     if (milestone.dependencies.some((dependency) => dependency >= index)) {
-      throw new Error("Codex plan dependencies must point to earlier milestones.");
+      throw new Error("PCC planner dependencies must point to earlier milestones.");
     }
   });
   return {
@@ -387,12 +444,12 @@ export function parsePccPlanGenerationResult(params: {
       : [],
     provenance: {
       generatedAt: params.generatedAt ?? new Date().toISOString(),
-      provider: "openai",
-      model: params.model ?? PCC_CODEX_PLANNER_MODEL,
-      runtime: "codex",
+      provider: policy.provider,
+      model: params.model ?? policy.model,
+      runtime: policy.runtime,
       effort: params.effort,
-      auth: params.auth ?? "oauth",
-      source: params.source ?? "live_codex",
+      auth: params.auth ?? (policy.runtime === "codex" ? "oauth" : "none"),
+      source: params.source ?? (policy.runtime === "codex" ? "live_codex" : "live_local"),
       planningOnly: true,
     },
   };

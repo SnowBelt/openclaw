@@ -110,6 +110,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H1: Custom runtime update safety
   - H2: Source of truth
   - H2: Durable source requirement
+  - H2: Canonical production package
   - H2: Prepare, review, approve
   - H2: Dashboard customization rule
   - H2: Project Command Center status
@@ -210,7 +211,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 
 - Route: /automation/pcc-codex-planning
 - Headings:
-  - H1: PCC Codex planning
+  - H1: PCC planning
   - H2: Planning contract
   - H2: Plan generation
   - H2: Private team operating envelope
@@ -249,6 +250,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Milestone sequence
   - H2: Future additions
   - H2: Performance and scale contract
+  - H2: Work Overview and private-team collaboration
   - H2: Clean architecture map
   - H2: Update preservation
   - H2: Continuation receipt
@@ -6004,6 +6006,14 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Surface
   - H2: Related docs
 
+## plugins/reference/apps.md
+
+- Route: /plugins/reference/apps
+- Headings:
+  - H1: Apps plugin
+  - H2: Distribution
+  - H2: Surface
+
 ## plugins/reference/arcee.md
 
 - Route: /plugins/reference/arcee
@@ -6027,6 +6037,14 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /plugins/reference/bonjour
 - Headings:
   - H1: Bonjour plugin
+  - H2: Distribution
+  - H2: Surface
+
+## plugins/reference/book-writer.md
+
+- Route: /plugins/reference/book-writer
+- Headings:
+  - H1: Book Writer plugin
   - H2: Distribution
   - H2: Surface
 
@@ -6827,6 +6845,15 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Surface
   - H2: Related docs
 
+## plugins/reference/research-manager.md
+
+- Route: /plugins/reference/research-manager
+- Headings:
+  - H1: Research Manager plugin
+  - H2: Distribution
+  - H2: Surface
+  - H2: Related docs
+
 ## plugins/reference/runway.md
 
 - Route: /plugins/reference/runway
@@ -7128,6 +7155,22 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Distribution
   - H2: Surface
   - H2: Related docs
+
+## plugins/research-manager.md
+
+- Route: /plugins/research-manager
+- Headings:
+  - H2: Architecture
+  - H2: Prerequisites
+  - H2: Configuration
+  - H3: Search provider
+  - H2: Qualification
+  - H2: Running research
+  - H2: Scheduling and fallback
+  - H2: Acceptance benchmark
+  - H2: Security and privacy
+  - H2: Cost
+  - H2: Troubleshooting
 
 ## plugins/sdk-agent-harness.md
 

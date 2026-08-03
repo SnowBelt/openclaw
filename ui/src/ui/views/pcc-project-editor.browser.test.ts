@@ -44,8 +44,8 @@ function editorHtml(): string {
           <div class="pcc-planning-progress__indicator"></div>
           <div>
             <strong>Creating your project plan</strong>
-            <span>Codex is planning milestones and sub-steps</span>
-            <small>GPT-5.6 Sol · Medium effort · 26s elapsed.</small>
+          <span>Local AI is planning milestones and sub-steps</span>
+          <small>qwen3.5:4b · Medium effort · 26s elapsed.</small>
           </div>
           <button class="btn btn--subtle" type="button">Cancel generation</button>
         </div>
@@ -74,7 +74,7 @@ function editorHtml(): string {
         </section>
         <footer>
           <button class="btn pcc-action-primary pcc-editor-primary-action" type="button">
-            Generate project plan with Codex
+            Generate project plan with Local AI
           </button>
           <button class="btn btn--subtle" type="button">Cancel</button>
         </footer>
@@ -148,7 +148,7 @@ describeBrowserLayout("PCC project-creation layout", () => {
       expect(primary.right).toBeLessThanOrEqual(viewport.width);
       expect(primary.bottom).toBeLessThanOrEqual(viewport.height);
       expect(primary.background).not.toBe("rgba(0, 0, 0, 0)");
-      expect(primary.background).toBe("rgb(0, 122, 255)");
+      expect(primary.background).toBe("rgb(0, 113, 227)");
       expect(primary.opacity).toBe("1");
 
       const sticky = await page.locator("[data-pcc-planning-progress]").evaluate((progress) => {

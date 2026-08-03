@@ -205,7 +205,11 @@ async function main(): Promise<void> {
     };
 
     renderCurrent();
-    requireText(root, "[data-pcc-create-ai-explainer]", "Codex fills only the blanks");
+    requireText(root, "[data-pcc-create-ai-explainer]", "Planner fills only the blanks");
+    requireText(root, '[data-pcc-initial-planner="local"] + span', "Local AI · Recommended");
+    if (projectForm.plannerMode !== "local_model" || projectForm.planningMode !== "template_only") {
+      throw new Error("new project flow must default initial planning to local AI");
+    }
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
     requireText(root, "[data-pcc-ai-role-picker]", "How fast should OpenClaw work?");
     requireText(root, "[data-pcc-ai-role-picker]", "Focused");
@@ -222,6 +226,12 @@ async function main(): Promise<void> {
     }
     if (root.querySelector("[data-pcc-ai-use-policy]")) {
       throw new Error("new project flow must not expose the retired AI routing policy selector");
+    }
+    requireSelector(root, '[data-pcc-initial-planner="codex"]').dispatchEvent(
+      new dom.window.Event("change", { bubbles: true }),
+    );
+    if (projectForm.plannerMode !== "codex" || projectForm.planningMode !== "codex_full_plan") {
+      throw new Error("Codex initial planning must require an explicit opt-in");
     }
     const customize = requireSelector(root, "[data-pcc-create-customize]");
     if (customize.hasAttribute("open")) {

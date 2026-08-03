@@ -5,7 +5,7 @@ import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readDurableJsonFile, writeJsonAtomic } from "../infra/json-files.js";
 import type { PccModelUsage, PccPlannerRunner } from "./planning-runtime.js";
-import { generatePccPlanWithCodex } from "./planning-runtime.js";
+import { generatePccPlan } from "./planning-runtime.js";
 import type { PccPlanGenerationRequest, PccPlanGenerationResult } from "./planning.js";
 import type { PccPlanningPolicy } from "./planning.js";
 import {
@@ -53,7 +53,7 @@ type PlanningRunStartParams = {
   request: PccPlanGenerationRequest;
   policy: PccPlanningPolicy;
   runAgent?: PccPlannerRunner;
-  generatePlan?: typeof generatePccPlanWithCodex;
+  generatePlan?: typeof generatePccPlan;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   maxConcurrentRuns?: number;
@@ -238,7 +238,7 @@ function executePlanningRun(pending: PendingRun): void {
     };
     await update({ status: "running", startedAt: clock().toISOString() });
     try {
-      const plan = await (params.generatePlan ?? generatePccPlanWithCodex)({
+      const plan = await (params.generatePlan ?? generatePccPlan)({
         cfg: params.cfg,
         request: params.request,
         policy: params.policy,

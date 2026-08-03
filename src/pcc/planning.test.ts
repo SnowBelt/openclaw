@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   assertPccPlanningAuthorized,
   buildPccPlanningPrompt,
+  CODEX_PCC_PLANNING_POLICY,
   DEFAULT_PCC_PLANNING_POLICY,
   parsePccPlanGenerationResult,
+  PCC_LOCAL_PLANNER_MODEL,
+  resolvePccPlanningPolicy,
   resolvePccPlanningEffort,
 } from "./planning.js";
 
@@ -37,6 +40,24 @@ const planJson = JSON.stringify({
 });
 
 describe("PCC planning policy", () => {
+  it("defaults initial planning to local AI and requires an explicit Codex selection", () => {
+    expect(DEFAULT_PCC_PLANNING_POLICY).toMatchObject({
+      provider: "ollama",
+      model: PCC_LOCAL_PLANNER_MODEL,
+      runtime: "openclaw",
+    });
+    expect(resolvePccPlanningPolicy(CODEX_PCC_PLANNING_POLICY)).toMatchObject({
+      provider: "ollama",
+      model: PCC_LOCAL_PLANNER_MODEL,
+      runtime: "openclaw",
+    });
+    expect(resolvePccPlanningPolicy(CODEX_PCC_PLANNING_POLICY, "codex")).toMatchObject({
+      provider: "openai",
+      model: "openai/gpt-5.6-sol",
+      runtime: "codex",
+    });
+  });
+
   it("uses medium for ordinary plans and high for architecture or migration work", () => {
     expect(
       resolvePccPlanningEffort({ surface: "project_creation", description: "Build a todo list" }),
@@ -49,7 +70,7 @@ describe("PCC planning policy", () => {
     ).toBe("high");
   });
 
-  it("authorizes only planning surfaces and fails closed when the grant is disabled", () => {
+  it("keeps local planning available while Codex remains grant-gated", () => {
     expect(() =>
       assertPccPlanningAuthorized({
         surface: "project_creation",
@@ -64,7 +85,16 @@ describe("PCC planning policy", () => {
           grant: { ...DEFAULT_PCC_PLANNING_POLICY.grant, enabled: false },
         },
       ),
-    ).toThrow("planning is disabled");
+    ).not.toThrow();
+    expect(() =>
+      assertPccPlanningAuthorized(
+        { surface: "project_creation", description: "Build a useful dashboard" },
+        {
+          ...CODEX_PCC_PLANNING_POLICY,
+          grant: { ...CODEX_PCC_PLANNING_POLICY.grant, enabled: false },
+        },
+      ),
+    ).toThrow("Codex planning is disabled");
   });
 
   it("builds a planning-only prompt and parses live provenance", () => {

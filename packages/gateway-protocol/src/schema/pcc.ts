@@ -602,9 +602,9 @@ const PccPlanningDepthSchema = Type.Union([
 const PccPlanningPolicySchema = Type.Object(
   {
     schemaVersion: Type.Literal(1),
-    provider: Type.Literal("openai"),
+    provider: Type.Union([Type.Literal("openai"), Type.Literal("ollama")]),
     model: NonEmptyString,
-    runtime: Type.Literal("codex"),
+    runtime: Type.Union([Type.Literal("codex"), Type.Literal("openclaw")]),
     depth: PccPlanningDepthSchema,
     grant: Type.Object(
       {
@@ -666,6 +666,7 @@ const PccGeneratedSubMilestoneSchema = Type.Object(
 export const PccPlansGenerateParamsSchema = Type.Object(
   {
     surface: PccPlanningSurfaceSchema,
+    plannerMode: Type.Optional(Type.Union([Type.Literal("local"), Type.Literal("codex")])),
     description: Type.String({ minLength: 1, maxLength: 20_000 }),
     existingTitle: Type.Optional(Type.String({ maxLength: 1_000 })),
     existingGoal: Type.Optional(Type.String({ maxLength: 20_000 })),
@@ -714,12 +715,16 @@ const PccGeneratedPlanSchema = Type.Object(
     provenance: Type.Object(
       {
         generatedAt: TimestampSchema,
-        provider: Type.Literal("openai"),
+        provider: Type.Union([Type.Literal("openai"), Type.Literal("ollama")]),
         model: NonEmptyString,
-        runtime: Type.Literal("codex"),
+        runtime: Type.Union([Type.Literal("codex"), Type.Literal("openclaw")]),
         effort: Type.Union([Type.Literal("medium"), Type.Literal("high")]),
         auth: Type.Union([Type.Literal("oauth"), Type.Literal("none")]),
-        source: Type.Union([Type.Literal("live_codex"), Type.Literal("isolated_test_fixture")]),
+        source: Type.Union([
+          Type.Literal("live_local"),
+          Type.Literal("live_codex"),
+          Type.Literal("isolated_test_fixture"),
+        ]),
         planningOnly: Type.Literal(true),
       },
       { additionalProperties: false },

@@ -90,11 +90,12 @@ import {
   resetPccPlanningRunsForTest,
   startPccPlanningRun,
 } from "../../pcc/planning-run-store.js";
-import { generatePccPlanWithCodex } from "../../pcc/planning-runtime.js";
+import { generatePccPlan } from "../../pcc/planning-runtime.js";
 import {
   DEFAULT_PCC_PLANNING_POLICY,
   normalizePccPlanningPolicy,
   parsePccPlanGenerationResult,
+  resolvePccPlanningPolicy,
   resolvePccPlanningEffort,
   type PccPlanGenerationRequest,
   type PccPlanningPolicy,
@@ -165,7 +166,7 @@ const DEFAULT_PCC_PHASES: PccProject["phases"] = [
   { id: "maintenance", title: "Maintenance", status: "not_started", weight: 5, order: 5 },
 ];
 
-let pccPlanGenerator = generatePccPlanWithCodex;
+let pccPlanGenerator = generatePccPlan;
 
 function isolatedPlanFixtureEnabled(): boolean {
   return (
@@ -217,6 +218,7 @@ function generateIsolatedPlanFixture(request: PccPlanGenerationRequest, policy: 
       assumptions: ["No live Codex request is made by the isolated proof."],
     }),
     effort: resolvePccPlanningEffort(request, policy),
+    policy,
     model: policy.model,
     auth: "none",
     source: "isolated_test_fixture",
@@ -1571,7 +1573,10 @@ export const pccHandlers: GatewayRequestHandlers = {
     }
     try {
       const request = params as PccPlanGenerationRequest;
-      const policy = normalizePccPlanningPolicy(readLedger().settings?.planningPolicy);
+      const policy = resolvePccPlanningPolicy(
+        readLedger().settings?.planningPolicy,
+        request.plannerMode,
+      );
       const plan = isolatedPlanFixtureEnabled()
         ? generateIsolatedPlanFixture(request, policy)
         : await pccPlanGenerator({
@@ -1592,7 +1597,7 @@ export const pccHandlers: GatewayRequestHandlers = {
     try {
       const request = params as PccPlanGenerationRequest;
       const ledger = readLedger();
-      const policy = normalizePccPlanningPolicy(ledger.settings?.planningPolicy);
+      const policy = resolvePccPlanningPolicy(ledger.settings?.planningPolicy, request.plannerMode);
       const privateTeamPolicy = normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy);
       const run = await startPccPlanningRun({
         cfg: context.getRuntimeConfig(),
@@ -1603,7 +1608,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           ? {
               generatePlan: async () => generateIsolatedPlanFixture(request, policy),
             }
-          : {}),
+          : { generatePlan: pccPlanGenerator }),
       });
       respond(true, { run });
     } catch (error) {
@@ -1812,7 +1817,7 @@ export const pccHandlers: GatewayRequestHandlers = {
     }
     try {
       respond(true, {
-        policy: normalizePccPlanningPolicy(readLedger().settings?.planningPolicy),
+        policy: resolvePccPlanningPolicy(readLedger().settings?.planningPolicy),
       });
     } catch (error) {
       respondUnhandled(respond, error);
@@ -2690,7 +2695,7 @@ export const pccHandlers: GatewayRequestHandlers = {
         respond(true, {
           project: summarizeProject(ledger, project, index),
           portfolio: summarizePortfolio(ledger, index),
-          planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
+          planningPolicy: resolvePccPlanningPolicy(ledger.settings?.planningPolicy),
           privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
@@ -2701,7 +2706,7 @@ export const pccHandlers: GatewayRequestHandlers = {
       }
       respond(true, {
         portfolio: summarizePortfolio(ledger, index),
-        planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
+        planningPolicy: resolvePccPlanningPolicy(ledger.settings?.planningPolicy),
         privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
@@ -2724,11 +2729,11 @@ export const pccTesting = {
   summarizeProject,
   summarizePortfolio,
   readExecutionCapacity: readPccExecutionCapacity,
-  setPlanGenerator: (generator: typeof generatePccPlanWithCodex) => {
+  setPlanGenerator: (generator: typeof generatePccPlan) => {
     pccPlanGenerator = generator;
   },
   resetPlanGenerator: () => {
-    pccPlanGenerator = generatePccPlanWithCodex;
+    pccPlanGenerator = generatePccPlan;
     resetPccPlanningRunsForTest();
     resetPccPresenceForTest();
   },

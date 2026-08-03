@@ -75,6 +75,7 @@ import {
 } from "../../../../src/pcc/plan-revision.js";
 import {
   DEFAULT_PCC_PLANNING_POLICY,
+  PCC_LOCAL_PLANNER_MODEL,
   PCC_CODEX_PLANNER_MODEL,
   type PccGeneratedMilestone,
   type PccPlanGenerationResult,
@@ -764,13 +765,15 @@ function canonicalizeProjectAiRouting(form: PccProjectFormState): PccProjectForm
     pccExecutionProfile: form.executionProfile,
   });
   const aiUsePolicy = derivePccAiUsePolicy(executionProfile);
+  const plannerMode = form.plannerMode ?? plannerModeFromPlanningMode(form.planningMode);
+  const usesCodexForInitialPlan = plannerMode === "codex" || plannerMode === "high_reasoning_codex";
   return {
     ...form,
     executionProfile,
     aiUsePolicy,
-    plannerMode: "codex",
-    planningMode: "codex_full_plan",
-    plannerModelId: PCC_CODEX_PLANNER_MODEL,
+    plannerMode,
+    planningMode: plannerModeToPlanningMode(plannerMode),
+    plannerModelId: usesCodexForInitialPlan ? PCC_CODEX_PLANNER_MODEL : PCC_LOCAL_PLANNER_MODEL,
     plannerPermissionScope: executionProfile.approvalScope,
     codexPlanningAllowed: executionProfile.codexRole === "off" ? false : form.codexPlanningAllowed,
     plannerPermissionBudget: "",
@@ -874,7 +877,9 @@ function generatedPlanIntake(plan: PccPlanGenerationResult): Record<string, stri
         ? plan.risks.join("\n")
         : "Stop before missing permissions, unavailable tools, destructive actions, deployment, credentials, purchases, publication, or unrelated external writes.",
     owner:
-      "Codex plans. OpenClaw local agents execute routine work. The user owns gated decisions.",
+      plan.provenance.runtime === "codex"
+        ? "Codex plans. OpenClaw local agents execute routine work. The user owns gated decisions."
+        : "Local AI plans. OpenClaw local agents execute routine work. The user owns gated decisions.",
     blockers:
       plan.assumptions.length > 0
         ? `Validate these assumptions before dependent work:\n${plan.assumptions.join("\n")}`
@@ -1223,7 +1228,7 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
     codexPlanningAllowed: false,
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
-    planningMode: "codex_full_plan",
+    planningMode: plan.provenance.runtime === "codex" ? "codex_full_plan" : "template_only",
     aiUsePolicy: "local_only",
   });
   const milestones = plan.milestones.map((milestone, order) =>
@@ -1493,7 +1498,11 @@ function workflowDraftForSetup(
     goal: previewGoal ?? autofillGoal(detail),
     templateId: existingWorkflow || workflow.templateId,
     priority: detail.project.priority,
-    planningMode: generatedPlan ? "codex_full_plan" : "local_project_manager",
+    planningMode: generatedPlan
+      ? generatedPlan.provenance.runtime === "codex"
+        ? "codex_full_plan"
+        : "template_only"
+      : "local_project_manager",
     codexPlanningAllowed: false,
     remoteProofAllowed: false,
     runtimeActionsAllowed: false,
@@ -1828,12 +1837,12 @@ function projectFormFromProject(
     ) as PccPlanningMode,
     plannerMode: metadataString(
       aiRouting.plannerMode ?? metadata.pccPlannerMode,
-      "local_project_manager",
+      "local_model",
     ) as PccPlannerMode,
     aiUsePolicy: normalizeAiUsePolicy(
       aiRouting.policy ?? metadata.pccAiUsePolicy,
       aiUsePolicyFromPlannerMode(
-        metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
+        metadataString(metadata.pccPlannerMode, "local_model") as PccPlannerMode,
       ),
     ),
     plannerModelId: executionProfile.localModelId,
@@ -2084,8 +2093,8 @@ export async function updatePccPlanningPolicy(
     setActionNotice(
       state,
       enabled
-        ? "Codex planning enabled. The grant remains planning-only and tool-free."
-        : "Codex planning disabled. Local project execution settings were not changed.",
+        ? "Planning grant enabled. Local AI remains the default; Codex is opt-in and planning-only."
+        : "Planning grant disabled. Local project execution settings were not changed.",
     );
   });
 }
@@ -2521,7 +2530,10 @@ export function updatePccProjectForm(
     });
   }
   if (patch.plannerMode) {
-    nextForm.planningMode = plannerModeToPlanningMode(patch.plannerMode);
+    nextForm = canonicalizeProjectAiRouting({
+      ...nextForm,
+      plannerMode: patch.plannerMode,
+    });
   }
   if (patch.projectDescription !== undefined) {
     nextForm = {
@@ -2565,6 +2577,10 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
     }
     const planningRequest = {
       surface: form.id ? "project_replan" : "project_creation",
+      plannerMode:
+        form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex"
+          ? ("codex" as const)
+          : ("local" as const),
       description,
       ...(form.title.trim() ? { existingTitle: form.title.trim() } : {}),
       ...(form.goal.trim() ? { existingGoal: form.goal.trim() } : {}),
@@ -2633,8 +2649,8 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
         ? form.outcomeMetrics
         : plan.outcomeMetrics.join("\n"),
       workflowTemplateId: plan.workflowTemplateId,
-      planningMode: "codex_full_plan",
-      plannerMode: "codex",
+      planningMode: plan.provenance.runtime === "codex" ? "codex_full_plan" : "template_only",
+      plannerMode: plan.provenance.runtime === "codex" ? "codex" : "local_model",
       plannerModelId: plan.provenance.model,
       planPreviewAccepted: !form.id,
       generatedPlan: plan,

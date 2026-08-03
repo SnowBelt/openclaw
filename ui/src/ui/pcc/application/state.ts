@@ -11,6 +11,7 @@ import type {
   PccPlanningDepth,
   PccPlanningPolicy,
 } from "../../../../../src/pcc/planning.js";
+import { PCC_LOCAL_PLANNER_MODEL } from "../../../../../src/pcc/planning.js";
 import type { PccAiUsePolicy, PccPlanningMode } from "../../../../../src/pcc/project-workflows.js";
 import type { ReleaseGovernanceStatus } from "../../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../../src/pcc/runtime-identity.js";
@@ -316,11 +317,11 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   dueDate: "",
   outcomeMetrics: "",
   workflowTemplateId: "software-product",
-  planningMode: "codex_full_plan",
-  plannerMode: "codex",
-  aiUsePolicy: "codex_focused",
-  plannerModelId: "openai/gpt-5.6-sol",
-  plannerPermissionScope: "project",
+  planningMode: "template_only",
+  plannerMode: "local_model",
+  aiUsePolicy: "local_only",
+  plannerModelId: PCC_LOCAL_PLANNER_MODEL,
+  plannerPermissionScope: "plan",
   plannerPermissionBudget: "",
   planPreviewAccepted: false,
   planningDepth: "automatic",

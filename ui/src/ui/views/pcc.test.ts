@@ -4,6 +4,7 @@ import { html, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PCC_OPERATIONAL_QUALITY_DIMENSIONS } from "../../../../src/pcc/capability-contract.js";
 import { resolvePccExecutionProfilePreset } from "../../../../src/pcc/execution-profile.js";
+import type { PccPlanningPolicy } from "../../../../src/pcc/planning.js";
 import {
   EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
@@ -817,7 +818,7 @@ describe("renderPccDashboard", () => {
     expect(policy?.textContent).toMatch(
       /does not provide separate\s+per-person project permissions/u,
     );
-    expect(policy?.textContent).toContain("2 Codex planning runs at once");
+    expect(policy?.textContent).toContain("2 planning runs at once");
     expect(policy?.textContent).toContain("100 active projects");
     expect(policy?.textContent).toContain("200 files or 1 GiB per project");
   });
@@ -2462,13 +2463,13 @@ describe("renderPccDashboard", () => {
     const primaryButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-primary-action] button",
     );
-    expect(primaryButton?.textContent).toContain("Plan Setup with Codex");
+    expect(primaryButton?.textContent).toContain("Plan Setup with Local AI");
     const setupRepairButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-setup-repair-ai-fill]",
     );
-    expect(setupRepairButton?.textContent).toContain("Plan missing setup with Codex");
+    expect(setupRepairButton?.textContent).toContain("Plan missing setup with Local AI");
     expect(container.querySelector("[data-pcc-setup-repair-codex-note]")?.textContent).toContain(
-      "planning-only draft through the PCC OAuth grant",
+      "Local AI creates a planning-only draft",
     );
     expect(container.querySelector("[data-pcc-setup-repair-issues]")?.textContent).toContain(
       "Required intake answer missing",
@@ -3533,7 +3534,7 @@ describe("renderPccDashboard", () => {
       container.querySelector("[data-pcc-create-flow]")?.getAttribute("data-pcc-create-step"),
     ).toBe("describe");
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
-      "Codex fills only the blanks",
+      "Planner fills only the blanks",
     );
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
       "Anything you type stays unchanged",
@@ -3543,7 +3544,7 @@ describe("renderPccDashboard", () => {
       "Recommended minimum",
     );
     expect(container.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "Codex GPT-5.6 Sol will generate the project plan",
+      "Local AI will generate the project plan by default",
     );
     expect(container.querySelector("[data-pcc-create-customize]")?.hasAttribute("open")).toBe(
       false,
@@ -3552,7 +3553,7 @@ describe("renderPccDashboard", () => {
       container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
     ).toBe(true);
     expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
-      "Generate project plan with Codex",
+      "Generate project plan with Local AI",
     );
     expect(
       container
@@ -3567,6 +3568,58 @@ describe("renderPccDashboard", () => {
     expect(
       container.querySelector("[data-pcc-create-review-plan]")?.getAttribute("aria-describedby"),
     ).toBe("pcc-create-start-hint");
+  });
+
+  it("keeps local initial planning available when the Codex grant is disabled", () => {
+    const disabledCodexGrant: PccPlanningPolicy = {
+      schemaVersion: 1,
+      provider: "ollama",
+      model: "ollama/qwen3.5:4b",
+      runtime: "openclaw",
+      depth: "automatic",
+      grant: {
+        kind: "persistent_planning_only",
+        enabled: false,
+        allowedSurfaces: [
+          "project_creation",
+          "project_replan",
+          "setup_repair",
+          "autopilot_prompts",
+        ],
+        forbiddenActions: ["implementation"],
+      },
+    };
+    const localContainer = renderView(
+      createProps({
+        editorMode: "create-project",
+        planningPolicy: disabledCodexGrant,
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Local planner project",
+          projectDescription: "Create a local-only plan.",
+        },
+      }),
+    );
+    expect(
+      localContainer.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
+    ).toBe(false);
+
+    const codexContainer = renderView(
+      createProps({
+        editorMode: "create-project",
+        planningPolicy: disabledCodexGrant,
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Codex planner project",
+          projectDescription: "Create a Codex plan.",
+          plannerMode: "codex",
+          planningMode: "codex_full_plan",
+        },
+      }),
+    );
+    expect(
+      codexContainer.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
+    ).toBe(true);
   });
 
   it("shows truthful project-planning progress instead of an idle saving state", () => {
@@ -3600,7 +3653,7 @@ describe("renderPccDashboard", () => {
     expect(progress?.textContent).toContain("High effort");
     expect(progress?.textContent).toContain("You can leave this screen");
     expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
-      "Generating project plan…",
+      "Generating local AI project plan…",
     );
   });
 
@@ -4169,7 +4222,7 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Generate missing answers with Codex.",
+      "Generate missing answers with Local AI.",
     );
     const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.matches("[data-pcc-project-intake-autofill]"),
@@ -4204,7 +4257,7 @@ describe("renderPccDashboard", () => {
     const goalFill = container.querySelector<HTMLButtonElement>(
       '[data-pcc-intake-question-ai-fill="goal"]',
     );
-    expect(goalFill?.textContent).toContain("Fill with Codex");
+    expect(goalFill?.textContent).toContain("Fill with Local AI");
 
     goalFill?.click();
 
@@ -4255,7 +4308,7 @@ describe("renderPccDashboard", () => {
     const autofill = container.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-autofill]",
     );
-    expect(autofill?.textContent).toContain("Plan missing details with Codex");
+    expect(autofill?.textContent).toContain("Plan missing details with Local AI");
 
     autofill?.click();
 
@@ -4331,13 +4384,13 @@ describe("renderPccDashboard", () => {
     ).toContain("Project intake answers");
     const intakeTools = container.querySelector("[data-pcc-intake-answer-ai-tools]");
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Generate missing answers with Codex.",
+      "Generate missing answers with Local AI.",
     );
-    expect(intakeTools?.textContent).toContain("Codex can fill any blanks here.");
+    expect(intakeTools?.textContent).toContain("Local AI can fill any blanks here.");
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-form-only-autofill]",
     );
-    expect(pageAutofill?.textContent).toContain("Fill blanks with Codex");
+    expect(pageAutofill?.textContent).toContain("Fill blanks with Local AI");
 
     pageAutofill?.click();
 
@@ -4353,7 +4406,7 @@ describe("renderPccDashboard", () => {
 
     expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(2);
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
-    expect(container.textContent).toContain("Codex Plan Preview");
+    expect(container.textContent).toContain("Local AI Plan Preview");
     expect(container.querySelector("[data-pcc-autofill-preview]")?.textContent).toContain(
       "Apply draft",
     );
@@ -4429,15 +4482,17 @@ describe("renderPccDashboard", () => {
       "Codex",
     );
     expect(codexContainer.textContent).toContain("Codex checkpoint permission");
-    expect(codexContainer.textContent).toContain("planning-only OAuth grant");
+    expect(codexContainer.textContent).toContain("Initial planning uses the engine selected above");
     expect(codexContainer.textContent?.replace(/\s+/gu, " ").toLowerCase()).toContain(
       "no hard token cap",
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
     expect(codexContainer.querySelectorAll("[data-pcc-planner-permission-card]")).toHaveLength(1);
-    expect(codexContainer.querySelector("[data-pcc-planning-policy]")?.textContent).toContain(
-      "Codex planning on",
-    );
+    expect(
+      codexContainer
+        .querySelector("[data-pcc-planning-policy]")
+        ?.textContent?.replace(/\s+/gu, " "),
+    ).toContain("Initial planning: Codex · explicit opt-in");
     codexContainer.querySelector<HTMLButtonElement>("[data-pcc-planning-policy-toggle]")?.click();
     expect(onSetCodexPlanningEnabled).toHaveBeenCalledWith(false);
 
@@ -4458,7 +4513,7 @@ describe("renderPccDashboard", () => {
     expect(pmContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "Focused",
     );
-    expect(pmContainer.textContent).toContain("Codex GPT-5.6 Sol will generate the project plan");
+    expect(pmContainer.textContent).toContain("Local AI will generate the project plan by default");
   });
 
   it("renders responsibility routing labels and editor controls", () => {

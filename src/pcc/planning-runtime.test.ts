@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { generatePccPlanWithCodex } from "./planning-runtime.js";
+import { generatePccPlan, generatePccPlanWithCodex } from "./planning-runtime.js";
 
 const response = JSON.stringify({
   title: "Fast Reliable Launch",
@@ -72,6 +72,33 @@ describe("PCC Codex planning runtime", () => {
       cacheRead: 100,
       cacheWrite: undefined,
       totalTokens: 1_350,
+    });
+  });
+
+  it("uses the local planner by default and records local provenance", async () => {
+    const runAgent = vi.fn(async () => ({
+      payloads: [{ text: response }],
+      meta: { agentMeta: { usage: { input: 8, output: 13, total: 21 } } },
+    }));
+    const result = await generatePccPlan({
+      cfg: { agents: { defaults: { workspace: process.cwd() } } },
+      request: { surface: "project_creation", description: "Build a local planner" },
+      runAgent: runAgent as never,
+    });
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "ollama",
+        model: "qwen3.5:4b",
+        agentHarnessRuntimeOverride: "openclaw",
+        disableTools: true,
+      }),
+    );
+    expect(result.provenance).toMatchObject({
+      provider: "ollama",
+      model: "ollama/qwen3.5:4b",
+      runtime: "openclaw",
+      auth: "none",
+      source: "live_local",
     });
   });
 

@@ -166,6 +166,7 @@ describe("Project Command Center gateway methods", () => {
     const payload = okPayload<{ plan: typeof generated }>(
       await invoke("pcc.plans.generate", {
         surface: "project_creation",
+        plannerMode: "codex",
         description: "Create a genuine Codex planner",
         depth: "automatic",
       }),
@@ -182,11 +183,49 @@ describe("Project Command Center gateway methods", () => {
     expect(payload.plan.provenance.source).toBe("live_codex");
   });
 
+  it("uses the local planner when no Codex opt-in is present", async () => {
+    const generated = {
+      schemaVersion: 1 as const,
+      title: "Local Planning",
+      goal: "Generate a plan locally.",
+      outcomeMetrics: ["The plan is reviewable."],
+      workflowTemplateId: "software-product" as const,
+      milestones: [],
+      risks: [],
+      assumptions: [],
+      provenance: {
+        generatedAt: "2026-07-22T12:00:00.000Z",
+        provider: "ollama" as const,
+        model: "ollama/qwen3.5:4b",
+        runtime: "openclaw" as const,
+        effort: "medium" as const,
+        auth: "none" as const,
+        source: "live_local" as const,
+        planningOnly: true as const,
+      },
+    };
+    const generator = vi.fn(async (params: { policy: { provider: string; runtime: string } }) => {
+      expect(params.policy).toMatchObject({ provider: "ollama", runtime: "openclaw" });
+      return generated;
+    });
+    pccTesting.setPlanGenerator(generator as never);
+
+    await invoke("pcc.plans.generate", {
+      surface: "project_creation",
+      description: "Create a local planner",
+    });
+
+    expect(generator).toHaveBeenCalledOnce();
+  });
+
   it("persists and revokes the PCC-wide planning-only grant", async () => {
     const initial = okPayload<{ policy: { grant: { enabled: boolean }; depth: string } }>(
       await invoke("pcc.planningPolicy.get", {}),
     );
     expect(initial.policy).toMatchObject({
+      provider: "ollama",
+      model: "ollama/qwen3.5:4b",
+      runtime: "openclaw",
       depth: "automatic",
       grant: { enabled: true },
     });

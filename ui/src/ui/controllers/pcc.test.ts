@@ -3152,7 +3152,7 @@ describe("PCC CRUD controller", () => {
     expect(state.pccProjectForm.generatedPlan).toBeNull();
   });
 
-  it("does not turn a raw description into a fake project name before Codex plans it", () => {
+  it("does not turn a raw description into a fake project name before local AI plans it", () => {
     const state = createState({
       pccProjectForm: { ...EMPTY_PCC_PROJECT_FORM },
     });
@@ -3163,8 +3163,8 @@ describe("PCC CRUD controller", () => {
 
     expect(state.pccProjectForm.title).toBe("");
     expect(state.pccProjectForm.goal).toBe("");
-    expect(state.pccProjectForm.plannerMode).toBe("codex");
-    expect(state.pccProjectForm.planningMode).toBe("codex_full_plan");
+    expect(state.pccProjectForm.plannerMode).toBe("local_model");
+    expect(state.pccProjectForm.planningMode).toBe("template_only");
   });
 
   it("uses live Codex planning while preserving user-entered project fields", async () => {
@@ -3512,7 +3512,7 @@ describe("PCC CRUD controller", () => {
     await updatePccPlanningPolicy(state, false);
     expect(request).toHaveBeenCalledWith(
       "pcc.planningPolicy.upsert",
-      expect.objectContaining({ enabled: false, model: "openai/gpt-5.6-sol" }),
+      expect.objectContaining({ enabled: false, model: "ollama/qwen3.5:4b" }),
     );
     expect(state.pccPlanningPolicy?.grant.enabled).toBe(false);
 
