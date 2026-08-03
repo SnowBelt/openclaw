@@ -24,6 +24,7 @@ export * from "./schema/logs-chat.js";
 export * from "./schema/nodes.js";
 export * from "./schema/operations.js";
 export * from "./schema/pcc.js";
+export * from "./schema/pcc-attachments-clarify-migration.js";
 export * from "./schema/self-improvement.js";
 export * from "./schema/protocol-schemas.js";
 export * from "./schema/push.js";

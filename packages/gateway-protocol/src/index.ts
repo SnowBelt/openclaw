@@ -9,6 +9,14 @@ export {
   type ClawHubTrustErrorDetails,
 } from "./clawhub-trust-error-details.js";
 export { assertOperationsSnapshotV2Integrity } from "./operations-snapshot-integrity.js";
+export {
+  PCC_ATTACHMENTS_CLARIFY_LEGACY_VERSION,
+  PCC_ATTACHMENTS_CLARIFY_PROJECT_SCOPED_VERSION,
+  migratePccAttachmentsClarifyParams,
+  migratePccAttachmentsClarifyResult,
+  type MigratedPccAttachmentsClarifyParams,
+  type PccAttachmentsClarifyContractVersion,
+} from "./schema/pcc-attachments-clarify-migration.js";
 import { Compile, type Validator as TypeBoxValidator } from "typebox/compile";
 import {
   type AgentEvent,

@@ -65,6 +65,7 @@ describe("Project Command Center gateway methods", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     pccTesting.resetPlanGenerator();
+    pccTesting.resetAttachmentClarifier();
     pccTesting.closeLedgerStorage();
     if (previousStateDir === undefined) {
       delete process.env.OPENCLAW_STATE_DIR;
@@ -101,6 +102,78 @@ describe("Project Command Center gateway methods", () => {
         planningOnly: true,
       },
     });
+  });
+
+  it("migrates legacy attachment clarification without project ledger side effects", async () => {
+    pccTesting.setAttachmentClarifier(async () => ({
+      runId: "legacy-clarification-run",
+      clarifiedInstructions: "Extract and list acceptance criteria.",
+      provenance: {
+        provider: "ollama",
+        model: "qwen3.6:27b-q8_0",
+        generatedAt: "2026-08-03T18:00:00.000Z",
+      },
+    }));
+
+    const payload = okPayload<{
+      clarifiedInstructions: string;
+      provenance: Record<string, string>;
+      runId?: string;
+      usage?: unknown;
+    }>(
+      await invoke("pcc.attachments.clarify", {
+        originalName: "brief.pdf",
+        role: "requirement",
+        instructions: "Extract acceptance criteria.",
+      }),
+    );
+
+    expect(payload).toEqual({
+      clarifiedInstructions: "Extract and list acceptance criteria.",
+      provenance: {
+        provider: "ollama",
+        model: "qwen3.6:27b-q8_0",
+        generatedAt: "2026-08-03T18:00:00.000Z",
+      },
+    });
+    expect(pccTesting.readLedger().modelRunReceipts).toEqual([]);
+  });
+
+  it("keeps project-scoped clarification receipts and run identity", async () => {
+    pccTesting.setAttachmentClarifier(async () => ({
+      runId: "project-clarification-run",
+      clarifiedInstructions: "Extract and list acceptance criteria.",
+      provenance: {
+        provider: "ollama",
+        model: "qwen3.6:27b-q8_0",
+        generatedAt: "2026-08-03T18:00:00.000Z",
+      },
+    }));
+    const project = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Clarification project" } }),
+    ).project;
+
+    const payload = okPayload<{
+      runId: string;
+      clarifiedInstructions: string;
+      provenance: Record<string, string>;
+    }>(
+      await invoke("pcc.attachments.clarify", {
+        projectId: project.id,
+        originalName: "brief.pdf",
+        role: "requirement",
+        instructions: "Extract acceptance criteria.",
+      }),
+    );
+
+    expect(payload.runId).toBe("project-clarification-run");
+    expect(pccTesting.readLedger().modelRunReceipts).toEqual([
+      expect.objectContaining({
+        projectId: project.id,
+        sourceRunId: "project-clarification-run",
+        purpose: "attachment_instruction_clarification",
+      }),
+    ]);
   });
 
   it("generates a genuine Codex plan through the planning-only gateway surface", async () => {

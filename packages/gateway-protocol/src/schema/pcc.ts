@@ -973,7 +973,8 @@ export const PccAttachmentsUpdateResultSchema = Type.Object(
 );
 export const PccAttachmentsClarifyParamsSchema = Type.Object(
   {
-    projectId: NonEmptyString,
+    // v1 clients omit projectId; v2 clients include it to bind the AI receipt to a project.
+    projectId: Type.Optional(NonEmptyString),
     originalName: NonEmptyString,
     role: PccAttachmentRoleSchema,
     instructions: Type.String({ minLength: 1, maxLength: 20_000 }),
@@ -982,7 +983,8 @@ export const PccAttachmentsClarifyParamsSchema = Type.Object(
 );
 export const PccAttachmentsClarifyResultSchema = Type.Object(
   {
-    runId: NonEmptyString,
+    // v1 responses do not carry a model-run id; v2 responses do.
+    runId: Type.Optional(NonEmptyString),
     clarifiedInstructions: Type.String({ minLength: 1, maxLength: 20_000 }),
     usage: Type.Optional(PccModelUsageSchema),
     provenance: Type.Object(

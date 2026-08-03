@@ -101,6 +101,8 @@ const DEFAULTED_OPTIONAL_INIT_PARAM_ENTRIES: readonly [string, readonly string[]
   ["DevicePairSetupCodeResult", ["gatewayUrls"]],
   ["AgentSummary", ["thinkingLevels", "thinkingOptions", "thinkingDefault"]],
   ["ModelChoice", ["available"]],
+  ["PccAttachmentsClarifyParams", ["projectId"]],
+  ["PccAttachmentsClarifyResult", ["runId"]],
 ];
 
 const DEFAULTED_OPTIONAL_INIT_PARAMS: Record<string, Set<string>> = Object.fromEntries(

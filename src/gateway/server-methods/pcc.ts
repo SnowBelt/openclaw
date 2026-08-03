@@ -40,6 +40,8 @@ import {
   validatePccPlanningPolicyUpsertParams,
   validatePccReceiptsAddParams,
   validatePccSummaryGetParams,
+  migratePccAttachmentsClarifyParams,
+  migratePccAttachmentsClarifyResult,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { assessControlDirectorResourceAdmission } from "../../agents/control-director-resource-admission.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -154,6 +156,7 @@ const DEFAULT_PCC_PHASES: PccProject["phases"] = [
 ];
 
 let pccPlanGenerator = generatePccPlanWithCodex;
+let pccAttachmentClarifier = clarifyPccAttachmentInstructions;
 
 function isolatedPlanFixtureEnabled(): boolean {
   return (
@@ -1599,36 +1602,39 @@ export const pccHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      const ledger = readLedger();
-      if (!projectOrError(ledger, params.projectId)) {
-        respondNotFound(respond, `project ${params.projectId}`);
+      const migrated = migratePccAttachmentsClarifyParams(params);
+      const ledger = migrated.version === 2 ? readLedger() : undefined;
+      if (migrated.version === 2 && !projectOrError(ledger!, migrated.projectId)) {
+        respondNotFound(respond, `project ${migrated.projectId}`);
         return;
       }
       const startedAt = nowIso();
-      const result = await clarifyPccAttachmentInstructions({
+      const result = await pccAttachmentClarifier({
         cfg: context.getRuntimeConfig(),
         originalName: params.originalName,
         role: params.role,
         instructions: params.instructions,
       });
-      withLedger(
-        (nextLedger) =>
-          recordPccModelRunReceipt(nextLedger, {
-            projectId: params.projectId,
-            sourceRunId: result.runId,
-            executor: "local",
-            purpose: "attachment_instruction_clarification",
-            provider: result.provenance.provider,
-            model: result.provenance.model,
-            status: "succeeded",
-            startedAt,
-            completedAt: result.provenance.generatedAt,
-            ...(result.usage ? { usage: result.usage } : {}),
-            usageSource: result.usage ? "provider_reported" : "unavailable",
-          }),
-        { write: true, auditKind: "pcc.attachments.clarify" },
-      );
-      respond(true, result);
+      if (migrated.version === 2) {
+        withLedger(
+          (nextLedger) =>
+            recordPccModelRunReceipt(nextLedger, {
+              projectId: migrated.projectId,
+              sourceRunId: result.runId,
+              executor: "local",
+              purpose: "attachment_instruction_clarification",
+              provider: result.provenance.provider,
+              model: result.provenance.model,
+              status: "succeeded",
+              startedAt,
+              completedAt: result.provenance.generatedAt,
+              ...(result.usage ? { usage: result.usage } : {}),
+              usageSource: result.usage ? "provider_reported" : "unavailable",
+            }),
+          { write: true, auditKind: "pcc.attachments.clarify" },
+        );
+      }
+      respond(true, migratePccAttachmentsClarifyResult(result, migrated.version));
     } catch (error) {
       respondUnhandled(respond, error);
     }
@@ -2385,5 +2391,11 @@ export const pccTesting = {
   resetPlanGenerator: () => {
     pccPlanGenerator = generatePccPlanWithCodex;
     resetPccPlanningRunsForTest();
+  },
+  setAttachmentClarifier: (clarifier: typeof clarifyPccAttachmentInstructions) => {
+    pccAttachmentClarifier = clarifier;
+  },
+  resetAttachmentClarifier: () => {
+    pccAttachmentClarifier = clarifyPccAttachmentInstructions;
   },
 };

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ProtocolSchemas,
   validatePccAttachmentsReadParams,
+  validatePccAttachmentsClarifyParams,
   validatePccAttachmentsUploadBeginParams,
   validatePccDecisionsAddParams,
   validatePccMilestonesUpsertParams,
@@ -17,6 +18,32 @@ import {
 import { PccProjectSummarySchema, PccSummaryGetResultSchema } from "./pcc.js";
 
 describe("Project Command Center protocol schemas", () => {
+  it("accepts both legacy and project-scoped attachment clarification shapes", () => {
+    expect(
+      validatePccAttachmentsClarifyParams({
+        originalName: "brief.pdf",
+        role: "requirement",
+        instructions: "Extract acceptance criteria.",
+      }),
+    ).toBe(true);
+    expect(
+      validatePccAttachmentsClarifyParams({
+        projectId: "project-pcc",
+        originalName: "brief.pdf",
+        role: "requirement",
+        instructions: "Extract acceptance criteria.",
+      }),
+    ).toBe(true);
+    expect(
+      validatePccAttachmentsClarifyParams({
+        projectId: "",
+        originalName: "brief.pdf",
+        role: "requirement",
+        instructions: "Extract acceptance criteria.",
+      }),
+    ).toBe(false);
+  });
+
   it("validates planning-only Codex generation requests", () => {
     expect(
       validatePccPlansGenerateParams({

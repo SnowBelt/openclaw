@@ -8656,13 +8656,13 @@ public struct PccAttachmentsUpdateResult: Codable, Sendable {
 }
 
 public struct PccAttachmentsClarifyParams: Codable, Sendable {
-    public let projectid: String
+    public let projectid: String?
     public let originalname: String
     public let role: AnyCodable
     public let instructions: String
 
     public init(
-        projectid: String,
+        projectid: String? = nil,
         originalname: String,
         role: AnyCodable,
         instructions: String)
@@ -8682,13 +8682,13 @@ public struct PccAttachmentsClarifyParams: Codable, Sendable {
 }
 
 public struct PccAttachmentsClarifyResult: Codable, Sendable {
-    public let runid: String
+    public let runid: String?
     public let clarifiedinstructions: String
     public let usage: [String: AnyCodable]?
     public let provenance: [String: AnyCodable]
 
     public init(
-        runid: String,
+        runid: String? = nil,
         clarifiedinstructions: String,
         usage: [String: AnyCodable]?,
         provenance: [String: AnyCodable])
