@@ -1615,6 +1615,8 @@ export const pccHandlers: GatewayRequestHandlers = {
         role: params.role,
         instructions: params.instructions,
       });
+      // Legacy v1 callers predate project-scoped model receipts; keep their
+      // response and side-effect contract unchanged while v2 records its run.
       if (migrated.version === 2) {
         withLedger(
           (nextLedger) =>

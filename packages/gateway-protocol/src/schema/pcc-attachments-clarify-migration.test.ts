@@ -50,14 +50,19 @@ describe("PCC attachment clarification wire migration", () => {
     expect(migratePccAttachmentsClarifyResult(baseResult, migrated.version)).toEqual(baseResult);
   });
 
-  it("does not downgrade a present but invalid project identity", () => {
-    const migrated = migratePccAttachmentsClarifyParams({
-      ...baseParams,
-      projectId: "",
-    });
-
-    expect(migrated.version).toBe(PCC_ATTACHMENTS_CLARIFY_PROJECT_SCOPED_VERSION);
-    expect(migrated.projectId).toBe("");
+  it("fails closed for present but invalid project identity", () => {
+    expect(() =>
+      migratePccAttachmentsClarifyParams({
+        ...baseParams,
+        projectId: "",
+      }),
+    ).toThrow("requires a non-empty projectId");
+    expect(() =>
+      migratePccAttachmentsClarifyParams({
+        ...baseParams,
+        projectId: null as never,
+      }),
+    ).toThrow("requires a non-empty projectId");
   });
 
   it("fails closed when a project-scoped result loses its run id", () => {

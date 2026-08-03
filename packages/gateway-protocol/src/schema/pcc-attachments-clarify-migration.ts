@@ -27,16 +27,20 @@ export type MigratedPccAttachmentsClarifyParams =
 export function migratePccAttachmentsClarifyParams(
   params: PccAttachmentsClarifyParams,
 ): MigratedPccAttachmentsClarifyParams {
-  if (params.projectId === undefined) {
+  const projectId: unknown = params.projectId;
+  if (projectId === undefined) {
     return {
       ...params,
       projectId: undefined,
       version: PCC_ATTACHMENTS_CLARIFY_LEGACY_VERSION,
     };
   }
+  if (typeof projectId !== "string" || projectId.trim().length === 0) {
+    throw new Error("project-scoped attachment clarification requires a non-empty projectId");
+  }
   return {
     ...params,
-    projectId: params.projectId,
+    projectId,
     version: PCC_ATTACHMENTS_CLARIFY_PROJECT_SCOPED_VERSION,
   };
 }

@@ -42,6 +42,14 @@ describe("Project Command Center protocol schemas", () => {
         instructions: "Extract acceptance criteria.",
       }),
     ).toBe(false);
+    expect(
+      validatePccAttachmentsClarifyParams({
+        projectId: null,
+        originalName: "brief.pdf",
+        role: "requirement",
+        instructions: "Extract acceptance criteria.",
+      }),
+    ).toBe(false);
   });
 
   it("validates planning-only Codex generation requests", () => {
