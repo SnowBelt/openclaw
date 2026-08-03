@@ -565,6 +565,10 @@ import {
   type PccProjectsListResult,
   type PccProjectsGetResult,
   type PccProjectsUpsertResult,
+  type PccProjectPlanCommitParams,
+  PccProjectPlanCommitParamsSchema,
+  type PccProjectPlanCommitResult,
+  PccProjectPlanCommitResultSchema,
   type PccPlansGenerateParams,
   PccPlansGenerateParamsSchema,
   type PccPlansGenerateResult,
@@ -644,6 +648,22 @@ import {
   type PccReceiptsAddResult,
   type PccLastKnownGoodUpsertResult,
   type PccSummaryGetResult,
+  type PccOverviewGetParams,
+  PccOverviewGetParamsSchema,
+  type PccOverviewGetResult,
+  PccOverviewGetResultSchema,
+  type PccChangedEvent,
+  PccChangedEventSchema,
+  type PccPresenceEntry,
+  PccPresenceEntrySchema,
+  type PccPresenceUpdateParams,
+  PccPresenceUpdateParamsSchema,
+  type PccPresenceUpdateResult,
+  PccPresenceUpdateResultSchema,
+  type PccPresenceListParams,
+  PccPresenceListParamsSchema,
+  type PccPresenceListResult,
+  PccPresenceListResultSchema,
   type PccEvidenceAddParams,
   PccEvidenceAddParamsSchema,
   type PccDecisionsAddParams,
@@ -1276,6 +1296,9 @@ export const validatePccProjectsGetParams = lazyCompile<PccProjectsGetParams>(
 export const validatePccProjectsUpsertParams = lazyCompile<PccProjectsUpsertParams>(
   PccProjectsUpsertParamsSchema,
 );
+export const validatePccProjectPlanCommitParams = lazyCompile<PccProjectPlanCommitParams>(
+  PccProjectPlanCommitParamsSchema,
+);
 export const validatePccPlansGenerateParams = lazyCompile<PccPlansGenerateParams>(
   PccPlansGenerateParamsSchema,
 );
@@ -1343,6 +1366,15 @@ export const validatePccLastKnownGoodUpsertParams = lazyCompile<PccLastKnownGood
 );
 export const validatePccSummaryGetParams =
   lazyCompile<PccSummaryGetParams>(PccSummaryGetParamsSchema);
+export const validatePccOverviewGetParams = lazyCompile<PccOverviewGetParams>(
+  PccOverviewGetParamsSchema,
+);
+export const validatePccPresenceUpdateParams = lazyCompile<PccPresenceUpdateParams>(
+  PccPresenceUpdateParamsSchema,
+);
+export const validatePccPresenceListParams = lazyCompile<PccPresenceListParams>(
+  PccPresenceListParamsSchema,
+);
 
 export const validateOperationsSnapshotParams = lazyCompile<OperationsSnapshotParams>(
   OperationsSnapshotParamsSchema,
@@ -1825,6 +1857,8 @@ export {
   PccPlanningRunSchema,
   PccModelRunReceiptSchema,
   PccProjectAiUsageSummarySchema,
+  PccProjectPlanCommitParamsSchema,
+  PccProjectPlanCommitResultSchema,
   PccPlansStartParamsSchema,
   PccPlansStartResultSchema,
   PccPlansGetParamsSchema,
@@ -1845,6 +1879,14 @@ export {
   PccAttachmentsReadResultSchema,
   PccAttachmentsUpdateParamsSchema,
   PccAttachmentsUpdateResultSchema,
+  PccOverviewGetParamsSchema,
+  PccOverviewGetResultSchema,
+  PccChangedEventSchema,
+  PccPresenceEntrySchema,
+  PccPresenceUpdateParamsSchema,
+  PccPresenceUpdateResultSchema,
+  PccPresenceListParamsSchema,
+  PccPresenceListResultSchema,
   PccAttachmentsClarifyParamsSchema,
   PccAttachmentsClarifyResultSchema,
   PccAttachmentUsageRecordParamsSchema,
@@ -2345,6 +2387,8 @@ export type {
   PccProjectsGetResult,
   PccProjectsUpsertParams,
   PccProjectsUpsertResult,
+  PccProjectPlanCommitParams,
+  PccProjectPlanCommitResult,
   PccMilestonesUpsertParams,
   PccMilestonesUpsertResult,
   PccSubMilestonesListParams,
@@ -2363,6 +2407,14 @@ export type {
   PccLastKnownGoodUpsertResult,
   PccSummaryGetParams,
   PccSummaryGetResult,
+  PccOverviewGetParams,
+  PccOverviewGetResult,
+  PccChangedEvent,
+  PccPresenceEntry,
+  PccPresenceUpdateParams,
+  PccPresenceUpdateResult,
+  PccPresenceListParams,
+  PccPresenceListResult,
   OperationsStatus,
   OperationsActionKind,
   OperationsSnapshotParams,

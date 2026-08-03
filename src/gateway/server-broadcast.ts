@@ -33,6 +33,8 @@ const EVENT_SCOPE_GUARDS: Record<string, string[]> = {
   "plugin.approval.requested": [APPROVALS_SCOPE],
   "plugin.approval.resolved": [APPROVALS_SCOPE],
   presence: [],
+  "pcc.changed": [READ_SCOPE],
+  "pcc.presence": [READ_SCOPE],
   shutdown: [],
   tick: [],
   "talk.event": [READ_SCOPE],

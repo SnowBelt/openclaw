@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   validatePccMilestonesUpsertParams,
+  validatePccProjectPlanCommitParams,
   validatePccProjectsUpsertParams,
   validatePccSubMilestonesUpsertParams,
 } from "../../../../packages/gateway-protocol/src/index.js";
@@ -29,6 +30,7 @@ import {
   normalizePccProjectSequence,
   repairPccDuplicateTitles,
   removePccStaleDependencies,
+  restorePccLocation,
   openPccDecisionForm,
   openPccMilestoneEditor,
   openPccProjectEditor,
@@ -54,8 +56,10 @@ import {
   updatePccPlanningPolicy,
   updatePccViewMode,
   updatePccProjectEditMode,
+  updatePccProjectFilter,
   updatePccProjectForm,
   updatePccProjectSearchQuery,
+  updatePccSurface,
   type PccDashboardState,
 } from "./pcc.ts";
 
@@ -156,6 +160,46 @@ const intakeAnswers = {
   constraints: "No remote proof without permission.",
   owner: "local_openclaw_agent",
   blockers: "No blockers.",
+};
+
+const generatedPlanFixture = {
+  schemaVersion: 1 as const,
+  title: "Project Command Center",
+  goal: "Track all projects",
+  outcomeMetrics: ["Every milestone has receipt-backed proof."],
+  workflowTemplateId: "software-product" as const,
+  milestones: [
+    {
+      title: "Set up the project",
+      phaseId: "setup",
+      implementationPlan: "Define the project contract.",
+      acceptanceCriteria: ["The project contract is reviewable."],
+      responsibility: "local_openclaw_agent",
+      proofLevel: "local",
+      dependencies: [],
+      subMilestones: [
+        {
+          title: "Confirm the setup",
+          implementationPlan: "Verify the project setup.",
+          acceptanceCriteria: ["The setup passes local proof."],
+          responsibility: "local_openclaw_agent",
+          proofLevel: "local",
+        },
+      ],
+    },
+  ],
+  risks: [],
+  assumptions: [],
+  provenance: {
+    generatedAt: "2026-08-01T00:01:00.000Z",
+    provider: "openai" as const,
+    model: "openai/gpt-5.6-sol",
+    runtime: "codex" as const,
+    effort: "medium" as const,
+    auth: "oauth" as const,
+    source: "live_codex" as const,
+    planningOnly: true as const,
+  },
 };
 
 const permission = {
@@ -382,6 +426,11 @@ function executionTeamDetail(
 }
 
 function assertValidPccWriteParams(method: string, params: unknown): void {
+  if (method === "pcc.projects.commitPlan" && !validatePccProjectPlanCommitParams(params)) {
+    throw new Error(
+      `invalid project plan commit payload: ${JSON.stringify(validatePccProjectPlanCommitParams.errors)}`,
+    );
+  }
   if (method === "pcc.projects.upsert" && !validatePccProjectsUpsertParams(params)) {
     throw new Error(
       `invalid project upsert payload: ${JSON.stringify(validatePccProjectsUpsertParams.errors)}`,
@@ -400,6 +449,33 @@ function assertValidPccWriteParams(method: string, params: unknown): void {
 }
 
 describe("loadPccDashboard", () => {
+  it("restores project and overview locations for browser back and forward navigation", () => {
+    const detail = executionTeamDetail();
+    const requestUpdate = vi.fn();
+    const state = createState({
+      pccProjectDetails: { [detail.project.id]: detail },
+      requestUpdate,
+    });
+
+    vi.stubGlobal("location", {
+      href: `http://localhost/pcc?pcc=project&project=${detail.project.id}`,
+    });
+    restorePccLocation(state);
+
+    expect(state.pccSurface).toBe("project");
+    expect(state.pccSelectedProjectId).toBe(detail.project.id);
+    expect(state.pccProjectDetail).toBe(detail);
+
+    vi.stubGlobal("location", { href: "http://localhost/pcc?pcc=overview" });
+    restorePccLocation(state);
+
+    expect(state.pccSurface).toBe("overview");
+    expect(state.pccSelectedProjectId).toBeNull();
+    expect(state.pccProjectDetail).toBeNull();
+    expect(requestUpdate).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
   it("updates project search query state", () => {
     const requestUpdate = vi.fn();
     const state = createState({ requestUpdate });
@@ -410,6 +486,50 @@ describe("loadPccDashboard", () => {
     expect(requestUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it("restores and updates Projects filter and search deep links", () => {
+    const requestUpdate = vi.fn();
+    const state = createState({ requestUpdate, pccSurface: "overview" });
+    const pushState = vi.fn();
+    const replaceState = vi.fn();
+    vi.stubGlobal("history", { pushState, replaceState });
+    vi.stubGlobal("location", {
+      href: "http://localhost/pcc?pcc=projects&pccFilter=archived&pccQuery=SNES",
+    });
+
+    restorePccLocation(state);
+
+    expect(state.pccSurface).toBe("projects");
+    expect(state.pccProjectFilter).toBe("archived");
+    expect(state.pccProjectSearchQuery).toBe("SNES");
+
+    updatePccProjectFilter(state, "completed");
+    expect(pushState).toHaveBeenCalledWith(
+      {},
+      "",
+      expect.objectContaining({ search: expect.stringContaining("pccFilter=completed") }),
+    );
+
+    updatePccProjectSearchQuery(state, "finished build");
+    expect(replaceState).toHaveBeenCalledWith(
+      {},
+      "",
+      expect.objectContaining({ search: expect.stringContaining("pccQuery=finished+build") }),
+    );
+
+    updatePccSurface(state, "overview");
+    updatePccSurface(state, "projects");
+    expect(pushState).toHaveBeenLastCalledWith(
+      {},
+      "",
+      expect.objectContaining({
+        search: expect.stringMatching(
+          /pcc=projects.*pccFilter=completed.*pccQuery=finished\+build/u,
+        ),
+      }),
+    );
+    vi.unstubAllGlobals();
+  });
+
   it("loads project list and portfolio summary", async () => {
     const releaseGovernance = {
       schema: "openclaw.release-governance-status.v1",
@@ -418,13 +538,20 @@ describe("loadPccDashboard", () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({ projects: [summary] })
-      .mockResolvedValueOnce({ portfolio, releaseGovernance });
+      .mockResolvedValueOnce({ portfolio, releaseGovernance })
+      .mockResolvedValueOnce({ presence: [] });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
 
     await loadPccDashboard(state);
 
-    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.list", {});
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.overview.get", {});
     expect(request).toHaveBeenNthCalledWith(2, "pcc.summary.get", {});
+    expect(request).toHaveBeenNthCalledWith(3, "pcc.presence.update", {
+      displayName: "Team member",
+      editing: false,
+      status: "online",
+      surface: "overview",
+    });
     expect(state.pccProjects).toHaveLength(1);
     expect(state.pccProjects[0]?.title).toBe("Project Command Center");
     expect(state.pccPortfolioSummary?.averagePercentComplete).toBe(25);
@@ -434,7 +561,7 @@ describe("loadPccDashboard", () => {
     expect(state.pccUpdatedAt).toEqual(expect.any(Number));
   });
 
-  it("preloads Project Command Center detail for the global production-truth surface", async () => {
+  it("opens the work overview without auto-selecting the internal PCC Product record", async () => {
     const pccSummary = {
       ...summary,
       id: "project-command-center",
@@ -444,25 +571,44 @@ describe("loadPccDashboard", () => {
       .fn()
       .mockResolvedValueOnce({ projects: [pccSummary] })
       .mockResolvedValueOnce({ portfolio })
-      .mockResolvedValueOnce({
-        project: { ...project, id: "project-command-center", title: "Project Command Center" },
-        milestones: [milestone],
-        subMilestones: [],
-        permissions: [],
-        evidence: [],
-        receipts: [],
-        summary: pccSummary,
-      });
+      .mockResolvedValueOnce({ presence: [] });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
 
     await loadPccDashboard(state);
 
-    expect(request).toHaveBeenNthCalledWith(3, "pcc.projects.get", {
-      projectId: "project-command-center",
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(state.pccSurface).toBe("overview");
+    expect(state.pccSelectedProjectId).toBeNull();
+    expect(state.pccProjectDetails["project-command-center"]).toBeUndefined();
+  });
+
+  it("replaces cached data atomically without hiding live user projects", async () => {
+    const cachedPcc = {
+      ...summary,
+      id: "project-command-center",
+      title: "Project Command Center",
+    };
+    const liveProjects = [
+      { ...summary, id: "snes-one", title: "SNES One" },
+      { ...summary, id: "snes-two", title: "SNES Two" },
+    ];
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ projects: liveProjects })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({ presence: [] });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjects: [cachedPcc],
+      pccSelectedProjectId: cachedPcc.id,
+      pccSurface: "overview",
     });
-    expect(state.pccProjectDetails["project-command-center"]?.project.title).toBe(
-      "Project Command Center",
-    );
+
+    await loadPccDashboard(state);
+
+    expect(state.pccProjects.map((item) => item.id)).toEqual(["snes-one", "snes-two"]);
+    expect(state.pccSurface).toBe("overview");
+    expect(state.pccSelectedProjectId).toBeNull();
   });
 
   it("computes fallback portfolio attention metrics when summary omits them", async () => {
@@ -568,6 +714,7 @@ describe("loadPccDashboard", () => {
       })
       .mockResolvedValueOnce({ projects: [{ ...summary, percentComplete: 100 }] })
       .mockResolvedValueOnce({ portfolio: { ...portfolio, averagePercentComplete: 100 } })
+      .mockResolvedValueOnce({ presence: [] })
       .mockResolvedValueOnce({
         project,
         milestones: [
@@ -2000,15 +2147,14 @@ describe("PCC CRUD controller", () => {
 
   it("creates a project and refreshes detail", async () => {
     const request = vi.fn(async (method: string, params: unknown) => {
-      if (method === "pcc.projects.upsert") {
-        return { project, summary };
-      }
-      if (method === "pcc.milestones.upsert") {
-        const title = (params as { milestone: { title: string } }).milestone.title;
-        return { milestone: { ...milestone, id: `milestone-${title}`, title }, summary };
-      }
-      if (method === "pcc.subMilestones.upsert") {
-        return { subMilestone };
+      assertValidPccWriteParams(method, params);
+      if (method === "pcc.projects.commitPlan") {
+        return {
+          project,
+          summary,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+        };
       }
       if (method === "pcc.permissions.upsert") {
         return { permission, summary };
@@ -2074,13 +2220,15 @@ describe("PCC CRUD controller", () => {
         runtimeActionsAllowed: false,
         intakeAnswers,
         intakeApproved: true,
+        generatedPlan: generatedPlanFixture,
       },
     });
 
     await savePccProject(state);
 
-    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.commitPlan", {
       planningRunId: "planning-run-1",
+      plan: generatedPlanFixture,
       project: expect.objectContaining({
         title: "Project Command Center",
         goal: "Track all projects",
@@ -2107,8 +2255,10 @@ describe("PCC CRUD controller", () => {
         phases: expect.any(Array),
       }),
     });
-    expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(true);
-    expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(true);
+    expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(false);
+    expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(
+      false,
+    );
     expect(state.pccSelectedProjectId).toBe("project-1");
     expect(state.pccProjectFilter).toBe("all");
     expect(state.pccEditorMode).toBeNull();
@@ -2183,11 +2333,8 @@ describe("PCC CRUD controller", () => {
 
   it("creates one durable project-scoped Codex grant after the New Project approval", async () => {
     const request = vi.fn(async (method: string, _params?: unknown) => {
-      if (method === "pcc.projects.upsert") {
-        return { project, summary };
-      }
-      if (method === "pcc.milestones.upsert") {
-        return { milestone };
+      if (method === "pcc.projects.commitPlan") {
+        return { project, summary, milestones: [milestone], subMilestones: [subMilestone] };
       }
       if (method === "pcc.projects.list") {
         return { projects: [summary] };
@@ -2226,13 +2373,14 @@ describe("PCC CRUD controller", () => {
         intakeAnswers,
         intakeApproved: true,
         planPreviewAccepted: true,
+        generatedPlan: generatedPlanFixture,
       },
     });
 
     await savePccProject(state);
 
     expect(request.mock.calls.some(([method]) => method === "pcc.permissions.upsert")).toBe(true);
-    const projectCall = request.mock.calls.find(([method]) => method === "pcc.projects.upsert");
+    const projectCall = request.mock.calls.find(([method]) => method === "pcc.projects.commitPlan");
     expect(projectCall?.[1]).toEqual(
       expect.objectContaining({
         project: expect.objectContaining({
@@ -2243,21 +2391,9 @@ describe("PCC CRUD controller", () => {
             }),
           }),
         }),
+        plan: generatedPlanFixture,
       }),
     );
-    const responsibilities = request.mock.calls
-      .filter(([method]) => method === "pcc.milestones.upsert")
-      .map(
-        ([, params]) =>
-          (
-            params as {
-              milestone?: { metadata?: { pccResponsibility?: string } };
-            }
-          ).milestone?.metadata?.pccResponsibility ?? "",
-      );
-    expect(responsibilities).not.toContain("codex");
-    expect(responsibilities).toContain("local_openclaw_agent");
-    expect(responsibilities).toContain("remote_proof");
     const permissionCall = request.mock.calls.find(
       ([method]) => method === "pcc.permissions.upsert",
     );
@@ -2286,11 +2422,8 @@ describe("PCC CRUD controller", () => {
 
   it("creates the project but queues its visible Codex checkpoints when approval is deferred", async () => {
     const request = vi.fn(async (method: string, _params?: unknown) => {
-      if (method === "pcc.projects.upsert") {
-        return { project, summary };
-      }
-      if (method === "pcc.milestones.upsert") {
-        return { milestone };
+      if (method === "pcc.projects.commitPlan") {
+        return { project, summary, milestones: [milestone], subMilestones: [subMilestone] };
       }
       if (method === "pcc.projects.list") {
         return { projects: [summary] };
@@ -2328,6 +2461,7 @@ describe("PCC CRUD controller", () => {
         intakeAnswers,
         intakeApproved: true,
         planPreviewAccepted: true,
+        generatedPlan: generatedPlanFixture,
       },
     });
 
@@ -2351,11 +2485,8 @@ describe("PCC CRUD controller", () => {
 
   it("creates a project when Best available Codex will resolve at its future checkpoint", async () => {
     const request = vi.fn(async (method: string) => {
-      if (method === "pcc.projects.upsert") {
-        return { project, summary };
-      }
-      if (method === "pcc.milestones.upsert") {
-        return { milestone };
+      if (method === "pcc.projects.commitPlan") {
+        return { project, summary, milestones: [milestone], subMilestones: [subMilestone] };
       }
       if (method === "pcc.permissions.upsert") {
         return { permission, summary };
@@ -2400,6 +2531,7 @@ describe("PCC CRUD controller", () => {
         intakeAnswers,
         intakeApproved: true,
         planPreviewAccepted: true,
+        generatedPlan: generatedPlanFixture,
       },
     });
 
@@ -2407,7 +2539,7 @@ describe("PCC CRUD controller", () => {
 
     expect(state.pccActionError).toBeNull();
     expect(request).toHaveBeenCalledWith(
-      "pcc.projects.upsert",
+      "pcc.projects.commitPlan",
       expect.objectContaining({
         project: expect.objectContaining({
           metadata: expect.objectContaining({
@@ -2417,6 +2549,7 @@ describe("PCC CRUD controller", () => {
             }),
           }),
         }),
+        plan: generatedPlanFixture,
       }),
     );
     expect(request).toHaveBeenCalledWith(
@@ -3387,21 +3520,18 @@ describe("PCC CRUD controller", () => {
     expect(state.pccPlanningPolicy?.grant.enabled).toBe(true);
   });
 
-  it("saves generated milestones, provenance, and resolved dependencies", async () => {
-    let milestoneNumber = 0;
+  it("atomically commits generated milestones, provenance, and dependencies", async () => {
     const request = vi.fn(async (method: string, payload?: Record<string, unknown>) => {
-      if (method === "pcc.projects.upsert") {
-        return { project, summary };
-      }
-      if (method === "pcc.milestones.upsert") {
-        const input = (payload?.milestone ?? {}) as Record<string, unknown>;
+      assertValidPccWriteParams(method, payload);
+      if (method === "pcc.projects.commitPlan") {
         return {
-          milestone: {
-            ...input,
-            id: typeof input.id === "string" ? input.id : `generated-${++milestoneNumber}`,
-            createdAt: "2026-07-22T12:00:00.000Z",
-            updatedAt: "2026-07-22T12:00:00.000Z",
-          },
+          project,
+          summary,
+          milestones: [
+            { ...milestone, id: "generated-1", title: "Plan" },
+            { ...milestone, id: "generated-2", title: "Build", dependsOn: ["generated-1"] },
+          ],
+          subMilestones: [subMilestone],
         };
       }
       if (method === "pcc.projects.list") {
@@ -3502,16 +3632,16 @@ describe("PCC CRUD controller", () => {
     await savePccProject(state);
 
     expect(request).toHaveBeenCalledWith(
-      "pcc.projects.upsert",
+      "pcc.projects.commitPlan",
       expect.objectContaining({
+        plan: generatedPlan,
         project: expect.objectContaining({
           metadata: expect.objectContaining({ pccPlanningProvenance: generatedPlan.provenance }),
         }),
       }),
     );
-    expect(request).toHaveBeenCalledWith("pcc.milestones.upsert", {
-      milestone: expect.objectContaining({ id: "generated-2", dependsOn: ["generated-1"] }),
-    });
+    expect(generatedPlan.milestones[1]?.dependencies).toEqual([0]);
+    expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(false);
   });
 
   it("builds and applies scoped AI regenerate previews without broad milestone writes", async () => {

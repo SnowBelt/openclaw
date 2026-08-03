@@ -74,7 +74,15 @@ The checked registry is `src/pcc/capability-addition-registry.ts`. It covers eve
 
 PCC treats portfolio reads and rendering as bounded production paths rather than unmeasured dashboard work. The Gateway builds one immutable read index per ledger snapshot, so project summaries reuse grouped milestone, sub-milestone, permission, evidence, receipt, decision, and last-known-good relationships instead of rescanning every ledger collection for every project. Capability preflight similarly builds one case-insensitive inventory index while preserving first-match behavior for duplicate catalog entries.
 
-The Control UI bounds its long-session project-detail cache to 32 recent entries while pinning the selected project and Project Command Center, reuses bounded status and date formatters, and keys project and sub-milestone cards by stable ID. These changes preserve active context, all rows, and all interactions while preventing unbounded cache growth and reducing repeated computation, DOM replacement, and temporary allocation.
+The Control UI bounds its long-session project-detail cache to 32 recent entries while pinning the selected project, reuses bounded status and date formatters, and keys project and sub-milestone cards by stable ID. The internal Project Command Center record is loaded only when the operator opens System. These changes preserve active context, all rows, and all interactions while preventing unbounded cache growth and reducing repeated computation, DOM replacement, and temporary allocation.
+
+## Work Overview and private-team collaboration
+
+`/pcc` opens the revision-consistent Work Overview rather than selecting the internal PCC Product record. Needs You appears first when a permission, decision, blocker, failure, file, or proof requires a person. Working Now shows only verified agent assignments. Active Projects keeps every non-archived user project visible with progress, the current milestone, the next action, active-agent count, and blocker. Recent Activity shows the five latest project changes. Normal PCC health stays in a compact System control and moves into Needs You only when the system record is unavailable or unhealthy.
+
+Overview, Projects, Activity, and System are stable navigation surfaces. Opening a project creates a durable URL and browser-history entry; favorites and recent projects remain local browser preferences and never mutate the shared ledger. PCC Product is a system record, not the default user project.
+
+The private-team profile supports up to six authenticated operators on one trusted Gateway. `pcc.overview.get` returns one ledger-revision-consistent snapshot, and redacted `pcc.changed` events refresh connected PCC browsers after committed mutations. Presence is ephemeral, device-deduplicated, bounded to six entries, and never written to the project ledger. Editable project, milestone, sub-milestone, permission, and attachment metadata records use explicit revisions: a stale write returns Review latest changes rather than overwriting another operator. Different records remain independently editable. New generated plans use one atomic commit so a partial project cannot become visible.
 
 Run the deterministic scale budget locally with:
 

@@ -53,6 +53,7 @@ function attachment(id: string, sizeBytes: number): PccAttachment {
 
 describe("PCC private-team policy", () => {
   it("always falls back to the complete bounded policy", () => {
+    expect(DEFAULT_PCC_PRIVATE_TEAM_POLICY.memberLimit).toBe(6);
     expect(normalizePccPrivateTeamPolicy(null)).toEqual(DEFAULT_PCC_PRIVATE_TEAM_POLICY);
     expect(
       normalizePccPrivateTeamPolicy({
