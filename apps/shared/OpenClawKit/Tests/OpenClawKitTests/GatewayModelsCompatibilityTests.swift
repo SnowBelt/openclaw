@@ -60,7 +60,14 @@ struct GatewayModelsCompatibilityTests {
         let params = try JSONDecoder().decode(
             PccAttachmentsClarifyParams.self,
             from: Data(
-                #"{"projectId":"project-pcc","originalName":"photo.jpg","role":"supporting","instructions":"Describe the attachment."}"#.utf8
+                #"""
+                {
+                  "projectId": "project-pcc",
+                  "originalName": "photo.jpg",
+                  "role": "supporting",
+                  "instructions": "Describe the attachment."
+                }
+                """#.utf8
             )
         )
 
@@ -86,7 +93,14 @@ struct GatewayModelsCompatibilityTests {
         let result = try JSONDecoder().decode(
             PccAttachmentsClarifyResult.self,
             from: Data(
-                #"{"runId":"run-1","clarifiedInstructions":"Describe the attachment.","usage":{"tokens":12},"provenance":{"source":"project"}}"#.utf8
+                #"""
+                {
+                  "runId": "run-1",
+                  "clarifiedInstructions": "Describe the attachment.",
+                  "usage": {"tokens": 12},
+                  "provenance": {"source": "project"}
+                }
+                """#.utf8
             )
         )
 
