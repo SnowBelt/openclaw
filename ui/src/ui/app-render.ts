@@ -5109,11 +5109,11 @@ export function renderApp(state: AppViewState) {
                   },
                   onProjectRefresh: () => loadChatProjects(state),
                   onOpenPcc: (projectId) => {
-                    if (projectId) {
-                      state.pccSelectedProjectId = projectId;
-                    }
                     state.chatProjectPickerOpen = false;
                     state.setTab("pcc" as import("./navigation.ts").Tab);
+                    if (projectId) {
+                      void selectPccProject(state, projectId);
+                    }
                   },
                   onExecApprovalDecision: (decision) => state.handleExecApprovalDecision(decision),
                   onDismissSideResult: () => {

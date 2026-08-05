@@ -1527,6 +1527,7 @@ describe("PCC CRUD controller", () => {
 
     expect(request).toHaveBeenCalledWith("pcc.projects.get", { projectId: "project-1" });
     expect(state.pccSelectedProjectId).toBe("project-1");
+    expect(state.pccSurface).toBe("project");
     expect(state.pccProjectDetail?.milestones[0]?.title).toBe("CRUD UI");
     expect(state.pccProjectDetail?.subMilestones).toEqual([]);
     expect(state.pccProjectDetail?.permissions[0]?.id).toBe("permission-1");
