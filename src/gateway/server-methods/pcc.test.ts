@@ -1113,6 +1113,44 @@ describe("Project Command Center gateway methods", () => {
     });
   });
 
+  it("binds explicit Mac Studio local source proof without claiming remote proof", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "project-command-center", title: "Project Command Center" },
+      }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "Local runtime proof" },
+      }),
+    );
+    const verifiedSha = "89abcdef0123456789abcdef0123456789abcdef";
+    await invoke("pcc.evidence.add", {
+      evidence: {
+        projectId: project.id,
+        milestoneId: milestone.id,
+        kind: "runtime_status",
+        status: "passed",
+        sha: verifiedSha,
+        metadata: {
+          proofProfile: "mac_studio_control_director",
+          pccProductionSourceProof: true,
+        },
+      },
+    });
+
+    const detail = okPayload<{ project: { metadata?: Record<string, unknown> } }>(
+      await invoke("pcc.projects.get", { projectId: project.id }),
+    );
+    expect(detail.project.metadata?.pccProductionTruth).toMatchObject({
+      proofProfile: "mac_studio_control_director",
+      latestVerifiedSha: verifiedSha,
+      sourceProofSha: verifiedSha,
+      sourceProofPassed: true,
+    });
+    expect(detail.project.metadata?.pccProductionTruth).not.toHaveProperty("remoteProofPassed");
+  });
+
   it("blocks complete milestone claims until a completion receipt is added", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Truthful completion" } }),

@@ -3243,6 +3243,80 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).toContain("/tmp/pcc-proof.png");
   });
 
+  it("renders local production truth without a remote-proof claim for the Mac Studio profile", () => {
+    const verifiedSha = "4d8408034d7131470980c316a2af2f311aa6b785";
+    const container = renderView(
+      createProps({
+        releaseGovernance: {
+          schema: "openclaw.release-governance-status.v1",
+          policyVersion: 2,
+          proofProfile: "mac_studio_control_director",
+          candidateSha: verifiedSha,
+          activeRuntimeSha: verifiedSha,
+          riskLevel: "P2",
+          protectedPaths: [],
+          capabilityDiff: [],
+          checks: [],
+          approvalStatus: "none",
+          approvalScope: null,
+          reviews: [],
+          rollbackTarget: verifiedSha,
+          decision: "none",
+          evidenceReceiptHash: null,
+          evidencePath: null,
+          exactBlocker: null,
+          approvalWording: null,
+          updatedAt: "2026-07-03T12:00:00.000Z",
+        },
+        projectDetail: {
+          project: {
+            ...project,
+            metadata: {
+              ...project.metadata,
+              pccProductionTruth: {
+                proofProfile: "mac_studio_control_director",
+                latestVerifiedSha: "old-sha-must-not-win",
+                runtimeSha: verifiedSha,
+                browserProofScreenshotPath: "/tmp/pcc-local-proof.png",
+              },
+            },
+          },
+          milestones: [
+            {
+              ...milestone,
+              status: "complete",
+              receiptIds: ["receipt-1"],
+              metadata: { requiresRemoteProof: true, requiresRuntimeProof: true },
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [
+            { ...evidence, kind: "runtime_status", sha: verifiedSha },
+            {
+              ...evidence,
+              id: "local-browser-proof",
+              kind: "browser_proof",
+              sha: verifiedSha,
+            },
+          ],
+          receipts: [receipt],
+          summary,
+        },
+      }),
+    );
+
+    const productionTruth = container.querySelector("[data-pcc-production-truth]");
+    expect(productionTruth?.getAttribute("data-pcc-production-truth-profile")).toBe(
+      "mac_studio_control_director",
+    );
+    expect(productionTruth?.getAttribute("data-pcc-production-source-proof")).toBe("passed");
+    expect(productionTruth?.textContent).toContain("Current local source proof");
+    expect(productionTruth?.textContent).not.toContain("Current remote proof");
+    expect(productionTruth?.textContent).not.toContain("PCC remote Workflow Sanity proof");
+    expect(productionTruth?.textContent).toContain(verifiedSha.slice(0, 12));
+  });
+
   it("surfaces plan integrity issues in the impact detail drawer", () => {
     const container = renderView(
       createProps({

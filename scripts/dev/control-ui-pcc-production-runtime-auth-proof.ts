@@ -41,6 +41,7 @@ type ProofOptions = {
   projectTitle: string;
   requireProductionCurrent: boolean;
   expectedRuntimeSha?: string;
+  releaseProofProfile: "default" | "mac_studio_control_director";
   profile:
     | "production-current"
     | "usability-reliability"
@@ -271,7 +272,7 @@ function readConfigToken(configPath: string): { url: string; tokenLength: number
     throw new Error("missing local dashboard auth token");
   }
   return {
-    url: `http://127.0.0.1:${port}/projects#token=${encodeURIComponent(token)}`,
+    url: `http://127.0.0.1:${port}/pcc#token=${encodeURIComponent(token)}`,
     tokenLength: token.length,
   };
 }
@@ -337,14 +338,14 @@ async function runBrowserProof(options: ProofOptions) {
     if (await pccShell.isVisible().catch(() => false)) {
       return;
     }
-    const pccNavLink = page.locator('a[href$="/projects"], a[href="/projects"]').first();
+    const pccNavLink = page.locator('a[href$="/pcc"], a[href="/pcc"]').first();
     if (await pccNavLink.isVisible().catch(() => false)) {
       await pccNavLink.click({ force: true });
       await pccShell.waitFor({ state: "visible", timeout: 45_000 });
       return;
     }
     const fallbackUrl = new URL(resolved.url);
-    fallbackUrl.pathname = "/projects";
+    fallbackUrl.pathname = "/pcc";
     fallbackUrl.hash = "";
     fallbackUrl.search = "";
     await page.goto(fallbackUrl.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -564,6 +565,18 @@ async function runBrowserProof(options: ProofOptions) {
   const normalizedText = text.replace(/\s+/g, " ");
   const lower = normalizedText.toLowerCase();
   const has = (needle: string) => lower.includes(needle.replace(/\s+/g, " ").toLowerCase());
+  const productionTruth = page.locator("[data-pcc-production-truth]").first();
+  const productionTruthProfile = await productionTruth.getAttribute(
+    "data-pcc-production-truth-profile",
+  );
+  const productionSourceProof = await productionTruth.getAttribute(
+    "data-pcc-production-source-proof",
+  );
+  const productionTruthText = ((await productionTruth.textContent().catch(() => "")) ?? "").replace(
+    /\s+/g,
+    " ",
+  );
+  const localReleaseProfile = options.releaseProofProfile === "mac_studio_control_director";
   const portfolioConsoleCount = await page.locator("[data-pcc-portfolio-console]:visible").count();
   const result = {
     url: redactUrl(page.url()),
@@ -609,6 +622,14 @@ async function runBrowserProof(options: ProofOptions) {
         has("Stop before destructive actions"),
       productionCurrent: has("Current"),
       remoteProofPassed: has("Remote proof Passed") || has("Remote proof\nPassed"),
+      productionTruthProfile:
+        !localReleaseProfile || productionTruthProfile === options.releaseProofProfile,
+      sourceProofPassed:
+        !localReleaseProfile ||
+        productionSourceProof === "passed" ||
+        has("Current local source proof Passed"),
+      noRemoteProofClaim:
+        !localReleaseProfile || !productionTruthText.toLowerCase().includes("current remote proof"),
       runtimeProofPassed: has("Runtime proof Passed") || has("Runtime proof\nPassed"),
       noProofGaps: has("No proof gaps recorded."),
       workingNow: has("Working Now"),
@@ -681,25 +702,22 @@ async function runBrowserProof(options: ProofOptions) {
     result.clickedOpen &&
     Object.entries(result.checks)
       .filter(([key]) => {
-        if (options.profile === "production-current") {
-          return (
-            options.requireProductionCurrent ||
-            ![
+        const productionTruthChecks = localReleaseProfile
+          ? [
               "productionCurrent",
-              "remoteProofPassed",
+              "productionTruthProfile",
+              "sourceProofPassed",
+              "noRemoteProofClaim",
               "runtimeProofPassed",
               "noProofGaps",
-            ].includes(key)
-          );
+            ]
+          : ["productionCurrent", "remoteProofPassed", "runtimeProofPassed", "noProofGaps"];
+        if (localReleaseProfile || options.profile === "production-current") {
+          return options.requireProductionCurrent || localReleaseProfile
+            ? true
+            : !productionTruthChecks.includes(key);
         }
-        return ![
-          "productionTruth",
-          "dashboardCurrency",
-          "productionCurrent",
-          "remoteProofPassed",
-          "runtimeProofPassed",
-          "noProofGaps",
-        ].includes(key);
+        return !["productionTruth", "dashboardCurrency", ...productionTruthChecks].includes(key);
       })
       .every(([, value]) => value);
   if (!passed) {
@@ -721,6 +739,7 @@ async function runSelfTest() {
       screenshotPath: "/tmp/unused.png",
       projectTitle: "Project Command Center",
       requireProductionCurrent: false,
+      releaseProofProfile: "default",
       profile: "production-current",
     });
   } catch {
@@ -745,6 +764,10 @@ const options: ProofOptions = {
   projectTitle: process.env.OPENCLAW_PCC_PROOF_PROJECT_TITLE ?? "Project Command Center",
   requireProductionCurrent: process.env.OPENCLAW_PCC_REQUIRE_PRODUCTION_CURRENT === "1",
   expectedRuntimeSha: process.env.OPENCLAW_PCC_EXPECTED_RUNTIME_SHA,
+  releaseProofProfile:
+    process.env.OPENCLAW_PCC_RELEASE_PROOF_PROFILE === "mac_studio_control_director"
+      ? "mac_studio_control_director"
+      : "default",
   profile:
     process.env.OPENCLAW_PCC_PROOF_PROFILE === "usability-reliability"
       ? "usability-reliability"

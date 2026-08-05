@@ -331,8 +331,25 @@ function bindPccProductionProofMetadata(
   const truth = pccMetadataObject(metadata.pccProductionTruth);
   const isRuntimeProof = ACTIVE_RUNTIME_PROOF_EVIDENCE_KINDS.has(evidence.kind);
   const isBrowserProof = evidence.kind === "browser_proof" || evidence.kind === "screenshot";
+  const evidenceMetadata = pccMetadataObject(evidence.metadata);
+  const evidenceProofProfile =
+    evidenceMetadata.proofProfile === "default" ||
+    evidenceMetadata.proofProfile === "mac_studio_control_director"
+      ? evidenceMetadata.proofProfile
+      : null;
+  const isLocalSourceProof =
+    evidenceProofProfile === "mac_studio_control_director" &&
+    (isRuntimeProof || evidenceMetadata.pccProductionSourceProof === true);
   const nextTruth = {
     ...truth,
+    ...(evidenceProofProfile ? { proofProfile: evidenceProofProfile } : {}),
+    ...(isLocalSourceProof
+      ? {
+          latestVerifiedSha: evidence.sha,
+          sourceProofSha: evidence.sha,
+          sourceProofPassed: true,
+        }
+      : {}),
     ...(evidence.kind === "remote_ci"
       ? {
           latestVerifiedSha: evidence.sha,

@@ -1797,18 +1797,22 @@ function productionTruthDetail(props: PccDashboardProps): PccProjectDetail | nul
 }
 
 function liveRuntimeTruthInput(props: PccDashboardProps) {
-  if (!props.runtimeIdentity) {
-    return {};
-  }
   return {
-    runtimeSha: props.runtimeIdentity.runtimeSha,
-    runtimeEntrypoint: props.runtimeIdentity.runtimeEntrypoint,
-    expectedRuntimeRoot: props.runtimeIdentity.expectedRuntimeRoot,
-    runtimeDriftReason:
-      props.runtimeIdentity.driftReason ??
-      (props.runtimeIdentity.verified
-        ? undefined
-        : "Active Gateway did not expose a verified runtime identity."),
+    ...(props.releaseGovernance?.proofProfile
+      ? { proofProfile: props.releaseGovernance.proofProfile }
+      : {}),
+    ...(props.runtimeIdentity
+      ? {
+          runtimeSha: props.runtimeIdentity.runtimeSha,
+          runtimeEntrypoint: props.runtimeIdentity.runtimeEntrypoint,
+          expectedRuntimeRoot: props.runtimeIdentity.expectedRuntimeRoot,
+          runtimeDriftReason:
+            props.runtimeIdentity.driftReason ??
+            (props.runtimeIdentity.verified
+              ? undefined
+              : "Active Gateway did not expose a verified runtime identity."),
+        }
+      : {}),
   };
 }
 
@@ -1824,6 +1828,8 @@ function renderProductionTruthCard(props: PccDashboardProps) {
   return html`<section
     class="pcc-production-truth pcc-production-truth--${truth.status}"
     data-pcc-production-truth
+    data-pcc-production-truth-profile=${truth.proofProfile}
+    data-pcc-production-source-proof=${truth.sourceProofPassed ? "passed" : "missing"}
     aria-label="Production truth"
   >
     <div class="pcc-section-heading">
@@ -1848,8 +1854,20 @@ function renderProductionTruthCard(props: PccDashboardProps) {
         <dd>${truth.runtimeSha ? truth.runtimeSha.slice(0, 12) : "Not recorded"}</dd>
       </div>
       <div>
-        <dt>Current remote proof</dt>
-        <dd>${truth.remoteProofPassed ? "Passed" : "Missing"}</dd>
+        <dt>
+          ${truth.proofProfile === "mac_studio_control_director"
+            ? "Current local source proof"
+            : "Current remote proof"}
+        </dt>
+        <dd>
+          ${truth.proofProfile === "mac_studio_control_director"
+            ? truth.sourceProofPassed
+              ? "Passed"
+              : "Missing"
+            : truth.remoteProofPassed
+              ? "Passed"
+              : "Missing"}
+        </dd>
       </div>
       <div>
         <dt>Current runtime proof</dt>

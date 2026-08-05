@@ -104,8 +104,75 @@ describe("PCC production truth", () => {
     });
 
     expect(truth.status).toBe("current");
+    expect(truth.proofProfile).toBe("default");
+    expect(truth.sourceProofPassed).toBe(true);
     expect(truth.proofGaps).toEqual([]);
     expect(truth.doNotRedoNotes[0]).toContain("Do not rerun");
+  });
+
+  it("uses exact local runtime and browser evidence without requiring remote proof", () => {
+    const localRuntime = evidence("runtime_status");
+    const localBrowser = {
+      ...evidence("browser_proof"),
+      path: "/tmp/pcc-local-proof.png",
+    };
+    const localReceipt = {
+      ...receipt,
+      proofEvidenceIds: [localRuntime.id, localBrowser.id],
+      proofLevel: "local" as const,
+    };
+    const truth = buildPccProductionTruth({
+      project: {
+        ...project,
+        metadata: {
+          pccProductionTruth: {
+            proofProfile: "mac_studio_control_director",
+            latestVerifiedSha: "old-sha-must-not-win",
+          },
+        },
+      },
+      proofProfile: "mac_studio_control_director",
+      milestones: [milestone()],
+      evidence: [localRuntime, localBrowser],
+      receipts: [localReceipt],
+      runtimeSha: VERIFIED_SHA,
+    });
+
+    expect(truth.status).toBe("current");
+    expect(truth.proofProfile).toBe("mac_studio_control_director");
+    expect(truth.latestVerifiedSha).toBe(VERIFIED_SHA);
+    expect(truth.sourceProofPassed).toBe(true);
+    expect(truth.remoteProofPassed).toBe(false);
+    expect(truth.remoteProofRequired).toEqual([]);
+    expect(truth.sourceProofRequired).toEqual([]);
+    expect(truth.currentSourceProofEvidenceIds).toEqual([localRuntime.id, localBrowser.id]);
+    expect(truth.proofGaps).toEqual([]);
+    expect(truth.proofGaps).not.toContain(
+      "PCC remote Workflow Sanity proof is missing or is not bound to the verified SHA",
+    );
+  });
+
+  it("fails closed when a local profile has no exact local source proof", () => {
+    const truth = buildPccProductionTruth({
+      project: {
+        ...project,
+        metadata: {
+          pccProductionTruth: { proofProfile: "mac_studio_control_director" },
+        },
+      },
+      proofProfile: "mac_studio_control_director",
+      milestones: [milestone()],
+      receipts: [receipt],
+      runtimeSha: VERIFIED_SHA,
+    });
+
+    expect(truth.status).toBe("proof_missing");
+    expect(truth.proofGaps).toContain(
+      "PCC local source/build/runtime proof is missing or is not bound to the verified SHA",
+    );
+    expect(truth.proofGaps).not.toContain(
+      "PCC remote Workflow Sanity proof is missing or is not bound to the verified SHA",
+    );
   });
 
   it("marks stale when runtime SHA differs from latest verified SHA", () => {
