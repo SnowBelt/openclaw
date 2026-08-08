@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { callGateway } from "../../src/gateway/call.ts";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../../src/gateway/operator-scopes.ts";
+import { PCC_BROWSER_CONTRACT_VERSION } from "../../src/pcc/release-governance/browser-proof-contract.ts";
 import type { PccProject } from "../../ui/src/ui/types.ts";
 
 type Connection = {
@@ -127,6 +128,20 @@ async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean)
   throw new Error("timed out waiting for six-user PCC state convergence");
 }
 
+async function waitForPccReady(page: import("playwright").Page): Promise<void> {
+  await page.locator("[data-pcc-shell]").first().waitFor({ state: "visible", timeout: 45_000 });
+  await page.waitForFunction(
+    (contractVersion) => {
+      const shell = document.querySelector<HTMLElement>("[data-pcc-shell]");
+      return (
+        shell?.dataset.pccContractVersion === contractVersion && shell.dataset.pccReady === "ready"
+      );
+    },
+    PCC_BROWSER_CONTRACT_VERSION,
+    { timeout: 45_000 },
+  );
+}
+
 async function openProject(page: import("playwright").Page, projectId: string): Promise<void> {
   await page
     .locator(`[data-pcc-overview-project="${projectId}"]`)
@@ -138,6 +153,7 @@ async function openProject(page: import("playwright").Page, projectId: string): 
     projectId,
     { timeout: 15_000 },
   );
+  await waitForPccReady(page);
   await page.locator("[data-pcc-project-workspace]").waitFor({ state: "visible", timeout: 15_000 });
 }
 
@@ -185,11 +201,13 @@ async function main(): Promise<void> {
   const suffix = randomUUID().slice(0, 8);
   const projectIds = Array.from({ length: 6 }, (_, index) => `pcc-six-user-${suffix}-${index + 1}`);
   const initialTitles = projectIds.map((_, index) => `Six User Project ${index + 1} ${suffix}`);
-  const artifactDir = path.join(
-    ".artifacts",
-    "control-ui-pcc-six-user",
-    new Date().toISOString().replace(/[:.]/gu, "-"),
-  );
+  const artifactDir =
+    process.env.OPENCLAW_PCC_SIX_USER_E2E_ARTIFACT_DIR ??
+    path.join(
+      ".artifacts",
+      "control-ui-pcc-six-user",
+      new Date().toISOString().replace(/[:.]/gu, "-"),
+    );
   fs.mkdirSync(artifactDir, { recursive: true });
   const summary: Record<string, unknown> = { checks: {}, artifactDir };
   let browser: import("playwright").Browser | undefined;
@@ -227,6 +245,7 @@ async function main(): Promise<void> {
     await pages[0]
       ?.locator('[data-pcc-shell][data-pcc-surface="overview"]')
       .waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(pages[0]!);
     await pages[0]
       ?.locator("[data-pcc-overview-project]")
       .first()
@@ -236,6 +255,7 @@ async function main(): Promise<void> {
       await pages[0]
         ?.locator('[data-pcc-shell][data-pcc-surface="overview"]')
         .waitFor({ state: "visible", timeout: 15_000 });
+      await waitForPccReady(pages[0]!);
       // Interactive readiness is the usable Overview shell. Project data readiness
       // remains a separate required wait and is captured by the cold-load metric.
       overviewInteractiveMs.push(Math.round(await pages[0]!.evaluate(() => performance.now())));
@@ -254,6 +274,7 @@ async function main(): Promise<void> {
         await page
           .locator('[data-pcc-shell][data-pcc-surface="overview"]')
           .waitFor({ state: "visible", timeout: 45_000 });
+        await waitForPccReady(page);
         await page.locator("[data-pcc-overview-project]").first().waitFor({ state: "visible" });
         return Math.round(await page.evaluate(() => performance.now()));
       }),
@@ -358,7 +379,7 @@ async function main(): Promise<void> {
       expectedRevision: reconnectProject.project.revision,
       project: { id: reconnectProjectId, title: reconnectTitle },
     });
-    await pages[reconnectIndex]?.waitForTimeout(300);
+    await pages[reconnectIndex]?.waitForFunction(() => !navigator.onLine);
     await contexts[reconnectIndex]?.setOffline(false);
     await pages[reconnectIndex]
       ?.locator(`[data-pcc-overview-project="${reconnectProjectId}"] h3`)
@@ -384,7 +405,11 @@ async function main(): Promise<void> {
     );
     const conflictMessages = await Promise.all(
       [pages[0], pages[1]].map(async (page) => {
-        await page?.waitForTimeout(500);
+        await page
+          ?.locator("[data-pcc-action-error], [data-pcc-editor-error]")
+          .first()
+          .waitFor({ state: "visible", timeout: 15_000 })
+          .catch(() => undefined);
         return (
           (await page
             ?.locator("[data-pcc-action-error], [data-pcc-editor-error]")

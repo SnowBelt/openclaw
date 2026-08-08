@@ -1,11 +1,20 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   GATEWAY_LAUNCH_AGENT_LABEL,
   resolveGatewayLaunchAgentLabel,
 } from "../../src/daemon/constants.js";
 import { readLaunchAgentProgramArgumentsFromFile } from "../../src/daemon/launchd-plist.js";
+import {
+  browserProofCheckId,
+  PCC_BROWSER_CONTRACT_VERSION,
+  proofProfileVersion,
+  validateBrowserProofReceiptBinding,
+  type ReleaseProofPhase,
+} from "../../src/pcc/release-governance/browser-proof-contract.js";
 import { VERSION } from "../../src/version.js";
 
 type RuntimeIdentity = {
@@ -39,8 +48,11 @@ type ProofOptions = {
   allowLocalTokenResolution: boolean;
   screenshotPath: string;
   projectTitle: string;
-  requireProductionCurrent: boolean;
+  proofPhase: ReleaseProofPhase;
+  proofProfileVersion: number;
+  expectedCandidateSha?: string;
   expectedRuntimeSha?: string;
+  receiptPath?: string;
   releaseProofProfile: "default" | "mac_studio_control_director";
   profile:
     | "production-current"
@@ -212,19 +224,22 @@ async function resolveRuntimeIdentity(runtimeRoot = process.cwd()): Promise<Runt
 }
 
 function assertRuntimeIdentity(options: ProofOptions, identity: RuntimeIdentity): void {
-  if (!options.requireProductionCurrent) {
-    return;
-  }
   if (!identity.runtimeSha) {
     throw new Error(
-      `production-current proof requires runtime identity, but ${identity.runtimeRoot} has neither .openclaw-production-sha nor snapshot.json source stamp`,
+      `phase-aware browser proof requires runtime identity, but ${identity.runtimeRoot} has neither .openclaw-production-sha nor snapshot.json source stamp`,
     );
   }
-  const expected = options.expectedRuntimeSha?.trim();
+  const expected =
+    options.proofPhase === "candidate"
+      ? options.expectedCandidateSha?.trim()
+      : options.expectedRuntimeSha?.trim();
   if (expected && identity.runtimeSha !== expected) {
     throw new Error(
-      `production-current proof runtime SHA mismatch: expected ${expected}, got ${identity.runtimeSha}`,
+      `${options.proofPhase} browser proof runtime SHA mismatch: expected ${expected}, got ${identity.runtimeSha}`,
     );
+  }
+  if (options.proofPhase === "candidate") {
+    return;
   }
   const service = identity.service;
   if (process.platform === "darwin" && service) {
@@ -280,7 +295,7 @@ function readConfigToken(configPath: string): { url: string; tokenLength: number
 function resolveProofUrl(options: ProofOptions): { url: string; source: string } {
   if (options.authUrl) {
     const url = new URL(options.authUrl);
-    url.pathname = "/projects";
+    url.pathname = "/pcc";
     if (!url.hash.includes("token=") && !url.search.includes("token=")) {
       throw new Error("OPENCLAW_DASHBOARD_AUTH_URL must include token auth");
     }
@@ -297,12 +312,80 @@ function resolveProofUrl(options: ProofOptions): { url: string; source: string }
   return { url: resolved.url, source: "local-config" };
 }
 
-async function runBrowserProof(options: ProofOptions) {
+function sha256File(filePath: string): string {
+  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function writePrivateProofReceipt(filePath: string, value: Record<string, unknown>): void {
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const temporaryPath = path.join(
+    directory,
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+  );
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    fs.chmodSync(temporaryPath, 0o600);
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(temporaryPath);
+    } catch {
+      // Preserve the actionable receipt error.
+    }
+    throw error;
+  }
+}
+
+async function waitForPccReady(page: import("playwright").Page): Promise<void> {
+  await page.locator("[data-pcc-shell]").first().waitFor({ state: "visible", timeout: 45_000 });
+  await page.waitForFunction(
+    (contractVersion) => {
+      const root = document.querySelector<HTMLElement>("[data-pcc-shell]");
+      return (
+        root?.dataset.pccContractVersion === contractVersion && root.dataset.pccReady === "ready"
+      );
+    },
+    PCC_BROWSER_CONTRACT_VERSION,
+    { timeout: 45_000 },
+  );
+}
+
+async function waitForPccSurface(
+  page: import("playwright").Page,
+  surface: "overview" | "projects" | "activity" | "system" | "project",
+): Promise<void> {
+  await page
+    .locator(`[data-pcc-shell][data-pcc-surface="${surface}"]`)
+    .first()
+    .waitFor({ state: "visible", timeout: 45_000 });
+  await waitForPccReady(page);
+}
+
+async function runBrowserProof(options: ProofOptions): Promise<void> {
   const { chromium } = await import("playwright");
   const runtimeIdentity = await resolveRuntimeIdentity();
+  const expectedCandidateSha = options.expectedCandidateSha?.trim();
+  if (!expectedCandidateSha) {
+    throw new Error("phase-aware browser proof requires an exact candidate SHA");
+  }
+  if (options.proofPhase === "post_deployment" && !options.expectedRuntimeSha?.trim()) {
+    throw new Error("post-deployment browser proof requires an exact active-runtime SHA");
+  }
   assertRuntimeIdentity(options, runtimeIdentity);
+  const canonicalProfileVersion = proofProfileVersion(options.releaseProofProfile);
+  if (options.proofProfileVersion !== canonicalProfileVersion) {
+    throw new Error(
+      `browser proof profile version drift: expected ${canonicalProfileVersion}, got ${options.proofProfileVersion}`,
+    );
+  }
   const resolved = resolveProofUrl(options);
   console.log(`DASH_URL_OK=${redactUrl(resolved.url)}`);
+
+  const consoleErrors: string[] = [];
   const browser = await chromium.launch({
     headless: true,
     executablePath:
@@ -310,10 +393,25 @@ async function runBrowserProof(options: ProofOptions) {
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
-  await page.goto(resolved.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.waitForTimeout(12_000);
-  const dashboardManifest = await page
-    .evaluate(async () => {
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      consoleErrors.push(message.text());
+    }
+  });
+  page.on("pageerror", (error) => consoleErrors.push(error.message));
+  let result: Record<string, unknown> | null = null;
+
+  try {
+    await page.goto(resolved.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await waitForPccReady(page);
+    const shell = page.locator("[data-pcc-shell]").first();
+    const contractVersion = await shell.getAttribute("data-pcc-contract-version");
+    const initialRevision = await shell.getAttribute("data-pcc-ledger-revision");
+    if (!/^\d+$/u.test(initialRevision ?? "")) {
+      throw new Error("PCC readiness did not expose a numeric ledger revision");
+    }
+
+    const dashboardManifest = await page.evaluate(async () => {
       const response = await fetch("/dashboard-surfaces.json", { cache: "no-store" });
       if (!response.ok) {
         return { ok: false, status: response.status, buildId: null, ids: [] as string[] };
@@ -331,399 +429,253 @@ async function runBrowserProof(options: ProofOptions) {
           .map((surface) => (typeof surface.id === "string" ? surface.id : ""))
           .filter(Boolean),
       };
-    })
-    .catch(() => ({ ok: false, status: 0, buildId: null, ids: [] as string[] }));
-  const ensurePccRoute = async () => {
-    const pccShell = page.locator(".pcc-shell").first();
-    if (await pccShell.isVisible().catch(() => false)) {
-      return;
-    }
-    const pccNavLink = page.locator('a[href$="/pcc"], a[href="/pcc"]').first();
-    if (await pccNavLink.isVisible().catch(() => false)) {
-      await pccNavLink.click({ force: true });
-      await pccShell.waitFor({ state: "visible", timeout: 45_000 });
-      return;
-    }
-    const fallbackUrl = new URL(resolved.url);
-    fallbackUrl.pathname = "/pcc";
-    fallbackUrl.hash = "";
-    fallbackUrl.search = "";
-    await page.goto(fallbackUrl.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await pccShell.waitFor({ state: "visible", timeout: 45_000 });
-  };
-  await ensurePccRoute();
-  const simpleMode = page.locator('[data-pcc-view-mode-option="simple"]').last();
-  if (await simpleMode.isVisible().catch(() => false)) {
-    await simpleMode.click({ force: true });
-    await page.waitForTimeout(1_000);
-  }
-  const assertSelectedProject = async (title: string, label: string) => {
-    const detail = page.locator("[data-pcc-detail]").first();
-    await detail.waitFor({ state: "visible", timeout: 45_000 });
-    await page
-      .waitForFunction(
-        (expectedTitle) => {
-          const detailNode = document.querySelector("[data-pcc-detail]");
-          const detailTitle = detailNode?.getAttribute("data-pcc-detail-project-title") ?? "";
-          const detailText = detailNode?.textContent ?? "";
-          return detailTitle === expectedTitle || detailText.includes(expectedTitle);
-        },
-        title,
-        { timeout: 15_000 },
-      )
-      .catch(async () => {
-        const actualTitle = (await detail.getAttribute("data-pcc-detail-project-title")) ?? "";
-        const bodyText = ((await detail.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ");
-        throw new Error(
-          `PCC proof selection failed for ${label}: expected selected project "${title}", got "${actualTitle}" (${bodyText.slice(0, 220)})`,
-        );
-      });
-  };
-  const isSelectedProject = async (title: string) => {
-    const detail = page.locator("[data-pcc-detail]").first();
-    if (!(await detail.isVisible().catch(() => false))) {
-      return false;
-    }
-    const actualTitle = (await detail.getAttribute("data-pcc-detail-project-title")) ?? "";
-    if (actualTitle === title) {
-      return true;
-    }
-    const bodyText = ((await detail.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ");
-    return bodyText.includes(title);
-  };
+    });
 
-  const projectIdForTitle = (title: string): string | undefined => {
-    if (title === "Project Command Center") {
-      return "project-command-center";
-    }
-    if (title === "SNES Game Creator") {
-      return "snes-game-creator";
-    }
-    return undefined;
-  };
-  const projectCardForTitle = (title: string) => {
-    const projectId = projectIdForTitle(title);
-    if (projectId) {
-      return page.locator(`.pcc-project-card[data-pcc-project-id="${projectId}"]`).first();
-    }
-    return page.locator(".pcc-project-card", { hasText: title }).first();
-  };
-
-  const productMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();
-  if (options.projectTitle === "Project Command Center") {
-    if (await productMode.isVisible().catch(() => false)) {
-      await productMode.click({ force: true }).catch(() => undefined);
-      await page.waitForTimeout(500);
-    }
-  }
-  const targetProject = projectCardForTitle(options.projectTitle);
-  let projectCardCount = await targetProject.count();
-  if (projectCardCount === 0 && !(await isSelectedProject(options.projectTitle))) {
-    const allProjectsTab = page.locator(".pcc-project-tabs button", { hasText: /All/i }).last();
-    if (await allProjectsTab.isVisible().catch(() => false)) {
-      await allProjectsTab.click({ force: true });
-      await page
-        .locator(".pcc-project-card")
-        .first()
-        .waitFor({ state: "visible", timeout: 15_000 })
-        .catch(() => undefined);
-      projectCardCount = await targetProject.count();
-    }
-  }
-  if (projectCardCount > 0) {
-    const pickVisibleButton = async () => {
-      const candidates = [
-        targetProject.locator("button", { hasText: /Open/i }).first(),
-        targetProject.locator("button", { hasText: /Selected/i }).first(),
-      ];
-      for (const candidate of candidates) {
-        if (await candidate.isVisible().catch(() => false)) {
-          return candidate;
-        }
-      }
-      return undefined;
-    };
-    const openButton = await pickVisibleButton();
-    if (openButton) {
-      await openButton.click({ force: true }).catch(() => undefined);
-    }
-  } else if (!(await isSelectedProject(options.projectTitle))) {
-    const cardTexts = await page
-      .locator(".pcc-project-card")
-      .evaluateAll((cards) =>
-        cards
-          .map((card) => card.textContent?.replace(/\s+/g, " ").trim() ?? "")
-          .filter(Boolean)
-          .slice(0, 5),
-      )
-      .catch(() => []);
-    throw new Error(
-      `PCC proof could not find requested project card "${options.projectTitle}". Visible cards: ${cardTexts.join(" | ")}`,
+    const navigation = page.locator('nav[aria-label="Project Command Center"]');
+    const navigationLabels = await navigation.locator("button").allTextContents();
+    const expectedNavigation = ["Overview", "Projects", "Activity", "System"];
+    const navigationChecks = expectedNavigation.map((label) =>
+      navigationLabels.some((value) => value.trim() === label),
     );
-  }
-  await assertSelectedProject(options.projectTitle, "requested project card");
-
-  if (
-    options.profile === "usability-reliability" ||
-    options.profile === "functionality-closure" ||
-    options.profile === "focus-live-interaction"
-  ) {
-    const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
-    if (await projectWorkMode.isVisible().catch(() => false)) {
-      await projectWorkMode.click({ force: true });
-      await page.waitForTimeout(500);
-      const snesProject = projectCardForTitle("SNES Game Creator");
-      if (
-        options.profile !== "focus-live-interaction" &&
-        (await snesProject.count()) > 0 &&
-        (await snesProject.isVisible().catch(() => false))
-      ) {
-        const snesOpen = snesProject.locator("button", { hasText: /Open|Selected/ }).first();
-        if (await snesOpen.isVisible().catch(() => false)) {
-          await snesOpen.click({ force: true });
-          await assertSelectedProject(
-            "SNES Game Creator",
-            options.profile === "functionality-closure"
-              ? "Project Work crash regression"
-              : "Project Work card selection",
-          );
-        }
-      }
-      const productFocusMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();
-      if (await productFocusMode.isVisible().catch(() => false)) {
-        await productFocusMode.click({ force: true });
-        await page.waitForTimeout(500);
-      }
-      const pccProject = projectCardForTitle(options.projectTitle);
-      const pccOpen = pccProject.locator("button", { hasText: /Open|Selected/ }).first();
-      if ((await pccOpen.count()) > 0 && (await pccOpen.isVisible().catch(() => false))) {
-        await pccOpen.click({ force: true });
-      }
-      await assertSelectedProject(options.projectTitle, "PCC Product card selection");
+    if (navigationChecks.some((value) => !value)) {
+      throw new Error(`PCC navigation contract is incomplete: ${navigationLabels.join(" | ")}`);
     }
-  }
+    const clickNavigation = async (label: "Overview" | "Projects" | "Activity" | "System") => {
+      await navigation.getByRole("button", { name: label, exact: true }).click({ force: true });
+      await waitForPccSurface(
+        page,
+        label.toLowerCase() as "overview" | "projects" | "activity" | "system",
+      );
+    };
 
-  const agentMode = page.locator('[data-pcc-view-mode-option="agent"]').last();
-  if (
-    options.profile !== "functionality-closure" &&
-    options.profile !== "focus-live-interaction" &&
-    (await agentMode.isVisible().catch(() => false))
-  ) {
-    await agentMode.click({ force: true }).catch(() => undefined);
-    await page.waitForTimeout(1_000);
-  }
-  await page.locator("[data-pcc-detail]").first().waitFor({ state: "visible", timeout: 45_000 });
-  const workLoop = page.locator("[data-pcc-work-loop]").first();
-  const maintenanceHero = page.locator("[data-pcc-maintenance-hero]").first();
-  const terminalProject = await maintenanceHero.isVisible().catch(() => false);
-  if (!terminalProject) {
-    await workLoop.waitFor({ state: "visible", timeout: 45_000 });
-  }
-  const truthLedger = page.locator(".pcc-production-truth__ledger summary").first();
-  if ((await truthLedger.count()) > 0 && (await truthLedger.isVisible().catch(() => false))) {
-    await truthLedger.click({ force: true });
-  }
-  let autofillPreviewOpened = false;
-  if (options.profile === "usability-reliability") {
-    const repairProject = projectCardForTitle("SNES Game Creator");
-    if ((await repairProject.count()) > 0) {
-      const openRepairProject = repairProject
-        .locator("button", { hasText: /Open|Selected/ })
+    await clickNavigation("Overview");
+    const overview = page.locator("[data-pcc-work-overview]").first();
+    await overview.waitFor({ state: "visible", timeout: 45_000 });
+    const overviewProjectCount = await page.locator("[data-pcc-overview-project]").count();
+    const overviewText = ((await overview.textContent()) ?? "").replace(/\s+/gu, " ");
+
+    await clickNavigation("Projects");
+    const directory = page.locator("[data-pcc-projects-directory]").first();
+    await directory.waitFor({ state: "visible", timeout: 45_000 });
+    const filterLabels = ["Active", "Needs You", "On Hold", "Completed", "Archived", "All"];
+    const filterTexts = await directory.locator("[data-pcc-project-tabs] button").allTextContents();
+    const filterChecks = filterLabels.map((label) =>
+      filterTexts.some((value) => new RegExp(`^${label}\\b`, "u").test(value.trim())),
+    );
+    if (filterChecks.some((value) => !value)) {
+      throw new Error(`PCC project-filter contract is incomplete: ${filterTexts.join(" | ")}`);
+    }
+    const allFilter = directory
+      .locator("[data-pcc-project-tabs] button")
+      .filter({ hasText: /^All\b/u });
+    await allFilter.click({ force: true });
+    await waitForPccReady(page);
+    const directoryCount = await directory.locator("[data-pcc-overview-project]").count();
+    if (directoryCount < overviewProjectCount) {
+      throw new Error(
+        `PCC project visibility regressed from ${overviewProjectCount} to ${directoryCount} after All filter`,
+      );
+    }
+    await clickNavigation("Activity");
+    const activityPresent = (await page.locator("[data-pcc-activity-directory]").count()) > 0;
+    await clickNavigation("System");
+    const systemPresent = (await page.locator("[data-pcc-system-overview]").count()) > 0;
+
+    let projectSelected = false;
+    if (options.projectTitle === "Project Command Center") {
+      await page
+        .getByRole("button", { name: "Open system record", exact: true })
+        .click({ force: true });
+    } else {
+      await clickNavigation("Overview");
+      let card = page
+        .locator("[data-pcc-overview-project]")
+        .filter({ hasText: options.projectTitle })
         .first();
-      if (await openRepairProject.isVisible().catch(() => false)) {
-        await openRepairProject.click({ force: true }).catch(() => undefined);
-        await page
-          .locator("[data-pcc-detail]")
-          .first()
-          .waitFor({ state: "visible", timeout: 45_000 });
+      if ((await card.count()) === 0) {
+        await clickNavigation("Projects");
+        await allFilter.click({ force: true });
+        await waitForPccReady(page);
+        card = page
+          .locator("[data-pcc-overview-project]")
+          .filter({ hasText: options.projectTitle })
+          .first();
       }
+      await card.waitFor({ state: "visible", timeout: 45_000 });
+      await card.getByRole("button", { name: "Open project", exact: true }).click({ force: true });
     }
-    const setupRepair = page
-      .getByRole("button", {
-        name: /Plan missing setup with Codex|Plan setup repair with Codex|Fill blanks with Codex/i,
-      })
-      .first();
-    if (await setupRepair.isVisible().catch(() => false)) {
-      await setupRepair.click({ force: true });
-      await page
-        .getByText("Codex Plan Preview", { exact: false })
-        .first()
-        .waitFor({ state: "visible", timeout: 45_000 });
-      autofillPreviewOpened = true;
-    }
-    const visibleActionMenu = page.locator("[data-pcc-action-menu-trigger]:visible").first();
-    if ((await visibleActionMenu.count()) > 0) {
-      await visibleActionMenu.click({ force: true });
-      await page
-        .getByRole("menuitem", { name: "Remove from active plan" })
-        .first()
-        .waitFor({ state: "visible", timeout: 10_000 });
-    }
-  }
-  await page.waitForTimeout(2_000);
-  const text = (await page.locator("body").textContent({ timeout: 45_000 })) ?? "";
-  const normalizedText = text.replace(/\s+/g, " ");
-  const lower = normalizedText.toLowerCase();
-  const has = (needle: string) => lower.includes(needle.replace(/\s+/g, " ").toLowerCase());
-  const productionTruth = page.locator("[data-pcc-production-truth]").first();
-  const productionTruthProfile = await productionTruth.getAttribute(
-    "data-pcc-production-truth-profile",
-  );
-  const productionSourceProof = await productionTruth.getAttribute(
-    "data-pcc-production-source-proof",
-  );
-  const productionTruthText = ((await productionTruth.textContent().catch(() => "")) ?? "").replace(
-    /\s+/g,
-    " ",
-  );
-  const localReleaseProfile = options.releaseProofProfile === "mac_studio_control_director";
-  const portfolioConsoleCount = await page.locator("[data-pcc-portfolio-console]:visible").count();
-  const result = {
-    url: redactUrl(page.url()),
-    title: await page.title(),
-    appPresent: (await page.locator("openclaw-app").count()) > 0,
-    fallback: await page
-      .getByText("Control UI did not start")
+    await waitForPccSurface(page, "project");
+    await page
+      .locator("[data-pcc-project-workspace]")
       .first()
-      .isVisible()
-      .catch(() => false),
-    authScreen: await page
-      .getByText("Auth required")
+      .waitFor({ state: "visible", timeout: 45_000 });
+    await page
+      .locator(`[data-pcc-detail-project-title="${options.projectTitle}"]`)
       .first()
-      .isVisible()
-      .catch(() => false),
-    clickedOpen: true,
-    runtimeIdentity,
-    dashboardManifest,
-    selectors: {
-      pccShell: await page.locator(".pcc-shell").count(),
-      projectCards: await page.locator(".pcc-project-card").count(),
-      detail: await page.locator("[data-pcc-detail]").count(),
-      workLoop: await page.locator("[data-pcc-work-loop]").count(),
-      workControls: await page.locator(".pcc-work-loop__controls").count(),
-      portfolioConsole: portfolioConsoleCount,
-      visibleActionMenus: await page.locator("[data-pcc-action-menu-trigger]:visible").count(),
-    },
-    checks: {
-      pcc: has("Project Command Center"),
-      productionTruth: has("Production truth"),
-      dashboardCurrency: has("Is this dashboard current?"),
-      resourcePolicy:
-        portfolioConsoleCount === 0 || has("Policy: as many as safe") || has("as many as safe"),
-      workThisProject:
-        terminalProject || options.profile === "functionality-closure" || has("Work This Project"),
-      stopAfterCurrent:
-        terminalProject ||
-        options.profile === "functionality-closure" ||
-        has("Stop after current task"),
-      stopBeforeDestructive:
-        terminalProject ||
-        options.profile === "functionality-closure" ||
-        has("Stop before destructive actions"),
-      productionCurrent: has("Current"),
-      remoteProofPassed: has("Remote proof Passed") || has("Remote proof\nPassed"),
-      productionTruthProfile:
-        !localReleaseProfile || productionTruthProfile === options.releaseProofProfile,
-      sourceProofPassed:
-        !localReleaseProfile ||
-        productionSourceProof === "passed" ||
-        has("Current local source proof Passed"),
-      noRemoteProofClaim:
-        !localReleaseProfile || !productionTruthText.toLowerCase().includes("current remote proof"),
-      runtimeProofPassed: has("Runtime proof Passed") || has("Runtime proof\nPassed"),
-      noProofGaps: has("No proof gaps recorded."),
-      workingNow: has("Working Now"),
-      needsYou: has("Needs You"),
-      portfolioProgress: has("Portfolio Progress"),
-      setupRepair:
-        options.profile === "production-current" ||
-        options.profile === "functionality-closure" ||
-        options.profile === "focus-live-interaction" ||
-        has("Setup needs a few answers") ||
-        has("Plan missing setup with Codex") ||
-        has("Plan setup repair with Codex") ||
-        has("Fill blanks with Codex"),
-      autofillPreview:
-        options.profile === "production-current" ||
-        !autofillPreviewOpened ||
-        has("Codex Plan Preview"),
-      actionMenu:
-        options.profile === "production-current" ||
-        options.profile === "functionality-closure" ||
-        options.profile === "focus-live-interaction" ||
-        (has("Remove from active plan") && has("Stop here")),
-      completeState:
-        options.profile !== "functionality-closure" ||
-        (has("Project complete") && (has("Review Maintenance") || has("View details"))),
-      reorderToggle: options.profile !== "functionality-closure" || has("Reorder milestones"),
-      focusBar:
-        options.profile !== "focus-live-interaction" ||
-        (await page.locator("[data-pcc-project-focus-bar]:visible").count()) > 0,
-      todaySummary:
-        options.profile !== "focus-live-interaction" ||
-        (await page.locator("[data-pcc-today-summary]:visible").count()) > 0,
-      projectHero:
-        options.profile !== "focus-live-interaction" ||
-        (await page.locator("[data-pcc-project-hero]:visible").count()) > 0,
-      proofBadge:
-        options.profile !== "focus-live-interaction" ||
-        (await page.locator("[data-pcc-project-hero] [data-pcc-proof-badge]:visible").count()) > 0,
-      maintenanceHero:
-        options.profile !== "focus-live-interaction" ||
-        (await page.locator("[data-pcc-maintenance-hero]:visible").count()) > 0 ||
-        has("Project complete"),
-      topProofNotDominating:
-        options.profile !== "focus-live-interaction" ||
-        (await page.locator(".pcc-top-proof-drawer:visible").count()) === 0 ||
-        has("Current proof:"),
-      runtimeIdentity:
-        !options.requireProductionCurrent ||
-        (Boolean(runtimeIdentity.runtimeSha) &&
-          (!runtimeIdentity.service || !runtimeIdentity.service.driftReason) &&
-          (!options.expectedRuntimeSha ||
-            runtimeIdentity.runtimeSha === options.expectedRuntimeSha)),
-      dashboardManifest:
+      .waitFor({ state: "visible", timeout: 45_000 });
+    projectSelected = true;
+    const afterProjectRevision = await page
+      .locator("[data-pcc-shell]")
+      .first()
+      .getAttribute("data-pcc-ledger-revision");
+    if (
+      !/^\d+$/u.test(afterProjectRevision ?? "") ||
+      Number(afterProjectRevision) < Number(initialRevision)
+    ) {
+      throw new Error("PCC ledger revision regressed during project navigation");
+    }
+    await page.getByRole("button", { name: "← Overview", exact: true }).click({ force: true });
+    await waitForPccSurface(page, "overview");
+    const finalOverviewCount = await page.locator("[data-pcc-overview-project]").count();
+    if (finalOverviewCount < overviewProjectCount) {
+      throw new Error("PCC cached-to-live convergence hid an overview project after navigation");
+    }
+
+    await clickNavigation("System");
+    const truth = page.locator("[data-pcc-production-truth]").first();
+    await truth.waitFor({ state: "visible", timeout: 45_000 });
+    const truthProfile = await truth.getAttribute("data-pcc-production-truth-profile");
+    const truthSource = await truth.getAttribute("data-pcc-production-proof-source");
+    const truthCurrent = await truth.getAttribute("data-pcc-production-current");
+    const truthRuntime = await truth.getAttribute("data-pcc-runtime-proof");
+    const truthGaps = await truth.getAttribute("data-pcc-proof-gaps");
+    const truthText = ((await truth.textContent()) ?? "").replace(/\s+/gu, " ");
+    const title = await page.title();
+    const appPresent = (await page.locator("openclaw-app").count()) > 0;
+    const fallback =
+      (await page.getByText("Control UI did not start", { exact: false }).count()) > 0;
+    const authScreen =
+      (await page.getByText("unauthorized", { exact: false }).count()) > 0 ||
+      (await page.getByText("token required", { exact: false }).count()) > 0;
+    const localProfile = options.releaseProofProfile === "mac_studio_control_director";
+    const forbiddenClaim =
+      /remote proof\s*[:-]?\s*(passed|success|verified)|mobile proof\s*[:-]?\s*(passed|success|verified)/iu.test(
+        truthText,
+      );
+    const postDeployment =
+      options.proofPhase !== "post_deployment" ||
+      (truthCurrent === "true" && truthRuntime === "passed" && truthGaps === "0");
+    const defaultRemote =
+      localProfile || /remote proof\s*[:-]?\s*(passed|success|verified)/iu.test(truthText);
+
+    fs.mkdirSync(path.dirname(options.screenshotPath), { recursive: true, mode: 0o700 });
+    await page.screenshot({ path: options.screenshotPath, fullPage: true });
+    const receipt = {
+      schema: "openclaw.release-local-proof.v2",
+      candidateSha: expectedCandidateSha,
+      proofProfile: options.releaseProofProfile,
+      proofProfileVersion: options.proofProfileVersion,
+      proofPhase: options.proofPhase,
+      activeRuntimeSha:
+        options.proofPhase === "post_deployment" ? runtimeIdentity.runtimeSha : null,
+      checkId:
+        browserProofCheckId(options.releaseProofProfile, options.proofPhase) ??
+        `authenticated_${options.proofPhase}_pcc_browser`,
+      command: process.argv.map(redactUrl).join(" "),
+      verifierSha256: sha256File(fileURLToPath(import.meta.url)),
+      browserArtifactSha256: sha256File(options.screenshotPath),
+      result: "passed" as const,
+    };
+    const receiptBindingErrors = validateBrowserProofReceiptBinding(receipt);
+    const cdp = await page.context().newCDPSession(page);
+    const axTree = (await cdp.send("Accessibility.getFullAXTree")) as {
+      nodes?: Array<{ ignored?: boolean; role?: { value?: unknown }; name?: { value?: unknown } }>;
+    };
+    const interactiveRoles = new Set([
+      "button",
+      "checkbox",
+      "combobox",
+      "link",
+      "menuitem",
+      "radio",
+      "switch",
+      "tab",
+      "textbox",
+    ]);
+    const unnamedInteractiveNodes = (axTree.nodes ?? []).filter((node) => {
+      const role = typeof node.role?.value === "string" ? node.role.value : "";
+      const name = typeof node.name?.value === "string" ? node.name.value.trim() : "";
+      return !node.ignored && interactiveRoles.has(role) && !name;
+    });
+    const checks = {
+      title: title === "OpenClaw Control",
+      appPresent,
+      notFallback: !fallback,
+      notAuthScreen: !authScreen,
+      exactCandidate: runtimeIdentity.runtimeSha === expectedCandidateSha,
+      postDeploymentIdentity:
+        options.proofPhase !== "post_deployment" ||
+        runtimeIdentity.runtimeSha === options.expectedRuntimeSha,
+      receiptBinding: receiptBindingErrors.length === 0,
+      contractVersion: contractVersion === PCC_BROWSER_CONTRACT_VERSION,
+      ready: (await shell.getAttribute("data-pcc-ready")) === "ready",
+      navigation: navigationChecks.every(Boolean),
+      overview: overviewText.includes("Working Now") && overviewText.includes("Active Projects"),
+      projectFilters: filterChecks.every(Boolean),
+      projectVisibility:
+        directoryCount >= overviewProjectCount && finalOverviewCount >= overviewProjectCount,
+      projectSelection: projectSelected,
+      activity: activityPresent,
+      system: systemPresent,
+      ledgerRevision: /^\d+$/u.test(afterProjectRevision ?? ""),
+      profile: truthProfile === options.releaseProofProfile,
+      localSource: !localProfile || truthSource === "local",
+      noForbiddenRemoteClaim: !localProfile || !forbiddenClaim,
+      postDeployment,
+      defaultRemote,
+      manifest:
         dashboardManifest.ok &&
         REQUIRED_DASHBOARD_SURFACES.every((surface) => dashboardManifest.ids.includes(surface)),
-    },
-    sample: normalizedText.slice(0, 2_000),
-  };
-  await page.screenshot({ path: options.screenshotPath, fullPage: true });
-  await browser.close();
-  const { sample: _sample, ...safeResult } = result;
-  const output = JSON.stringify({ ...safeResult, screenshot: options.screenshotPath }, null, 2);
+      noConsoleErrors: consoleErrors.length === 0,
+      noHorizontalOverflow: await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+      authoritativeAccessibilityTree: unnamedInteractiveNodes.length === 0,
+    };
+    const failedChecks = Object.entries(checks)
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
+    result = {
+      schema: "openclaw.pcc-browser-proof.v2",
+      phase: options.proofPhase,
+      proofProfile: options.releaseProofProfile,
+      proofProfileVersion: options.proofProfileVersion,
+      checkId: receipt.checkId,
+      url: redactUrl(page.url()),
+      title,
+      appPresent,
+      fallback,
+      authScreen,
+      runtimeIdentity,
+      dashboardManifest,
+      checks,
+      consoleErrors: consoleErrors.length,
+      unnamedInteractiveNodes: unnamedInteractiveNodes.length,
+      ledgerRevision: afterProjectRevision,
+      passed: failedChecks.length === 0,
+      failedChecks,
+    };
+    if (failedChecks.length > 0) {
+      throw new Error(`PCC ${options.proofPhase} browser proof failed: ${failedChecks.join(", ")}`);
+    }
+    const receiptPath =
+      options.receiptPath ??
+      path.join(
+        os.tmpdir(),
+        `openclaw-pcc-browser-proof-${options.proofPhase}-${process.pid}.json`,
+      );
+    writePrivateProofReceipt(receiptPath, receipt);
+    result.receiptPath = receiptPath;
+    result.receipt = receipt;
+  } finally {
+    await browser.close();
+  }
+  if (!result) {
+    throw new Error("PCC browser proof did not produce a result");
+  }
+  const output = JSON.stringify(result, null, 2);
   assertNoTokenLeak(output);
   console.log(output);
-  const passed =
-    result.title === "OpenClaw Control" &&
-    result.appPresent &&
-    !result.fallback &&
-    !result.authScreen &&
-    result.clickedOpen &&
-    Object.entries(result.checks)
-      .filter(([key]) => {
-        const productionTruthChecks = localReleaseProfile
-          ? [
-              "productionCurrent",
-              "productionTruthProfile",
-              "sourceProofPassed",
-              "noRemoteProofClaim",
-              "runtimeProofPassed",
-              "noProofGaps",
-            ]
-          : ["productionCurrent", "remoteProofPassed", "runtimeProofPassed", "noProofGaps"];
-        if (localReleaseProfile || options.profile === "production-current") {
-          return options.requireProductionCurrent || localReleaseProfile
-            ? true
-            : !productionTruthChecks.includes(key);
-        }
-        return !["productionTruth", "dashboardCurrency", ...productionTruthChecks].includes(key);
-      })
-      .every(([, value]) => value);
-  if (!passed) {
-    console.error("PCC proof text sample:", result.sample);
-    process.exit(1);
-  }
 }
 
 async function runSelfTest() {
@@ -738,7 +690,8 @@ async function runSelfTest() {
       allowLocalTokenResolution: false,
       screenshotPath: "/tmp/unused.png",
       projectTitle: "Project Command Center",
-      requireProductionCurrent: false,
+      proofPhase: "candidate",
+      proofProfileVersion: proofProfileVersion("default"),
       releaseProofProfile: "default",
       profile: "production-current",
     });
@@ -762,8 +715,22 @@ const options: ProofOptions = {
     process.env.OPENCLAW_PCC_PROOF_SCREENSHOT ??
     "/tmp/openclaw-dashboard-pcc-production-governor-auth-proof-final.png",
   projectTitle: process.env.OPENCLAW_PCC_PROOF_PROJECT_TITLE ?? "Project Command Center",
-  requireProductionCurrent: process.env.OPENCLAW_PCC_REQUIRE_PRODUCTION_CURRENT === "1",
+  proofPhase:
+    process.env.OPENCLAW_PCC_PROOF_PHASE === "candidate" ? "candidate" : "post_deployment",
+  proofProfileVersion: Number.parseInt(
+    process.env.OPENCLAW_PCC_PROOF_PROFILE_VERSION ??
+      String(
+        proofProfileVersion(
+          process.env.OPENCLAW_PCC_RELEASE_PROOF_PROFILE === "mac_studio_control_director"
+            ? "mac_studio_control_director"
+            : "default",
+        ),
+      ),
+    10,
+  ),
+  expectedCandidateSha: process.env.OPENCLAW_PCC_EXPECTED_CANDIDATE_SHA,
   expectedRuntimeSha: process.env.OPENCLAW_PCC_EXPECTED_RUNTIME_SHA,
+  receiptPath: process.env.OPENCLAW_PCC_PROOF_RECEIPT,
   releaseProofProfile:
     process.env.OPENCLAW_PCC_RELEASE_PROOF_PROFILE === "mac_studio_control_director"
       ? "mac_studio_control_director"

@@ -533,6 +533,9 @@ describe("loadPccDashboard", () => {
   it("loads project list and portfolio summary", async () => {
     const releaseGovernance = {
       schema: "openclaw.release-governance-status.v1",
+      proofProfile: "default",
+      proofProfileVersion: 1,
+      proofPhase: "candidate",
       candidateSha: "a".repeat(40),
     };
     const request = vi

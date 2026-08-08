@@ -168,6 +168,7 @@ export function decideReleasePolicy(params: {
     return {
       operation: params.operation,
       proofProfile: params.facts.proofProfile,
+      proofPhase: params.facts.proofPhase,
       decision: "deny",
       approvalMode: approval.mode,
       requiredReviewRoles: requiredReviews,
@@ -182,6 +183,7 @@ export function decideReleasePolicy(params: {
     return {
       operation: params.operation,
       proofProfile: params.facts.proofProfile,
+      proofPhase: params.facts.proofPhase,
       decision: "escalate",
       approvalMode: "none",
       requiredReviewRoles: requiredReviews,
@@ -195,6 +197,7 @@ export function decideReleasePolicy(params: {
   return {
     operation: params.operation,
     proofProfile: params.facts.proofProfile,
+    proofPhase: params.facts.proofPhase,
     decision: "authorize",
     approvalMode: approval.mode,
     requiredReviewRoles: requiredReviews,

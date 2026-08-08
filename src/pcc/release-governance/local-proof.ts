@@ -2,6 +2,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  isReleaseProofPhase,
+  validateBrowserProofReceiptBinding,
+  type ReleaseProofPhase,
+} from "./browser-proof-contract.js";
+import {
   RELEASE_LOCAL_PROOF_SCHEMA,
   type ReleaseLocalProofReceipt,
   type ReleaseProofProfile,
@@ -16,9 +21,14 @@ const MAX_TIMEOUT_MS = 60 * 60 * 1000;
 export type CaptureReleaseLocalProofParams = {
   candidateSha: string;
   proofProfile: ReleaseProofProfile;
+  proofProfileVersion: number;
+  proofPhase: ReleaseProofPhase;
+  activeRuntimeSha: string | null;
   checkId: string;
   command: string;
   output: string;
+  verifierSha256: string;
+  browserArtifactSha256: string | null;
   cwd?: string;
   timeoutMs?: number;
 };
@@ -44,6 +54,9 @@ function requireValidParams(params: CaptureReleaseLocalProofParams): void {
   if (!PROOF_PROFILES.has(params.proofProfile)) {
     throw new Error(`Unsupported release local proof profile: ${params.proofProfile}.`);
   }
+  if (!isReleaseProofPhase(params.proofPhase)) {
+    throw new Error(`Unsupported release local proof phase: ${String(params.proofPhase)}.`);
+  }
   if (!CHECK_ID_PATTERN.test(params.checkId)) {
     throw new Error(`Invalid release local proof check ID: ${params.checkId}.`);
   }
@@ -52,6 +65,19 @@ function requireValidParams(params: CaptureReleaseLocalProofParams): void {
   }
   if (!params.output.trim()) {
     throw new Error("Release local proof output path must not be empty.");
+  }
+  const bindingErrors = validateBrowserProofReceiptBinding({
+    candidateSha: params.candidateSha,
+    activeRuntimeSha: params.activeRuntimeSha,
+    proofProfile: params.proofProfile,
+    proofProfileVersion: params.proofProfileVersion,
+    proofPhase: params.proofPhase,
+    checkId: params.checkId,
+    verifierSha256: params.verifierSha256,
+    browserArtifactSha256: params.browserArtifactSha256,
+  });
+  if (bindingErrors.length > 0) {
+    throw new Error(bindingErrors.join("\n"));
   }
   const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
@@ -64,16 +90,26 @@ function requireValidParams(params: CaptureReleaseLocalProofParams): void {
 export function createReleaseLocalProofReceipt(params: {
   candidateSha: string;
   proofProfile: ReleaseProofProfile;
+  proofProfileVersion: number;
+  proofPhase: ReleaseProofPhase;
+  activeRuntimeSha: string | null;
   checkId: string;
   command: string;
+  verifierSha256: string;
+  browserArtifactSha256: string | null;
 }): ReleaseLocalProofReceipt {
   requireValidParams({ ...params, output: "receipt.json" });
   return {
     schema: RELEASE_LOCAL_PROOF_SCHEMA,
     candidateSha: params.candidateSha,
     proofProfile: params.proofProfile,
+    proofProfileVersion: params.proofProfileVersion,
+    proofPhase: params.proofPhase,
+    activeRuntimeSha: params.activeRuntimeSha,
     checkId: params.checkId,
     command: params.command,
+    verifierSha256: params.verifierSha256,
+    browserArtifactSha256: params.browserArtifactSha256,
     result: "passed",
   };
 }

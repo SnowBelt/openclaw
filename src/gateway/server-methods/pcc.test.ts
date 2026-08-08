@@ -893,6 +893,8 @@ describe("Project Command Center gateway methods", () => {
         schema: "openclaw.release-governance-status.v1",
         policyVersion: 1,
         proofProfile: "default",
+        proofProfileVersion: 1,
+        proofPhase: "candidate",
         candidateSha: "a".repeat(40),
         activeRuntimeSha: "b".repeat(40),
         riskLevel: "P1",

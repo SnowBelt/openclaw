@@ -12,6 +12,12 @@ const ReleaseGovernanceStatusSchema = Type.Object(
   {
     schema: Type.Literal("openclaw.release-governance-status.v1"),
     policyVersion: Type.Integer({ minimum: 1 }),
+    proofProfile: Type.Union([
+      Type.Literal("default"),
+      Type.Literal("mac_studio_control_director"),
+    ]),
+    proofProfileVersion: Type.Integer({ minimum: 1 }),
+    proofPhase: Type.Union([Type.Literal("candidate"), Type.Literal("post_deployment")]),
     candidateSha: Type.Union([Type.String(), Type.Null()]),
     activeRuntimeSha: Type.Union([Type.String(), Type.Null()]),
     riskLevel: Type.Union([
@@ -61,6 +67,13 @@ const ReleaseGovernanceStatusSchema = Type.Object(
           count: Type.Optional(Type.Integer()),
           url: Type.Optional(Type.String()),
           artifact: Type.Optional(Type.String()),
+          artifactSha256: Type.Optional(Type.String()),
+          proofPhase: Type.Optional(
+            Type.Union([Type.Literal("candidate"), Type.Literal("post_deployment")]),
+          ),
+          proofProfileVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+          verifierSha256: Type.Optional(Type.String()),
+          browserArtifactSha256: Type.Optional(Type.Union([Type.String(), Type.Null()])),
           recordedAt: TimestampSchema,
         },
         { additionalProperties: false },

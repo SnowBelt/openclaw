@@ -1,11 +1,12 @@
 export const RELEASE_GOVERNOR_POLICY_SCHEMA = "openclaw.release-governor-policy.v1" as const;
 export const RELEASE_EVIDENCE_SCHEMA = "openclaw.release-evidence.v1" as const;
 export const RELEASE_GOVERNANCE_STATUS_SCHEMA = "openclaw.release-governance-status.v1" as const;
-export const RELEASE_LOCAL_PROOF_SCHEMA = "openclaw.release-local-proof.v1" as const;
+export const RELEASE_LOCAL_PROOF_SCHEMA = "openclaw.release-local-proof.v2" as const;
 
 export type ReleaseRiskLevel = "P0" | "P1" | "P2" | "P3";
 export type ReleaseOperation = "stage" | "promotion" | "restart" | "rollback" | "finalize";
 export type ReleaseProofProfile = "default" | "mac_studio_control_director";
+export type { ReleaseProofPhase } from "./browser-proof-contract.js";
 export type ReleaseDecision = "authorize" | "deny" | "escalate";
 export type ReleaseApprovalMode = "automatic" | "exact" | "bounded_grant" | "none";
 export type ReleaseCheckStatus = "passed" | "failed" | "pending" | "blocked" | "not_applicable";
@@ -47,7 +48,7 @@ export type ReleaseGovernorPolicy = {
     Record<
       Exclude<ReleaseProofProfile, "default">,
       {
-        version: 1;
+        version: 2;
         project: string;
         destination: "local-only";
         externalDisclosure: false;
@@ -94,6 +95,7 @@ export type ReleaseChangeClassification = {
   confidence: number;
   policyVersion: number;
   proofProfile: ReleaseProofProfile;
+  proofPhase: import("./browser-proof-contract.js").ReleaseProofPhase;
 };
 
 export type ReleaseCheck = {
@@ -105,6 +107,10 @@ export type ReleaseCheck = {
   url?: string;
   artifact?: string;
   artifactSha256?: string;
+  proofPhase?: import("./browser-proof-contract.js").ReleaseProofPhase;
+  proofProfileVersion?: number;
+  verifierSha256?: string;
+  browserArtifactSha256?: string | null;
   recordedAt: string;
 };
 
@@ -112,8 +118,13 @@ export type ReleaseLocalProofReceipt = {
   schema: typeof RELEASE_LOCAL_PROOF_SCHEMA;
   candidateSha: string;
   proofProfile: ReleaseProofProfile;
+  proofProfileVersion: number;
+  proofPhase: import("./browser-proof-contract.js").ReleaseProofPhase;
+  activeRuntimeSha: string | null;
   checkId: string;
   command: string;
+  verifierSha256: string;
+  browserArtifactSha256: string | null;
   result: "passed";
 };
 
@@ -175,6 +186,7 @@ export type ReleaseCandidateFacts = {
   commitCount: number;
   scopeCoordinationMaterial: boolean;
   proofProfile: ReleaseProofProfile;
+  proofPhase: import("./browser-proof-contract.js").ReleaseProofPhase;
 };
 
 export type ReleaseApprovalEvaluation = {
@@ -205,6 +217,7 @@ export type ReleaseHealthDecision = {
 export type ReleasePolicyDecision = {
   operation: ReleaseOperation;
   proofProfile: ReleaseProofProfile;
+  proofPhase: import("./browser-proof-contract.js").ReleaseProofPhase;
   decision: ReleaseDecision;
   approvalMode: ReleaseApprovalMode;
   requiredReviewRoles: ReleaseReviewRole[];
@@ -244,6 +257,7 @@ export type ReleaseEvidenceBundleInput = {
   sourceRepository: string;
   destination: string | null;
   proofProfile: ReleaseProofProfile;
+  proofPhase: import("./browser-proof-contract.js").ReleaseProofPhase;
   diffSummary: string;
   checks: ReleaseCheck[];
   reviews: ReleaseReview[];
@@ -273,6 +287,8 @@ export type ReleaseEvidenceBundleInput = {
   browserProof: {
     desktop: string | null;
     mobile: string | null;
+    candidate: string | null;
+    postDeployment: string | null;
     consoleErrors: number;
   };
   ledger: {
@@ -292,6 +308,8 @@ export type ReleaseGovernanceStatus = {
   schema: typeof RELEASE_GOVERNANCE_STATUS_SCHEMA;
   policyVersion: number;
   proofProfile: ReleaseProofProfile;
+  proofProfileVersion: number;
+  proofPhase: import("./browser-proof-contract.js").ReleaseProofPhase;
   candidateSha: string | null;
   activeRuntimeSha: string | null;
   riskLevel: ReleaseRiskLevel | null;

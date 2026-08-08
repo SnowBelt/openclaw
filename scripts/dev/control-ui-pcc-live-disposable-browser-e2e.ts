@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { callGateway } from "../../src/gateway/call.ts";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../../src/gateway/operator-scopes.ts";
+import { PCC_BROWSER_CONTRACT_VERSION } from "../../src/pcc/release-governance/browser-proof-contract.ts";
 import type { PccProject, PccProjectSummary, PccMilestone } from "../../ui/src/ui/types.ts";
 
 type ProjectGetResult = {
@@ -394,6 +395,20 @@ async function clickProjectButton(
   await clickSafely(page.getByRole("button", { name: accessibleName }).first());
 }
 
+async function waitForPccReady(page: import("playwright").Page): Promise<void> {
+  await page.locator("[data-pcc-shell]").first().waitFor({ state: "visible", timeout: 45_000 });
+  await page.waitForFunction(
+    (contractVersion) => {
+      const shell = document.querySelector<HTMLElement>("[data-pcc-shell]");
+      return (
+        shell?.dataset.pccContractVersion === contractVersion && shell.dataset.pccReady === "ready"
+      );
+    },
+    PCC_BROWSER_CONTRACT_VERSION,
+    { timeout: 45_000 },
+  );
+}
+
 async function auditPccViewport(params: {
   page: import("playwright").Page;
   width: number;
@@ -403,9 +418,9 @@ async function auditPccViewport(params: {
 }): Promise<VisualViewportAudit> {
   const { page, width, height, label } = params;
   await page.setViewportSize({ width, height });
-  await page.waitForTimeout(180);
+  await waitForPccReady(page);
   const result = await page
-    .locator(".pcc-shell")
+    .locator("[data-pcc-shell]")
     .first()
     .evaluate(
       (shell, viewport) => {
@@ -470,7 +485,9 @@ async function auditPccViewport(params: {
         }
 
         const auditedGroups = [
-          ".pcc-view-mode",
+          ".pcc-work-nav",
+          ".pcc-directory-controls",
+          ".pcc-work-hero__actions",
           ".pcc-project-orientation__facts",
           ".pcc-project-snapshot__header",
           ".pcc-project-snapshot__badges",
@@ -795,7 +812,7 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
     const navigationStartedAt = performance.now();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
     const initialNavigationMs = Math.round(performance.now() - navigationStartedAt);
 
     phase = "testing new project cancel";
@@ -1117,7 +1134,10 @@ async function main() {
     const projectSearch = page.locator("[data-pcc-project-search] input[type='search']").first();
     const searchStartedAt = performance.now();
     await projectSearch.fill(actionProjectTitle);
-    await page.waitForTimeout(300);
+    await page
+      .locator(`[data-pcc-overview-project="${actionProjectId}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
     projectSearchMs = Math.round(performance.now() - searchStartedAt);
     const visibleProjectCards = page.locator("[data-pcc-overview-project]:visible");
     const visibleProjectIds = await visibleProjectCards.evaluateAll((cards) =>
@@ -1163,14 +1183,13 @@ async function main() {
       .getByRole("button", { name: /^Confirm archive$/i })
       .first()
       .click({ force: true });
-    await page.waitForTimeout(500);
     const archivePersisted = (await getProject(createdProjectId)).project.status === "archived";
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
 
     phase = "selecting disposable action project";
     summary.phase = phase;
-    const projectWorkModeVisible = await page
+    const workNavigationVisible = await page
       .locator(".pcc-work-nav")
       .first()
       .isVisible()
@@ -1188,16 +1207,16 @@ async function main() {
 
     phase = "proving first-screen focus hierarchy";
     summary.phase = phase;
-    const activeSimpleDesktop = await auditPccViewport({
+    const activeWorkspaceDesktop = await auditPccViewport({
       page,
       width: 1366,
       height: 768,
-      label: "active-simple",
+      label: "active-workspace",
       artifactDir: visualMatrixDir,
     });
     const simpleFacts = page.locator(".pcc-project-workspace__header").first();
     const firstScreenHierarchy = await page
-      .locator(".pcc-shell")
+      .locator("[data-pcc-shell]")
       .first()
       .evaluate((shell) => {
         const viewportBottom = globalThis.innerHeight;
@@ -1301,7 +1320,7 @@ async function main() {
       /^[a-f0-9]{64}$/u.test(milestoneAttachment.sha256) &&
       milestoneAttachment.instructions.includes("first milestone");
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
     await openProjectsDirectory(page, "active");
     await openProjectCard(page, actionProjectId);
     const reloadedFiles = page.locator("[data-pcc-project-files]").first();
@@ -1642,7 +1661,7 @@ async function main() {
     phase = "testing keyboard reorder";
     summary.phase = phase;
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
     await openProjectsDirectory(page, "all");
     await openProjectCard(page, actionProjectId);
     await page.locator("[data-pcc-reorder-mode-toggle]").first().click({ force: true });
@@ -1670,7 +1689,6 @@ async function main() {
     const reorderToggleOff = page.locator("[data-pcc-reorder-mode-toggle]").first();
     if (await reorderToggleOff.isVisible().catch(() => false)) {
       await reorderToggleOff.click({ force: true });
-      await page.waitForTimeout(500);
     }
 
     phase = "testing milestone action menu";
@@ -1691,7 +1709,11 @@ async function main() {
     const undo = page.locator("button", { hasText: /^Undo$/i }).first();
     if (await undo.isVisible().catch(() => false)) {
       await undo.click({ force: true });
-      await page.waitForTimeout(1_000);
+      await page
+        .getByText("Saved:", { exact: false })
+        .first()
+        .waitFor({ state: "hidden", timeout: 15_000 })
+        .catch(() => undefined);
     }
 
     phase = "testing setup repair preview";
@@ -1706,9 +1728,13 @@ async function main() {
     await fillSetup.waitFor({ state: "visible", timeout: 30_000 });
     await fillSetup.click({ force: true });
     await page
-      .getByText("Codex Plan Preview", { exact: false })
+      .locator("[data-pcc-autofill-preview]")
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
+    await page
+      .locator("[data-pcc-autofill-preview-summary]")
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
     const setupRepairPreviewVisible = true;
 
     phase = "testing Overview, Projects, Activity, System, and project navigation";
@@ -1734,7 +1760,7 @@ async function main() {
     summary.phase = phase;
     await page.setViewportSize({ width: 1220, height: 900 });
     const constrainedDesktop = await page
-      .locator(".pcc-shell")
+      .locator("[data-pcc-shell]")
       .first()
       .evaluate((shell) => {
         const workspace = shell.querySelector<HTMLElement>("[data-pcc-project-workspace]");
@@ -1943,7 +1969,7 @@ async function main() {
     );
     await setDisposableProjectStatus(actionProjectId, currentActionProjectTitle, "blocked");
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
     await openProjectsDirectory(page, "all");
     await openProjectCard(page, actionProjectId);
     const blockedStateVisible =
@@ -1956,7 +1982,7 @@ async function main() {
 
     await setDisposableProjectStatus(actionProjectId, currentActionProjectTitle, "on_hold");
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
     await openProjectsDirectory(page, "on_hold");
     await openProjectCard(page, actionProjectId);
     const onHoldResumeVisible = await page
@@ -1969,7 +1995,7 @@ async function main() {
     });
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
     await openProjectsDirectory(page, "completed");
     await openProjectCard(page, completeProjectId);
     const completeStateReadOnly =
@@ -1986,7 +2012,7 @@ async function main() {
     await archiveProject(completeProjectId, completeProjectTitle);
     await archiveProject(createdProjectId, createdProjectTitle);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await waitForPccReady(page);
     await openProjectsDirectory(page, "active");
     await page.waitForFunction(
       () =>
@@ -2007,8 +2033,8 @@ async function main() {
     phase = "summarizing live disposable proof";
     summary.phase = phase;
     summary.checks = {
-      pccShell: (await page.locator(".pcc-shell").count()) > 0,
-      projectWorkModeVisible,
+      pccShell: (await page.locator("[data-pcc-shell]").count()) > 0,
+      workNavigationVisible,
       pointerDragPersisted: sortedAfterPointerDrag[0]?.id === `${actionProjectId}-step-2`,
       keyboardReorderPersisted: sortedAfterMove[0]?.id === `${actionProjectId}-step-1`,
       reorderPersisted:
@@ -2076,9 +2102,9 @@ async function main() {
       visualMatrixPassed,
       accessibilityVisualAuditsPassed,
       firstScreenVisualAuditPassed:
-        activeSimpleDesktop.noHorizontalOverflow &&
-        activeSimpleDesktop.controlsStayInsideViewport &&
-        activeSimpleDesktop.auditedGroupsDoNotOverlap,
+        activeWorkspaceDesktop.noHorizontalOverflow &&
+        activeWorkspaceDesktop.controlsStayInsideViewport &&
+        activeWorkspaceDesktop.auditedGroupsDoNotOverlap,
       firstScreenFactsReadable,
       firstScreenHierarchyVisible:
         firstScreenHierarchy.snapshotVisible &&
@@ -2176,7 +2202,7 @@ async function main() {
 }
 
 function runSelfTest(): void {
-  const redacted = redactUrl("http://127.0.0.1:18789/projects#token=secret-token-123456");
+  const redacted = redactUrl("http://127.0.0.1:18789/pcc#token=secret-token-123456");
   if (redacted.includes("secret-token")) {
     throw new Error("redaction self-test failed");
   }

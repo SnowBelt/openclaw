@@ -33,12 +33,12 @@ destinations always require explicit approval or remain denied.
 
 The `stage` operation is a local-only, side-effect-suppressed preflight and uses
 its pre-stage gate set. Promotion, restart, and finalization require the complete
-exact-SHA test, Workflow Sanity, immutable-build, staging, browser, rollback,
-Gateway, and ledger-readiness evidence appropriate to the operation.
+exact-SHA test, immutable-build, staging, browser, rollback, Gateway, and
+ledger-readiness evidence appropriate to the operation.
 
 ## Proof profiles
 
-Policy version 2 adds an explicit `proofProfile` to candidate facts,
+Policy version 3 adds an explicit `proofProfile` and phase-aware browser proof to candidate facts,
 classification, policy decision, evidence, verification output, and stored
 status. Unknown or inconsistent profile values fail closed.
 
@@ -46,7 +46,7 @@ status. Unknown or inconsistent profile values fail closed.
 the candidate explicitly satisfies a configured custom profile. It retains
 Workflow Sanity, remote CI where required, and desktop/mobile proof.
 
-`mac_studio_control_director` version 1 is the only custom profile. It is
+`mac_studio_control_director` version 2 is the only custom profile. It is
 restricted to:
 
 - project `project-command-center`;
@@ -70,12 +70,29 @@ and remote-device proof with:
 
 Every local check except the candidate and parent identity checks must include
 its exact command and a private, regular, non-symlink evidence artifact whose
-SHA-256 matches the canonical check record. Browser evidence must point to the
-same hash-bound artifact as
-`authenticated_local_control_director_pcc_browser`, contain no console errors,
-and must not claim mobile evidence. A passed label without the artifact is not
-proof. Each artifact is an `openclaw.release-local-proof.v1` JSON receipt bound
-to the exact candidate SHA, proof profile, check ID, command, and passed result.
+SHA-256 matches the canonical check record. Browser evidence is split into two
+non-interchangeable checks:
+
+- `candidate` proves the exact candidate build in an isolated authenticated
+  browser. It must not claim an active runtime or production completion.
+- `post_deployment` proves the exact candidate after it is the active runtime.
+  It must bind the active-runtime SHA, current production truth, health, and
+  finalization evidence.
+
+Both receipts use the `openclaw.release-local-proof.v2` JSON schema and bind the
+phase, exact candidate SHA, active-runtime SHA when applicable, proof profile and
+version, verifier SHA-256, browser-artifact SHA-256, command, and passed result.
+Candidate evidence cannot satisfy post-deployment or finalization requirements.
+Browser receipts are schema-validated private JSON; human-readable labels and
+grep output are not evidence. A passed label without the artifact is not proof.
+The local profile rejects Workflow Sanity, remote CI, Blacksmith, Testbox,
+Crabbox, mobile, and remote-device claims.
+
+The PCC browser contract is versioned independently. The runner waits for the
+`data-pcc-contract-version`, `data-pcc-ready`, `data-pcc-surface`, and
+`data-pcc-ledger-revision` attributes before interacting. Accessibility proof
+uses Chrome's authoritative accessibility tree; the PCC file input and proposed
+plan textarea also carry explicit accessible names as defense in depth.
 
 The profile cannot be selected for another project, an external destination, or
 an externally disclosed release. Adding a prohibited remote check does not

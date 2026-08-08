@@ -68,6 +68,7 @@ import {
   buildPccWorkflowDraft,
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
+import { PCC_BROWSER_CONTRACT_VERSION } from "../../../../src/pcc/release-governance/browser-proof-contract.js";
 import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../../src/pcc/update-safety.js";
@@ -435,6 +436,7 @@ function renderPccProjectFiles(detail: PccProjectDetail, props: PccDashboardProp
             id=${fileInputId}
             class="pcc-sr-only"
             type="file"
+            aria-label="Choose a project file"
             name="attachmentFile"
             ?disabled=${props.actionBusy}
             data-pcc-attachment-file
@@ -1830,6 +1832,12 @@ function renderProductionTruthCard(props: PccDashboardProps) {
     data-pcc-production-truth
     data-pcc-production-truth-profile=${truth.proofProfile}
     data-pcc-production-source-proof=${truth.sourceProofPassed ? "passed" : "missing"}
+    data-pcc-production-proof-source=${truth.proofProfile === "mac_studio_control_director"
+      ? "local"
+      : "remote"}
+    data-pcc-production-current=${truth.status === "current" ? "true" : "false"}
+    data-pcc-runtime-proof=${truth.runtimeProofPassed ? "passed" : "missing"}
+    data-pcc-proof-gaps=${truth.proofGaps.length}
     aria-label="Production truth"
   >
     <div class="pcc-section-heading">
@@ -7707,6 +7715,7 @@ function renderChatSyncCard(props: PccDashboardProps) {
     </div>
     <textarea
       class="pcc-chat-sync__input"
+      aria-label="Proposed OpenClaw or Codex plan"
       placeholder="Paste a proposed plan"
       .value=${props.chatSyncText}
       @input=${(event: Event) =>
@@ -10166,6 +10175,7 @@ function renderSystemOverview(props: PccDashboardProps) {
         Open system record
       </button>
     </section>
+    ${renderProductionTruthCard(props)}
   </main>`;
 }
 
@@ -10384,7 +10394,20 @@ export function renderPccDashboard(props: PccDashboardProps) {
   }
   const surface = pccSurface(props);
   return html`
-    <section class="pcc-shell pcc-shell--work-overview" data-pcc-shell data-pcc-surface=${surface}>
+    <section
+      class="pcc-shell pcc-shell--work-overview"
+      data-pcc-shell
+      data-pcc-surface=${surface}
+      data-pcc-contract-version=${PCC_BROWSER_CONTRACT_VERSION}
+      data-pcc-ready=${props.error
+        ? "error"
+        : props.loading
+          ? "loading"
+          : props.overview
+            ? "ready"
+            : "loading"}
+      data-pcc-ledger-revision=${props.overview?.ledgerRevision ?? ""}
+    >
       <header class="pcc-work-hero">
         <div>
           <p class="pcc-kicker">Project Command Center</p>

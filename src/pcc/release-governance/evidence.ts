@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  browserProofPhaseForCheckId,
+  isBrowserProofCheckId,
+  proofProfileVersion,
+  validateBrowserProofReceiptBinding,
+} from "./browser-proof-contract.js";
 import { classifyReleaseCandidate, validateReleaseCandidateFacts } from "./classifier.js";
 import {
   RELEASE_EVIDENCE_SCHEMA,
@@ -10,6 +16,7 @@ import {
   type ReleaseEvidenceBundleInput,
   type ReleaseGovernanceStatus,
   type ReleaseGovernorPolicy,
+  type ReleaseCheck,
 } from "./contracts.js";
 import { decideReleasePolicy, requiredReleaseReviewRoles } from "./decision.js";
 import { evaluateReleaseHealth } from "./health.js";
@@ -72,6 +79,15 @@ export function verifyReleaseEvidenceBundle(bundle: ReleaseEvidenceBundle): stri
   if (bundle.destination !== bundle.facts.destination) {
     errors.push("Evidence destination does not match candidate facts.");
   }
+  if (
+    bundle.proofPhase !== bundle.facts.proofPhase ||
+    bundle.evaluation.classification.proofPhase !== bundle.facts.proofPhase ||
+    bundle.evaluation.decision.proofPhase !== bundle.facts.proofPhase
+  ) {
+    errors.push(
+      "Evidence proof phase does not match candidate facts, classification, and decision.",
+    );
+  }
   if (bundle.ledger.projectId !== bundle.facts.project) {
     errors.push("Evidence project does not match candidate facts.");
   }
@@ -99,25 +115,54 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/iu;
 
 function verifyLocalProofReceipt(params: {
   bundle: ReleaseEvidenceBundle;
-  checkId: string;
-  command: string;
-  artifact: string;
+  check: ReleaseCheck;
 }): string | null {
+  const { bundle, check } = params;
+  const command = check.command?.trim();
+  const artifact = check.artifact?.trim();
+  if (!command || !artifact) {
+    return `Local proof receipt is missing its command or artifact: ${check.id}.`;
+  }
   try {
-    const value = JSON.parse(fs.readFileSync(params.artifact, "utf8")) as Record<string, unknown>;
+    const value = JSON.parse(fs.readFileSync(artifact, "utf8")) as Record<string, unknown>;
+    const expectedPhase =
+      check.proofPhase ?? browserProofPhaseForCheckId(check.id) ?? bundle.facts.proofPhase;
+    const expectedProfileVersion =
+      check.proofProfileVersion ?? proofProfileVersion(bundle.facts.proofProfile);
+    const bindingErrors = validateBrowserProofReceiptBinding({
+      candidateSha: bundle.facts.candidateSha,
+      activeRuntimeSha:
+        expectedPhase === "post_deployment" ? bundle.runtime.activeRuntimeSha : null,
+      proofProfile: bundle.facts.proofProfile,
+      proofProfileVersion: expectedProfileVersion,
+      proofPhase: expectedPhase,
+      checkId: check.id,
+      verifierSha256: typeof value.verifierSha256 === "string" ? value.verifierSha256 : "",
+      browserArtifactSha256:
+        typeof value.browserArtifactSha256 === "string" ? value.browserArtifactSha256 : null,
+    });
+    if (bindingErrors.length > 0) {
+      return `Local proof receipt binding is invalid for ${check.id}: ${bindingErrors.join(" ")}`;
+    }
     if (
       value.schema !== RELEASE_LOCAL_PROOF_SCHEMA ||
-      value.candidateSha !== params.bundle.facts.candidateSha ||
-      value.proofProfile !== params.bundle.facts.proofProfile ||
-      value.checkId !== params.checkId ||
-      value.command !== params.command ||
+      value.candidateSha !== bundle.facts.candidateSha ||
+      value.proofProfile !== bundle.facts.proofProfile ||
+      value.proofProfileVersion !== expectedProfileVersion ||
+      value.proofPhase !== expectedPhase ||
+      value.activeRuntimeSha !==
+        (expectedPhase === "post_deployment" ? bundle.runtime.activeRuntimeSha : null) ||
+      value.checkId !== check.id ||
+      value.command !== command ||
+      value.verifierSha256 !== check.verifierSha256 ||
+      value.browserArtifactSha256 !== (check.browserArtifactSha256 ?? null) ||
       value.result !== "passed"
     ) {
-      return `Local proof receipt is not bound to the candidate, profile, check, command, and passed result: ${params.checkId}.`;
+      return `Local proof receipt is not bound to the candidate, phase, profile, hashes, check, command, and passed result: ${check.id}.`;
     }
     return null;
   } catch {
-    return `Local proof receipt is not valid JSON: ${params.checkId}.`;
+    return `Local proof receipt is not valid JSON: ${check.id}.`;
   }
 }
 
@@ -154,11 +199,26 @@ function verifyMacStudioControlDirectorProof(params: {
   if (!configuredProfile) {
     return ["The active policy does not define the mac_studio_control_director proof profile."];
   }
+  if (configuredProfile.version !== proofProfileVersion(bundle.facts.proofProfile)) {
+    errors.push("The active Mac Studio proof profile version is not canonical.");
+  }
   const required = new Set(bundle.evaluation.classification.requiredChecks);
   const prohibited = new Set(configuredProfile.prohibitedChecks);
   for (const check of bundle.checks) {
     if (prohibited.has(check.id)) {
       errors.push(`The mac_studio_control_director proof profile forbids check ${check.id}.`);
+    }
+    if (check.id === "authenticated_local_control_director_pcc_browser") {
+      errors.push("The legacy unphased local browser proof check is not accepted.");
+    }
+    if (isBrowserProofCheckId(check.id) && !check.proofPhase) {
+      errors.push(`Browser proof check ${check.id} is missing its explicit phase.`);
+    }
+    if (check.status === "passed" && check.id !== "candidate_sha" && check.id !== "parent_sha") {
+      const expectedPhase = browserProofPhaseForCheckId(check.id) ?? bundle.proofPhase;
+      if (check.proofPhase !== expectedPhase) {
+        errors.push(`Local proof check ${check.id} is not bound to phase ${expectedPhase}.`);
+      }
     }
   }
   for (const checkId of required) {
@@ -169,8 +229,7 @@ function verifyMacStudioControlDirectorProof(params: {
     if (!check || check.status !== "passed") {
       continue;
     }
-    const command = check.command?.trim();
-    if (!command) {
+    if (!check.command?.trim()) {
       errors.push(`Local proof check ${checkId} is missing its exact command.`);
       continue;
     }
@@ -194,9 +253,7 @@ function verifyMacStudioControlDirectorProof(params: {
       }
       const receiptError = verifyLocalProofReceipt({
         bundle,
-        checkId,
-        command,
-        artifact: check.artifact,
+        check,
       });
       if (receiptError) {
         errors.push(receiptError);
@@ -205,24 +262,51 @@ function verifyMacStudioControlDirectorProof(params: {
       errors.push(`Local proof artifact is missing or unreadable: ${checkId}.`);
     }
   }
-  const desktopCheck = bundle.checks.find(
-    (check) => check.id === "authenticated_local_control_director_pcc_browser",
+  for (const [phase, field] of [
+    ["candidate", "candidate"],
+    ["post_deployment", "postDeployment"],
+  ] as const) {
+    const checkId =
+      phase === "candidate"
+        ? "authenticated_local_candidate_control_director_pcc_browser"
+        : "authenticated_local_active_runtime_control_director_pcc_browser";
+    if (!required.has(checkId)) {
+      continue;
+    }
+    const browserCheck = bundle.checks.find((check) => check.id === checkId);
+    const browserArtifact = bundle.browserProof[field];
+    if (!browserCheck?.artifact || !browserArtifact || browserArtifact !== browserCheck.artifact) {
+      errors.push(`Authenticated local ${phase} browser proof must match its hash-bound artifact.`);
+      continue;
+    }
+    if (browserCheck.proofPhase !== phase) {
+      errors.push(`Authenticated local browser proof check ${checkId} has the wrong phase.`);
+    }
+    if (browserCheck.browserArtifactSha256 === null || !browserCheck.browserArtifactSha256) {
+      errors.push(`Authenticated local ${phase} browser proof is missing its artifact hash.`);
+    }
+  }
+  const candidateBrowserCheck = bundle.checks.find(
+    (check) => check.id === "authenticated_local_candidate_control_director_pcc_browser",
+  );
+  const postDeploymentBrowserCheck = bundle.checks.find(
+    (check) => check.id === "authenticated_local_active_runtime_control_director_pcc_browser",
   );
   if (
-    required.has("authenticated_local_control_director_pcc_browser") &&
-    (!bundle.browserProof.desktop ||
-      !desktopCheck?.artifact ||
-      bundle.browserProof.desktop !== desktopCheck.artifact)
+    candidateBrowserCheck?.artifact &&
+    postDeploymentBrowserCheck?.artifact &&
+    candidateBrowserCheck.artifact === postDeploymentBrowserCheck.artifact
   ) {
     errors.push(
-      "Authenticated local production-Chrome Control Director and PCC proof must match its hash-bound artifact.",
+      "Candidate browser evidence must use a distinct artifact from post-deployment browser evidence.",
     );
   }
   if (
-    required.has("authenticated_local_control_director_pcc_browser") &&
+    (required.has("authenticated_local_candidate_control_director_pcc_browser") ||
+      required.has("authenticated_local_active_runtime_control_director_pcc_browser")) &&
     bundle.browserProof.consoleErrors !== 0
   ) {
-    errors.push("Authenticated local production-Chrome proof contains console errors.");
+    errors.push("Authenticated local browser proof contains console errors.");
   }
   if (required.has("ledger_ready") && !bundle.ledger.ready) {
     errors.push("PCC ledger readiness is not proven.");
@@ -319,6 +403,15 @@ export function verifyReleaseEvidenceAuthorization(params: {
       "Evidence proof profile does not match candidate facts, classification, and decision.",
     );
   }
+  if (
+    bundle.proofPhase !== bundle.facts.proofPhase ||
+    bundle.evaluation.classification.proofPhase !== bundle.facts.proofPhase ||
+    bundle.evaluation.decision.proofPhase !== bundle.facts.proofPhase
+  ) {
+    errors.push(
+      "Evidence proof phase does not match candidate facts, classification, and decision.",
+    );
+  }
   const factErrors = validateReleaseCandidateFacts(bundle.facts);
   errors.push(...factErrors);
   if (factErrors.length > 0) {
@@ -410,6 +503,8 @@ export function releaseGovernanceStatusFromBundle(
     schema: RELEASE_GOVERNANCE_STATUS_SCHEMA,
     policyVersion: bundle.evaluation.decision.policyVersion,
     proofProfile: bundle.facts.proofProfile,
+    proofProfileVersion: proofProfileVersion(bundle.facts.proofProfile),
+    proofPhase: bundle.facts.proofPhase,
     candidateSha: bundle.facts.candidateSha,
     activeRuntimeSha: bundle.runtime.activeRuntimeSha,
     riskLevel: bundle.evaluation.classification.riskLevel,
