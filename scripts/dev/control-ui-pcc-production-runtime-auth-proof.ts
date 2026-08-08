@@ -333,6 +333,15 @@ function sha256File(filePath: string): string {
   return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
+async function hasVisibleText(page: import("playwright").Page, text: string): Promise<boolean> {
+  for (const locator of await page.getByText(text, { exact: false }).all()) {
+    if (await locator.isVisible()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function writePrivateProofReceipt(filePath: string, value: Record<string, unknown>): void {
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -559,11 +568,10 @@ async function runBrowserProof(options: ProofOptions): Promise<void> {
     const truthText = ((await truth.textContent()) ?? "").replace(/\s+/gu, " ");
     const title = await page.title();
     const appPresent = (await page.locator("openclaw-app").count()) > 0;
-    const fallback =
-      (await page.getByText("Control UI did not start", { exact: false }).count()) > 0;
+    const fallback = await hasVisibleText(page, "Control UI did not start");
     const authScreen =
-      (await page.getByText("unauthorized", { exact: false }).count()) > 0 ||
-      (await page.getByText("token required", { exact: false }).count()) > 0;
+      (await hasVisibleText(page, "unauthorized")) ||
+      (await hasVisibleText(page, "token required"));
     const localProfile = options.releaseProofProfile === "mac_studio_control_director";
     const forbiddenClaim =
       /remote proof\s*[:-]?\s*(passed|success|verified)|mobile proof\s*[:-]?\s*(passed|success|verified)/iu.test(
@@ -635,8 +643,15 @@ async function runBrowserProof(options: ProofOptions): Promise<void> {
       activity: activityPresent,
       system: systemPresent,
       ledgerRevision: /^\d+$/u.test(afterProjectRevision ?? ""),
-      profile: truthProfile === options.releaseProofProfile,
-      localSource: !localProfile || truthSource === "local",
+      profile:
+        receipt.proofProfile === options.releaseProofProfile &&
+        receipt.proofProfileVersion === options.proofProfileVersion &&
+        (options.proofPhase === "candidate" || truthProfile === options.releaseProofProfile),
+      localSource:
+        !localProfile ||
+        (options.proofPhase === "candidate"
+          ? runtimeIdentity.runtimeSha === expectedCandidateSha && dashboardManifest.ok
+          : truthSource === "local"),
       noForbiddenRemoteClaim: !localProfile || !forbiddenClaim,
       postDeployment,
       defaultRemote,
@@ -673,6 +688,22 @@ async function runBrowserProof(options: ProofOptions): Promise<void> {
       failedChecks,
     };
     if (failedChecks.length > 0) {
+      const diagnostic = {
+        failedChecks,
+        runtimeIdentity,
+        fallback,
+        authScreen,
+        truthProfile,
+        truthSource,
+        truthCurrent,
+        truthRuntime,
+        truthGaps,
+        defaultRemote,
+        dashboardManifest,
+      };
+      const diagnosticOutput = JSON.stringify(diagnostic, null, 2);
+      assertNoTokenLeak(diagnosticOutput);
+      console.error(diagnosticOutput);
       throw new Error(`PCC ${options.proofPhase} browser proof failed: ${failedChecks.join(", ")}`);
     }
     const receiptPath =

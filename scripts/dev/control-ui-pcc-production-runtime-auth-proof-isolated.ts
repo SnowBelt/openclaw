@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { callGateway } from "../../src/gateway/call.ts";
+import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../../src/gateway/operator-scopes.ts";
 import {
   createOpenClawTestInstance,
   type OpenClawTestInstance,
@@ -95,6 +97,51 @@ async function cleanup(instance: OpenClawTestInstance): Promise<void> {
   await instance.state.cleanup();
 }
 
+async function seedDisposableProject(instance: OpenClawTestInstance): Promise<string> {
+  const suffix = randomUUID().slice(0, 8);
+  const projectId = `pcc-candidate-proof-${suffix}`;
+  const projectTitle = `PCC Candidate Browser Proof ${suffix}`;
+  const gateway = <T>(method: string, params: unknown) =>
+    callGateway<T>({
+      method,
+      params,
+      url: instance.url,
+      token: instance.gatewayToken,
+      configPath: instance.configPath,
+      timeoutMs: 30_000,
+      scopes: [ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE],
+    });
+  await gateway("pcc.projects.upsert", {
+    project: {
+      id: projectId,
+      title: projectTitle,
+      goal: `${projectTitle} is a disposable candidate browser-proof fixture.`,
+      status: "active",
+      priority: 1,
+      metadata: {
+        pccWorkScope: "project_work",
+        pccCurrentScope: "active_project_work",
+        excludedFromPccProductCompletion: true,
+        pccDisposableBrowserProof: true,
+      },
+    },
+  });
+  await gateway("pcc.milestones.upsert", {
+    milestone: {
+      id: `${projectId}-milestone`,
+      projectId,
+      title: "Candidate browser proof step",
+      status: "not_started",
+      order: 0,
+      percentComplete: 0,
+      implementationPlan: "Disposable candidate browser proof fixture.",
+      acceptanceCriteria: ["The candidate browser proof can open this project."],
+      metadata: { pccProofLevel: "local", pccDisposableBrowserProof: true },
+    },
+  });
+  return projectTitle;
+}
+
 async function runChild(params: {
   runtimeRoot: string;
   scriptPath: string;
@@ -152,6 +199,7 @@ async function main(): Promise<void> {
   const dashboardUrl = `http://127.0.0.1:${instance.port}/pcc#token=${encodeURIComponent(instance.gatewayToken)}`;
   try {
     await instance.startGateway();
+    const projectTitle = await seedDisposableProject(instance);
     console.log(`PCC isolated candidate Gateway is ready (runtime=${runtimeRoot}).`);
     await runChild({
       runtimeRoot,
@@ -170,7 +218,7 @@ async function main(): Promise<void> {
         OPENCLAW_PCC_EXPECTED_CANDIDATE_SHA: candidateSha,
         OPENCLAW_PCC_PROOF_SCREENSHOT: path.join(artifactDir, "candidate.png"),
         OPENCLAW_PCC_PROOF_RECEIPT: path.join(artifactDir, "candidate.receipt.json"),
-        OPENCLAW_PCC_PROOF_PROJECT_TITLE: "Project Command Center",
+        OPENCLAW_PCC_PROOF_PROJECT_TITLE: projectTitle,
       },
     });
     console.log("PCC isolated candidate browser proof passed; temporary Gateway state removed.");
