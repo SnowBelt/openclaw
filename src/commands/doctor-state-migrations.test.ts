@@ -2285,7 +2285,8 @@ describe("doctor legacy state migrations", () => {
 
     const result = await runLegacyStateMigrationsForRoot(root);
 
-    expect(result.warnings).toStrictEqual([
+    expect(result.warnings).toStrictEqual([]);
+    expect(result.notices).toStrictEqual([
       "Left plugin install index in place because shared SQLite state has conflicting plugin install metadata for: demo",
     ]);
     expect(fs.existsSync(sourcePath)).toBe(true);
@@ -2402,7 +2403,8 @@ describe("doctor legacy state migrations", () => {
 
       const result = await runLegacyStateMigrationsForRoot(root);
 
-      expect(result.warnings).toStrictEqual([
+      expect(result.warnings).toStrictEqual([]);
+      expect(result.notices).toStrictEqual([
         "Left plugin install index in place because shared SQLite state has conflicting plugin install metadata for: demo",
       ]);
       expect(fs.existsSync(sourcePath)).toBe(true);
