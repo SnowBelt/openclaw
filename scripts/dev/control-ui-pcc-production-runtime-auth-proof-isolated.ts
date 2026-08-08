@@ -36,10 +36,28 @@ function readRuntimeSha(runtimeRoot: string): string | null {
     const snapshot = JSON.parse(
       fs.readFileSync(path.join(runtimeRoot, "snapshot.json"), "utf8"),
     ) as {
-      source?: { buildStamp?: { head?: unknown }; runtimePostbuildStamp?: { head?: unknown } };
+      source?: { buildStamp?: unknown; runtimePostbuildStamp?: unknown };
     };
-    const head = snapshot.source?.runtimePostbuildStamp?.head ?? snapshot.source?.buildStamp?.head;
-    return typeof head === "string" && head.trim() ? head.trim() : null;
+    const stampHead = (value: unknown): string | null => {
+      const parsed = (() => {
+        if (typeof value !== "string") {
+          return value;
+        }
+        try {
+          return JSON.parse(value) as unknown;
+        } catch {
+          return null;
+        }
+      })();
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      const head = (parsed as { head?: unknown }).head;
+      return typeof head === "string" && head.trim() ? head.trim() : null;
+    };
+    return (
+      stampHead(snapshot.source?.runtimePostbuildStamp) ?? stampHead(snapshot.source?.buildStamp)
+    );
   } catch {
     return null;
   }

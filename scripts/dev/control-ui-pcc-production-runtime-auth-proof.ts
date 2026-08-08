@@ -91,6 +91,24 @@ function readTextIfPresent(filePath: string): string | null {
   }
 }
 
+function stampHead(value: unknown): string | null {
+  const parsed = (() => {
+    if (typeof value !== "string") {
+      return value;
+    }
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  })();
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const head = (parsed as { head?: unknown }).head;
+  return typeof head === "string" && head.trim() ? head.trim() : null;
+}
+
 function pathIsSameOrChild(candidate: string, parent: string): boolean {
   const normalizedCandidate = path.resolve(candidate);
   const normalizedParent = path.resolve(parent);
@@ -161,12 +179,11 @@ async function resolveRuntimeIdentity(runtimeRoot = process.cwd()): Promise<Runt
     try {
       const snapshot = JSON.parse(snapshotRaw) as {
         releaseId?: unknown;
-        source?: { buildStamp?: { head?: unknown }; runtimePostbuildStamp?: { head?: unknown } };
+        source?: { buildStamp?: unknown; runtimePostbuildStamp?: unknown };
         paths?: { entrypoint?: unknown };
       };
-      const buildHead =
-        snapshot.source?.runtimePostbuildStamp?.head ?? snapshot.source?.buildStamp?.head;
-      snapshotSha = typeof buildHead === "string" && buildHead.trim() ? buildHead.trim() : null;
+      snapshotSha =
+        stampHead(snapshot.source?.runtimePostbuildStamp) ?? stampHead(snapshot.source?.buildStamp);
       entrypoint =
         typeof snapshot.paths?.entrypoint === "string" ? snapshot.paths.entrypoint : null;
       releaseId = typeof snapshot.releaseId === "string" ? snapshot.releaseId : null;
@@ -466,8 +483,8 @@ async function runBrowserProof(options: ProofOptions): Promise<void> {
       throw new Error(`PCC project-filter contract is incomplete: ${filterTexts.join(" | ")}`);
     }
     const allFilter = directory
-      .locator("[data-pcc-project-tabs] button")
-      .filter({ hasText: /^All\b/u });
+      .locator('[data-pcc-project-tabs] [data-pcc-project-filter="all"]')
+      .first();
     await allFilter.click({ force: true });
     await waitForPccReady(page);
     const directoryCount = await directory.locator("[data-pcc-overview-project]").count();

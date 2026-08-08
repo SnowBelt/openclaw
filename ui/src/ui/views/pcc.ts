@@ -4669,6 +4669,7 @@ function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly Pc
       const count = projects.filter((project) => projectMatchesFilter(project, filter)).length;
       return html`<button
         type="button"
+        data-pcc-project-filter=${filter}
         class=${filter === selected ? "is-selected" : ""}
         aria-pressed=${filter === selected}
         @click=${() => props.onSetProjectFilter?.(filter)}
