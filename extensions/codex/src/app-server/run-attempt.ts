@@ -30,6 +30,9 @@ import {
   setActiveEmbeddedRun,
   supportsModelTools,
   runAgentCleanupStep,
+  assertCodexModelPolicy,
+  readCodexUpgradeReason,
+  readCodexUpgradeReasonFromConfig,
   type EmbeddedRunAttemptParams,
   type EmbeddedRunAttemptResult,
   type NativeHookRelayEvent,
@@ -394,6 +397,15 @@ export async function runCodexAppServerAttempt(
     clientFactory?: CodexAppServerClientFactory;
   } = {},
 ): Promise<EmbeddedRunAttemptResult> {
+  if (params.agentHarnessId === "codex") {
+    assertCodexModelPolicy({
+      modelId: params.modelId,
+      thinkLevel: params.thinkLevel,
+      upgradeReason:
+        readCodexUpgradeReason(params.model?.params) ??
+        readCodexUpgradeReasonFromConfig(params.config, params.modelId),
+    });
+  }
   const attemptStartedAt = Date.now();
   const profilerEnabled = isCodexAppServerProfilerEnabled(params.config);
   const codexModelCallTrace = freezeDiagnosticTraceContext(

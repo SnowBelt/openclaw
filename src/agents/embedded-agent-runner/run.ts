@@ -76,6 +76,7 @@ import {
   FailoverError,
   resolveFailoverStatus,
 } from "../failover-error.js";
+import { CODEX_DEFAULT_THINKING_LEVEL } from "../harness/codex-model-policy.js";
 import { ensureSelectedAgentHarnessPlugin } from "../harness/runtime-plugin.js";
 import { selectAgentHarness } from "../harness/selection.js";
 import { LiveSessionModelSwitchError } from "../live-model-switch-error.js";
@@ -236,6 +237,7 @@ function isNoRealConversationCompactionNoop(params: {
 
 function resolveInitialThinkLevel(params: {
   requested?: ThinkLevel;
+  agentHarnessId?: string;
   config?: RunEmbeddedAgentParams["config"];
   provider: string;
   modelId: string;
@@ -243,6 +245,9 @@ function resolveInitialThinkLevel(params: {
 }): ThinkLevel {
   if (params.requested) {
     return params.requested;
+  }
+  if (params.agentHarnessId === "codex") {
+    return CODEX_DEFAULT_THINKING_LEVEL;
   }
   return resolveThinkingDefault({
     cfg: params.config ?? {},
@@ -1064,6 +1069,7 @@ export async function runEmbeddedAgent(
 
       const initialThinkLevel = resolveInitialThinkLevel({
         requested: params.thinkLevel,
+        agentHarnessId: agentHarness.id,
         config: params.config,
         provider,
         modelId,

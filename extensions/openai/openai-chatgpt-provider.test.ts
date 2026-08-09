@@ -120,6 +120,94 @@ describe("OpenAI provider Codex transport hooks", () => {
     });
   });
 
+  it("routes the Luna baseline through Codex and defaults it to max effort", () => {
+    const provider = buildOpenAIProvider();
+
+    const model = provider.resolveDynamicModel?.({
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+      providerConfig: { api: "openai-chatgpt-responses" },
+      modelRegistry: { find: () => null },
+    } as never);
+
+    expect(model).toMatchObject({
+      provider: "openai",
+      id: "gpt-5.6-luna",
+      api: "openai-chatgpt-responses",
+      baseUrl: "https://chatgpt.com/backend-api/codex",
+      contextWindow: 272_000,
+      contextTokens: 272_000,
+    });
+    expect(
+      provider.resolveThinkingProfile?.({
+        provider: "openai",
+        modelId: "gpt-5.6-luna",
+      } as never),
+    ).toMatchObject({ defaultLevel: "max" });
+  });
+
+  it("fails Codex transport closed below the floor and without an upgrade reason", () => {
+    const provider = buildOpenAIProvider();
+    const resolveTransport = provider.extraParamsForTransport;
+    if (!resolveTransport) {
+      throw new Error("expected Codex transport policy");
+    }
+    const codexModel = {
+      api: "openai-chatgpt-responses",
+      provider: "openai",
+      id: "gpt-5.5",
+      baseUrl: "https://chatgpt.com/backend-api/codex",
+    } as Record<string, unknown>;
+
+    expect(() =>
+      resolveTransport({
+        provider: "openai",
+        modelId: "gpt-5.5",
+        model: codexModel,
+        thinkingLevel: "max",
+        extraParams: {},
+      } as never),
+    ).toThrow(/below the enforced floor/u);
+    expect(() =>
+      resolveTransport({
+        provider: "openai",
+        modelId: "gpt-5.6-luna",
+        model: { ...codexModel, id: "gpt-5.6-luna" },
+        thinkingLevel: "high",
+        extraParams: {},
+      } as never),
+    ).toThrow(/requires max effort/u);
+    expect(() =>
+      resolveTransport({
+        provider: "openai",
+        modelId: "gpt-5.6-sol",
+        model: { ...codexModel, id: "gpt-5.6-sol" },
+        thinkingLevel: "max",
+        extraParams: {},
+      } as never),
+    ).toThrow(/no concrete reason/u);
+    expect(
+      resolveTransport({
+        provider: "openai",
+        modelId: "gpt-5.6-sol",
+        model: { ...codexModel, id: "gpt-5.6-sol" },
+        thinkingLevel: "max",
+        config: {
+          agents: {
+            defaults: {
+              models: {
+                "openai/gpt-5.6-sol": {
+                  params: { codexUpgradeReason: "critical architecture review" },
+                },
+              },
+            },
+          },
+        },
+        extraParams: {},
+      } as never),
+    ).toBeUndefined();
+  });
+
   it("keeps cloned Codex-backed OpenAI models on the Codex Responses transport", () => {
     const provider = buildOpenAIProvider();
 

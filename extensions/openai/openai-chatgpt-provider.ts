@@ -1,3 +1,11 @@
+import {
+  assertCodexModelPolicy,
+  CODEX_DEFAULT_MODEL_ID,
+  CODEX_DEFAULT_THINKING_LEVEL,
+  isCodexPolicyManagedModel,
+  readCodexUpgradeReason,
+  readCodexUpgradeReasonFromConfig,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 // Openai provider module implements model/runtime integration.
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import type {
@@ -50,6 +58,8 @@ const PROVIDER_ID = "openai";
 const OPENAI_CODEX_BASE_URL = OPENAI_CODEX_RESPONSES_BASE_URL;
 const OPENAI_CODEX_LOGIN_ASSISTANT_PRIORITY = -30;
 const OPENAI_CODEX_DEVICE_PAIRING_ASSISTANT_PRIORITY = -10;
+const OPENAI_CODEX_GPT_56_SOL_MODEL_ID = "gpt-5.6-sol";
+const OPENAI_CODEX_GPT_56_TERRA_MODEL_ID = "gpt-5.6-terra";
 const OPENAI_CODEX_GPT_55_MODEL_ID = "gpt-5.5";
 const OPENAI_CODEX_GPT_55_PRO_MODEL_ID = "gpt-5.5-pro";
 const OPENAI_CODEX_GPT_54_MODEL_ID = "gpt-5.4";
@@ -58,6 +68,7 @@ const OPENAI_CODEX_GPT_54_MINI_MODEL_ID = "gpt-5.4-mini";
 const OPENAI_CODEX_GPT_54_PRO_MODEL_ID = "gpt-5.4-pro";
 const OPENAI_CODEX_GPT_55_CODEX_CONTEXT_TOKENS = 400_000;
 const OPENAI_CODEX_GPT_55_DEFAULT_RUNTIME_CONTEXT_TOKENS = 272_000;
+const OPENAI_CODEX_GPT_56_CONTEXT_TOKENS = 272_000;
 const OPENAI_CODEX_GPT_55_PRO_NATIVE_CONTEXT_TOKENS = 1_000_000;
 const OPENAI_CODEX_GPT_55_PRO_DEFAULT_CONTEXT_TOKENS = 272_000;
 const OPENAI_CODEX_GPT_54_NATIVE_CONTEXT_TOKENS = 1_050_000;
@@ -89,6 +100,11 @@ const OPENAI_CODEX_GPT_54_MINI_COST = {
   cacheWrite: 0,
 } as const;
 const OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS = ["gpt-5.3-codex"] as const;
+const OPENAI_CODEX_GPT_56_TEMPLATE_MODEL_IDS = [
+  OPENAI_CODEX_GPT_55_MODEL_ID,
+  OPENAI_CODEX_GPT_54_MODEL_ID,
+  ...OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS,
+] as const;
 /** Legacy codex rows first; fall back to catalog `gpt-5.4` when the API omits 5.3/5.2. */
 const OPENAI_CODEX_GPT_54_CATALOG_SYNTH_TEMPLATE_MODEL_IDS = [
   ...OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS,
@@ -100,6 +116,9 @@ const OPENAI_CODEX_GPT_55_PRO_TEMPLATE_MODEL_IDS = [
   ...OPENAI_CODEX_GPT_54_TEMPLATE_MODEL_IDS,
 ] as const;
 const OPENAI_CODEX_MODERN_MODEL_IDS = [
+  CODEX_DEFAULT_MODEL_ID,
+  OPENAI_CODEX_GPT_56_SOL_MODEL_ID,
+  OPENAI_CODEX_GPT_56_TERRA_MODEL_ID,
   OPENAI_CODEX_GPT_55_MODEL_ID,
   OPENAI_CODEX_GPT_55_PRO_MODEL_ID,
   OPENAI_CODEX_GPT_54_MODEL_ID,
@@ -215,6 +234,38 @@ function resolveCodexForwardCompatModel(ctx: ProviderResolveDynamicModelContext)
   const trimmedModelId = ctx.modelId.trim();
   const lower = normalizeLowercaseStringOrEmpty(trimmedModelId);
   const synthBaseUrl = ctx.providerConfig?.baseUrl ?? OPENAI_CODEX_BASE_URL;
+
+  if (isCodexPolicyManagedModel(trimmedModelId)) {
+    return (
+      cloneFirstTemplateModel({
+        providerId: PROVIDER_ID,
+        modelId: trimmedModelId,
+        templateIds: OPENAI_CODEX_GPT_56_TEMPLATE_MODEL_IDS,
+        ctx,
+        patch: {
+          api: "openai-chatgpt-responses",
+          baseUrl: synthBaseUrl,
+          contextWindow: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          contextTokens: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          maxTokens: OPENAI_CODEX_GPT_54_MAX_TOKENS,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
+      }) ??
+      normalizeModelCompat({
+        id: trimmedModelId,
+        name: trimmedModelId,
+        api: "openai-chatgpt-responses",
+        provider: PROVIDER_ID,
+        baseUrl: synthBaseUrl,
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+        contextTokens: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+        maxTokens: OPENAI_CODEX_GPT_54_MAX_TOKENS,
+      } as ProviderRuntimeModel)
+    );
+  }
 
   if (lower === OPENAI_CODEX_GPT_55_MODEL_ID) {
     const model = ctx.modelRegistry.find(PROVIDER_ID, trimmedModelId) as
@@ -565,6 +616,7 @@ export function buildOpenAICodexProviderHooks(): Pick<
   | "fetchUsageSnapshot"
   | "refreshOAuth"
   | "augmentModelCatalog"
+  | "extraParamsForTransport"
   | "resolveReasoningOutputMode"
 > {
   return {
@@ -578,6 +630,9 @@ export function buildOpenAICodexProviderHooks(): Pick<
       }
       const id = ctx.modelId.trim().toLowerCase();
       return [
+        CODEX_DEFAULT_MODEL_ID,
+        OPENAI_CODEX_GPT_56_SOL_MODEL_ID,
+        OPENAI_CODEX_GPT_56_TERRA_MODEL_ID,
         OPENAI_CODEX_GPT_55_MODEL_ID,
         OPENAI_CODEX_GPT_55_PRO_MODEL_ID,
         OPENAI_CODEX_GPT_54_MODEL_ID,
@@ -613,6 +668,16 @@ export function buildOpenAICodexProviderHooks(): Pick<
     fetchUsageSnapshot: async (ctx) =>
       await fetchCodexUsage(ctx.token, ctx.accountId, ctx.timeoutMs, ctx.fetchFn),
     refreshOAuth: async (cred) => await refreshOpenAICodexOAuthCredential(cred),
+    extraParamsForTransport: (ctx) => {
+      assertCodexModelPolicy({
+        modelId: ctx.modelId,
+        thinkLevel: ctx.thinkingLevel ?? CODEX_DEFAULT_THINKING_LEVEL,
+        upgradeReason:
+          readCodexUpgradeReason(ctx.model?.params) ??
+          readCodexUpgradeReasonFromConfig(ctx.config, ctx.modelId),
+      });
+      return undefined;
+    },
     augmentModelCatalog: (ctx) => {
       const gpt54Template = findCatalogTemplate({
         entries: ctx.entries,
@@ -625,6 +690,30 @@ export function buildOpenAICodexProviderHooks(): Pick<
         templateIds: OPENAI_CODEX_GPT_55_PRO_TEMPLATE_MODEL_IDS,
       });
       return [
+        buildOpenAISyntheticCatalogEntry(gpt54Template, {
+          id: CODEX_DEFAULT_MODEL_ID,
+          reasoning: true,
+          input: ["text", "image"],
+          contextWindow: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          contextTokens: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        }),
+        buildOpenAISyntheticCatalogEntry(gpt54Template, {
+          id: OPENAI_CODEX_GPT_56_SOL_MODEL_ID,
+          reasoning: true,
+          input: ["text", "image"],
+          contextWindow: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          contextTokens: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        }),
+        buildOpenAISyntheticCatalogEntry(gpt54Template, {
+          id: OPENAI_CODEX_GPT_56_TERRA_MODEL_ID,
+          reasoning: true,
+          input: ["text", "image"],
+          contextWindow: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          contextTokens: OPENAI_CODEX_GPT_56_CONTEXT_TOKENS,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        }),
         buildOpenAISyntheticCatalogEntry(gpt55ProTemplate, {
           id: OPENAI_CODEX_GPT_55_PRO_MODEL_ID,
           reasoning: true,

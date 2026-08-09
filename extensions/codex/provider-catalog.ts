@@ -1,6 +1,7 @@
 /**
  * Codex provider catalog constants and model definition helpers.
  */
+import { CODEX_DEFAULT_MODEL_ID } from "openclaw/plugin-sdk/agent-harness-runtime";
 import type {
   ModelDefinitionConfig,
   ModelProviderConfig,
@@ -20,11 +21,35 @@ const DEFAULT_MAX_TOKENS = 128_000;
 /** Offline fallback catalog used when live app-server discovery is unavailable. */
 export const FALLBACK_CODEX_MODELS = [
   {
+    id: CODEX_DEFAULT_MODEL_ID,
+    model: CODEX_DEFAULT_MODEL_ID,
+    displayName: "GPT-5.6 Luna",
+    description: "Default Codex agent model.",
+    isDefault: true,
+    inputModalities: ["text", "image"],
+    supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    id: "gpt-5.6-sol",
+    model: "gpt-5.6-sol",
+    displayName: "GPT-5.6 Sol",
+    description: "Higher-capability Codex upgrade model.",
+    inputModalities: ["text", "image"],
+    supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  },
+  {
+    id: "gpt-5.6-terra",
+    model: "gpt-5.6-terra",
+    displayName: "GPT-5.6 Terra",
+    description: "Higher-capability Codex upgrade model.",
+    inputModalities: ["text", "image"],
+    supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  },
+  {
     id: "gpt-5.5",
     model: "gpt-5.5",
     displayName: "gpt-5.5",
-    description: "Latest frontier agentic coding model.",
-    isDefault: true,
+    description: "Legacy Codex compatibility model; blocked for agent turns.",
     inputModalities: ["text", "image"],
     supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
   },
