@@ -61,6 +61,18 @@ Cron is the Gateway's built-in scheduler. It persists jobs, wakes the agent at t
 Task reconciliation for cron is runtime-owned first, durable-history-backed second: an active cron task stays live while the cron runtime still tracks that job as running, even if an old child session row still exists. Once the runtime stops owning the job and the 5-minute grace window expires, maintenance checks persisted run logs and job state for the matching `cron:<jobId>:<startedAt>` run. If that durable history shows a terminal result, the task ledger is finalized from it; otherwise Gateway-owned maintenance can mark the task `lost`. Offline CLI audit can recover from durable history, but it does not treat its own empty in-process active-job set as proof that a Gateway-owned cron run is gone.
 </Note>
 
+## Reliability contracts
+
+Operator-authored jobs can include an optional versioned `reliability` object through the Gateway API. The contract declares program ownership, criticality, maximum lateness, catch-up and idempotency policy, bounded resource claims, side-effect and approval classes, preflight checks, and completion proof.
+
+Contracted jobs pass through fail-closed admission both on normal timer ticks and during restart catch-up. Every declared preflight check must be proved before execution, every non-automatic approval class blocks even when on time, and `maxLatenessMs` is a hard automatic-execution boundary. Unknown competing work, unavailable Task Flow state, malformed contracts, unsafe automatic irreversible work, invalid timestamps, and required approval block execution rather than widening authority. Conflicting jobs are admitted by criticality and resource claim; deferred work receives a durable Task Flow recovery obligation. Jobs without a contract retain the existing compatibility behavior.
+
+Automatic contracts may use only `none`, `read_only`, `owned_state`, or `external_reversible` side effects. `external_irreversible` always requires a non-automatic approval class. Restart policies are distinct: `skip` records a skipped window, `run_latest` terminalizes superseded obligations before selecting the newest, `replay` advances persisted due windows sequentially, `resume` first persists a recovery obligation and runs only from that durable obligation, and `manual` requires approval. Idempotency identity is derived from the declared `run`, `schedule_window`, or `program` scope.
+
+Every declared completion proof is enforced for normal and recovery runs. A nominal success without authoritative proof becomes an error plus an approval-required reliability event. A proved recovery completes its obligation and owning Task Flow; failed or unproved recovery remains visible for operator review.
+
+Reliability decisions are emitted as sanitized `cron_reliability` agent events. They contain identifiers, timing, action, reason, and recovery references, but never job payload text, credentials, or task state.
+
 ## Schedule types
 
 | Kind    | CLI flag  | Description                                             |

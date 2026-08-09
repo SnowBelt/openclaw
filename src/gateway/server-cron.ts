@@ -3,6 +3,7 @@
 import { retireSessionMcpRuntime } from "../agents/agent-bundle-mcp-tools.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { abortAndDrainEmbeddedAgentRun } from "../agents/embedded-agent.js";
+import { prepareSimpleCompletionModelForAgent } from "../agents/simple-completion-runtime.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { cleanupBrowserSessionsForLifecycleEnd } from "../browser-lifecycle-cleanup.js";
 import type { CliDeps } from "../cli/deps.types.js";
@@ -28,6 +29,7 @@ import {
 } from "../cron/session-target.js";
 import { resolveCronJobsStorePath } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
+import { emitAgentEvent } from "../infra/agent-events.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { resolveMainScopedEventSessionKey } from "../infra/event-session-routing.js";
 import { runHeartbeatOnce } from "../infra/heartbeat-runner.js";
@@ -51,6 +53,7 @@ import {
 } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
+import { getTaskRegistryRestoreFailure, listTaskRecords } from "../tasks/runtime-internal.js";
 import {
   dispatchGatewayCronFinishedNotifications,
   sendGatewayCronFailureAlert,
@@ -321,6 +324,59 @@ export function buildGatewayCronService(params: {
     defaultAgentId,
     resolveSessionStorePath,
     sessionStorePath,
+    resolveScheduledProgramCompetingWork: () => {
+      const records = listTaskRecords();
+      if (getTaskRegistryRestoreFailure()) {
+        return { kind: "unknown", workId: "task-registry:unavailable" };
+      }
+      const active = records.find((task) => task.status === "queued" || task.status === "running");
+      return active ? { kind: "unknown", workId: `task:${active.taskId}` } : undefined;
+    },
+    resolveScheduledProgramPreflight: async ({ job, checks }) => {
+      const satisfied = new Set<(typeof checks)[number]>();
+      if (checks.includes("resources_ready")) {
+        // Admission invokes this resolver only after guardian arbitration has
+        // established that active resource claims are safe.
+        satisfied.add("resources_ready");
+      }
+      if (checks.includes("route_ready")) {
+        const target = resolveCronTarget({
+          agentId: job.agentId,
+          sessionKey: job.sessionKey,
+          preserveUntargeted: job.payload.kind === "command",
+        });
+        if (job.payload.kind === "command" || target.sessionKey) {
+          satisfied.add("route_ready");
+        }
+      }
+      if (
+        job.payload.kind === "agentTurn" &&
+        (checks.includes("model_ready") || checks.includes("credentials_ready"))
+      ) {
+        const { agentId, cfg: runtimeConfig } = resolveCronAgent(job.agentId);
+        const prepared = await prepareSimpleCompletionModelForAgent({
+          cfg: runtimeConfig,
+          agentId,
+          modelRef: job.payload.model,
+          allowBundledStaticCatalogFallback: true,
+          allowMissingApiKeyModes: ["aws-sdk"],
+          skipAgentDiscovery: true,
+        });
+        if (!("error" in prepared)) {
+          satisfied.add("model_ready");
+          satisfied.add("credentials_ready");
+        }
+      }
+      return [...satisfied];
+    },
+    onReliabilityDecision: (event) => {
+      emitAgentEvent({
+        runId: `cron-reliability:${event.jobId}:${event.scheduledFor}`,
+        stream: "cron_reliability",
+        agentId: event.ownerAgentId,
+        data: event,
+      });
+    },
     enqueueSystemEvent: (text, opts) => {
       const { sessionKey } = resolveCronTarget(opts);
       if (!sessionKey) {

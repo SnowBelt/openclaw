@@ -16,4 +16,6 @@ export type CronJobBase<TSchedule, TSessionTarget, TWakeMode, TPayload, TDeliver
     payload: TPayload;
     delivery?: TDelivery;
     failureAlert?: TFailureAlert;
+    /** Optional fail-closed reliability policy for scheduled program arbitration. */
+    reliability?: import("./reliability-contract.js").ScheduledProgramReliabilityContractV1;
   };

@@ -8,6 +8,7 @@ export {
   findLatestTaskForFlowId,
   finalizeTaskRunByRunId,
   getTaskById,
+  getTaskRegistryRestoreFailure,
   hasActiveTaskForChildSessionKey,
   listFreshTasksForOwnerKey,
   listTaskRecords,

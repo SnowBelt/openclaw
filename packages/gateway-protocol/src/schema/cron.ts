@@ -159,6 +159,76 @@ const CronRunDiagnosticsSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+/** Closed, versioned reliability policy attached to scheduled programs. */
+export const ScheduledProgramReliabilityContractSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    programId: Type.String({ minLength: 1, maxLength: 160 }),
+    ownerAgentId: Type.String({ minLength: 1, maxLength: 160 }),
+    criticality: Type.Union([
+      Type.Literal("critical"),
+      Type.Literal("high"),
+      Type.Literal("medium"),
+      Type.Literal("low"),
+    ]),
+    maxLatenessMs: Type.Integer({ minimum: 0 }),
+    catchUpPolicy: Type.Union([
+      Type.Literal("skip"),
+      Type.Literal("run_latest"),
+      Type.Literal("replay"),
+      Type.Literal("resume"),
+      Type.Literal("manual"),
+    ]),
+    idempotencyScope: Type.Union([
+      Type.Literal("run"),
+      Type.Literal("schedule_window"),
+      Type.Literal("program"),
+    ]),
+    resourceClaims: Type.Array(
+      Type.Object(
+        {
+          resource: Type.String({ minLength: 1, maxLength: 160 }),
+          mode: Type.Union([Type.Literal("shared"), Type.Literal("exclusive")]),
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 16 },
+    ),
+    sideEffectClass: Type.Union([
+      Type.Literal("none"),
+      Type.Literal("read_only"),
+      Type.Literal("owned_state"),
+      Type.Literal("external_reversible"),
+      Type.Literal("external_irreversible"),
+    ]),
+    approvalClass: Type.Union([
+      Type.Literal("automatic"),
+      Type.Literal("operator"),
+      Type.Literal("security"),
+      Type.Literal("financial"),
+      Type.Literal("release"),
+    ]),
+    preflight: Type.Array(
+      Type.Union([
+        Type.Literal("model_ready"),
+        Type.Literal("credentials_ready"),
+        Type.Literal("resources_ready"),
+        Type.Literal("route_ready"),
+      ]),
+      { maxItems: 16 },
+    ),
+    completionProof: Type.Array(
+      Type.Union([
+        Type.Literal("task_terminal"),
+        Type.Literal("authoritative_readback"),
+        Type.Literal("artifact_digest"),
+        Type.Literal("delivery_receipt"),
+      ]),
+      { minItems: 1, maxItems: 16 },
+    ),
+  },
+  { additionalProperties: false },
+);
 const CronCommonOptionalFields = {
   agentId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
   sessionKey: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
@@ -445,6 +515,7 @@ export const CronJobSchema = Type.Object(
     payload: CronPayloadSchema,
     delivery: Type.Optional(CronDeliverySchema),
     failureAlert: Type.Optional(Type.Union([Type.Literal(false), CronFailureAlertSchema])),
+    reliability: Type.Optional(ScheduledProgramReliabilityContractSchema),
     state: CronJobStateSchema,
   },
   { additionalProperties: false },
@@ -478,6 +549,7 @@ export const CronAddParamsSchema = Type.Object(
   {
     name: NonEmptyString,
     ...CronCommonOptionalFields,
+    reliability: Type.Optional(ScheduledProgramReliabilityContractSchema),
     schedule: CronScheduleSchema,
     sessionTarget: CronSessionTargetSchema,
     wakeMode: CronWakeModeSchema,
@@ -493,6 +565,9 @@ export const CronJobPatchSchema = Type.Object(
   {
     name: Type.Optional(NonEmptyString),
     ...CronCommonOptionalFields,
+    reliability: Type.Optional(
+      Type.Union([ScheduledProgramReliabilityContractSchema, Type.Null()]),
+    ),
     schedule: Type.Optional(CronScheduleSchema),
     sessionTarget: Type.Optional(CronSessionTargetSchema),
     wakeMode: Type.Optional(CronWakeModeSchema),

@@ -14,18 +14,40 @@ import {
   resolveAgentIdFromSessionKey,
 } from "../../routing/session-key.js";
 import { registerActiveCronTaskRun } from "../../tasks/cron-task-cancel.js";
+import {
+  createRecoveryObligation,
+  listRecoveryObligations,
+  persistRecoveryObligation,
+} from "../../tasks/recovery-obligations.js";
+import {
+  createManagedTaskFlow,
+  deleteTaskFlowRecordById,
+  listTaskFlowRecords,
+} from "../../tasks/task-flow-runtime-internal.js";
 import { deliveryContextFromSession } from "../../utils/delivery-context.shared.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
 import { clearCronJobActive, markCronJobActive } from "../active-jobs.js";
 import { resolveCronDeliveryPlan, resolveFailureDestination } from "../delivery-plan.js";
+import { scheduledProgramIdempotencyKey } from "../reliability-contract.js";
+import { createScheduledProgramReliabilityEvent } from "../reliability-events.js";
 import { resolveCronExecutionRetryHint } from "../retry-hint.js";
 import {
   createCronRunDiagnosticsFromError,
   normalizeCronRunDiagnostics,
   summarizeCronRunDiagnostics,
 } from "../run-diagnostics.js";
+import {
+  admitScheduledProgram,
+  combineScheduleGuardianCompetingWork,
+  completeScheduledProgramRecovery,
+  verifyScheduledProgramCompletionProof,
+  type ScheduledProgramCompletionVerification,
+  type PendingScheduleRecovery,
+} from "../schedule-admission.js";
+import type { ScheduleGuardianCompetingWork } from "../schedule-guardian.js";
 import { computeNextRunAtMs } from "../schedule.js";
 import { sweepCronRunSessions } from "../session-reaper.js";
+import { resolveStartupCatchupReliabilityDecision } from "../startup-catchup-policy.js";
 import type {
   CronAgentExecutionPhaseUpdate,
   CronAgentExecutionStarted,
@@ -93,6 +115,11 @@ const DEFAULT_MISSED_JOB_STAGGER_MS = 5_000;
 const DEFAULT_MAX_MISSED_JOBS_PER_RESTART = 5;
 const DEFAULT_STARTUP_DEFERRED_MISSED_AGENT_JOB_DELAY_MS = 2 * 60_000;
 
+const SCHEDULE_GUARDIAN_CRITICALITY_RANK: Record<
+  NonNullable<CronJob["reliability"]>["criticality"],
+  number
+> = { low: 1, medium: 2, high: 3, critical: 4 };
+
 type TimedCronRunOutcome = CronRunOutcome &
   CronRunTelemetry & {
     jobId: string;
@@ -102,11 +129,13 @@ type TimedCronRunOutcome = CronRunOutcome &
     deliveryAttempted?: boolean;
     startedAt: number;
     endedAt: number;
+    recovery?: PendingScheduleRecovery;
   };
 
 type StartupCatchupCandidate = {
   jobId: string;
   job: CronJob;
+  recovery?: PendingScheduleRecovery;
 };
 
 type StartupDeferredJob = {
@@ -118,6 +147,48 @@ type StartupCatchupPlan = {
   candidates: StartupCatchupCandidate[];
   deferredJobs: StartupDeferredJob[];
 };
+
+async function enforceScheduledProgramCompletionProof(params: {
+  state: CronServiceState;
+  result: TimedCronRunOutcome;
+}): Promise<ScheduledProgramCompletionVerification | undefined> {
+  const contract = params.result.job.reliability;
+  if (!contract) {
+    return undefined;
+  }
+  const scheduledFor =
+    params.result.recovery?.obligation.scheduledFor ??
+    params.result.job.state.nextRunAtMs ??
+    params.result.startedAt;
+  const verification = await verifyScheduledProgramCompletionProof({
+    state: params.state,
+    job: params.result.job,
+    scheduledFor,
+    status: params.result.status,
+    endedAt: params.result.endedAt,
+    delivered: params.result.delivered,
+  });
+  if (!verification.verified && params.result.status === "ok") {
+    params.result.status = "error";
+    params.result.error = `cron: scheduled program completion proof missing: ${verification.missing.join(",") || "terminal_status"}`;
+    params.state.deps.onReliabilityDecision?.(
+      createScheduledProgramReliabilityEvent({
+        jobId: params.result.job.id,
+        programId: contract.programId,
+        ownerAgentId: contract.ownerAgentId,
+        scheduledFor,
+        observedAt: params.result.endedAt,
+        decision: {
+          action: "approval_required",
+          reason: "completion_proof_failed",
+          preemptCompetingWork: false,
+        },
+        ...(params.result.recovery ? { recoveryFlowId: params.result.recovery.flow.flowId } : {}),
+      }),
+    );
+  }
+  return verification;
+}
 
 /** Executes cron job core logic with the configured wall-clock timeout and watchdog cleanup. */
 export async function executeJobCoreWithTimeout(
@@ -883,6 +954,7 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
     startedAt: result.startedAt,
     endedAt: result.endedAt,
   });
+  state.pendingCatchupDeferralJobIds.delete(job.id);
 
   emitJobFinished(state, job, result, result.startedAt);
 
@@ -1002,24 +1074,93 @@ export async function onTimer(state: CronServiceState) {
         return [];
       }
 
+      const admitted: Array<{ job: CronJob; recovery?: PendingScheduleRecovery }> = [];
+      let reservedCompetingWork: ScheduleGuardianCompetingWork | undefined;
+      const admissionOrder = due
+        .map((job, index) => ({ job, index }))
+        .toSorted((left, right) => {
+          const leftClaims = left.job.reliability?.resourceClaims.length ?? 0;
+          const rightClaims = right.job.reliability?.resourceClaims.length ?? 0;
+          if (leftClaims === 0 && rightClaims === 0) {
+            return left.index - right.index;
+          }
+          if (leftClaims === 0) {
+            return 1;
+          }
+          if (rightClaims === 0) {
+            return -1;
+          }
+          return (
+            SCHEDULE_GUARDIAN_CRITICALITY_RANK[right.job.reliability!.criticality] -
+              SCHEDULE_GUARDIAN_CRITICALITY_RANK[left.job.reliability!.criticality] ||
+            left.index - right.index
+          );
+        })
+        .map(({ job }) => job);
+      for (const job of admissionOrder) {
+        const admission = await admitScheduledProgram({
+          state,
+          job,
+          now: dueCheckNow,
+          ...(reservedCompetingWork ? { reservedCompetingWork } : {}),
+        });
+        if (job.reliability && admission.decision) {
+          state.deps.onReliabilityDecision?.(
+            createScheduledProgramReliabilityEvent({
+              jobId: job.id,
+              programId: job.reliability.programId,
+              ownerAgentId: job.reliability.ownerAgentId,
+              scheduledFor: admission.scheduledFor,
+              observedAt: dueCheckNow,
+              decision: admission.decision,
+              ...(admission.recovery ? { recoveryFlowId: admission.recovery.flow.flowId } : {}),
+            }),
+          );
+        }
+        if (admission.action !== "run") {
+          continue;
+        }
+        admitted.push({ job, ...(admission.recovery ? { recovery: admission.recovery } : {}) });
+        if (job.reliability?.resourceClaims.length) {
+          reservedCompetingWork = combineScheduleGuardianCompetingWork(reservedCompetingWork, {
+            kind: "known",
+            workId: `cron:${job.id}`,
+            criticality: job.reliability.criticality,
+            resourceClaims: job.reliability.resourceClaims,
+            interruptible: false,
+          });
+        }
+      }
+      if (admitted.length === 0) {
+        await persist(state);
+        return [];
+      }
+
       const now = state.deps.nowMs();
-      for (const job of due) {
+      for (const { job } of admitted) {
         job.state.runningAtMs = now;
         job.state.lastError = undefined;
       }
       await persist(state);
 
-      return due.map((j) => ({
-        id: j.id,
-        job: j,
-      }));
+      return admitted.map(({ job, recovery }) => {
+        const candidate: { id: string; job: CronJob; recovery?: PendingScheduleRecovery } = {
+          id: job.id,
+          job,
+        };
+        if (recovery) {
+          candidate.recovery = recovery;
+        }
+        return candidate;
+      });
     });
 
     const runDueJob = async (params: {
       id: string;
       job: CronJob;
+      recovery?: PendingScheduleRecovery;
     }): Promise<TimedCronRunOutcome> => {
-      const { id, job } = params;
+      const { id, job, recovery } = params;
       const startedAt = state.deps.nowMs();
       job.state.runningAtMs = startedAt;
       markCronJobActive(job.id);
@@ -1033,6 +1174,7 @@ export async function onTimer(state: CronServiceState) {
           jobId: id,
           job,
           taskRunId,
+          ...(recovery ? { recovery } : {}),
           ...result,
           startedAt,
           endedAt: state.deps.nowMs(),
@@ -1047,6 +1189,7 @@ export async function onTimer(state: CronServiceState) {
           jobId: id,
           job,
           taskRunId,
+          ...(recovery ? { recovery } : {}),
           status: "error",
           error: errorText,
           diagnostics: createCronRunDiagnosticsFromError("cron-setup", errorText, {
@@ -1084,7 +1227,29 @@ export async function onTimer(state: CronServiceState) {
       await locked(state, async () => {
         await ensureLoaded(state, { forceReload: true, skipRecompute: true });
         for (const result of completedResults) {
-          applyOutcomeToStoredJob(state, result);
+          const verification = await enforceScheduledProgramCompletionProof({ state, result });
+          let recoveryStatePersisted = true;
+          if (result.recovery) {
+            recoveryStatePersisted = await completeScheduledProgramRecovery({
+              state,
+              job: result.job,
+              recovery: result.recovery,
+              status: result.status,
+              endedAt: result.endedAt,
+              delivered: result.delivered,
+              ...(verification ? { verification } : {}),
+            });
+          }
+          applyOutcomeToStoredJob(
+            state,
+            recoveryStatePersisted
+              ? result
+              : {
+                  ...result,
+                  status: "error",
+                  error: "scheduled recovery state could not be finalized",
+                },
+          );
         }
 
         // Use maintenance-only recompute to avoid advancing past-due
@@ -1326,7 +1491,149 @@ async function planStartupCatchup(
       }
       return { candidates: [], deferredJobs: [] };
     }
-    const sorted = missed.toSorted(
+    const policyEligible: CronJob[] = [];
+    const startupRecoveries = new Map<string, PendingScheduleRecovery>();
+    const policyDispositions: Array<{ job: CronJob; runAtMs: number; error: string }> = [];
+    const guardianDeferredJobs: StartupDeferredJob[] = [];
+    for (const job of missed) {
+      const policy = resolveStartupCatchupReliabilityDecision(job);
+      if (policy.action === "legacy_compatibility") {
+        policyEligible.push(job);
+        continue;
+      }
+      if (policy.action === "run") {
+        const admission = await admitScheduledProgram({ state, job, now });
+        if (job.reliability && admission.decision) {
+          state.deps.onReliabilityDecision?.(
+            createScheduledProgramReliabilityEvent({
+              jobId: job.id,
+              programId: job.reliability.programId,
+              ownerAgentId: job.reliability.ownerAgentId,
+              scheduledFor: admission.scheduledFor,
+              observedAt: now,
+              decision: admission.decision,
+              ...(admission.recovery ? { recoveryFlowId: admission.recovery.flow.flowId } : {}),
+            }),
+          );
+        }
+        if (admission.action === "run") {
+          policyEligible.push(job);
+          if (admission.recovery) {
+            startupRecoveries.set(job.id, admission.recovery);
+          }
+        } else {
+          const retryAt = job.state.nextRunAtMs ?? now + MAX_TIMER_DELAY_MS;
+          guardianDeferredJobs.push({ jobId: job.id, delayMs: Math.max(0, retryAt - now) });
+        }
+        continue;
+      }
+
+      const contract = job.reliability;
+      if (!contract) {
+        throw new Error(`cron reliability contract missing for ${job.id}`);
+      }
+      const scheduledFor = job.state.nextRunAtMs ?? now;
+      const dueAt = scheduledFor + contract.maxLatenessMs;
+      if (!Number.isSafeInteger(dueAt) || dueAt < scheduledFor) {
+        throw new Error(`cron startup catch-up timing is invalid for ${job.id}`);
+      }
+      const ownerKey = `schedule-guardian:${job.id}`;
+      const idempotencyKey = scheduledProgramIdempotencyKey({
+        contract,
+        flowId: ownerKey,
+        scheduledFor,
+      });
+      const existing = listTaskFlowRecords().find(
+        (flow) =>
+          flow.ownerKey === ownerKey &&
+          listRecoveryObligations(flow).some((entry) => entry.idempotencyKey === idempotencyKey),
+      );
+      let obligation = existing
+        ? listRecoveryObligations(existing).find((entry) => entry.idempotencyKey === idempotencyKey)
+        : undefined;
+      let flow = existing;
+      if (!flow) {
+        flow =
+          createManagedTaskFlow({
+            controllerId: "schedule-guardian",
+            ownerKey,
+            status: policy.action === "skip" ? "succeeded" : "waiting",
+            notifyPolicy: "state_changes",
+            goal: `Recover missed scheduled program ${job.name}`,
+            currentStep:
+              policy.action === "skip"
+                ? "Catch-up skipped by declared reliability policy."
+                : "Waiting for operator catch-up approval.",
+            stateJson: {},
+            ...(policy.action === "skip"
+              ? { endedAt: now }
+              : {
+                  waitJson: {
+                    kind: "operator_approval",
+                    jobId: job.id,
+                    programId: contract.programId,
+                  },
+                }),
+            createdAt: now,
+            updatedAt: now,
+          }) ?? undefined;
+      }
+      if (!flow) {
+        throw new Error(`cron startup catch-up flow could not be created for ${job.id}`);
+      }
+      if (!obligation) {
+        obligation = createRecoveryObligation({
+          programId: contract.programId,
+          ownerAgentId: contract.ownerAgentId,
+          flowId: flow.flowId,
+          scheduledFor,
+          dueAt,
+          catchUpPolicy: policy.action === "skip" ? "skip" : contract.catchUpPolicy,
+          idempotencyKey,
+          reason: "gateway_restart",
+          proofRequirements: contract.completionProof,
+          now,
+        });
+        const persisted = persistRecoveryObligation({ flowId: flow.flowId, obligation });
+        if (!persisted.applied) {
+          deleteTaskFlowRecordById(flow.flowId);
+          throw new Error(`cron startup catch-up disposition could not be persisted for ${job.id}`);
+        }
+      }
+      const error =
+        policy.action === "skip"
+          ? "startup catch-up skipped by reliability contract"
+          : "startup catch-up requires operator approval";
+      job.state.lastRunAtMs = scheduledFor;
+      job.state.lastRunStatus = "skipped";
+      job.state.lastStatus = "skipped";
+      job.state.lastError = error;
+      job.state.nextRunAtMs = computeJobNextRunAtMs(job, now);
+      policyDispositions.push({ job, runAtMs: scheduledFor, error });
+      state.deps.onReliabilityDecision?.(
+        createScheduledProgramReliabilityEvent({
+          jobId: job.id,
+          programId: contract.programId,
+          ownerAgentId: contract.ownerAgentId,
+          scheduledFor,
+          observedAt: now,
+          decision: {
+            action: policy.action === "skip" ? "skip" : "approval_required",
+            reason:
+              policy.reason === "unsafe_automatic_side_effect"
+                ? "unsafe_automatic_side_effect"
+                : policy.action === "skip"
+                  ? "catch_up_skipped"
+                  : "catch_up_requires_approval",
+            preemptCompetingWork: false,
+            recoveryObligation: obligation,
+          },
+          recoveryFlowId: flow.flowId,
+        }),
+      );
+    }
+
+    const sorted = policyEligible.toSorted(
       (a, b) => (a.state.nextRunAtMs ?? 0) - (b.state.nextRunAtMs ?? 0),
     );
     const deferredAgentJobs = opts?.deferAgentTurnJobs
@@ -1345,6 +1652,7 @@ async function planStartupCatchup(
     // Agent-turn startup catch-up is deferred by default so gateway/channel
     // startup is not blocked by model/tool bootstrap work.
     const deferred: StartupDeferredJob[] = [
+      ...guardianDeferredJobs,
       ...deferredOverflow.map((job) => ({ jobId: job.id })),
       ...deferredAgentJobs.map((job) => ({ jobId: job.id, delayMs: deferredAgentDelayMs })),
     ];
@@ -1379,9 +1687,31 @@ async function planStartupCatchup(
       job.state.lastError = undefined;
     }
     await persist(state);
+    for (const disposition of policyDispositions) {
+      emit(state, {
+        jobId: disposition.job.id,
+        action: "finished",
+        job: disposition.job,
+        runAtMs: disposition.runAtMs,
+        status: "skipped",
+        error: disposition.error,
+        summary: disposition.error,
+        nextRunAtMs: disposition.job.state.nextRunAtMs,
+      });
+    }
 
     return {
-      candidates: startupCandidates.map((job) => ({ jobId: job.id, job })),
+      candidates: startupCandidates.map((job) => {
+        const candidate: { jobId: string; job: CronJob; recovery?: PendingScheduleRecovery } = {
+          jobId: job.id,
+          job,
+        };
+        const recovery = startupRecoveries.get(job.id);
+        if (recovery) {
+          candidate.recovery = recovery;
+        }
+        return candidate;
+      }),
       deferredJobs: deferred,
     };
   });
@@ -1420,6 +1750,7 @@ async function runStartupCatchupCandidate(
       jobId: candidate.jobId,
       job: candidate.job,
       taskRunId,
+      ...(candidate.recovery ? { recovery: candidate.recovery } : {}),
       status: result.status,
       error: result.error,
       summary: result.summary,
@@ -1438,6 +1769,7 @@ async function runStartupCatchupCandidate(
       jobId: candidate.jobId,
       job: candidate.job,
       taskRunId,
+      ...(candidate.recovery ? { recovery: candidate.recovery } : {}),
       status: "error",
       error: normalizeCronRunErrorText(err),
       diagnostics: createCronRunDiagnosticsFromError("cron-setup", normalizeCronRunErrorText(err), {
@@ -1464,7 +1796,29 @@ async function applyStartupCatchupOutcomes(
     }
 
     for (const result of outcomes) {
-      applyOutcomeToStoredJob(state, result);
+      const verification = await enforceScheduledProgramCompletionProof({ state, result });
+      let recoveryStatePersisted = true;
+      if (result.recovery) {
+        recoveryStatePersisted = await completeScheduledProgramRecovery({
+          state,
+          job: result.job,
+          recovery: result.recovery,
+          status: result.status,
+          endedAt: result.endedAt,
+          delivered: result.delivered,
+          ...(verification ? { verification } : {}),
+        });
+      }
+      applyOutcomeToStoredJob(
+        state,
+        recoveryStatePersisted
+          ? result
+          : {
+              ...result,
+              status: "error",
+              error: "scheduled recovery state could not be finalized",
+            },
+      );
     }
 
     if (plan.deferredJobs.length > 0) {
@@ -1478,10 +1832,12 @@ async function applyStartupCatchupOutcomes(
         }
         if (typeof deferred.delayMs === "number") {
           job.state.nextRunAtMs = baseNow + deferred.delayMs + offset - staggerMs;
+          state.pendingCatchupDeferralJobIds.add(jobId);
           offset += staggerMs;
           continue;
         }
         job.state.nextRunAtMs = baseNow + offset;
+        state.pendingCatchupDeferralJobIds.add(jobId);
         offset += staggerMs;
       }
     }

@@ -341,9 +341,10 @@ export type CronJobCreate = Omit<CronJob, "id" | "createdAtMs" | "updatedAtMs" |
 
 /** Patch input accepted by cron APIs without allowing immutable identity fields. */
 export type CronJobPatch = Partial<
-  Omit<CronJob, "id" | "createdAtMs" | "state" | "payload" | "delivery">
+  Omit<CronJob, "id" | "createdAtMs" | "state" | "payload" | "delivery" | "reliability">
 > & {
   payload?: CronPayloadPatch;
   delivery?: CronDeliveryPatch;
+  reliability?: CronJob["reliability"] | null;
   state?: Partial<CronJobState>;
 };

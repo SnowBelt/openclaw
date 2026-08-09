@@ -734,6 +734,10 @@ describe("normalizeCronJobCreate", () => {
 });
 
 describe("normalizeCronJobPatch", () => {
+  it("preserves null reliability so cron.update can clear the contract", () => {
+    expect(normalizeCronJobPatch({ reliability: null })).toEqual({ reliability: null });
+  });
+
   it("normalizes agentTurn model-only payload patches", () => {
     const normalized = normalizeCronJobPatch({
       payload: {

@@ -15,6 +15,7 @@ import {
   parseOptionalField,
 } from "./delivery-field-schemas.js";
 import { parseAbsoluteTimeMs } from "./parse.js";
+import { parseScheduledProgramReliabilityContract } from "./reliability-contract.js";
 import { coerceFiniteScheduleNumber } from "./schedule-number.js";
 import { inferCronJobName } from "./service/normalize.js";
 import {
@@ -477,6 +478,18 @@ export function normalizeCronJobInput(
   }
   const base = raw;
   const next: UnknownRecord = { ...base };
+
+  if ("reliability" in base) {
+    if (base.reliability === null && !options.applyDefaults) {
+      next.reliability = null;
+    } else {
+      const reliability = parseScheduledProgramReliabilityContract(base.reliability);
+      if (!reliability) {
+        return null;
+      }
+      next.reliability = reliability;
+    }
+  }
 
   if ("agentId" in base) {
     const agentId = base.agentId;

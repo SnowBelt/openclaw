@@ -78,6 +78,8 @@ const DEFAULTED_OPTIONAL_INIT_PARAM_ENTRIES: readonly [string, readonly string[]
   ["ChatSendParams", ["agentId"]],
   ["MessageActionParams", ["inboundTurnKind"]],
   ["CronRunLogEntry", ["errorReason", "failureNotificationDelivery"]],
+  ["CronJob", ["reliability"]],
+  ["CronAddParams", ["reliability"]],
   ["ExecApprovalRequestParams", ["requireDeliveryRoute", "suppressDelivery"]],
   ["AgentSummary", ["thinkingLevels", "thinkingOptions", "thinkingDefault"]],
   ["ModelChoice", ["available"]],

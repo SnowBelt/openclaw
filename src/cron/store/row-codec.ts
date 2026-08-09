@@ -5,6 +5,7 @@ import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
 import { getInvalidPersistedCronJobReason } from "../persisted-shape.js";
+import { parseScheduledProgramReliabilityContract } from "../reliability-contract.js";
 import { tryCronScheduleIdentity } from "../schedule-identity.js";
 import type { CronJob, CronJobState, CronSchedule, CronStoreFile } from "../types.js";
 import { bindDeliveryColumns, deliveryFromRow } from "./delivery-codec.js";
@@ -220,6 +221,11 @@ function rowToCronJob(row: CronJobRow): CronJob | null {
     return null;
   }
   const createdAtMs = normalizeNumber(row.created_at_ms) ?? Date.now();
+  const configJob = parseJsonObject<Record<string, unknown>>(row.job_json, {});
+  const reliability = parseScheduledProgramReliabilityContract(configJob.reliability);
+  if ("reliability" in configJob && !reliability) {
+    return null;
+  }
   return {
     id: row.job_id,
     name: row.name,
@@ -239,6 +245,7 @@ function rowToCronJob(row: CronJobRow): CronJob | null {
     payload,
     ...(delivery ? { delivery } : {}),
     ...(failureAlert !== undefined ? { failureAlert } : {}),
+    ...(reliability ? { reliability } : {}),
     state: stateFromRow(row),
   };
 }

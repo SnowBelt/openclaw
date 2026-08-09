@@ -5874,6 +5874,7 @@ public struct CronJob: Codable, Sendable {
     public let payload: AnyCodable
     public let delivery: AnyCodable?
     public let failurealert: AnyCodable?
+    public let reliability: [String: AnyCodable]?
     public let state: [String: AnyCodable]
 
     public init(
@@ -5892,6 +5893,7 @@ public struct CronJob: Codable, Sendable {
         payload: AnyCodable,
         delivery: AnyCodable?,
         failurealert: AnyCodable?,
+        reliability: [String: AnyCodable]? = nil,
         state: [String: AnyCodable])
     {
         self.id = id
@@ -5909,6 +5911,7 @@ public struct CronJob: Codable, Sendable {
         self.payload = payload
         self.delivery = delivery
         self.failurealert = failurealert
+        self.reliability = reliability
         self.state = state
     }
 
@@ -5928,6 +5931,7 @@ public struct CronJob: Codable, Sendable {
         case payload
         case delivery
         case failurealert = "failureAlert"
+        case reliability
         case state
     }
 }
@@ -5991,6 +5995,7 @@ public struct CronAddParams: Codable, Sendable {
     public let description: String?
     public let enabled: Bool?
     public let deleteafterrun: Bool?
+    public let reliability: [String: AnyCodable]?
     public let schedule: AnyCodable
     public let sessiontarget: AnyCodable
     public let wakemode: AnyCodable
@@ -6005,6 +6010,7 @@ public struct CronAddParams: Codable, Sendable {
         description: String?,
         enabled: Bool?,
         deleteafterrun: Bool?,
+        reliability: [String: AnyCodable]? = nil,
         schedule: AnyCodable,
         sessiontarget: AnyCodable,
         wakemode: AnyCodable,
@@ -6018,6 +6024,7 @@ public struct CronAddParams: Codable, Sendable {
         self.description = description
         self.enabled = enabled
         self.deleteafterrun = deleteafterrun
+        self.reliability = reliability
         self.schedule = schedule
         self.sessiontarget = sessiontarget
         self.wakemode = wakemode
@@ -6033,6 +6040,7 @@ public struct CronAddParams: Codable, Sendable {
         case description
         case enabled
         case deleteafterrun = "deleteAfterRun"
+        case reliability
         case schedule
         case sessiontarget = "sessionTarget"
         case wakemode = "wakeMode"

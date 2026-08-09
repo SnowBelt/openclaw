@@ -33,6 +33,7 @@ import {
   findLatestTaskForRelatedSessionKey,
   findTaskByRunId,
   getTaskById,
+  getTaskRegistryRestoreFailure,
   getTaskRegistrySummary,
   isParentFlowLinkError,
   listTasksForAgentId,
@@ -481,6 +482,21 @@ describe("task-registry", () => {
     hoisted.sendMessageMock.mockReset();
     hoisted.cancelSessionMock.mockReset();
     hoisted.killSubagentRunAdminMock.mockReset();
+  });
+
+  it("surfaces durable restore failures instead of treating the ledger as empty", () => {
+    resetTaskRegistryForTests({ persist: false });
+    configureTaskRegistryRuntime({
+      store: {
+        ...createInMemoryTaskRegistryStore(),
+        loadSnapshot: () => {
+          throw new Error("task ledger unavailable");
+        },
+      },
+    });
+
+    expect(listTaskRecords()).toEqual([]);
+    expect(getTaskRegistryRestoreFailure()).toContain("task ledger unavailable");
   });
 
   it("updates task status from lifecycle events", async () => {
