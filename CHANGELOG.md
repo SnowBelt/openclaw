@@ -15,6 +15,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- Cron/SIG: add versioned scheduled-program reliability contracts with fail-closed admission, durable recovery obligations, preflight and completion proof gates, sanitized plugin events, and the updated Codex harness model catalog.
 - CLI progress: emit Claude CLI commentary progress events and bridge inter-tool commentary into channel progress without exposing internal protocol scaffolding. (#89834, #90883) Thanks @anagnorisis2peripeteia.
 - Observability: allow trusted diagnostics channels to capture tool input/output content, add first-assistant-event traces, and warn on slow initial replies. (#91256, #91568, #91583) Thanks @amknight.
 - Plugins/ClawHub: dogfood reusable package publishing, let dry runs skip publish approval, allow declared installed trusted hooks, report managed plugin version drift, and warn instead of failing on retired Skill Workshop configuration. (#91574, #91591, #90004, #90927, #90838) Thanks @Patrick-Erichsen, @brokemac79, and @lonexreb.

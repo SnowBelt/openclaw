@@ -545,6 +545,52 @@ describe("cron service ops seam coverage", () => {
     expect(updated.state.nextRunAtMs).toBe(originalNextRunAtMs);
   });
 
+  it("clears a reliability contract through the persisted update path", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-04-09T08:00:00.000Z");
+    await writeCronStoreSnapshot({
+      storePath,
+      jobs: [
+        {
+          id: "governed-job",
+          name: "governed job",
+          enabled: true,
+          createdAtMs: now - 86_400_000,
+          updatedAtMs: now - 3_600_000,
+          schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
+          sessionTarget: "isolated",
+          wakeMode: "next-heartbeat",
+          payload: { kind: "agentTurn", message: "daily" },
+          reliability: {
+            version: 1,
+            programId: "governed-job",
+            ownerAgentId: "dev",
+            criticality: "high",
+            maxLatenessMs: 60_000,
+            catchUpPolicy: "run_latest",
+            idempotencyScope: "schedule_window",
+            resourceClaims: [],
+            sideEffectClass: "owned_state",
+            approvalClass: "automatic",
+            preflight: ["model_ready"],
+            completionProof: ["task_terminal"],
+          },
+          state: {},
+        },
+      ],
+    });
+    const state = createOkIsolatedCronState({ storePath, now });
+
+    const updated = await update(state, "governed-job", { reliability: null });
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    expect(updated.reliability).toBeUndefined();
+    const loaded = await loadCronStore(storePath);
+    expect(loaded.jobs[0]?.reliability).toBeUndefined();
+  });
+
   it("repairs nextRunAtMs=0 on non-schedule edit (#63499)", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-04-09T08:00:00.000Z");

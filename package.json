@@ -302,6 +302,10 @@
       "types": "./dist/plugin-sdk/cron-store-runtime.d.ts",
       "default": "./dist/plugin-sdk/cron-store-runtime.js"
     },
+    "./plugin-sdk/schedule-reliability": {
+      "types": "./dist/plugin-sdk/schedule-reliability.d.ts",
+      "default": "./dist/plugin-sdk/schedule-reliability.js"
+    },
     "./plugin-sdk/config-schema": {
       "types": "./dist/plugin-sdk/config-schema.d.ts",
       "default": "./dist/plugin-sdk/config-schema.js"

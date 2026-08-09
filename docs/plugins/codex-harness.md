@@ -44,8 +44,8 @@ Discord, Slack, or another channel remains the communication surface.
 - OpenClaw with the bundled `codex` plugin available.
 - If your config uses `plugins.allow`, include `codex`.
 - Codex app-server `0.125.0` or newer. The bundled plugin manages a compatible
-  Codex app-server binary by default, so local `codex` commands on `PATH` do not
-  affect normal harness startup.
+  `@openai/codex` `0.144.3` app-server binary by default, so local `codex`
+  commands on `PATH` do not affect normal harness startup.
 - Codex auth available through `openclaw models auth login --provider openai`,
   an app-server account in the agent's Codex home, or an explicit Codex API-key
   auth profile.

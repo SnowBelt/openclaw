@@ -31,6 +31,31 @@ describe("cron protocol validators", () => {
     expect(validateCronAddParams(minimalAddParams)).toBe(true);
   });
 
+  it("accepts a closed reliability contract and rejects widened authority", () => {
+    const reliability = {
+      version: 1,
+      programId: "pattern-lab.daily",
+      ownerAgentId: "publisher-scheduler",
+      criticality: "high",
+      maxLatenessMs: 300_000,
+      catchUpPolicy: "run_latest",
+      idempotencyScope: "schedule_window",
+      resourceClaims: [{ resource: "local-model", mode: "exclusive" }],
+      sideEffectClass: "owned_state",
+      approvalClass: "automatic",
+      preflight: ["model_ready"],
+      completionProof: ["task_terminal"],
+    } as const;
+    expect(validateCronAddParams({ ...minimalAddParams, reliability })).toBe(true);
+    expect(validateCronUpdateParams({ id: "job-1", patch: { reliability: null } })).toBe(true);
+    expect(
+      validateCronAddParams({
+        ...minimalAddParams,
+        reliability: { ...reliability, approvalClass: "unbounded" },
+      }),
+    ).toBe(false);
+  });
+
   it("accepts current and custom session targets", () => {
     expect(
       validateCronAddParams({

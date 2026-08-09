@@ -74,6 +74,7 @@ const tasksWithPendingDelivery = taskRegistryProcessState.tasksWithPendingDelive
 let listenerStarted = false;
 let listenerStop: (() => void) | null = null;
 let restoreAttempted = false;
+let restoreFailureMessage: string | null = null;
 const taskFlowSyncRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 type TaskRegistryDeliveryRuntime = Pick<
   typeof import("./task-registry-delivery-runtime.js"),
@@ -1124,6 +1125,7 @@ function restoreTaskRegistryOnce() {
     for (const [taskId, state] of restored.deliveryStates.entries()) {
       taskDeliveryStates.set(taskId, state);
     }
+    restoreFailureMessage = null;
     rebuildRunIdIndex();
     rebuildOwnerKeyIndex();
     rebuildParentFlowIdIndex();
@@ -1133,6 +1135,8 @@ function restoreTaskRegistryOnce() {
       tasks: snapshotTaskRecords(tasks),
     }));
   } catch (error) {
+    clearTaskRegistryMemory();
+    restoreFailureMessage = formatErrorMessage(error);
     log.warn("Failed to restore task registry", { error });
   }
 }
@@ -1142,9 +1146,15 @@ export function ensureTaskRegistryReady() {
   ensureListener();
 }
 
+export function getTaskRegistryRestoreFailure(): string | null {
+  restoreTaskRegistryOnce();
+  return restoreFailureMessage;
+}
+
 export function reloadTaskRegistryFromStore(): void {
   clearTaskRegistryMemory();
   restoreAttempted = false;
+  restoreFailureMessage = null;
   restoreTaskRegistryOnce();
 }
 
@@ -2390,6 +2400,7 @@ export function deleteTaskRecordById(taskId: string): boolean {
 export function resetTaskRegistryForTests(opts?: { persist?: boolean }) {
   clearTaskRegistryMemory();
   restoreAttempted = false;
+  restoreFailureMessage = null;
   resetTaskRegistryRuntimeForTests();
   if (listenerStop) {
     listenerStop();

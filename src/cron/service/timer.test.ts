@@ -2,12 +2,23 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { verifyScheduledProgramCompletionProof } from "../../cron/schedule-admission.js";
 import { setupCronServiceSuite, writeCronStoreSnapshot } from "../../cron/service.test-harness.js";
 import { createCronServiceState } from "../../cron/service/state.js";
 import { executeJobCore, onTimer } from "../../cron/service/timer.js";
 import { loadCronStore } from "../../cron/store.js";
 import type { CronJob } from "../../cron/types.js";
 import * as detachedTaskRuntime from "../../tasks/detached-task-runtime.js";
+import {
+  createRecoveryObligation,
+  listRecoveryObligations,
+  persistRecoveryObligation,
+} from "../../tasks/recovery-obligations.js";
+import {
+  createManagedTaskFlow,
+  listTaskFlowRecords,
+  resetTaskFlowRegistryForTests,
+} from "../../tasks/task-flow-runtime-internal.js";
 import { findTaskByRunId, resetTaskRegistryForTests } from "../../tasks/task-registry.js";
 import { formatTaskStatusDetail } from "../../tasks/task-status.js";
 
@@ -65,9 +76,343 @@ function createDueCommandJob(params: { now: number }): CronJob {
 
 afterEach(() => {
   resetTaskRegistryForTests();
+  resetTaskFlowRegistryForTests();
 });
 
 describe("cron service timer seam coverage", () => {
+  it("terminalizes superseded run-latest obligations before running the latest recovery", async () => {
+    resetTaskFlowRegistryForTests();
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const job: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "run-latest-reconcile-job",
+      reliability: {
+        version: 1,
+        programId: "run-latest-reconcile",
+        ownerAgentId: "dev",
+        criticality: "high",
+        maxLatenessMs: 300_000,
+        catchUpPolicy: "run_latest",
+        idempotencyScope: "run",
+        resourceClaims: [],
+        sideEffectClass: "owned_state",
+        approvalClass: "automatic",
+        preflight: [],
+        completionProof: ["task_terminal"],
+      },
+    };
+    const contract = job.reliability;
+    if (!contract) {
+      throw new Error("expected reliability contract");
+    }
+    await writeCronStoreSnapshot({ storePath, jobs: [job] });
+    const flow = createManagedTaskFlow({
+      controllerId: "schedule-guardian",
+      ownerKey: `schedule-guardian:${job.id}`,
+      status: "waiting",
+      goal: "recover latest",
+      stateJson: {},
+      createdAt: now - 120_000,
+      updatedAt: now - 120_000,
+    });
+    expect(flow).not.toBeNull();
+    if (!flow) {
+      throw new Error("expected guardian flow");
+    }
+    for (const [index, scheduledFor] of [now - 120_000, now - 60_000].entries()) {
+      const obligation = createRecoveryObligation({
+        programId: contract.programId,
+        ownerAgentId: contract.ownerAgentId,
+        flowId: flow.flowId,
+        scheduledFor,
+        dueAt: now + 300_000,
+        catchUpPolicy: "run_latest",
+        idempotencyKey: `run-latest-${index}`,
+        reason: index === 0 ? "unknown_competing_work" : "gateway_restart",
+        proofRequirements: ["task_terminal"],
+        status: index === 0 ? "approval_required" : "pending",
+        now: scheduledFor,
+      });
+      expect(persistRecoveryObligation({ flowId: flow.flowId, obligation }).applied).toBe(true);
+    }
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+      resolveScheduledProgramPreflight: ({ checks }) => checks,
+    });
+
+    await onTimer(state);
+
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    const reconciled = listTaskFlowRecords().find(
+      (entry) => entry.ownerKey === `schedule-guardian:${job.id}`,
+    );
+    expect(reconciled?.status).toBe("succeeded");
+    if (!reconciled) {
+      throw new Error("expected reconciled guardian flow");
+    }
+    expect(listRecoveryObligations(reconciled)).toEqual([
+      expect.objectContaining({ status: "skipped" }),
+      expect.objectContaining({ status: "completed" }),
+    ]);
+  });
+
+  it("creates a fresh guardian flow instead of reopening a completed flow", async () => {
+    resetTaskFlowRegistryForTests();
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const job: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "fresh-guardian-flow-job",
+      reliability: {
+        version: 1,
+        programId: "fresh-guardian-flow",
+        ownerAgentId: "dev",
+        criticality: "high",
+        maxLatenessMs: 300_000,
+        catchUpPolicy: "run_latest",
+        idempotencyScope: "schedule_window",
+        resourceClaims: [{ resource: "local-model", mode: "exclusive" }],
+        sideEffectClass: "owned_state",
+        approvalClass: "automatic",
+        preflight: [],
+        completionProof: ["task_terminal"],
+      },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [job] });
+    const completed = createManagedTaskFlow({
+      controllerId: "schedule-guardian",
+      ownerKey: `schedule-guardian:${job.id}`,
+      status: "succeeded",
+      goal: "completed recovery",
+      currentStep: "done",
+      stateJson: {},
+      createdAt: now - 120_000,
+      updatedAt: now - 60_000,
+      endedAt: now - 60_000,
+    });
+    expect(completed).not.toBeNull();
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      resolveScheduledProgramCompetingWork: () => ({
+        kind: "unknown",
+        workId: "task:existing",
+      }),
+    });
+
+    await onTimer(state);
+
+    const flows = listTaskFlowRecords().filter(
+      (entry) => entry.ownerKey === `schedule-guardian:${job.id}`,
+    );
+    expect(flows).toHaveLength(2);
+    expect(flows.map((entry) => entry.status).toSorted()).toEqual(["succeeded", "waiting"]);
+  });
+
+  it("creates a resume obligation and executes it on the next admitted retry", async () => {
+    resetTaskFlowRegistryForTests();
+    const { storePath } = await makeStorePath();
+    let now = Date.parse("2026-03-23T12:00:00.000Z");
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const job: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "resume-recovery-job",
+      reliability: {
+        version: 1,
+        programId: "resume-recovery",
+        ownerAgentId: "dev",
+        criticality: "high",
+        maxLatenessMs: 300_000,
+        catchUpPolicy: "resume",
+        idempotencyScope: "run",
+        resourceClaims: [],
+        sideEffectClass: "owned_state",
+        approvalClass: "automatic",
+        preflight: [],
+        completionProof: ["task_terminal"],
+      },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [job] });
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+      resolveScheduledProgramPreflight: ({ checks }) => checks,
+    });
+
+    await onTimer(state);
+    expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+    const deferred = await loadCronStore(storePath);
+    const retryAt = deferred.jobs[0]?.state.nextRunAtMs;
+    expect(retryAt).toBeGreaterThan(now);
+    if (typeof retryAt !== "number") {
+      throw new Error("expected resume retry timestamp");
+    }
+
+    now = retryAt;
+    await onTimer(state);
+
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    const flow = listTaskFlowRecords().find(
+      (entry) => entry.ownerKey === `schedule-guardian:${job.id}`,
+    );
+    expect(flow?.status).toBe("succeeded");
+    if (!flow) {
+      throw new Error("expected completed resume flow");
+    }
+    expect(listRecoveryObligations(flow)).toEqual([
+      expect.objectContaining({ catchUpPolicy: "resume", status: "completed" }),
+    ]);
+  });
+
+  it("fails closed when declared preflight proof is unavailable", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const job: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      reliability: {
+        version: 1,
+        programId: "preflight-required",
+        ownerAgentId: "dev",
+        criticality: "high",
+        maxLatenessMs: 60_000,
+        catchUpPolicy: "run_latest",
+        idempotencyScope: "schedule_window",
+        resourceClaims: [],
+        sideEffectClass: "owned_state",
+        approvalClass: "automatic",
+        preflight: ["model_ready"],
+        completionProof: ["task_terminal"],
+      },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [job] });
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+    });
+    await onTimer(state);
+    expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+  });
+
+  it("requires every declared completion proof", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const job: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      reliability: {
+        version: 1,
+        programId: "proof-required",
+        ownerAgentId: "dev",
+        criticality: "high",
+        maxLatenessMs: 60_000,
+        catchUpPolicy: "run_latest",
+        idempotencyScope: "schedule_window",
+        resourceClaims: [],
+        sideEffectClass: "read_only",
+        approvalClass: "automatic",
+        preflight: [],
+        completionProof: ["task_terminal", "authoritative_readback"],
+      },
+    };
+    const base = {
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+    };
+    const missing = await verifyScheduledProgramCompletionProof({
+      state: createCronServiceState(base),
+      job,
+      scheduledFor: now,
+      status: "ok",
+      endedAt: now + 1,
+    });
+    expect(missing).toMatchObject({
+      verified: false,
+      missing: ["authoritative_readback"],
+    });
+    const verified = await verifyScheduledProgramCompletionProof({
+      state: createCronServiceState({
+        ...base,
+        resolveScheduledProgramCompletionProof: ({ proofs }) => proofs,
+      }),
+      job,
+      scheduledFor: now,
+      status: "ok",
+      endedAt: now + 1,
+    });
+    expect(verified).toMatchObject({ verified: true, missing: [] });
+  });
+
+  it("turns an unproven contracted success into an error and emits an approval decision", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const onReliabilityDecision = vi.fn();
+    const job: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      reliability: {
+        version: 1,
+        programId: "proof-enforced",
+        ownerAgentId: "dev",
+        criticality: "high",
+        maxLatenessMs: 60_000,
+        catchUpPolicy: "run_latest",
+        idempotencyScope: "schedule_window",
+        resourceClaims: [],
+        sideEffectClass: "read_only",
+        approvalClass: "automatic",
+        preflight: [],
+        completionProof: ["task_terminal", "artifact_digest"],
+      },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [job] });
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
+      onReliabilityDecision,
+    });
+    await onTimer(state);
+    const persisted = await loadCronStore(storePath);
+    expect(persisted.jobs[0]?.state.lastRunStatus).toBe("error");
+    expect(persisted.jobs[0]?.state.lastError).toContain("artifact_digest");
+    expect(onReliabilityDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "approval_required",
+        reason: "completion_proof_failed",
+      }),
+    );
+  });
   it("routes main cron jobs onto a cron run lane derived from the target agent", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.parse("2026-03-23T12:00:00.000Z");
@@ -198,6 +543,216 @@ describe("cron service timer seam coverage", () => {
     expect(positiveDelays.length).toBeGreaterThan(0);
 
     timeoutSpy.mockRestore();
+  });
+
+  it("fails closed at the normal timer boundary when running work is unknown", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const resolveScheduledProgramCompetingWork = vi.fn(() => ({
+      kind: "unknown" as const,
+      workId: "task-flow:unverified",
+    }));
+    const job: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      reliability: {
+        version: 1,
+        programId: "pattern-lab.daily",
+        ownerAgentId: "publisher-scheduler",
+        criticality: "high",
+        maxLatenessMs: 300_000,
+        catchUpPolicy: "run_latest",
+        idempotencyScope: "schedule_window",
+        resourceClaims: [{ resource: "local-model", mode: "shared" }],
+        sideEffectClass: "owned_state",
+        approvalClass: "automatic",
+        preflight: ["model_ready"],
+        completionProof: ["task_terminal"],
+      },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [job] });
+
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+      resolveScheduledProgramCompetingWork,
+    });
+
+    await onTimer(state);
+
+    expect(resolveScheduledProgramCompetingWork).toHaveBeenCalledWith({
+      job: expect.objectContaining({ id: job.id, reliability: job.reliability }),
+      scheduledFor: now - 1,
+      now,
+    });
+    expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+    const persisted = await loadCronStore(storePath);
+    expect(persisted.jobs[0]?.state.nextRunAtMs).toBeGreaterThan(now);
+    expect(persisted.jobs[0]?.state.lastRunStatus).toBeUndefined();
+  });
+
+  it("does not reserve two same-resource contracted jobs in one timer tick", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const reliability = {
+      version: 1 as const,
+      programId: "local-model.schedule",
+      ownerAgentId: "scheduler",
+      criticality: "high" as const,
+      maxLatenessMs: 300_000,
+      catchUpPolicy: "run_latest" as const,
+      idempotencyScope: "schedule_window" as const,
+      resourceClaims: [{ resource: "local-model", mode: "exclusive" as const }],
+      sideEffectClass: "owned_state" as const,
+      approvalClass: "automatic" as const,
+      preflight: ["model_ready" as const],
+      completionProof: ["task_terminal" as const],
+    };
+    const first: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "first-resource-job",
+      reliability,
+    };
+    const second: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "second-resource-job",
+      reliability: { ...reliability, programId: "local-model.schedule.second" },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [first, second] });
+
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+      resolveScheduledProgramCompetingWork: () => undefined,
+      resolveScheduledProgramPreflight: ({ checks }) => checks,
+    });
+
+    await onTimer(state);
+
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    const persisted = await loadCronStore(storePath);
+    expect(persisted.jobs.find((job) => job.id === "first-resource-job")?.state.lastRunStatus).toBe(
+      "ok",
+    );
+    expect(
+      persisted.jobs.find((job) => job.id === "second-resource-job")?.state.nextRunAtMs,
+    ).toBeGreaterThan(now);
+  });
+
+  it("admits the higher-criticality same-resource job first", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const reliability = {
+      version: 1 as const,
+      programId: "local-model.schedule",
+      ownerAgentId: "scheduler",
+      criticality: "low" as const,
+      maxLatenessMs: 300_000,
+      catchUpPolicy: "run_latest" as const,
+      idempotencyScope: "schedule_window" as const,
+      resourceClaims: [{ resource: "local-model", mode: "exclusive" as const }],
+      sideEffectClass: "owned_state" as const,
+      approvalClass: "automatic" as const,
+      preflight: ["model_ready" as const],
+      completionProof: ["task_terminal" as const],
+    };
+    const low: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "low-resource-job",
+      reliability,
+    };
+    const critical: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "critical-resource-job",
+      reliability: {
+        ...reliability,
+        programId: "local-model.schedule.critical",
+        criticality: "critical",
+      },
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [low, critical] });
+
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+      resolveScheduledProgramCompetingWork: () => undefined,
+      resolveScheduledProgramPreflight: ({ checks }) => checks,
+    });
+
+    await onTimer(state);
+
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    const persisted = await loadCronStore(storePath);
+    expect(
+      persisted.jobs.find((job) => job.id === "critical-resource-job")?.state.lastRunStatus,
+    ).toBe("ok");
+    expect(
+      persisted.jobs.find((job) => job.id === "low-resource-job")?.state.nextRunAtMs,
+    ).toBeGreaterThan(now);
+  });
+
+  it("keeps independent same-tick resource reservations known", async () => {
+    const { storePath } = await makeStorePath();
+    const now = Date.parse("2026-03-23T12:00:00.000Z");
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const reliability = (programId: string, resource: string) => ({
+      version: 1 as const,
+      programId,
+      ownerAgentId: "scheduler",
+      criticality: "high" as const,
+      maxLatenessMs: 300_000,
+      catchUpPolicy: "run_latest" as const,
+      idempotencyScope: "schedule_window" as const,
+      resourceClaims: [{ resource, mode: "exclusive" as const }],
+      sideEffectClass: "owned_state" as const,
+      approvalClass: "automatic" as const,
+      preflight: ["model_ready" as const],
+      completionProof: ["task_terminal" as const],
+    });
+    const first: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "first-independent-resource-job",
+      reliability: reliability("resource.schedule.first", "local-model-a"),
+    };
+    const second: CronJob = {
+      ...createDueIsolatedAgentJob({ now }),
+      id: "second-independent-resource-job",
+      reliability: reliability("resource.schedule.second", "local-model-b"),
+    };
+    await writeCronStoreSnapshot({ storePath, jobs: [first, second] });
+
+    const state = createCronServiceState({
+      storePath,
+      cronEnabled: true,
+      log: logger,
+      nowMs: () => now,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeat: vi.fn(),
+      runIsolatedAgentJob,
+      resolveScheduledProgramCompetingWork: () => undefined,
+      resolveScheduledProgramPreflight: ({ checks }) => checks,
+    });
+
+    await onTimer(state);
+
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(2);
   });
 
   it("runs command cron jobs without isolated agent setup", async () => {

@@ -2,6 +2,12 @@
 import type { CronConfig } from "../../config/types.cron.js";
 import type { HeartbeatRunResult, HeartbeatWakeRequest } from "../../infra/heartbeat-wake.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
+import type {
+  ScheduledProgramCompletionProof,
+  ScheduledProgramPreflightCheck,
+} from "../reliability-contract.js";
+import type { ScheduledProgramReliabilityEvent } from "../reliability-events.js";
+import type { ScheduleGuardianCompetingWork } from "../schedule-guardian.js";
 import type { QuarantinedCronConfigJob } from "../store.js";
 import type {
   CronAgentExecutionPhaseUpdate,
@@ -90,6 +96,36 @@ export type CronServiceDeps = {
    * Keeps model/tool bootstrap work out of the channel connect window.
    */
   startupDeferredMissedAgentJobDelayMs?: number;
+  /** Resolve bounded competing work; errors and unavailable state fail closed. */
+  resolveScheduledProgramCompetingWork?: (params: {
+    job: Pick<CronJob, "id" | "reliability">;
+    scheduledFor: number;
+    now: number;
+  }) =>
+    | ScheduleGuardianCompetingWork
+    | undefined
+    | Promise<ScheduleGuardianCompetingWork | undefined>;
+  /** Proves every declared fail-before-run check. Omitted or partial proof fails closed. */
+  resolveScheduledProgramPreflight?: (params: {
+    job: CronJob;
+    scheduledFor: number;
+    now: number;
+    checks: readonly ScheduledProgramPreflightCheck[];
+  }) =>
+    | readonly ScheduledProgramPreflightCheck[]
+    | Promise<readonly ScheduledProgramPreflightCheck[]>;
+  /** Supplies authoritative proof that cannot be inferred from the terminal cron outcome. */
+  resolveScheduledProgramCompletionProof?: (params: {
+    job: CronJob;
+    scheduledFor: number;
+    status: CronRunStatus;
+    endedAt: number;
+    proofs: readonly ScheduledProgramCompletionProof[];
+  }) =>
+    | readonly ScheduledProgramCompletionProof[]
+    | Promise<readonly ScheduledProgramCompletionProof[]>;
+  /** Receives sanitized admission/recovery decisions for plugin and UI observers. */
+  onReliabilityDecision?: (event: ScheduledProgramReliabilityEvent) => void;
   enqueueSystemEvent: (
     text: string,
     opts?: {
@@ -199,6 +235,8 @@ export type CronServiceState = {
   pendingQuarantineConfigJobs: QuarantinedCronConfigJob[];
   lastQuarantineFailureWarnKey: string | null;
   storeLoadedAtMs: number | null;
+  /** Jobs whose reliability policy deferred a startup catch-up attempt. */
+  pendingCatchupDeferralJobIds: Set<string>;
 };
 
 /** Creates mutable cron service state with a concrete clock dependency. */
@@ -214,6 +252,7 @@ export function createCronServiceState(deps: CronServiceDeps): CronServiceState 
     pendingQuarantineConfigJobs: [],
     lastQuarantineFailureWarnKey: null,
     storeLoadedAtMs: null,
+    pendingCatchupDeferralJobIds: new Set<string>(),
   };
 }
 

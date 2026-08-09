@@ -120,6 +120,12 @@ The flow registry uses SQLite with bounded write-ahead-log maintenance, includin
 periodic and shutdown checkpoints, so long-running gateways do not retain
 unbounded `registry.sqlite-wal` sidecar files.
 
+### Scheduled-program recovery obligations
+
+Cron reliability admission stores deferred or approval-bound work in the managed flow's `openclaw.recoveryObligations.v1` state namespace. Each obligation binds the program, flow, schedule window, catch-up policy, proof requirements, timestamps, and a deterministic idempotency identity. Writes use the flow registry's expected-revision update path and retry only bounded revision conflicts.
+
+Malformed timestamps, forged obligation ids, non-object flow state, restore failures, and terminal-state downgrades are rejected. A completed or skipped obligation is never returned to pending. A recovery is completed only after every declared proof is verified, at which point its owning flow becomes terminal; otherwise the obligation remains approval-gated. Task Flow remains the recovery authority; observing plugins receive only sanitized reliability events and cannot grant execution authority.
+
 ## Cancel behavior
 
 `openclaw tasks flow cancel` sets a sticky cancel intent on the flow. Active tasks within the flow are cancelled, and no new steps are started. The cancel intent persists across restarts, so a cancelled flow stays cancelled even if the gateway restarts before all child tasks have terminated.

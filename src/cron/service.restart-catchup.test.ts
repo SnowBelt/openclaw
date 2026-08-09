@@ -1,8 +1,18 @@
 // Restart catchup tests cover cron jobs missed while the service was stopped.
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listRecoveryObligations } from "../tasks/recovery-obligations.js";
+import {
+  configureTaskFlowRegistryRuntime,
+  resetTaskFlowRegistryRuntimeForTests,
+} from "../tasks/task-flow-registry.store.js";
+import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
+import {
+  listTaskFlowRecords,
+  resetTaskFlowRegistryForTests,
+} from "../tasks/task-flow-runtime-internal.js";
 import { CronService } from "./service.js";
 import { setupCronServiceSuite } from "./service.test-harness.js";
-import type { CronEvent } from "./service/state.js";
+import type { CronEvent, CronServiceDeps } from "./service/state.js";
 import { createCronServiceState } from "./service/state.js";
 import { runMissedJobs } from "./service/timer.js";
 import { saveCronStore } from "./store.js";
@@ -14,6 +24,32 @@ const { logger: noopLogger, makeStorePath } = setupCronServiceSuite({
 });
 
 describe("CronService restart catch-up", () => {
+  let flowSnapshot = new Map<string, TaskFlowRecord>();
+
+  beforeEach(() => {
+    resetTaskFlowRegistryForTests({ persist: false });
+    flowSnapshot = new Map();
+    configureTaskFlowRegistryRuntime({
+      store: {
+        loadSnapshot: () => ({ flows: new Map(flowSnapshot) }),
+        saveSnapshot: (snapshot) => {
+          flowSnapshot = new Map(snapshot.flows);
+        },
+        upsertFlow: (flow) => {
+          flowSnapshot.set(flow.flowId, structuredClone(flow));
+        },
+        deleteFlow: (flowId) => {
+          flowSnapshot.delete(flowId);
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    resetTaskFlowRegistryForTests({ persist: false });
+    resetTaskFlowRegistryRuntimeForTests();
+  });
+
   async function writeStoreJobs(storePath: string, jobs: CronJob[]) {
     await saveCronStore(storePath, { version: 1, jobs });
   }
@@ -26,6 +62,7 @@ describe("CronService restart catch-up", () => {
     nowMs?: () => number;
     runIsolatedAgentJob?: ReturnType<typeof vi.fn>;
     startupDeferredMissedAgentJobDelayMs?: number;
+    resolveScheduledProgramCompetingWork?: CronServiceDeps["resolveScheduledProgramCompetingWork"];
   }) {
     return new CronService({
       storePath: params.storePath,
@@ -37,9 +74,13 @@ describe("CronService restart catch-up", () => {
       runIsolatedAgentJob:
         (params.runIsolatedAgentJob as never) ??
         (vi.fn(async () => ({ status: "ok" as const })) as never),
+      resolveScheduledProgramPreflight: ({ checks }) => checks,
       onEvent: params.onEvent as ((evt: CronEvent) => void) | undefined,
       ...(params.startupDeferredMissedAgentJobDelayMs !== undefined
         ? { startupDeferredMissedAgentJobDelayMs: params.startupDeferredMissedAgentJobDelayMs }
+        : {}),
+      ...(params.resolveScheduledProgramCompetingWork
+        ? { resolveScheduledProgramCompetingWork: params.resolveScheduledProgramCompetingWork }
         : {}),
     });
   }
@@ -71,6 +112,32 @@ describe("CronService restart catch-up", () => {
       wakeMode: "next-heartbeat",
       payload: { kind: "systemEvent", text: `tick-${id}` },
       state: { nextRunAtMs },
+    };
+  }
+
+  function withReliability(
+    job: CronJob,
+    params: {
+      catchUpPolicy: NonNullable<CronJob["reliability"]>["catchUpPolicy"];
+      approvalClass?: NonNullable<CronJob["reliability"]>["approvalClass"];
+    },
+  ): CronJob {
+    return {
+      ...job,
+      reliability: {
+        version: 1,
+        programId: `program:${job.id}`,
+        ownerAgentId: "schedule-owner",
+        criticality: "high",
+        maxLatenessMs: 60_000,
+        catchUpPolicy: params.catchUpPolicy,
+        idempotencyScope: "schedule_window",
+        resourceClaims: [{ resource: "gateway", mode: "shared" }],
+        sideEffectClass: "owned_state",
+        approvalClass: params.approvalClass ?? "automatic",
+        preflight: ["resources_ready"],
+        completionProof: ["task_terminal"],
+      },
     };
   }
 
@@ -126,6 +193,9 @@ describe("CronService restart catch-up", () => {
       requestHeartbeat: ReturnType<typeof vi.fn>;
       onEvent: ReturnType<typeof vi.fn>;
     }) => Promise<void>,
+    opts?: {
+      resolveScheduledProgramCompetingWork?: CronServiceDeps["resolveScheduledProgramCompetingWork"];
+    },
   ) {
     const store = await makeStorePath();
     const enqueueSystemEvent = vi.fn();
@@ -139,6 +209,9 @@ describe("CronService restart catch-up", () => {
       enqueueSystemEvent,
       requestHeartbeat,
       onEvent,
+      ...(opts?.resolveScheduledProgramCompetingWork
+        ? { resolveScheduledProgramCompetingWork: opts.resolveScheduledProgramCompetingWork }
+        : {}),
     });
 
     try {
@@ -183,6 +256,101 @@ describe("CronService restart catch-up", () => {
         expect(updated?.state.lastRunAtMs).toBe(Date.parse("2025-12-13T17:00:00.000Z"));
         expect(updated?.state.nextRunAtMs).toBeGreaterThan(Date.parse("2025-12-13T17:00:00.000Z"));
       },
+    );
+  });
+
+  it("records and consumes a skipped startup slot before deferring it", async () => {
+    const dueAt = Date.parse("2025-12-13T16:59:30.000Z");
+    await withRestartedCron(
+      [withReliability(createOverdueCronJob("skip-contract", dueAt), { catchUpPolicy: "skip" })],
+      async ({ cron, enqueueSystemEvent, onEvent }) => {
+        expect(enqueueSystemEvent).not.toHaveBeenCalled();
+        const job = (await cron.list({ includeDisabled: true }))[0];
+        expect(job?.state.lastRunStatus).toBe("skipped");
+        expect(job?.state.nextRunAtMs).toBeGreaterThan(Date.parse("2025-12-13T17:00:00.000Z"));
+        expect(onEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: "finished",
+            jobId: "skip-contract",
+            status: "skipped",
+          }),
+        );
+        const flows = listTaskFlowRecords();
+        expect(flows).toHaveLength(1);
+        expect(flows[0]?.status).toBe("succeeded");
+        expect(listRecoveryObligations(flows[0])[0]).toMatchObject({
+          catchUpPolicy: "skip",
+          status: "skipped",
+          reason: "gateway_restart",
+        });
+      },
+    );
+  });
+
+  it("persists an approval-required recovery obligation instead of running", async () => {
+    const dueAt = Date.parse("2025-12-13T16:59:30.000Z");
+    await withRestartedCron(
+      [
+        withReliability(createOverdueCronJob("manual-contract", dueAt), {
+          catchUpPolicy: "manual",
+          approvalClass: "operator",
+        }),
+      ],
+      async ({ cron, enqueueSystemEvent }) => {
+        expect(enqueueSystemEvent).not.toHaveBeenCalled();
+        const job = (await cron.list({ includeDisabled: true }))[0];
+        expect(job?.state.lastError).toBe("startup catch-up requires operator approval");
+        const flows = listTaskFlowRecords();
+        expect(flows).toHaveLength(1);
+        expect(flows[0]?.status).toBe("waiting");
+        expect(listRecoveryObligations(flows[0])[0]).toMatchObject({
+          catchUpPolicy: "manual",
+          status: "approval_required",
+        });
+      },
+    );
+  });
+
+  it("runs an automatic run-latest contract through the legacy execution path", async () => {
+    const dueAt = Date.parse("2025-12-13T16:59:30.000Z");
+    await withRestartedCron(
+      [
+        withReliability(createOverdueCronJob("run-latest-contract", dueAt), {
+          catchUpPolicy: "run_latest",
+        }),
+      ],
+      async ({ enqueueSystemEvent }) => {
+        expectQueuedSystemEvent(enqueueSystemEvent, "tick-run-latest-contract");
+        expect(listTaskFlowRecords()).toHaveLength(0);
+      },
+    );
+  });
+
+  it("fails closed during startup when contracted competing work is unknown", async () => {
+    const dueAt = Date.parse("2025-12-13T16:59:30.000Z");
+    const resolver = vi.fn(() => ({
+      kind: "unknown" as const,
+      workId: "task-flow:unverified",
+    }));
+    await withRestartedCron(
+      [
+        withReliability(createOverdueCronJob("unknown-startup-work", dueAt), {
+          catchUpPolicy: "run_latest",
+        }),
+      ],
+      async ({ cron, enqueueSystemEvent }) => {
+        expect(enqueueSystemEvent).not.toHaveBeenCalled();
+        expect(resolver).toHaveBeenCalled();
+        const job = (await cron.list({ includeDisabled: true }))[0];
+        expect(job?.state.nextRunAtMs).toBeGreaterThan(Date.parse("2025-12-13T17:00:00.000Z"));
+        const flows = listTaskFlowRecords();
+        expect(flows).toHaveLength(1);
+        expect(listRecoveryObligations(flows[0])[0]).toMatchObject({
+          reason: "unknown_competing_work",
+          status: "pending",
+        });
+      },
+      { resolveScheduledProgramCompetingWork: resolver },
     );
   });
 

@@ -115,6 +115,8 @@ export type LlmCompleteParams = {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** Explicit reasoning policy; trusted callers should not rely on model defaults. */
+  reasoning?: import("../../auto-reply/thinking.js").ThinkLevel;
   systemPrompt?: string;
   signal?: AbortSignal;
   /** Human-readable reason for audit/debug output. */

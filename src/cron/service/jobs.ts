@@ -6,6 +6,7 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import { parseAbsoluteTimeMs } from "../parse.js";
+import { parseScheduledProgramReliabilityContract } from "../reliability-contract.js";
 import {
   coerceFiniteScheduleNumber,
   computeNextRunAtMs,
@@ -673,16 +674,34 @@ export function recomputeNextRunsForMaintenance(
 ): boolean {
   const recomputeExpired = opts?.recomputeExpired ?? false;
   const repairFutureCronNextRunAtMs = opts?.repairFutureCronNextRunAtMs ?? true;
+  const deferralIds = state.pendingCatchupDeferralJobIds ?? new Set<string>();
+  if (state.store && deferralIds.size > 0) {
+    const relevant = new Set(
+      state.store.jobs.filter((job) => isJobEnabled(job)).map((job) => job.id),
+    );
+    for (const jobId of deferralIds) {
+      if (!relevant.has(jobId)) {
+        deferralIds.delete(jobId);
+      }
+    }
+  }
   return walkSchedulableJobs(
     state,
     ({ job, nowMs: now }) => {
       let changed = false;
+      if (deferralIds.has(job.id)) {
+        const nextRun = job.state.nextRunAtMs;
+        if (hasScheduledNextRunAtMs(nextRun) && now >= nextRun) {
+          deferralIds.delete(job.id);
+        }
+      }
       if (!hasScheduledNextRunAtMs(job.state.nextRunAtMs)) {
         if (recomputeJobNextRunAtMs({ state, job, nowMs: now })) {
           changed = true;
         }
       } else if (
         repairFutureCronNextRunAtMs &&
+        !deferralIds.has(job.id) &&
         shouldRepairFutureCronNextRunAtMs({ state, job, nowMs: now })
       ) {
         if (recomputeJobNextRunAtMs({ state, job, nowMs: now })) {
@@ -769,6 +788,12 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
         ? true
         : undefined;
   const enabled = typeof input.enabled === "boolean" ? input.enabled : true;
+  const reliability = input.reliability
+    ? parseScheduledProgramReliabilityContract(input.reliability)
+    : undefined;
+  if (input.reliability && !reliability) {
+    throw new Error("cron reliability contract is invalid");
+  }
   const job: CronJob = {
     id,
     agentId: normalizeOptionalAgentId(input.agentId),
@@ -785,6 +810,7 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
     payload: input.payload,
     delivery: resolveInitialCronDelivery(input),
     failureAlert: input.failureAlert,
+    ...(reliability ? { reliability } : {}),
     state: {
       ...input.state,
     },
@@ -850,6 +876,17 @@ export function applyJobPatch(
   }
   if ("failureAlert" in patch) {
     job.failureAlert = mergeCronFailureAlert(job.failureAlert, patch.failureAlert);
+  }
+  if ("reliability" in patch) {
+    if (patch.reliability === undefined || patch.reliability === null) {
+      delete job.reliability;
+    } else {
+      const reliability = parseScheduledProgramReliabilityContract(patch.reliability);
+      if (!reliability) {
+        throw new Error("cron reliability contract is invalid");
+      }
+      job.reliability = reliability;
+    }
   }
   if (
     job.sessionTarget === "main" &&

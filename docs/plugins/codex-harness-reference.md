@@ -373,16 +373,13 @@ If discovery fails or times out, OpenClaw uses a bundled fallback catalog for:
 - GPT-5.4 mini
 - GPT-5.2
 
-The current bundled harness is `@openai/codex` `0.139.0`. A `model/list` probe
-against that bundled app-server returned:
-
-| Model id        | Default | Hidden | Input modalities | Reasoning efforts        |
-| --------------- | ------- | ------ | ---------------- | ------------------------ |
-| `gpt-5.5`       | Yes     | No     | text, image      | low, medium, high, xhigh |
-| `gpt-5.4`       | No      | No     | text, image      | low, medium, high, xhigh |
-| `gpt-5.4-mini`  | No      | No     | text, image      | low, medium, high, xhigh |
-| `gpt-5.3-codex` | No      | No     | text, image      | low, medium, high, xhigh |
-| `gpt-5.2`       | No      | No     | text, image      | low, medium, high, xhigh |
+The current bundled harness is `@openai/codex` `0.144.3`. The authorized local
+account probe on 2026-08-09 returned no app-server models, so there is no
+account-scoped catalog snapshot to publish for this version. The live harness
+smoke still passed using the explicit `codex/gpt-5.6-luna` Max policy. Use
+`/codex models` to inspect the catalog for the active account; the documented
+"No Codex app-server models returned." response is valid when the account does
+not expose a list.
 
 Hidden models can be returned by the app-server catalog for internal or
 specialized flows, but they are not normal model-picker choices.

@@ -10,6 +10,8 @@ import type {
 } from "../setup.js";
 import { registerProviders, requireProvider } from "./contracts-testkit.js";
 
+const OPENAI_CODEX_DEFAULT_MODEL = "openai/gpt-5.6-luna";
+
 type LoginOpenAICodexOAuth = (params: unknown) => Promise<{
   access: string;
   refresh: string;
@@ -99,12 +101,12 @@ function buildOpenAICodexOAuthResult(params: {
       agents: {
         defaults: {
           models: {
-            "openai/gpt-5.5": {},
+            [OPENAI_CODEX_DEFAULT_MODEL]: {},
           },
         },
       },
     },
-    defaultModel: "openai/gpt-5.5",
+    defaultModel: OPENAI_CODEX_DEFAULT_MODEL,
     notes: undefined,
   };
 }

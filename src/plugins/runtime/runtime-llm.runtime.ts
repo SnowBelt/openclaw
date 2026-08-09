@@ -449,6 +449,7 @@ export function createRuntimeLlm(options: CreateRuntimeLlmOptions = {}): PluginR
         options: {
           maxTokens: finiteOption(params.maxTokens),
           temperature: finiteOption(params.temperature),
+          reasoning: params.reasoning,
           signal: params.signal,
         },
       });
