@@ -1,4 +1,8 @@
 // Openai plugin module implements thinking policy behavior.
+import {
+  isCodexPolicyManagedModel,
+  resolveCodexMaxReasoningEffort,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 import type { ProviderThinkingProfile } from "openclaw/plugin-sdk/plugin-entry";
 
 const OPENAI_THINKING_BASE_LEVELS = [
@@ -53,7 +57,11 @@ function buildOpenAIThinkingProfile(params: {
       ...(matchesExactOrPrefix(params.modelId, params.xhighModelIds)
         ? [{ id: "xhigh" as const }]
         : []),
+      ...(isCodexPolicyManagedModel(params.modelId) ? [{ id: "max" as const }] : []),
     ],
+    ...(isCodexPolicyManagedModel(params.modelId) && resolveCodexMaxReasoningEffort(params.modelId)
+      ? { defaultLevel: "max" as const }
+      : {}),
   };
 }
 

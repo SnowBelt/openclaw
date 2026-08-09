@@ -441,6 +441,18 @@ function buildEmptyCodexToolTelemetry(): CodexAppServerToolTelemetry {
 setupRunAttemptTestHooks();
 
 describe("runCodexAppServerAttempt", () => {
+  it("fails closed before app-server startup for a below-floor Codex harness run", async () => {
+    const params = createParams(
+      path.join(tempDir, "policy-session.jsonl"),
+      path.join(tempDir, "policy-workspace"),
+    );
+    params.agentHarnessId = "codex";
+
+    await expect(runCodexAppServerAttempt(params)).rejects.toThrow(
+      "below the enforced floor gpt-5.6-luna",
+    );
+  });
+
   it("recreates cached Codex workspace directories after cleanup removes them", async () => {
     const workspaceDir = path.join(tempDir, "cached-workspace");
 

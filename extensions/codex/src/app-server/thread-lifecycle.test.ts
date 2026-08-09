@@ -1051,7 +1051,13 @@ describe("resolveReasoningEffort (#71946)", () => {
       expect(resolveReasoningEffort("adaptive", "gpt-4o")).toBeNull();
     });
 
-    it("returns null for 'max' (non-effort enum value)", () => {
+    it("maps canonical max to each GPT-5.6 model's advertised maximum effort", () => {
+      expect(resolveReasoningEffort("max", "gpt-5.6-sol")).toBe("ultra");
+      expect(resolveReasoningEffort("max", "gpt-5.6-terra")).toBe("ultra");
+      expect(resolveReasoningEffort("max", "gpt-5.6-luna")).toBe("max");
+    });
+
+    it("returns null for 'max' when the model does not advertise a provider maximum", () => {
       expect(resolveReasoningEffort("max", "gpt-5.5")).toBeNull();
       expect(resolveReasoningEffort("max", "gpt-4o")).toBeNull();
     });

@@ -1,5 +1,6 @@
 // Crestodian operations parse, approve, execute, and audit setup-helper commands.
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
+import { CODEX_DEFAULT_MODEL_ID } from "../agents/harness/codex-model-policy.js";
 import type { ConfigSetOptions } from "../cli/config-set-input.js";
 import type { DoctorOptions } from "../commands/doctor.types.js";
 import { buildAgentMainSessionKey, normalizeAgentId } from "../routing/session-key.js";
@@ -128,7 +129,7 @@ const PLUGIN_UNINSTALL_RE =
 const OPENAI_API_DEFAULT_MODEL_REF = `${DEFAULT_PROVIDER}/${DEFAULT_MODEL}`;
 const ANTHROPIC_API_DEFAULT_MODEL_REF = "anthropic/claude-opus-4-8";
 const CLAUDE_CLI_DEFAULT_MODEL_REF = "claude-cli/claude-opus-4-8";
-const CODEX_APP_SERVER_DEFAULT_MODEL_REF = "openai/gpt-5.5";
+const CODEX_APP_SERVER_DEFAULT_MODEL_REF = `openai/${CODEX_DEFAULT_MODEL_ID}`;
 
 /** Parse one user command into Crestodian's closed operation union. */
 export function parseCrestodianOperation(input: string): CrestodianOperation {

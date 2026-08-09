@@ -81,7 +81,7 @@ const CODEX_HARNESS_AUTH_MODE =
 const describeLive = LIVE && CODEX_HARNESS_LIVE ? describe : describe.skip;
 const describeDisabled = LIVE && !CODEX_HARNESS_LIVE ? describe : describe.skip;
 const CODEX_HARNESS_TIMEOUT_MS = 900_000;
-const DEFAULT_CODEX_MODEL = "codex/gpt-5.5";
+const DEFAULT_CODEX_MODEL = "codex/gpt-5.6-luna";
 const GATEWAY_CONNECT_TIMEOUT_MS = 60_000;
 
 type CapturedAgentEvent = {
@@ -285,7 +285,7 @@ async function requestAgentTextWithEvents(params: {
         idempotencyKey: `idem-${randomUUID()}-codex-guardian`,
         message: params.message,
         deliver: false,
-        thinking: "low",
+        thinking: "max",
         timeout: CODEX_HARNESS_AGENT_TIMEOUT_SECONDS,
       },
       { expectFinal: true, timeoutMs: CODEX_HARNESS_REQUEST_TIMEOUT_MS },
@@ -554,7 +554,7 @@ async function verifyCodexImageProbe(params: {
           },
         ],
         deliver: false,
-        thinking: "low",
+        thinking: "max",
         timeout: CODEX_HARNESS_AGENT_TIMEOUT_SECONDS,
       },
       { expectFinal: true, timeoutMs: CODEX_HARNESS_REQUEST_TIMEOUT_MS },
@@ -734,7 +734,7 @@ async function verifyCodexCronMcpProbe(params: {
           exactReply: cronProbe.name,
         }),
         deliver: false,
-        thinking: "low",
+        thinking: "max",
       },
       { expectFinal: true, timeoutMs: CODEX_HARNESS_REQUEST_TIMEOUT_MS },
     );
@@ -875,7 +875,7 @@ async function verifyCodexSubagentProbe(params: {
       {
         task: `Reply exactly ${expectedToken} and nothing else.`,
         agentId: "dev",
-        thinking: "low",
+        thinking: "max",
         mode: "run",
         cleanup: "keep",
         context: "isolated",
@@ -1109,9 +1109,11 @@ describeLive("gateway live (Codex harness)", () => {
               events: gatewayEvents,
               sessionKey,
               command: "/codex models",
-              expectedText: [...EXPECTED_CODEX_MODELS_COMMAND_TEXT],
+              expectedText: [
+                ...EXPECTED_CODEX_MODELS_COMMAND_TEXT,
+                "No Codex app-server models returned.",
+              ],
               isExpectedText: isStrictExpectedCodexModelsCommandText,
-              predicateOnly: true,
             });
             logCodexLiveStep("codex-models-command", { modelsText });
 

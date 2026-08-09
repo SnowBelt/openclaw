@@ -133,7 +133,7 @@ vi.mock("./probes.js", () => ({
 }));
 
 vi.mock("./overview.js", () => ({
-  formatCrestodianOverview: () => "Default model: openai/gpt-5.5",
+  formatCrestodianOverview: () => "Default model: openai/gpt-5.6-luna",
   loadCrestodianOverview: vi.fn(async () => ({
     defaultAgentId: "main",
     defaultModel: undefined,
@@ -538,7 +538,7 @@ describe("parseCrestodianOperation", () => {
     expectRecordFields(plan as unknown as Record<string, unknown>, {
       applied: false,
     });
-    expect(lines.join("\n")).toContain("Model choice: openai/gpt-5.5 (OPENAI_API_KEY).");
+    expect(lines.join("\n")).toContain("Model choice: openai/gpt-5.6-luna (OPENAI_API_KEY).");
 
     const result = await executeCrestodianOperation(
       { kind: "setup", workspace: "/tmp/work" },
@@ -555,7 +555,7 @@ describe("parseCrestodianOperation", () => {
     const agents = requireRecord(config.agents, "agents config");
     expectRecordFields(requireRecord(agents.defaults, "agent defaults"), {
       workspace: "/tmp/work",
-      model: { primary: "openai/gpt-5.5" },
+      model: { primary: "openai/gpt-5.6-luna" },
     });
     const auditPath = path.join(tempDir, "audit", "crestodian.jsonl");
     const audit = JSON.parse((await fs.readFile(auditPath, "utf8")).trim());
@@ -563,12 +563,12 @@ describe("parseCrestodianOperation", () => {
       audit,
       {
         operation: "crestodian.setup",
-        summary: "Bootstrapped setup with openai/gpt-5.5",
+        summary: "Bootstrapped setup with openai/gpt-5.6-luna",
       },
       {
         rescue: true,
         workspace: "/tmp/work",
-        model: "openai/gpt-5.5",
+        model: "openai/gpt-5.6-luna",
         modelSource: "OPENAI_API_KEY",
       },
     );

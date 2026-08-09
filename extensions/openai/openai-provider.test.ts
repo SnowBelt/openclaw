@@ -885,6 +885,33 @@ describe("buildOpenAIProvider", () => {
     });
   });
 
+  it("resolves the Luna baseline locally and defaults it to max effort", () => {
+    const provider = buildOpenAIProvider();
+
+    const model = provider.resolveDynamicModel?.({
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+      modelRegistry: { find: () => null },
+    } as never);
+
+    expectFields(model, {
+      provider: "openai",
+      id: "gpt-5.6-luna",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      reasoning: true,
+      contextWindow: 272_000,
+      maxTokens: 128_000,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    });
+    expect(
+      provider.resolveThinkingProfile?.({
+        provider: "openai",
+        modelId: "gpt-5.6-luna",
+      } as never),
+    ).toMatchObject({ defaultLevel: "max" });
+  });
+
   it("resolves gpt-5.5 locally without cached catalog metadata", () => {
     const provider = buildOpenAIProvider();
 
@@ -1023,6 +1050,12 @@ describe("buildOpenAIProvider", () => {
       provider.isModernModelRef?.({
         provider: "openai",
         modelId: "gpt-5.4",
+      } as never),
+    ).toBe(true);
+    expect(
+      provider.isModernModelRef?.({
+        provider: "openai",
+        modelId: "gpt-5.6-luna",
       } as never),
     ).toBe(true);
     expect(

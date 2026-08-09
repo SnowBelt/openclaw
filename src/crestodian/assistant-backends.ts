@@ -1,4 +1,5 @@
 // Crestodian planner backends choose safe local model runners available on this host.
+import { CODEX_DEFAULT_MODEL_ID } from "../agents/harness/codex-model-policy.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { CrestodianOverview } from "./overview.js";
 
@@ -9,7 +10,7 @@ import type { CrestodianOverview } from "./overview.js";
  * returned backend config is scoped to the workspace being repaired.
  */
 const CRESTODIAN_CLAUDE_CLI_MODEL = "claude-opus-4-8";
-const CRESTODIAN_CODEX_MODEL = "gpt-5.5";
+const CRESTODIAN_CODEX_MODEL = CODEX_DEFAULT_MODEL_ID;
 
 type CrestodianLocalPlannerBackend = {
   kind: "claude-cli" | "codex-app-server";

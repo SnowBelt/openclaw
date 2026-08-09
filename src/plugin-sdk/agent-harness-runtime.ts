@@ -99,6 +99,19 @@ export type {
   NativeHookRelayProvider,
   NativeHookRelayRegistrationHandle,
 } from "../agents/harness/native-hook-relay.js";
+export {
+  assertCodexModelPolicy,
+  CODEX_DEFAULT_MODEL_ID,
+  CODEX_DEFAULT_THINKING_LEVEL,
+  isCodexPolicyBaselineModel,
+  isCodexPolicyManagedModel,
+  isCodexPolicyUpgradeModel,
+  readCodexUpgradeReason,
+  readCodexUpgradeReasonFromConfig,
+  resolveCodexMaxReasoningEffort,
+  resolveCodexModelPolicy,
+  type CodexModelPolicyDecision,
+} from "../agents/harness/codex-model-policy.js";
 
 export { VERSION as OPENCLAW_VERSION } from "../version.js";
 export { formatErrorMessage } from "../infra/errors.js";

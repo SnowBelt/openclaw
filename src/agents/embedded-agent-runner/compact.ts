@@ -82,6 +82,7 @@ import { resolveOpenClawReferencePaths } from "../docs-path.js";
 import { ensureSessionHeader } from "../embedded-agent-helpers.js";
 import { pickFallbackThinkingLevel } from "../embedded-agent-helpers.js";
 import { coerceToFailoverError, describeFailoverError } from "../failover-error.js";
+import { CODEX_DEFAULT_THINKING_LEVEL } from "../harness/codex-model-policy.js";
 import { resolveAgentHarnessPolicy } from "../harness/policy.js";
 import { ensureSelectedAgentHarnessPlugin } from "../harness/runtime-plugin.js";
 import { resolveHeartbeatPromptForSystemPrompt } from "../heartbeat-system-prompt.js";
@@ -96,8 +97,8 @@ import { isFallbackSummaryError, runWithModelFallback } from "../model-fallback.
 import { supportsModelTools } from "../model-tool-support.js";
 import { ensureOpenClawModelsJson } from "../models-config.js";
 import { wrapStreamFnTextTransforms } from "../plugin-text-transforms.js";
-import { applyPreparedRuntimeAuthToModel } from "../provider-request-config.js";
 import { resolveAgentPromptSurfaceForSessionKey } from "../prompt-surface.js";
+import { applyPreparedRuntimeAuthToModel } from "../provider-request-config.js";
 import { registerProviderStreamForModel } from "../provider-stream.js";
 import { collectRuntimeChannelCapabilities } from "../runtime-capabilities.js";
 import { buildAgentRuntimePlan } from "../runtime-plan/build.js";
@@ -596,7 +597,10 @@ async function compactEmbeddedAgentSessionDirectOnce(
       workspaceDir: resolvedWorkspace,
     });
   }
-  let thinkLevel: ThinkLevel = params.thinkLevel ?? "off";
+  const codexHarnessSelected =
+    params.agentHarnessId === "codex" || selectedHarnessRuntime === "codex";
+  let thinkLevel: ThinkLevel =
+    params.thinkLevel ?? (codexHarnessSelected ? CODEX_DEFAULT_THINKING_LEVEL : "off");
   const attemptedThinking = new Set<ThinkLevel>();
   const fail = (reason: string, err?: unknown): EmbeddedAgentCompactResult => {
     const failureReason = classifyCompactionReason(reason);

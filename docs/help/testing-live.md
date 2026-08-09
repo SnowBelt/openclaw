@@ -283,8 +283,8 @@ Docker notes:
 - Goal: validate the plugin-owned Codex harness through the normal gateway
   `agent` method:
   - load the bundled `codex` plugin
-  - select `openai/gpt-5.5`, which routes OpenAI agent turns through Codex by default
-  - send a first gateway agent turn to `openai/gpt-5.5` with the Codex harness selected
+  - select `openai/gpt-5.6-luna`, which routes OpenAI agent turns through Codex by default
+  - send a first gateway agent turn to `openai/gpt-5.6-luna` with the Codex harness selected
   - send a second turn to the same OpenClaw session and verify the app-server
     thread can resume
   - run `/codex status` and `/codex models` through the same gateway command
@@ -294,7 +294,7 @@ Docker notes:
     denied so the agent asks back
 - Test: `src/gateway/gateway-codex-harness.live.test.ts`
 - Enable: `OPENCLAW_LIVE_CODEX_HARNESS=1`
-- Default model: `openai/gpt-5.5`
+- Default model: `openai/gpt-5.6-luna`
 - Optional image probe: `OPENCLAW_LIVE_CODEX_HARNESS_IMAGE_PROBE=1`
 - Optional MCP/tool probe: `OPENCLAW_LIVE_CODEX_HARNESS_MCP_PROBE=1`
 - Optional Guardian probe: `OPENCLAW_LIVE_CODEX_HARNESS_GUARDIAN_PROBE=1`
@@ -311,7 +311,7 @@ OPENCLAW_LIVE_CODEX_HARNESS=1 \
   OPENCLAW_LIVE_CODEX_HARNESS_IMAGE_PROBE=1 \
   OPENCLAW_LIVE_CODEX_HARNESS_MCP_PROBE=1 \
   OPENCLAW_LIVE_CODEX_HARNESS_GUARDIAN_PROBE=1 \
-  OPENCLAW_LIVE_CODEX_HARNESS_MODEL=openai/gpt-5.5 \
+  OPENCLAW_LIVE_CODEX_HARNESS_MODEL=openai/gpt-5.6-luna \
   pnpm test:live -- src/gateway/gateway-codex-harness.live.test.ts
 ```
 
