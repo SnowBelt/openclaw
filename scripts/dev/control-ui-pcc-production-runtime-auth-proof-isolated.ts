@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { callGateway } from "../../src/gateway/call.ts";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../../src/gateway/operator-scopes.ts";
@@ -12,6 +13,7 @@ import {
 
 const TOKEN_PATTERN = /([#?&]token=)[^&/#]+/giu;
 const PROFILE_VERSION = "2";
+const TSX_LOADER = createRequire(import.meta.url).resolve("tsx");
 
 function redact(value: string): string {
   return value.replace(TOKEN_PATTERN, "$1<redacted>");
@@ -148,7 +150,7 @@ async function runChild(params: {
   env: NodeJS.ProcessEnv;
 }): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("node", ["--import", "tsx", params.scriptPath], {
+    const child = spawn("node", ["--import", TSX_LOADER, params.scriptPath], {
       cwd: params.runtimeRoot,
       env: params.env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -190,7 +192,7 @@ async function main(): Promise<void> {
   const name = `pcc-candidate-proof-${randomUUID().slice(0, 8)}`;
   const instance = await createOpenClawTestInstance({
     name,
-    cwd: repoRoot,
+    cwd: runtimeRoot,
     env: { OPENCLAW_PCC_LIVE_E2E_PLAN_FIXTURE: "1" },
     config: { gateway: { controlUi: { enabled: true } } },
   });
@@ -209,6 +211,7 @@ async function main(): Promise<void> {
       ),
       env: {
         ...instance.env,
+        TSX_TSCONFIG_PATH: path.join(repoRoot, "tsconfig.json"),
         OPENCLAW_CONFIG_PATH: instance.configPath,
         OPENCLAW_GATEWAY_TOKEN: instance.gatewayToken,
         OPENCLAW_DASHBOARD_AUTH_URL: dashboardUrl,
