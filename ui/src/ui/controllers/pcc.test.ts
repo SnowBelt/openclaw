@@ -10,6 +10,7 @@ import {
   transitionPccExecutionPlan,
 } from "../../../../src/pcc/execution-plan.js";
 import { resolvePccExecutionProfilePreset } from "../../../../src/pcc/execution-profile.js";
+import type { PccMilestone, PccProject, PccSubMilestone } from "../types.ts";
 import {
   EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
@@ -2084,6 +2085,83 @@ describe("PCC CRUD controller", () => {
     );
   });
 
+  it("rolls back a parent and prior child writes when a cascaded status update conflicts", async () => {
+    const secondSubMilestone = {
+      ...subMilestone,
+      id: "submilestone-2",
+      title: "Second proof",
+      order: 2,
+    };
+    const updatedMilestone = { ...milestone, status: "skipped" as const, revision: 2 };
+    const updatedFirstSubMilestone = { ...subMilestone, status: "skipped" as const, revision: 2 };
+    const concurrentlyChangedSecondSubMilestone = {
+      ...secondSubMilestone,
+      status: "deferred" as const,
+      revision: 9,
+    };
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: updatedMilestone, summary };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        const input = (params as { subMilestone: { id: string; status?: string } }).subMilestone;
+        if (input.id === secondSubMilestone.id && input.status === "skipped") {
+          throw new Error("simulated child revision conflict");
+        }
+        return { subMilestone: updatedFirstSubMilestone, summary };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [updatedMilestone],
+          subMilestones: [updatedFirstSubMilestone, concurrentlyChangedSecondSubMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone, secondSubMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, milestone, "skipped", "No longer needed");
+
+    expect(state.pccActionError).toContain("simulated child revision conflict");
+    expect(request).toHaveBeenCalledWith("pcc.milestones.upsert", {
+      milestone: expect.objectContaining({
+        id: milestone.id,
+        status: milestone.status,
+        revision: 2,
+      }),
+    });
+    expect(request).toHaveBeenCalledWith("pcc.subMilestones.upsert", {
+      subMilestone: expect.objectContaining({
+        id: subMilestone.id,
+        status: subMilestone.status,
+        revision: 2,
+      }),
+    });
+    expect(
+      request.mock.calls.filter(
+        ([method, params]) =>
+          method === "pcc.subMilestones.upsert" &&
+          (params as { subMilestone: { id: string } }).subMilestone.id === secondSubMilestone.id,
+      ),
+    ).toHaveLength(1);
+  });
+
   it("removes milestones from the active plan by archiving unfinished child steps", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "pcc.milestones.upsert") {
@@ -2699,7 +2777,25 @@ describe("PCC CRUD controller", () => {
       title: "Third sub-step",
       order: 30,
     };
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "pcc.milestones.upsert") {
+        const input = (params as { milestone: Partial<PccMilestone> }).milestone;
+        return {
+          milestone: { ...firstMilestone, ...input, revision: (input.revision ?? 1) + 1 },
+          summary,
+        };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        const input = (params as { subMilestone: Partial<PccSubMilestone> }).subMilestone;
+        return {
+          subMilestone: {
+            ...firstSubMilestone,
+            ...input,
+            revision: (input.revision ?? 1) + 1,
+          },
+          summary,
+        };
+      }
       if (method === "pcc.projects.list") {
         return { projects: [summary] };
       }
@@ -2749,11 +2845,15 @@ describe("PCC CRUD controller", () => {
       ],
       [
         "pcc.milestones.upsert",
-        { milestone: expect.objectContaining({ id: "milestone-3", order: 20 }) },
+        {
+          milestone: expect.objectContaining({ id: "milestone-3", order: 20, revision: 2 }),
+        },
       ],
       [
         "pcc.milestones.upsert",
-        { milestone: expect.objectContaining({ id: "milestone-2", order: 30 }) },
+        {
+          milestone: expect.objectContaining({ id: "milestone-2", order: 30, revision: 2 }),
+        },
       ],
     ]);
 
@@ -2784,12 +2884,79 @@ describe("PCC CRUD controller", () => {
       ],
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-3", order: 20 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-3",
+            order: 20,
+            revision: 2,
+          }),
+        },
       ],
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: 30 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-2",
+            order: 30,
+            revision: 2,
+          }),
+        },
       ],
+    ]);
+  });
+
+  it("rolls back successful reorder writes when a later order write fails", async () => {
+    const firstMilestone = { ...milestone, id: "first", title: "First", order: 10 };
+    const secondMilestone = { ...milestone, id: "second", title: "Second", order: 20 };
+    const thirdMilestone = { ...milestone, id: "third", title: "Third", order: 30 };
+    let failFinalWrite = true;
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "pcc.milestones.upsert") {
+        const input = (params as { milestone: Partial<PccMilestone> }).milestone;
+        if (input.order === 20 && failFinalWrite) {
+          failFinalWrite = false;
+          throw new Error("simulated reorder failure");
+        }
+        return {
+          milestone: { ...firstMilestone, ...input, revision: (input.revision ?? 1) + 1 },
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [firstMilestone, secondMilestone, thirdMilestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        summary,
+      },
+    });
+
+    await movePccMilestoneBefore(state, thirdMilestone, secondMilestone);
+
+    expect(state.pccActionError).toContain("simulated reorder failure");
+    expect(state.pccLastUndoAction ?? null).toBeNull();
+    expect(
+      request.mock.calls
+        .filter(([method]) => method === "pcc.milestones.upsert")
+        .map(([, params]) => {
+          const input = (params as { milestone: PccMilestone }).milestone;
+          return [input.id, input.order];
+        }),
+    ).toEqual([
+      ["third", 1_000_000_000],
+      ["second", 1_000_000_001],
+      ["third", 20],
+      ["third", 1_000_000_000],
+      ["second", 1_000_000_001],
+      ["third", 30],
+      ["second", 20],
     ]);
   });
 
@@ -2803,7 +2970,25 @@ describe("PCC CRUD controller", () => {
       title: "Second sub-step",
       order: 5,
     };
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "pcc.milestones.upsert") {
+        const input = (params as { milestone: Partial<PccMilestone> }).milestone;
+        return {
+          milestone: { ...firstMilestone, ...input, revision: (input.revision ?? 1) + 1 },
+          summary,
+        };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        const input = (params as { subMilestone: Partial<PccSubMilestone> }).subMilestone;
+        return {
+          subMilestone: {
+            ...firstSubMilestone,
+            ...input,
+            revision: (input.revision ?? 1) + 1,
+          },
+          summary,
+        };
+      }
       if (method === "pcc.projects.list") {
         return { projects: [summary] };
       }
@@ -2850,7 +3035,9 @@ describe("PCC CRUD controller", () => {
       ],
       [
         "pcc.milestones.upsert",
-        { milestone: expect.objectContaining({ id: "milestone-1", order: 10 }) },
+        {
+          milestone: expect.objectContaining({ id: "milestone-1", order: 10, revision: 2 }),
+        },
       ],
     ]);
     const subMilestoneWrites = request.mock.calls.filter(
@@ -2877,11 +3064,23 @@ describe("PCC CRUD controller", () => {
       ],
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-1", order: 10 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-1",
+            order: 10,
+            revision: 2,
+          }),
+        },
       ],
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: 20 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-2",
+            order: 20,
+            revision: 2,
+          }),
+        },
       ],
     ]);
     expect(state.pccActionNotice?.text).toBe("Saved a clean milestone and sub-step sequence.");
@@ -3426,22 +3625,43 @@ describe("PCC CRUD controller", () => {
     });
     await generatePccProjectPlan(state);
 
+    let currentProject: PccProject = { ...project };
+    let currentMilestone: PccMilestone = { ...milestone };
     const saveRequest = vi.fn(async (method: string, params?: unknown) => {
       if (method === "pcc.projects.upsert") {
-        return { project, summary };
+        const input = (params as { project: Partial<typeof project> }).project;
+        currentProject = {
+          ...currentProject,
+          ...input,
+          revision: (currentProject.revision ?? 1) + 1,
+        };
+        return { project: currentProject, summary };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project: currentProject,
+          milestones: [currentMilestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        };
       }
       if (method === "pcc.milestones.upsert") {
         const input = (params as { milestone: Partial<typeof milestone> }).milestone;
         if (input.title === "New proof step") {
           throw new Error("simulated revision write failure");
         }
+        currentMilestone = {
+          ...currentMilestone,
+          ...input,
+          revision: (currentMilestone.revision ?? 1) + 1,
+        };
         return {
-          milestone: {
-            ...milestone,
-            ...input,
-            createdAt: milestone.createdAt,
-            updatedAt: milestone.updatedAt,
-          },
+          milestone: currentMilestone,
         };
       }
       if (method === "pcc.subMilestones.upsert") {
@@ -3481,13 +3701,9 @@ describe("PCC CRUD controller", () => {
         status: milestone.status,
       }),
     });
-    expect(saveRequest).toHaveBeenCalledWith("pcc.subMilestones.upsert", {
-      subMilestone: expect.objectContaining({
-        id: subMilestone.id,
-        title: subMilestone.title,
-        implementationPlan: subMilestone.implementationPlan,
-      }),
-    });
+    expect(
+      saveRequest.mock.calls.filter(([method]) => method === "pcc.subMilestones.upsert"),
+    ).toHaveLength(0);
   });
 
   it("revokes and restores the persistent planning-only grant", async () => {
@@ -4034,6 +4250,210 @@ describe("PCC CRUD controller", () => {
       }),
     );
     expect(state.pccLastUndoAction).toBeNull();
+  });
+
+  it("reopens terminal milestones before restoring their prior status on undo", async () => {
+    let restored = false;
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "pcc.milestones.upsert") {
+        const input = (params as { milestone: Partial<PccMilestone> }).milestone;
+        const status = input.status ?? "active";
+        const revision = status === "complete" ? 2 : status === "not_started" ? 3 : 4;
+        if (status === "not_started") {
+          restored = true;
+        }
+        return {
+          milestone: { ...milestone, ...input, status, revision },
+          summary,
+        };
+      }
+      if (method === "pcc.overview.get") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [
+            {
+              ...milestone,
+              status: restored ? "active" : "complete",
+              revision: restored ? 4 : 2,
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, milestone, "complete");
+    await runPccUndoAction(state);
+
+    expect(
+      request.mock.calls
+        .filter(([method]) => method === "pcc.milestones.upsert")
+        .map(([, params]) => {
+          const input = (params as { milestone: PccMilestone }).milestone;
+          return [input.status, input.revision];
+        }),
+    ).toEqual([
+      ["complete", 1],
+      ["not_started", 2],
+      ["in_progress", 3],
+    ]);
+    expect(state.pccActionError).toBeNull();
+    expect(state.pccLastUndoAction).toBeNull();
+  });
+
+  it("reopens skipped milestones before restoring a completed status on undo", async () => {
+    const completedMilestone = { ...milestone, status: "complete" as const };
+    let restored = false;
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "pcc.milestones.upsert") {
+        const input = (params as { milestone: Partial<PccMilestone> }).milestone;
+        const status = input.status ?? "complete";
+        const revision = status === "skipped" ? 2 : status === "not_started" ? 3 : 4;
+        if (status === "not_started") {
+          restored = true;
+        }
+        return {
+          milestone: { ...completedMilestone, ...input, status, revision },
+          summary,
+        };
+      }
+      if (method === "pcc.overview.get") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [
+            {
+              ...completedMilestone,
+              status: restored ? "complete" : "skipped",
+              revision: restored ? 4 : 2,
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [completedMilestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, completedMilestone, "skipped");
+    await runPccUndoAction(state);
+
+    expect(
+      request.mock.calls
+        .filter(([method]) => method === "pcc.milestones.upsert")
+        .map(([, params]) => {
+          const input = (params as { milestone: PccMilestone }).milestone;
+          return [input.status, input.revision];
+        }),
+    ).toEqual([
+      ["skipped", 1],
+      ["not_started", 2],
+      ["complete", 3],
+    ]);
+    expect(state.pccActionError).toBeNull();
+    expect(state.pccLastUndoAction).toBeNull();
+  });
+
+  it("refuses milestone undo when another client changed the saved revision", async () => {
+    let undoLoad = false;
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: { ...milestone, status: "deferred", revision: 2 }, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [
+            {
+              ...milestone,
+              status: undoLoad ? "blocked" : "deferred",
+              revision: undoLoad ? 3 : 2,
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, milestone, "deferred");
+    undoLoad = true;
+    await runPccUndoAction(state);
+
+    expect(state.pccActionError).toContain("changed after this status update");
+    expect(
+      request.mock.calls.filter(([method]) => method === "pcc.milestones.upsert"),
+    ).toHaveLength(1);
+    expect(state.pccLastUndoAction).not.toBeNull();
   });
 
   it("sends schema-valid milestone and sub-milestone status payloads for legacy objects", async () => {

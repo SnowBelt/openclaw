@@ -27,6 +27,11 @@ import {
   type PccCapabilityInventoryEntry,
 } from "../../../../src/pcc/capability-contract.js";
 import { evaluatePccCapabilityEvidence } from "../../../../src/pcc/capability-evidence.js";
+import {
+  isPccCompleteStatus,
+  isPccSkippedStatus,
+  isPccTerminalStatus,
+} from "../../../../src/pcc/domain/completion-policy.js";
 import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
 import {
   createPccExecutionPlan,
@@ -974,6 +979,16 @@ function reconcileExecutionPlansForRevision(
   });
 }
 
+type PccRevisionWrite<T> = {
+  after: T;
+  before?: T;
+  added: boolean;
+};
+
+function pccRecordRevision(record: { revision?: number }): number {
+  return record.revision ?? 1;
+}
+
 async function applyGeneratedPlanRevision(params: {
   state: PccDashboardState;
   detail: PccProjectDetail;
@@ -983,10 +998,18 @@ async function applyGeneratedPlanRevision(params: {
   added: PccMilestone[];
   updated: PccMilestone[];
   addedSubMilestones: PccSubMilestone[];
+  milestoneWrites: PccRevisionWrite<PccMilestone>[];
+  subMilestoneWrites: PccRevisionWrite<PccSubMilestone>[];
 }> {
   const client = params.state.client;
   if (!client) {
-    return { added: [], updated: [], addedSubMilestones: [] };
+    return {
+      added: [],
+      updated: [],
+      addedSubMilestones: [],
+      milestoneWrites: [],
+      subMilestoneWrites: [],
+    };
   }
   const existingByTitle = new Map(
     params.detail.milestones.map((milestone) => [
@@ -1002,6 +1025,32 @@ async function applyGeneratedPlanRevision(params: {
   const updated: PccMilestone[] = [];
   const addedSubMilestones: PccSubMilestone[] = [];
   const resolvedByGeneratedIndex: PccMilestone[] = [];
+  const originalMilestonesById = new Map(
+    params.detail.milestones.map((milestone) => [milestone.id, milestone]),
+  );
+  const originalSubMilestonesById = new Map(
+    (params.detail.subMilestones ?? []).map((subMilestone) => [subMilestone.id, subMilestone]),
+  );
+  const writtenMilestones = new Map<string, PccRevisionWrite<PccMilestone>>();
+  const writtenSubMilestones = new Map<string, PccRevisionWrite<PccSubMilestone>>();
+  const rememberMilestoneWrite = (after: PccMilestone, addedWrite: boolean): void => {
+    const previous = writtenMilestones.get(after.id);
+    const before = previous?.before ?? originalMilestonesById.get(after.id);
+    writtenMilestones.set(after.id, {
+      after,
+      ...(before ? { before } : {}),
+      added: previous?.added ?? addedWrite,
+    });
+  };
+  const rememberSubMilestoneWrite = (after: PccSubMilestone, addedWrite: boolean): void => {
+    const previous = writtenSubMilestones.get(after.id);
+    const before = previous?.before ?? originalSubMilestonesById.get(after.id);
+    writtenSubMilestones.set(after.id, {
+      after,
+      ...(before ? { before } : {}),
+      added: previous?.added ?? addedWrite,
+    });
+  };
 
   try {
     for (const [index, generated] of params.plan.milestones.entries()) {
@@ -1058,6 +1107,7 @@ async function applyGeneratedPlanRevision(params: {
       const result = await client.request<{ milestone: PccMilestone }>("pcc.milestones.upsert", {
         milestone: milestoneUpsertPayload(next),
       });
+      rememberMilestoneWrite(result.milestone, !existing);
       resolvedByGeneratedIndex.push(result.milestone);
       if (existing) {
         updated.push(result.milestone);
@@ -1116,6 +1166,7 @@ async function applyGeneratedPlanRevision(params: {
             }),
           },
         );
+        rememberSubMilestoneWrite(subMilestoneResult.subMilestone, !existingSubMilestone);
         if (!existingSubMilestone) {
           addedSubMilestones.push(subMilestoneResult.subMilestone);
         }
@@ -1137,6 +1188,7 @@ async function applyGeneratedPlanRevision(params: {
         const result = await client.request<{ milestone: PccMilestone }>("pcc.milestones.upsert", {
           milestone: milestoneUpsertPayload({ ...milestone, dependsOn }),
         });
+        rememberMilestoneWrite(result.milestone, false);
         const updatedIndex = updated.findIndex((item) => item.id === milestone.id);
         if (updatedIndex >= 0) {
           updated[updatedIndex] = result.milestone;
@@ -1147,7 +1199,13 @@ async function applyGeneratedPlanRevision(params: {
         }
       }
     }
-    return { added, updated, addedSubMilestones };
+    return {
+      added,
+      updated,
+      addedSubMilestones,
+      milestoneWrites: [...writtenMilestones.values()],
+      subMilestoneWrites: [...writtenSubMilestones.values()],
+    };
   } catch (error) {
     const rollbackErrors: string[] = [];
     const rollback = async (label: string, action: () => Promise<unknown>): Promise<void> => {
@@ -1159,41 +1217,124 @@ async function applyGeneratedPlanRevision(params: {
         );
       }
     };
-    for (const milestone of params.detail.milestones) {
-      await rollback(`restore milestone ${milestone.id}`, () =>
-        client.request("pcc.milestones.upsert", {
-          milestone: milestoneUpsertPayload(milestone),
-        }),
+    let current: {
+      milestones: PccMilestone[];
+      subMilestones?: PccSubMilestone[];
+    } | null = null;
+    try {
+      current = await client.request<{
+        milestones: PccMilestone[];
+        subMilestones?: PccSubMilestone[];
+      }>("pcc.projects.get", {
+        projectId: params.detail.project.id,
+      });
+    } catch (rollbackError) {
+      rollbackErrors.push(
+        `refresh current project revision state: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
       );
     }
-    for (const subMilestone of params.detail.subMilestones ?? []) {
-      await rollback(`restore sub-milestone ${subMilestone.id}`, () =>
-        client.request("pcc.subMilestones.upsert", {
-          subMilestone: subMilestoneUpsertPayload(subMilestone),
-        }),
+    if (current) {
+      const currentMilestones = new Map(
+        current.milestones.map((milestone) => [milestone.id, milestone]),
       );
-    }
-    for (const subMilestone of addedSubMilestones) {
-      await rollback(`roll back added sub-milestone ${subMilestone.id}`, () =>
-        client.request("pcc.subMilestones.upsert", {
-          subMilestone: subMilestoneUpsertPayload({
-            ...subMilestone,
-            status: "skipped",
-            blocker: "Rolled back after a project plan revision failed.",
-          }),
-        }),
+      const currentSubMilestones = new Map(
+        (current.subMilestones ?? []).map((subMilestone) => [subMilestone.id, subMilestone]),
       );
-    }
-    for (const milestone of added) {
-      await rollback(`roll back added milestone ${milestone.id}`, () =>
-        client.request("pcc.milestones.upsert", {
-          milestone: milestoneUpsertPayload({
-            ...milestone,
-            status: "skipped",
-            blocker: "Rolled back after a project plan revision failed.",
-          }),
-        }),
-      );
+      for (const write of writtenMilestones.values()) {
+        const latest = currentMilestones.get(write.after.id);
+        if (!latest) {
+          rollbackErrors.push(`restore milestone ${write.after.id}: current record unavailable`);
+          continue;
+        }
+        if (latest.revision !== write.after.revision) {
+          rollbackErrors.push(
+            `restore milestone ${write.after.id}: current revision ${latest.revision ?? 1} no longer matches revision ${write.after.revision ?? 1} written by this plan revision`,
+          );
+          continue;
+        }
+        if (write.added) {
+          await rollback(`roll back added milestone ${write.after.id}`, () =>
+            client.request("pcc.milestones.upsert", {
+              milestone: milestoneUpsertPayload({
+                ...write.after,
+                revision: latest.revision ?? 1,
+                status: "skipped",
+                blocker: "Rolled back after a project plan revision failed.",
+              }),
+            }),
+          );
+        } else if (write.before) {
+          const before = write.before;
+          if (typeof before.projectId !== "string" || typeof before.title !== "string") {
+            rollbackErrors.push(
+              `restore milestone ${write.after.id}: saved record is missing projectId or title`,
+            );
+            continue;
+          }
+          await rollback(`restore milestone ${write.after.id}`, () =>
+            client.request("pcc.milestones.upsert", {
+              milestone: milestoneUpsertPayload({
+                ...before,
+                projectId: before.projectId,
+                title: before.title,
+                replaceExisting: true,
+                revision: latest.revision ?? 1,
+              }),
+            }),
+          );
+        }
+      }
+      for (const write of writtenSubMilestones.values()) {
+        const latest = currentSubMilestones.get(write.after.id);
+        if (!latest) {
+          rollbackErrors.push(
+            `restore sub-milestone ${write.after.id}: current record unavailable`,
+          );
+          continue;
+        }
+        if (latest.revision !== write.after.revision) {
+          rollbackErrors.push(
+            `restore sub-milestone ${write.after.id}: current revision ${latest.revision ?? 1} no longer matches revision ${write.after.revision ?? 1} written by this plan revision`,
+          );
+          continue;
+        }
+        if (write.added) {
+          await rollback(`roll back added sub-milestone ${write.after.id}`, () =>
+            client.request("pcc.subMilestones.upsert", {
+              subMilestone: subMilestoneUpsertPayload({
+                ...write.after,
+                revision: latest.revision ?? 1,
+                status: "skipped",
+                blocker: "Rolled back after a project plan revision failed.",
+              }),
+            }),
+          );
+        } else if (write.before) {
+          const before = write.before;
+          if (
+            typeof before.projectId !== "string" ||
+            typeof before.milestoneId !== "string" ||
+            typeof before.title !== "string"
+          ) {
+            rollbackErrors.push(
+              `restore sub-milestone ${write.after.id}: saved record is missing projectId, milestoneId, or title`,
+            );
+            continue;
+          }
+          await rollback(`restore sub-milestone ${write.after.id}`, () =>
+            client.request("pcc.subMilestones.upsert", {
+              subMilestone: subMilestoneUpsertPayload({
+                ...before,
+                projectId: before.projectId,
+                milestoneId: before.milestoneId,
+                title: before.title,
+                replaceExisting: true,
+                revision: latest.revision ?? 1,
+              }),
+            }),
+          );
+        }
+      }
     }
     if (rollbackErrors.length > 0) {
       throw new Error(
@@ -3387,7 +3528,10 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       } catch (error) {
         try {
           await state.client.request("pcc.projects.upsert", {
-            project: projectUpsertPayload(previousDetail.project),
+            project: projectUpsertPayload({
+              ...previousDetail.project,
+              revision: result.project.revision,
+            }),
           });
         } catch (projectRestoreError) {
           const recoveryError = new AggregateError(
@@ -3413,6 +3557,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       await state.client.request("pcc.permissions.upsert", {
         permission: {
           ...(existingPermission ? { id: existingPermission.id } : {}),
+          ...(existingPermission ? { revision: existingPermission.revision ?? 1 } : {}),
           projectId: result.project.id,
           type: permissionType,
           status: form.codexPlanningAllowed ? "granted" : "needed",
@@ -3442,6 +3587,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
         await state.client.request("pcc.permissions.upsert", {
           permission: {
             id: permission.id,
+            revision: permission.revision ?? 1,
             projectId: result.project.id,
             type: permission.type,
             status: "revoked",
@@ -3458,41 +3604,95 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     await selectPccProject(state, result.project.id);
     if (revisionResult && previousDetail) {
       setPccUndo(state, `Undo project plan change`, async () => {
-        if (!state.client) {
+        const client = state.client;
+        if (!client) {
           return;
         }
-        await state.client.request("pcc.projects.upsert", {
-          project: projectUpsertPayload(previousDetail.project),
+        await loadPccDashboard(state);
+        await selectPccProject(state, previousDetail.project.id);
+        const currentDetail = state.pccProjectDetail;
+        if (!currentDetail) {
+          throw new Error(`Project ${previousDetail.project.id} could not be reloaded for undo.`);
+        }
+        const currentMilestones = new Map(
+          currentDetail.milestones.map((milestone) => [milestone.id, milestone]),
+        );
+        const currentSubMilestones = new Map(
+          (currentDetail.subMilestones ?? []).map((subMilestone) => [
+            subMilestone.id,
+            subMilestone,
+          ]),
+        );
+        const expectedProjectRevision = pccRecordRevision(result.project);
+        if (pccRecordRevision(currentDetail.project) !== expectedProjectRevision) {
+          throw new Error(
+            `Project ${previousDetail.project.id} changed after the plan revision. Review the latest project before undoing it.`,
+          );
+        }
+        for (const write of revisionResult.milestoneWrites) {
+          const current = currentMilestones.get(write.after.id);
+          if (!current) {
+            throw new Error(`Milestone ${write.after.id} could not be reloaded for undo.`);
+          }
+          if (pccRecordRevision(current) !== pccRecordRevision(write.after)) {
+            throw new Error(
+              `Milestone ${write.after.id} changed after the plan revision. Review the latest milestone before undoing it.`,
+            );
+          }
+        }
+        for (const write of revisionResult.subMilestoneWrites) {
+          const current = currentSubMilestones.get(write.after.id);
+          if (!current) {
+            throw new Error(`Sub-milestone ${write.after.id} could not be reloaded for undo.`);
+          }
+          if (pccRecordRevision(current) !== pccRecordRevision(write.after)) {
+            throw new Error(
+              `Sub-milestone ${write.after.id} changed after the plan revision. Review the latest sub-milestone before undoing it.`,
+            );
+          }
+        }
+        await client.request("pcc.projects.upsert", {
+          project: projectUpsertPayload({
+            ...previousDetail.project,
+            revision: expectedProjectRevision,
+          }),
         });
-        for (const milestone of previousDetail.milestones) {
-          await state.client.request("pcc.milestones.upsert", {
-            milestone: milestoneUpsertPayload(milestone),
+        for (const write of revisionResult.milestoneWrites) {
+          const revision = pccRecordRevision(write.after);
+          await client.request("pcc.milestones.upsert", {
+            milestone: milestoneUpsertPayload(
+              write.before
+                ? { ...write.before, replaceExisting: true, revision }
+                : {
+                    ...write.after,
+                    revision,
+                    status: "skipped",
+                    blocker: "Rolled back by the user after a project plan revision.",
+                    metadata: {
+                      ...pccMetadataObject(write.after.metadata),
+                      pccPlanRevisionRolledBackAt: new Date().toISOString(),
+                    },
+                  },
+            ),
           });
         }
-        for (const added of revisionResult.added) {
-          await state.client.request("pcc.milestones.upsert", {
-            milestone: milestoneUpsertPayload({
-              ...added,
-              status: "skipped",
-              blocker: "Rolled back by the user after a project plan revision.",
-              metadata: {
-                ...pccMetadataObject(added.metadata),
-                pccPlanRevisionRolledBackAt: new Date().toISOString(),
-              },
-            }),
-          });
-        }
-        for (const addedSubMilestone of revisionResult.addedSubMilestones) {
-          await state.client.request("pcc.subMilestones.upsert", {
-            subMilestone: subMilestoneUpsertPayload({
-              ...addedSubMilestone,
-              status: "skipped",
-              blocker: "Rolled back by the user after a project plan revision.",
-              metadata: {
-                ...pccMetadataObject(addedSubMilestone.metadata),
-                pccPlanRevisionRolledBackAt: new Date().toISOString(),
-              },
-            }),
+        for (const write of revisionResult.subMilestoneWrites) {
+          const revision = pccRecordRevision(write.after);
+          await client.request("pcc.subMilestones.upsert", {
+            subMilestone: subMilestoneUpsertPayload(
+              write.before
+                ? { ...write.before, replaceExisting: true, revision }
+                : {
+                    ...write.after,
+                    revision,
+                    status: "skipped",
+                    blocker: "Rolled back by the user after a project plan revision.",
+                    metadata: {
+                      ...pccMetadataObject(write.after.metadata),
+                      pccPlanRevisionRolledBackAt: new Date().toISOString(),
+                    },
+                  },
+            ),
           });
         }
         await loadPccDashboard(state);
@@ -3693,6 +3893,208 @@ function itemWithStatusMetadata<T extends PccMilestone | PccSubMilestone>(
   };
 }
 
+type PccStatusWrite<T> = {
+  before: T;
+  after: T;
+};
+
+type PccOrderRecord = (PccMilestone | PccSubMilestone) & { replaceExisting?: boolean };
+
+type PccOrderWrite<T extends PccOrderRecord> = {
+  before: T;
+  after: T;
+};
+
+async function rollbackPccOrderWrites<T extends PccOrderRecord>(params: {
+  writes: ReadonlyMap<string, PccOrderWrite<T>>;
+  label: string;
+  upsert: (record: T) => Promise<T>;
+}): Promise<string[]> {
+  const errors: string[] = [];
+  const current = new Map(
+    [...params.writes.entries()].map(([id, write]) => [id, write.after] as const),
+  );
+  const stageAll = async (): Promise<void> => {
+    const staged = new Map<string, T>();
+    for (const [index, [id, record]] of [...current.entries()].entries()) {
+      const result = await params.upsert({
+        ...record,
+        replaceExisting: true,
+        order: temporaryReorderOrder(index),
+        revision: pccRecordRevision(record),
+      });
+      staged.set(id, result);
+    }
+    for (const [id, record] of staged) {
+      current.set(id, record);
+    }
+  };
+
+  try {
+    await stageAll();
+  } catch (error) {
+    errors.push(
+      `stage ${params.label} rollback: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return errors;
+  }
+
+  for (const [id, write] of params.writes) {
+    try {
+      const result = await params.upsert({
+        ...write.before,
+        replaceExisting: true,
+        revision: pccRecordRevision(current.get(id) ?? write.after),
+      });
+      current.set(id, result);
+    } catch (error) {
+      errors.push(
+        `restore ${params.label} ${id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return errors;
+}
+
+async function rollbackPccStatusWrites(params: {
+  client: NonNullable<PccDashboardState["client"]>;
+  projectId: string;
+  milestoneWrite: PccStatusWrite<PccMilestone> | null;
+  subMilestoneWrites: ReadonlyMap<string, PccStatusWrite<PccSubMilestone>>;
+}): Promise<string[]> {
+  if (!params.milestoneWrite && params.subMilestoneWrites.size === 0) {
+    return [];
+  }
+  const errors: string[] = [];
+  let current: PccProjectsGetResult;
+  try {
+    current = await params.client.request<PccProjectsGetResult>("pcc.projects.get", {
+      projectId: params.projectId,
+    });
+  } catch (error) {
+    return [
+      `refresh current PCC records for rollback: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+  }
+  const currentMilestones = new Map(
+    current.milestones.map((milestone) => [milestone.id, milestone]),
+  );
+  const currentSubMilestones = new Map(
+    (current.subMilestones ?? []).map((subMilestone) => [subMilestone.id, subMilestone]),
+  );
+  const restore = async (label: string, action: () => Promise<unknown>): Promise<void> => {
+    try {
+      await action();
+    } catch (error) {
+      errors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  for (const write of params.subMilestoneWrites.values()) {
+    const currentSubMilestone = currentSubMilestones.get(write.after.id);
+    if (!currentSubMilestone) {
+      errors.push(`restore sub-milestone ${write.after.id}: current record unavailable`);
+      continue;
+    }
+    if (pccRecordRevision(currentSubMilestone) !== pccRecordRevision(write.after)) {
+      errors.push(
+        `restore sub-milestone ${write.after.id}: current revision ${pccRecordRevision(currentSubMilestone)} no longer matches revision ${pccRecordRevision(write.after)} written by this action`,
+      );
+      continue;
+    }
+    await restore(`restore sub-milestone ${write.after.id}`, async () => {
+      let revision = pccRecordRevision(write.after);
+      const reopenRequired =
+        (isPccSkippedStatus(currentSubMilestone.status) &&
+          !isPccSkippedStatus(write.before.status)) ||
+        (isPccCompleteStatus(currentSubMilestone.status) &&
+          !isPccTerminalStatus(write.before.status));
+      if (reopenRequired) {
+        const reopened = await params.client.request<{ subMilestone: PccSubMilestone }>(
+          "pcc.subMilestones.upsert",
+          {
+            subMilestone: subMilestoneUpsertPayload({
+              ...currentSubMilestone,
+              status: "not_started",
+              revision,
+            }),
+          },
+        );
+        revision = pccRecordRevision(reopened.subMilestone);
+      }
+      await params.client.request("pcc.subMilestones.upsert", {
+        subMilestone: subMilestoneUpsertPayload({
+          ...write.before,
+          replaceExisting: true,
+          revision,
+        }),
+      });
+    });
+  }
+
+  if (params.milestoneWrite) {
+    const write = params.milestoneWrite;
+    const currentMilestone = currentMilestones.get(write.after.id);
+    if (!currentMilestone) {
+      errors.push(`restore milestone ${write.after.id}: current record unavailable`);
+    } else if (pccRecordRevision(currentMilestone) !== pccRecordRevision(write.after)) {
+      errors.push(
+        `restore milestone ${write.after.id}: current revision ${pccRecordRevision(currentMilestone)} no longer matches revision ${pccRecordRevision(write.after)} written by this action`,
+      );
+    } else {
+      await restore(`restore milestone ${write.after.id}`, async () => {
+        let revision = pccRecordRevision(write.after);
+        const reopenRequired =
+          (isPccSkippedStatus(currentMilestone.status) &&
+            !isPccSkippedStatus(write.before.status)) ||
+          (isPccCompleteStatus(currentMilestone.status) &&
+            !isPccTerminalStatus(write.before.status));
+        if (reopenRequired) {
+          const reopened = await params.client.request<{ milestone: PccMilestone }>(
+            "pcc.milestones.upsert",
+            {
+              milestone: milestoneUpsertPayload({
+                ...currentMilestone,
+                status: "not_started",
+                revision,
+              }),
+            },
+          );
+          revision = pccRecordRevision(reopened.milestone);
+        }
+        await params.client.request("pcc.milestones.upsert", {
+          milestone: milestoneUpsertPayload({
+            ...write.before,
+            replaceExisting: true,
+            revision,
+          }),
+        });
+      });
+    }
+  }
+  return errors;
+}
+
+async function rethrowAfterPccRollback(
+  state: PccDashboardState,
+  projectId: string,
+  originalError: unknown,
+  label: string,
+): Promise<never> {
+  try {
+    await loadPccDashboard(state);
+    await selectPccProject(state, projectId);
+  } catch (refreshError) {
+    const recoveryError = new AggregateError(
+      [originalError, refreshError],
+      `${label} rolled back, but the current project could not be refreshed: ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`,
+    );
+    recoveryError.cause = originalError;
+    throw recoveryError;
+  }
+  throw originalError;
+}
+
 export async function setPccMilestoneStatus(
   state: PccDashboardState,
   milestone: PccMilestone,
@@ -3709,43 +4111,125 @@ export async function setPccMilestoneStatus(
     }
     const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
     const milestoneUpdate = itemWithStatusMetadata(milestone, normalizedStatus, note);
-    await state.client.request("pcc.milestones.upsert", {
-      milestone: milestoneUpsertPayload(milestoneUpdate),
-    });
-    if (
-      state.pccProjectDetail &&
-      (normalizedStatus === "skipped" ||
-        normalizedStatus === "archived" ||
-        normalizedStatus === "not_started")
-    ) {
-      const childStatus: PccStatus =
-        normalizedStatus === "not_started" ? "not_started" : normalizedStatus;
-      const childUpdates = (state.pccProjectDetail.subMilestones ?? []).filter(
-        (subMilestone) =>
-          subMilestone.milestoneId === milestone.id &&
-          !["complete", "complete_with_maintenance"].includes(subMilestone.status),
+    let updatedMilestone: PccMilestone | null = null;
+    const updatedChildren = new Map<string, PccSubMilestone>();
+    try {
+      const updated = await state.client.request<{ milestone: PccMilestone }>(
+        "pcc.milestones.upsert",
+        {
+          milestone: milestoneUpsertPayload(milestoneUpdate),
+        },
       );
-      for (const subMilestone of childUpdates) {
-        await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: subMilestoneUpsertPayload(
-            itemWithStatusMetadata(subMilestone, childStatus, note),
-          ),
-        });
+      updatedMilestone = updated.milestone;
+      if (
+        state.pccProjectDetail &&
+        (normalizedStatus === "skipped" ||
+          normalizedStatus === "archived" ||
+          normalizedStatus === "not_started")
+      ) {
+        const childStatus: PccStatus =
+          normalizedStatus === "not_started" ? "not_started" : normalizedStatus;
+        const childUpdates = (state.pccProjectDetail.subMilestones ?? []).filter(
+          (subMilestone) =>
+            subMilestone.milestoneId === milestone.id &&
+            !["complete", "complete_with_maintenance"].includes(subMilestone.status),
+        );
+        for (const subMilestone of childUpdates) {
+          const childResult = await state.client.request<{ subMilestone: PccSubMilestone }>(
+            "pcc.subMilestones.upsert",
+            {
+              subMilestone: subMilestoneUpsertPayload(
+                itemWithStatusMetadata(subMilestone, childStatus, note),
+              ),
+            },
+          );
+          updatedChildren.set(subMilestone.id, childResult.subMilestone);
+        }
       }
+    } catch (error) {
+      const rollbackErrors = await rollbackPccStatusWrites({
+        client: state.client,
+        projectId: milestone.projectId,
+        milestoneWrite: updatedMilestone
+          ? { before: previousMilestone, after: updatedMilestone }
+          : null,
+        subMilestoneWrites: new Map(
+          [...updatedChildren.entries()]
+            .map(([id, after]) => {
+              const before = previousChildren.find((item) => item.id === id);
+              return before
+                ? [id, { before, after } satisfies PccStatusWrite<PccSubMilestone>]
+                : null;
+            })
+            .filter((entry): entry is [string, PccStatusWrite<PccSubMilestone>] => entry !== null),
+        ),
+      });
+      if (rollbackErrors.length > 0) {
+        throw new Error(
+          `PCC status update partially applied; recovery is required for milestone ${milestone.id}. ${rollbackErrors.join(" ")}`,
+          { cause: error },
+        );
+      }
+      await rethrowAfterPccRollback(state, milestone.projectId, error, "PCC status update");
+    }
+    if (!updatedMilestone) {
+      throw new Error(`Milestone ${milestone.id} did not return after the status update.`);
     }
     await loadPccDashboard(state);
     await selectPccProject(state, milestone.projectId);
     setPccUndo(state, `Restore ${milestone.title}`, async () => {
-      if (!state.client) {
+      const client = state.client;
+      if (!client) {
         return;
       }
-      await state.client.request("pcc.milestones.upsert", {
-        milestone: milestoneUpsertPayload(previousMilestone),
+      await loadPccDashboard(state);
+      await selectPccProject(state, milestone.projectId);
+      const currentDetail = state.pccProjectDetail;
+      const currentMilestone = currentDetail?.milestones.find((item) => item.id === milestone.id);
+      if (!currentMilestone) {
+        throw new Error(`Milestone ${milestone.id} could not be reloaded for undo.`);
+      }
+      if (pccRecordRevision(currentMilestone) !== pccRecordRevision(updatedMilestone)) {
+        throw new Error(
+          `Milestone ${milestone.id} changed after this status update. Review the latest milestone before undoing it.`,
+        );
+      }
+      const currentSubMilestones = new Map(
+        (currentDetail?.subMilestones ?? []).map((item) => [item.id, item]),
+      );
+      for (const [id, updatedSubMilestone] of updatedChildren) {
+        const currentSubMilestone = currentSubMilestones.get(id);
+        if (!currentSubMilestone) {
+          throw new Error(`Sub-milestone ${id} could not be reloaded for undo.`);
+        }
+        if (pccRecordRevision(currentSubMilestone) !== pccRecordRevision(updatedSubMilestone)) {
+          throw new Error(
+            `Sub-milestone ${id} changed after this status update. Review the latest sub-milestone before undoing it.`,
+          );
+        }
+      }
+      const rollbackErrors = await rollbackPccStatusWrites({
+        client,
+        projectId: milestone.projectId,
+        milestoneWrite: {
+          before: previousMilestone,
+          after: updatedMilestone,
+        },
+        subMilestoneWrites: new Map(
+          [...updatedChildren.entries()]
+            .map(([id, after]) => {
+              const before = previousChildren.find((item) => item.id === id);
+              return before
+                ? [id, { before, after } satisfies PccStatusWrite<PccSubMilestone>]
+                : null;
+            })
+            .filter((entry): entry is [string, PccStatusWrite<PccSubMilestone>] => entry !== null),
+        ),
       });
-      for (const subMilestone of previousChildren) {
-        await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: subMilestoneUpsertPayload(subMilestone),
-        });
+      if (rollbackErrors.length > 0) {
+        throw new Error(
+          `PCC status undo partially applied; recovery is required for milestone ${milestone.id}. ${rollbackErrors.join(" ")}`,
+        );
       }
       await loadPccDashboard(state);
       await selectPccProject(state, milestone.projectId);
@@ -3770,7 +4254,9 @@ export async function setPccSubMilestoneStatus(
       return;
     }
     const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
-    await state.client.request("pcc.subMilestones.upsert", {
+    const updatedSubMilestone = await state.client.request<{
+      subMilestone: PccSubMilestone;
+    }>("pcc.subMilestones.upsert", {
       subMilestone: subMilestoneUpsertPayload(
         itemWithStatusMetadata(subMilestone, normalizedStatus, note),
       ),
@@ -3778,12 +4264,46 @@ export async function setPccSubMilestoneStatus(
     await loadPccDashboard(state);
     await selectPccProject(state, subMilestone.projectId);
     setPccUndo(state, `Restore ${subMilestone.title}`, async () => {
-      if (!state.client) {
+      const client = state.client;
+      if (!client) {
         return;
       }
-      await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: subMilestoneUpsertPayload(previousSubMilestone),
+      await loadPccDashboard(state);
+      await selectPccProject(state, subMilestone.projectId);
+      const currentDetail = state.pccProjectDetail;
+      const currentSubMilestone = currentDetail?.subMilestones?.find(
+        (item) => item.id === subMilestone.id,
+      );
+      if (!currentSubMilestone) {
+        throw new Error(`Sub-milestone ${subMilestone.id} could not be reloaded for undo.`);
+      }
+      if (
+        pccRecordRevision(currentSubMilestone) !==
+        pccRecordRevision(updatedSubMilestone.subMilestone)
+      ) {
+        throw new Error(
+          `Sub-milestone ${subMilestone.id} changed after this status update. Review the latest sub-milestone before undoing it.`,
+        );
+      }
+      const rollbackErrors = await rollbackPccStatusWrites({
+        client,
+        projectId: subMilestone.projectId,
+        milestoneWrite: null,
+        subMilestoneWrites: new Map([
+          [
+            subMilestone.id,
+            {
+              before: previousSubMilestone,
+              after: updatedSubMilestone.subMilestone,
+            } satisfies PccStatusWrite<PccSubMilestone>,
+          ],
+        ]),
       });
+      if (rollbackErrors.length > 0) {
+        throw new Error(
+          `PCC status undo partially applied; recovery is required for sub-milestone ${subMilestone.id}. ${rollbackErrors.join(" ")}`,
+        );
+      }
       await loadPccDashboard(state);
       await selectPccProject(state, subMilestone.projectId);
     });
@@ -3867,6 +4387,9 @@ export async function movePccMilestoneBefore(
     return;
   }
   const previousMilestones = detail.milestones;
+  const previousMilestonesById = new Map(
+    previousMilestones.map((milestone) => [milestone.id, milestone]),
+  );
   await withPccAction(state, async () => {
     if (!state.client) {
       return;
@@ -3880,15 +4403,56 @@ export async function movePccMilestoneBefore(
     const changed = ordered
       .map((milestone, index) => ({ milestone, nextOrder: (index + 1) * 10 }))
       .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
-    for (const [index, { milestone }] of changed.entries()) {
-      await state.client.request("pcc.milestones.upsert", {
-        milestone: milestoneUpsertPayload({ ...milestone, order: temporaryReorderOrder(index) }),
+    const temporaryMilestones = new Map<string, PccMilestone>();
+    const finalMilestones = new Map<string, PccMilestone>();
+    const writtenMilestones = new Map<string, PccOrderWrite<PccMilestone>>();
+    try {
+      for (const [index, { milestone }] of changed.entries()) {
+        const result = await state.client.request<{ milestone: PccMilestone }>(
+          "pcc.milestones.upsert",
+          {
+            milestone: milestoneUpsertPayload({
+              ...milestone,
+              order: temporaryReorderOrder(index),
+            }),
+          },
+        );
+        temporaryMilestones.set(milestone.id, result.milestone);
+        writtenMilestones.set(milestone.id, { before: milestone, after: result.milestone });
+      }
+      for (const { milestone, nextOrder } of changed) {
+        const temporary = temporaryMilestones.get(milestone.id);
+        if (!temporary) {
+          throw new Error(`Milestone ${milestone.id} did not return after temporary reorder.`);
+        }
+        const result = await state.client.request<{ milestone: PccMilestone }>(
+          "pcc.milestones.upsert",
+          {
+            milestone: milestoneUpsertPayload({ ...temporary, order: nextOrder }),
+          },
+        );
+        finalMilestones.set(milestone.id, result.milestone);
+        writtenMilestones.set(milestone.id, { before: milestone, after: result.milestone });
+      }
+    } catch (error) {
+      const rollbackErrors = await rollbackPccOrderWrites({
+        writes: writtenMilestones,
+        label: "milestone order",
+        upsert: async (record) => {
+          const result = await state.client!.request<{ milestone: PccMilestone }>(
+            "pcc.milestones.upsert",
+            { milestone: milestoneUpsertPayload(record) },
+          );
+          return result.milestone;
+        },
       });
-    }
-    for (const { milestone, nextOrder } of changed) {
-      await state.client.request("pcc.milestones.upsert", {
-        milestone: milestoneUpsertPayload({ ...milestone, order: nextOrder }),
-      });
+      if (rollbackErrors.length > 0) {
+        throw new Error(
+          `Milestone reorder partially applied; recovery is required for project ${source.projectId}. ${rollbackErrors.join(" ")}`,
+          { cause: error },
+        );
+      }
+      await rethrowAfterPccRollback(state, source.projectId, error, "Milestone reorder");
     }
     await loadPccDashboard(state);
     await selectPccProject(state, source.projectId);
@@ -3896,9 +4460,56 @@ export async function movePccMilestoneBefore(
       if (!state.client) {
         return;
       }
-      for (const milestone of previousMilestones) {
+      await loadPccDashboard(state);
+      await selectPccProject(state, source.projectId);
+      const currentDetail = state.pccProjectDetail;
+      if (!currentDetail) {
+        throw new Error(`Project ${source.projectId} could not be reloaded for undo.`);
+      }
+      const currentMilestones = new Map(
+        currentDetail.milestones.map((milestone) => [milestone.id, milestone]),
+      );
+      for (const [id, after] of finalMilestones) {
+        const current = currentMilestones.get(id);
+        if (!current) {
+          throw new Error(`Milestone ${id} could not be reloaded for undo.`);
+        }
+        if (pccRecordRevision(current) !== pccRecordRevision(after)) {
+          throw new Error(
+            `Milestone ${id} changed after the reorder. Review the latest milestone before undoing it.`,
+          );
+        }
+      }
+      const temporaryUndoMilestones = new Map<string, PccMilestone>();
+      for (const [index, [id, after]] of [...finalMilestones.entries()].entries()) {
+        const milestone = previousMilestonesById.get(id);
+        if (!milestone) {
+          throw new Error(`Milestone ${id} could not be restored for undo.`);
+        }
+        const result = await state.client.request<{ milestone: PccMilestone }>(
+          "pcc.milestones.upsert",
+          {
+            milestone: milestoneUpsertPayload({
+              ...milestone,
+              revision: pccRecordRevision(after),
+              order: temporaryReorderOrder(index),
+            }),
+          },
+        );
+        temporaryUndoMilestones.set(id, result.milestone);
+      }
+      for (const [id, temporary] of temporaryUndoMilestones) {
+        const milestone = previousMilestonesById.get(id);
+        if (!milestone) {
+          throw new Error(`Milestone ${id} could not be restored for undo.`);
+        }
         await state.client.request("pcc.milestones.upsert", {
-          milestone: milestoneUpsertPayload(milestone),
+          milestone: milestoneUpsertPayload({
+            ...temporary,
+            replaceExisting: true,
+            order: milestone.order,
+            revision: pccRecordRevision(temporary),
+          }),
         });
       }
       await loadPccDashboard(state);
@@ -3934,6 +4545,9 @@ export async function movePccSubMilestoneBefore(
   const previousSubMilestones = (detail.subMilestones ?? []).filter(
     (item) => item.milestoneId === source.milestoneId,
   );
+  const previousSubMilestonesById = new Map(
+    previousSubMilestones.map((subMilestone) => [subMilestone.id, subMilestone]),
+  );
   await withPccAction(state, async () => {
     if (!state.client) {
       return;
@@ -3949,18 +4563,64 @@ export async function movePccSubMilestoneBefore(
     const changed = nextSiblings
       .map((subMilestone, index) => ({ subMilestone, nextOrder: (index + 1) * 10 }))
       .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder);
-    for (const [index, { subMilestone }] of changed.entries()) {
-      await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: subMilestoneUpsertPayload({
-          ...subMilestone,
-          order: temporaryReorderOrder(index),
-        }),
+    const temporarySubMilestones = new Map<string, PccSubMilestone>();
+    const finalSubMilestones = new Map<string, PccSubMilestone>();
+    const writtenSubMilestones = new Map<string, PccOrderWrite<PccSubMilestone>>();
+    try {
+      for (const [index, { subMilestone }] of changed.entries()) {
+        const result = await state.client.request<{ subMilestone: PccSubMilestone }>(
+          "pcc.subMilestones.upsert",
+          {
+            subMilestone: subMilestoneUpsertPayload({
+              ...subMilestone,
+              order: temporaryReorderOrder(index),
+            }),
+          },
+        );
+        temporarySubMilestones.set(subMilestone.id, result.subMilestone);
+        writtenSubMilestones.set(subMilestone.id, {
+          before: subMilestone,
+          after: result.subMilestone,
+        });
+      }
+      for (const { subMilestone, nextOrder } of changed) {
+        const temporary = temporarySubMilestones.get(subMilestone.id);
+        if (!temporary) {
+          throw new Error(
+            `Sub-milestone ${subMilestone.id} did not return after temporary reorder.`,
+          );
+        }
+        const result = await state.client.request<{ subMilestone: PccSubMilestone }>(
+          "pcc.subMilestones.upsert",
+          {
+            subMilestone: subMilestoneUpsertPayload({ ...temporary, order: nextOrder }),
+          },
+        );
+        finalSubMilestones.set(subMilestone.id, result.subMilestone);
+        writtenSubMilestones.set(subMilestone.id, {
+          before: subMilestone,
+          after: result.subMilestone,
+        });
+      }
+    } catch (error) {
+      const rollbackErrors = await rollbackPccOrderWrites({
+        writes: writtenSubMilestones,
+        label: "sub-milestone order",
+        upsert: async (record) => {
+          const result = await state.client!.request<{ subMilestone: PccSubMilestone }>(
+            "pcc.subMilestones.upsert",
+            { subMilestone: subMilestoneUpsertPayload(record) },
+          );
+          return result.subMilestone;
+        },
       });
-    }
-    for (const { subMilestone, nextOrder } of changed) {
-      await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: subMilestoneUpsertPayload({ ...subMilestone, order: nextOrder }),
-      });
+      if (rollbackErrors.length > 0) {
+        throw new Error(
+          `Sub-milestone reorder partially applied; recovery is required for project ${source.projectId}. ${rollbackErrors.join(" ")}`,
+          { cause: error },
+        );
+      }
+      await rethrowAfterPccRollback(state, source.projectId, error, "Sub-milestone reorder");
     }
     await loadPccDashboard(state);
     await selectPccProject(state, source.projectId);
@@ -3968,9 +4628,56 @@ export async function movePccSubMilestoneBefore(
       if (!state.client) {
         return;
       }
-      for (const subMilestone of previousSubMilestones) {
+      await loadPccDashboard(state);
+      await selectPccProject(state, source.projectId);
+      const currentDetail = state.pccProjectDetail;
+      if (!currentDetail) {
+        throw new Error(`Project ${source.projectId} could not be reloaded for undo.`);
+      }
+      const currentSubMilestones = new Map(
+        (currentDetail.subMilestones ?? []).map((subMilestone) => [subMilestone.id, subMilestone]),
+      );
+      for (const [id, after] of finalSubMilestones) {
+        const current = currentSubMilestones.get(id);
+        if (!current) {
+          throw new Error(`Sub-milestone ${id} could not be reloaded for undo.`);
+        }
+        if (pccRecordRevision(current) !== pccRecordRevision(after)) {
+          throw new Error(
+            `Sub-milestone ${id} changed after the reorder. Review the latest sub-milestone before undoing it.`,
+          );
+        }
+      }
+      const temporaryUndoSubMilestones = new Map<string, PccSubMilestone>();
+      for (const [index, [id, after]] of [...finalSubMilestones.entries()].entries()) {
+        const subMilestone = previousSubMilestonesById.get(id);
+        if (!subMilestone) {
+          throw new Error(`Sub-milestone ${id} could not be restored for undo.`);
+        }
+        const result = await state.client.request<{ subMilestone: PccSubMilestone }>(
+          "pcc.subMilestones.upsert",
+          {
+            subMilestone: subMilestoneUpsertPayload({
+              ...subMilestone,
+              revision: pccRecordRevision(after),
+              order: temporaryReorderOrder(index),
+            }),
+          },
+        );
+        temporaryUndoSubMilestones.set(id, result.subMilestone);
+      }
+      for (const [id, temporary] of temporaryUndoSubMilestones) {
+        const subMilestone = previousSubMilestonesById.get(id);
+        if (!subMilestone) {
+          throw new Error(`Sub-milestone ${id} could not be restored for undo.`);
+        }
         await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: subMilestoneUpsertPayload(subMilestone),
+          subMilestone: subMilestoneUpsertPayload({
+            ...temporary,
+            replaceExisting: true,
+            order: subMilestone.order,
+            revision: pccRecordRevision(temporary),
+          }),
         });
       }
       await loadPccDashboard(state);
@@ -4071,15 +4778,54 @@ export async function normalizePccProjectSequence(state: PccDashboardState): Pro
       const milestoneUpdates = milestones
         .map((milestone, index) => ({ milestone, nextOrder: (index + 1) * 10 }))
         .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
-      for (const [index, { milestone }] of milestoneUpdates.entries()) {
-        await state.client.request("pcc.milestones.upsert", {
-          milestone: milestoneUpsertPayload({ ...milestone, order: temporaryReorderOrder(index) }),
+      const temporaryMilestones = new Map<string, PccMilestone>();
+      const writtenMilestones = new Map<string, PccOrderWrite<PccMilestone>>();
+      try {
+        for (const [index, { milestone }] of milestoneUpdates.entries()) {
+          const result = await state.client.request<{ milestone: PccMilestone }>(
+            "pcc.milestones.upsert",
+            {
+              milestone: milestoneUpsertPayload({
+                ...milestone,
+                order: temporaryReorderOrder(index),
+              }),
+            },
+          );
+          temporaryMilestones.set(milestone.id, result.milestone);
+          writtenMilestones.set(milestone.id, { before: milestone, after: result.milestone });
+        }
+        for (const { milestone, nextOrder } of milestoneUpdates) {
+          const temporary = temporaryMilestones.get(milestone.id);
+          if (!temporary) {
+            throw new Error(`Milestone ${milestone.id} did not return after temporary reorder.`);
+          }
+          const result = await state.client.request<{ milestone: PccMilestone }>(
+            "pcc.milestones.upsert",
+            {
+              milestone: milestoneUpsertPayload({ ...temporary, order: nextOrder }),
+            },
+          );
+          writtenMilestones.set(milestone.id, { before: milestone, after: result.milestone });
+        }
+      } catch (error) {
+        const rollbackErrors = await rollbackPccOrderWrites({
+          writes: writtenMilestones,
+          label: "milestone order",
+          upsert: async (record) => {
+            const result = await state.client!.request<{ milestone: PccMilestone }>(
+              "pcc.milestones.upsert",
+              { milestone: milestoneUpsertPayload(record) },
+            );
+            return result.milestone;
+          },
         });
-      }
-      for (const { milestone, nextOrder } of milestoneUpdates) {
-        await state.client.request("pcc.milestones.upsert", {
-          milestone: milestoneUpsertPayload({ ...milestone, order: nextOrder }),
-        });
+        if (rollbackErrors.length > 0) {
+          throw new Error(
+            `Milestone sequence repair partially applied; recovery is required for project ${detail.project.id}. ${rollbackErrors.join(" ")}`,
+            { cause: error },
+          );
+        }
+        await rethrowAfterPccRollback(state, detail.project.id, error, "Milestone sequence repair");
       }
 
       const subMilestoneUpdates: Array<{ subMilestone: PccSubMilestone; nextOrder: number }> = [];
@@ -4091,18 +4837,74 @@ export async function normalizePccProjectSequence(state: PccDashboardState): Pro
             .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder),
         );
       }
-      for (const [index, { subMilestone }] of subMilestoneUpdates.entries()) {
-        await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: subMilestoneUpsertPayload({
-            ...subMilestone,
-            order: temporaryReorderOrder(index),
-          }),
+      const temporarySubMilestones = new Map<string, PccSubMilestone>();
+      const writtenSubMilestones = new Map<string, PccOrderWrite<PccSubMilestone>>();
+      try {
+        for (const [index, { subMilestone }] of subMilestoneUpdates.entries()) {
+          const result = await state.client.request<{ subMilestone: PccSubMilestone }>(
+            "pcc.subMilestones.upsert",
+            {
+              subMilestone: subMilestoneUpsertPayload({
+                ...subMilestone,
+                order: temporaryReorderOrder(index),
+              }),
+            },
+          );
+          temporarySubMilestones.set(subMilestone.id, result.subMilestone);
+          writtenSubMilestones.set(subMilestone.id, {
+            before: subMilestone,
+            after: result.subMilestone,
+          });
+        }
+        for (const { subMilestone, nextOrder } of subMilestoneUpdates) {
+          const temporary = temporarySubMilestones.get(subMilestone.id);
+          if (!temporary) {
+            throw new Error(
+              `Sub-milestone ${subMilestone.id} did not return after temporary reorder.`,
+            );
+          }
+          const result = await state.client.request<{ subMilestone: PccSubMilestone }>(
+            "pcc.subMilestones.upsert",
+            {
+              subMilestone: subMilestoneUpsertPayload({ ...temporary, order: nextOrder }),
+            },
+          );
+          writtenSubMilestones.set(subMilestone.id, {
+            before: subMilestone,
+            after: result.subMilestone,
+          });
+        }
+      } catch (error) {
+        const milestoneRollbackErrors = await rollbackPccOrderWrites({
+          writes: writtenMilestones,
+          label: "milestone order",
+          upsert: async (record) => {
+            const result = await state.client!.request<{ milestone: PccMilestone }>(
+              "pcc.milestones.upsert",
+              { milestone: milestoneUpsertPayload(record) },
+            );
+            return result.milestone;
+          },
         });
-      }
-      for (const { subMilestone, nextOrder } of subMilestoneUpdates) {
-        await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: subMilestoneUpsertPayload({ ...subMilestone, order: nextOrder }),
+        const subMilestoneRollbackErrors = await rollbackPccOrderWrites({
+          writes: writtenSubMilestones,
+          label: "sub-milestone order",
+          upsert: async (record) => {
+            const result = await state.client!.request<{ subMilestone: PccSubMilestone }>(
+              "pcc.subMilestones.upsert",
+              { subMilestone: subMilestoneUpsertPayload(record) },
+            );
+            return result.subMilestone;
+          },
         });
+        const rollbackErrors = [...milestoneRollbackErrors, ...subMilestoneRollbackErrors];
+        if (rollbackErrors.length > 0) {
+          throw new Error(
+            `PCC sequence repair partially applied; recovery is required for project ${detail.project.id}. ${rollbackErrors.join(" ")}`,
+            { cause: error },
+          );
+        }
+        await rethrowAfterPccRollback(state, detail.project.id, error, "PCC sequence repair");
       }
 
       await loadPccDashboard(state);
@@ -4211,6 +5013,7 @@ export async function setPccPermissionStatus(
         ...(permission.revision ? { expectedRevision: permission.revision } : {}),
         permission: {
           id: permission.id,
+          revision: permission.revision ?? 1,
           projectId: permission.projectId,
           ...(permission.milestoneId ? { milestoneId: permission.milestoneId } : {}),
           type: permission.type,
@@ -4276,7 +5079,9 @@ export async function applyPccChatSyncProposal(
         throw new Error("Missing permission proposal");
       }
       await state.client.request("pcc.permissions.upsert", {
-        permission: proposal.permission,
+        permission: proposal.permission.id
+          ? { ...proposal.permission, revision: proposal.permission.revision ?? 1 }
+          : proposal.permission,
       });
     }
     await loadPccDashboard(state);
@@ -4732,13 +5537,15 @@ export async function runPccExecutionTeamAction(
 
 type PccProjectUpsertInput = Partial<PccProject> & Pick<PccProject, "title">;
 
-type PccMilestoneUpsertInput = Partial<PccMilestone> & Pick<PccMilestone, "projectId" | "title">;
+type PccMilestoneUpsertInput = Partial<PccMilestone> &
+  Pick<PccMilestone, "projectId" | "title"> & { replaceExisting?: boolean };
 
 type PccSubMilestoneUpsertInput = Partial<PccSubMilestone> &
-  Pick<PccSubMilestone, "projectId" | "milestoneId" | "title">;
+  Pick<PccSubMilestone, "projectId" | "milestoneId" | "title"> & { replaceExisting?: boolean };
 
 function projectUpsertPayload(project: PccProjectUpsertInput): {
   id?: string;
+  revision?: number;
   title: string;
   goal?: string;
   status?: PccStatus;
@@ -4749,6 +5556,7 @@ function projectUpsertPayload(project: PccProjectUpsertInput): {
 } {
   return {
     ...(project.id !== undefined ? { id: project.id } : {}),
+    ...(project.id !== undefined ? { revision: project.revision ?? 1 } : {}),
     title: project.title,
     ...(project.goal !== undefined ? { goal: project.goal } : {}),
     ...(project.status !== undefined ? { status: project.status } : {}),
@@ -4785,6 +5593,8 @@ function temporaryReorderOrder(index: number): number {
 
 function milestoneUpsertPayload(milestone: PccMilestoneUpsertInput): {
   id?: string;
+  revision?: number;
+  replaceExisting?: boolean;
   projectId: string;
   title: string;
   status?: PccStatus;
@@ -4804,6 +5614,8 @@ function milestoneUpsertPayload(milestone: PccMilestoneUpsertInput): {
   const order = pccOrderForUpsert(milestone.order, milestone.id);
   return {
     ...(milestone.id !== undefined ? { id: milestone.id } : {}),
+    ...(milestone.id !== undefined ? { revision: milestone.revision ?? 1 } : {}),
+    ...(milestone.replaceExisting === true ? { replaceExisting: true } : {}),
     projectId: milestone.projectId,
     title: milestone.title,
     ...(milestone.status !== undefined ? { status: milestone.status } : {}),
@@ -4834,6 +5646,8 @@ function milestoneUpsertPayload(milestone: PccMilestoneUpsertInput): {
 
 function subMilestoneUpsertPayload(subMilestone: PccSubMilestoneUpsertInput): {
   id?: string;
+  revision?: number;
+  replaceExisting?: boolean;
   projectId: string;
   milestoneId: string;
   title: string;
@@ -4853,6 +5667,8 @@ function subMilestoneUpsertPayload(subMilestone: PccSubMilestoneUpsertInput): {
   const order = pccOrderForUpsert(subMilestone.order, subMilestone.id);
   return {
     ...(subMilestone.id !== undefined ? { id: subMilestone.id } : {}),
+    ...(subMilestone.id !== undefined ? { revision: subMilestone.revision ?? 1 } : {}),
+    ...(subMilestone.replaceExisting === true ? { replaceExisting: true } : {}),
     projectId: subMilestone.projectId,
     milestoneId: subMilestone.milestoneId,
     title: subMilestone.title,

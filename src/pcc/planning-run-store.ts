@@ -112,28 +112,34 @@ async function writeRun(run: PccPlanningRun, env: NodeJS.ProcessEnv): Promise<vo
   });
 }
 
+function planningRunIsOwned(id: string): boolean {
+  return activeRuns.has(id) || pendingRuns.has(id);
+}
+
+async function markPlanningRunLost(
+  run: PccPlanningRun,
+  env: NodeJS.ProcessEnv,
+): Promise<PccPlanningRun> {
+  const now = new Date().toISOString();
+  const lost: PccPlanningRun = {
+    ...run,
+    status: "lost",
+    error: "The Gateway restarted before this planning run finished. Retry generation.",
+    updatedAt: now,
+    endedAt: now,
+  };
+  delete lost.queuePosition;
+  await writeRun(lost, env);
+  return lost;
+}
+
 export async function readPccPlanningRun(
   id: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<PccPlanningRun | null> {
   const run = await readDurableJsonFile<PccPlanningRun>(runPath(id, env));
-  if (
-    run &&
-    (run.status === "queued" || run.status === "running") &&
-    !activeRuns.has(run.id) &&
-    !pendingRuns.has(run.id)
-  ) {
-    const now = new Date().toISOString();
-    const lost = {
-      ...run,
-      status: "lost" as const,
-      error: "The Gateway restarted before this planning run finished. Retry generation.",
-      updatedAt: now,
-      endedAt: now,
-    };
-    delete lost.queuePosition;
-    await writeRun(lost, env);
-    return lost;
+  if (run && (run.status === "queued" || run.status === "running") && !planningRunIsOwned(run.id)) {
+    return await markPlanningRunLost(run, env);
   }
   return run;
 }
@@ -153,16 +159,8 @@ async function findMatchingActiveRun(
       run?.requestFingerprint === requestFingerprint &&
       (run.status === "queued" || run.status === "running")
     ) {
-      if (!activeRuns.has(run.id) && !pendingRuns.has(run.id)) {
-        const now = new Date().toISOString();
-        const lost = {
-          ...run,
-          status: "lost" as const,
-          error: "The Gateway restarted before this planning run finished. Retry generation.",
-          updatedAt: now,
-          endedAt: now,
-        };
-        await writeRun(lost, env);
+      if (!planningRunIsOwned(run.id)) {
+        await markPlanningRunLost(run, env);
         continue;
       }
       return run;
@@ -179,7 +177,7 @@ function boundedConcurrentRuns(value: number | undefined): number {
   return Math.max(1, Math.min(candidate, PCC_PRIVATE_TEAM_MAX_CONCURRENT_PLANNING_RUNS));
 }
 
-async function durableRunningCount(env: NodeJS.ProcessEnv): Promise<number> {
+async function reconcileDurablePlanningRuns(env: NodeJS.ProcessEnv): Promise<number> {
   await fs.mkdir(runsRoot(env), { recursive: true, mode: 0o700 });
   let count = 0;
   for (const name of await fs.readdir(runsRoot(env))) {
@@ -187,7 +185,14 @@ async function durableRunningCount(env: NodeJS.ProcessEnv): Promise<number> {
       continue;
     }
     const run = await readDurableJsonFile<PccPlanningRun>(path.join(runsRoot(env), name));
-    if (run?.status === "running") {
+    if (!run || (run.status !== "queued" && run.status !== "running")) {
+      continue;
+    }
+    if (!planningRunIsOwned(run.id)) {
+      await markPlanningRunLost(run, env);
+      continue;
+    }
+    if (run.status === "running") {
       count += 1;
     }
   }
@@ -197,7 +202,7 @@ async function durableRunningCount(env: NodeJS.ProcessEnv): Promise<number> {
 async function currentRunningCount(env: NodeJS.ProcessEnv): Promise<number> {
   const root = runsRoot(env);
   const inMemory = [...activeRuns.values()].filter((active) => active.root === root).length;
-  return Math.max(inMemory, await durableRunningCount(env));
+  return Math.max(inMemory, await reconcileDurablePlanningRuns(env));
 }
 
 async function refreshQueuePositions(root: string): Promise<void> {

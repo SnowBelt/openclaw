@@ -204,6 +204,8 @@ describe("Project Command Center protocol schemas", () => {
     expect(
       validatePccProjectsUpsertParams({
         project: {
+          id: "project-pcc",
+          revision: 1,
           title: "Project Command Center",
           status: "active",
           phases: [{ id: "mvp", title: "MVP", status: "in_progress", weight: 30 }],
@@ -214,6 +216,9 @@ describe("Project Command Center protocol schemas", () => {
     expect(
       validatePccMilestonesUpsertParams({
         milestone: {
+          id: "milestone-ledger",
+          revision: 1,
+          replaceExisting: true,
           projectId: "project-pcc",
           title: "Ledger foundation",
           status: "proof_pending",
@@ -300,6 +305,8 @@ describe("Project Command Center protocol schemas", () => {
     expect(
       validatePccSubMilestonesUpsertParams({
         subMilestone: {
+          id: "sub-milestone-proof",
+          revision: 1,
           projectId: "project-pcc",
           milestoneId: "milestone-ledger",
           title: "Run targeted proof",
@@ -334,6 +341,8 @@ describe("Project Command Center protocol schemas", () => {
     expect(
       validatePccPermissionsUpsertParams({
         permission: {
+          id: "permission-remote-proof",
+          revision: 1,
           projectId: "project-pcc",
           type: "remote_proof",
           status: "granted",

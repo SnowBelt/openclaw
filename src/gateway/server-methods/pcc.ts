@@ -380,6 +380,7 @@ function bindPccProductionProofMetadata(
   };
   return {
     ...project,
+    revision: nextRecordRevision(project),
     updatedAt: nowIso(),
     metadata: { ...metadata, pccProductionTruth: nextTruth },
   };
@@ -436,7 +437,13 @@ function revisionConflict(
   record: { id: string; revision?: number } | null | undefined,
   expectedRevision: number | undefined,
 ): string | null {
-  if (!record || expectedRevision === undefined || recordRevision(record) === expectedRevision) {
+  if (!record) {
+    return null;
+  }
+  if (expectedRevision === undefined) {
+    return `Review latest changes before saving ${record.id}. Expected revision ${recordRevision(record)} must be provided for an existing record.`;
+  }
+  if (recordRevision(record) === expectedRevision) {
     return null;
   }
   return `Review latest changes before saving ${record.id}. Expected revision ${expectedRevision}, but the current revision is ${recordRevision(record)}.`;
@@ -985,6 +992,7 @@ function upsertMilestone(
     id?: string;
     projectId: string;
     title: string;
+    replaceExisting?: boolean;
     status?: PccStatus;
     phaseId?: string;
     owner?: string;
@@ -1016,7 +1024,9 @@ function upsertMilestone(
   }
   const timestamp = nowIso();
   const id = existing?.id ?? input.id ?? makeId("milestone", input.title);
-  const status = input.status ?? existing?.status ?? "not_started";
+  const replaceExisting = input.replaceExisting === true;
+  const status =
+    input.status ?? (replaceExisting ? "not_started" : (existing?.status ?? "not_started"));
   const transitionError = validateStatusTransition("milestone", existing?.status, status);
   if (transitionError) {
     return { error: transitionError };
@@ -1025,14 +1035,16 @@ function upsertMilestone(
   if (titleError) {
     return { error: titleError };
   }
-  const order = input.order ?? existing?.order;
+  const order = replaceExisting ? input.order : (input.order ?? existing?.order);
   const orderError = validateMilestoneOrder(ledger, input.projectId, id, order, status);
   if (orderError) {
     return { error: orderError };
   }
-  const receiptIds = input.receiptIds ?? existing?.receiptIds;
+  const receiptIds = replaceExisting
+    ? input.receiptIds
+    : (input.receiptIds ?? existing?.receiptIds);
   const referenceError = validateMilestoneReferences(ledger, input.projectId, id, {
-    dependsOn: input.dependsOn ?? existing?.dependsOn,
+    dependsOn: replaceExisting ? input.dependsOn : (input.dependsOn ?? existing?.dependsOn),
     requiredEvidenceIds: input.requiredEvidenceIds,
     receiptIds,
     permissionGrantIds: input.permissionGrantIds,
@@ -1055,54 +1067,54 @@ function upsertMilestone(
       updatedAt: timestamp,
       ...(input.phaseId !== undefined
         ? { phaseId: input.phaseId }
-        : existing?.phaseId !== undefined
+        : !replaceExisting && existing?.phaseId !== undefined
           ? { phaseId: existing.phaseId }
           : {}),
       ...(input.owner !== undefined
         ? { owner: input.owner }
-        : existing?.owner !== undefined
+        : !replaceExisting && existing?.owner !== undefined
           ? { owner: existing.owner }
           : {}),
       ...(order !== undefined ? { order } : {}),
       ...(input.percentComplete !== undefined
         ? { percentComplete: input.percentComplete }
-        : existing?.percentComplete !== undefined
+        : !replaceExisting && existing?.percentComplete !== undefined
           ? { percentComplete: existing.percentComplete }
           : {}),
       ...(input.dependsOn !== undefined
         ? { dependsOn: input.dependsOn }
-        : existing?.dependsOn !== undefined
+        : !replaceExisting && existing?.dependsOn !== undefined
           ? { dependsOn: existing.dependsOn }
           : {}),
       ...(input.requiredEvidenceIds !== undefined
         ? { requiredEvidenceIds: input.requiredEvidenceIds }
-        : existing?.requiredEvidenceIds !== undefined
+        : !replaceExisting && existing?.requiredEvidenceIds !== undefined
           ? { requiredEvidenceIds: existing.requiredEvidenceIds }
           : {}),
       ...(receiptIds !== undefined ? { receiptIds } : {}),
       ...(input.permissionGrantIds !== undefined
         ? { permissionGrantIds: input.permissionGrantIds }
-        : existing?.permissionGrantIds !== undefined
+        : !replaceExisting && existing?.permissionGrantIds !== undefined
           ? { permissionGrantIds: existing.permissionGrantIds }
           : {}),
       ...(input.blocker !== undefined
         ? { blocker: input.blocker }
-        : existing?.blocker !== undefined
+        : !replaceExisting && existing?.blocker !== undefined
           ? { blocker: existing.blocker }
           : {}),
       ...(input.implementationPlan !== undefined
         ? { implementationPlan: input.implementationPlan }
-        : existing?.implementationPlan !== undefined
+        : !replaceExisting && existing?.implementationPlan !== undefined
           ? { implementationPlan: existing.implementationPlan }
           : {}),
       ...(input.acceptanceCriteria !== undefined
         ? { acceptanceCriteria: input.acceptanceCriteria }
-        : existing?.acceptanceCriteria !== undefined
+        : !replaceExisting && existing?.acceptanceCriteria !== undefined
           ? { acceptanceCriteria: existing.acceptanceCriteria }
           : {}),
       ...(input.metadata !== undefined
         ? { metadata: input.metadata }
-        : existing?.metadata !== undefined
+        : !replaceExisting && existing?.metadata !== undefined
           ? { metadata: existing.metadata }
           : {}),
     },
@@ -1118,6 +1130,7 @@ function upsertSubMilestone(
     projectId: string;
     milestoneId: string;
     title: string;
+    replaceExisting?: boolean;
     status?: PccStatus;
     order?: number;
     owner?: string;
@@ -1157,7 +1170,9 @@ function upsertSubMilestone(
   }
   const timestamp = nowIso();
   const id = existing?.id ?? input.id ?? makeId("submilestone", input.title);
-  const status = input.status ?? existing?.status ?? "not_started";
+  const replaceExisting = input.replaceExisting === true;
+  const status =
+    input.status ?? (replaceExisting ? "not_started" : (existing?.status ?? "not_started"));
   const transitionError = validateStatusTransition("sub-milestone", existing?.status, status);
   if (transitionError) {
     return { error: transitionError };
@@ -1173,7 +1188,7 @@ function upsertSubMilestone(
   if (titleError) {
     return { error: titleError };
   }
-  const order = input.order ?? existing?.order;
+  const order = replaceExisting ? input.order : (input.order ?? existing?.order);
   const orderError = validateSubMilestoneOrder(
     ledger,
     input.projectId,
@@ -1185,15 +1200,19 @@ function upsertSubMilestone(
   if (orderError) {
     return { error: orderError };
   }
-  const requiredEvidenceIds = input.requiredEvidenceIds ?? existing?.requiredEvidenceIds;
-  const receiptIds = input.receiptIds ?? existing?.receiptIds;
+  const requiredEvidenceIds = replaceExisting
+    ? input.requiredEvidenceIds
+    : (input.requiredEvidenceIds ?? existing?.requiredEvidenceIds);
+  const receiptIds = replaceExisting
+    ? input.receiptIds
+    : (input.receiptIds ?? existing?.receiptIds);
   const referenceError = validateSubMilestoneReferences(
     ledger,
     input.projectId,
     input.milestoneId,
     id,
     {
-      dependsOn: input.dependsOn ?? existing?.dependsOn,
+      dependsOn: replaceExisting ? input.dependsOn : (input.dependsOn ?? existing?.dependsOn),
       requiredEvidenceIds,
       receiptIds,
       permissionGrantIds: input.permissionGrantIds,
@@ -1224,44 +1243,44 @@ function upsertSubMilestone(
       ...(order !== undefined ? { order } : {}),
       ...(input.owner !== undefined
         ? { owner: input.owner }
-        : existing?.owner !== undefined
+        : !replaceExisting && existing?.owner !== undefined
           ? { owner: existing.owner }
           : {}),
       ...(input.percentComplete !== undefined
         ? { percentComplete: input.percentComplete }
-        : existing?.percentComplete !== undefined
+        : !replaceExisting && existing?.percentComplete !== undefined
           ? { percentComplete: existing.percentComplete }
           : {}),
       ...(input.dependsOn !== undefined
         ? { dependsOn: input.dependsOn }
-        : existing?.dependsOn !== undefined
+        : !replaceExisting && existing?.dependsOn !== undefined
           ? { dependsOn: existing.dependsOn }
           : {}),
       ...(requiredEvidenceIds !== undefined ? { requiredEvidenceIds } : {}),
       ...(receiptIds !== undefined ? { receiptIds } : {}),
       ...(input.permissionGrantIds !== undefined
         ? { permissionGrantIds: input.permissionGrantIds }
-        : existing?.permissionGrantIds !== undefined
+        : !replaceExisting && existing?.permissionGrantIds !== undefined
           ? { permissionGrantIds: existing.permissionGrantIds }
           : {}),
       ...(input.blocker !== undefined
         ? { blocker: input.blocker }
-        : existing?.blocker !== undefined
+        : !replaceExisting && existing?.blocker !== undefined
           ? { blocker: existing.blocker }
           : {}),
       ...(input.implementationPlan !== undefined
         ? { implementationPlan: input.implementationPlan }
-        : existing?.implementationPlan !== undefined
+        : !replaceExisting && existing?.implementationPlan !== undefined
           ? { implementationPlan: existing.implementationPlan }
           : {}),
       ...(input.acceptanceCriteria !== undefined
         ? { acceptanceCriteria: input.acceptanceCriteria }
-        : existing?.acceptanceCriteria !== undefined
+        : !replaceExisting && existing?.acceptanceCriteria !== undefined
           ? { acceptanceCriteria: existing.acceptanceCriteria }
           : {}),
       ...(input.metadata !== undefined
         ? { metadata: input.metadata }
-        : existing?.metadata !== undefined
+        : !replaceExisting && existing?.metadata !== undefined
           ? { metadata: existing.metadata }
           : {}),
     },
@@ -1399,6 +1418,11 @@ function repairCanonicalMetadataForLedger(
     const repaired = canonicalizePccProjectForWrite(project, now);
     if (JSON.stringify(repaired) !== JSON.stringify(project)) {
       repairedProjectIds.push(project.id);
+      return {
+        ...repaired,
+        revision: recordRevision(project) + 1,
+        updatedAt: now,
+      };
     }
     return repaired;
   });
@@ -1424,12 +1448,28 @@ function repairCanonicalMetadataForLedger(
   for (const [id, subMilestone] of subOrderRepair.subMilestones) {
     repairedSubMilestones.set(id, subMilestone);
   }
-  ledger.milestones = ledger.milestones.map(
-    (milestone) => repairedMilestones.get(milestone.id) ?? milestone,
-  );
-  ledger.subMilestones = ledger.subMilestones.map(
-    (subMilestone) => repairedSubMilestones.get(subMilestone.id) ?? subMilestone,
-  );
+  ledger.milestones = ledger.milestones.map((milestone) => {
+    const repaired = repairedMilestones.get(milestone.id);
+    if (!repaired || JSON.stringify(repaired) === JSON.stringify(milestone)) {
+      return milestone;
+    }
+    return {
+      ...repaired,
+      revision: recordRevision(milestone) + 1,
+      updatedAt: now,
+    };
+  });
+  ledger.subMilestones = ledger.subMilestones.map((subMilestone) => {
+    const repaired = repairedSubMilestones.get(subMilestone.id);
+    if (!repaired || JSON.stringify(repaired) === JSON.stringify(subMilestone)) {
+      return subMilestone;
+    }
+    return {
+      ...repaired,
+      revision: recordRevision(subMilestone) + 1,
+      updatedAt: now,
+    };
+  });
   ledger.receipts = ledger.receipts.map((receipt) => {
     if (!eligibleProjectIds.has(receipt.projectId)) {
       return receipt;
@@ -1919,7 +1959,7 @@ export const pccHandlers: GatewayRequestHandlers = {
               pccActor(client),
               "Project updated",
             ),
-            expectedRevision: params.expectedRevision,
+            expectedRevision: params.expectedRevision ?? params.project.revision,
           });
           if (upsert.error || !upsert.project) {
             return { error: upsert.error ?? "project upsert failed" };
@@ -2105,12 +2145,16 @@ export const pccHandlers: GatewayRequestHandlers = {
         (ledger) => {
           const upsert = upsertMilestone(ledger, {
             ...params.milestone,
-            metadata: attributedMetadata(
-              params.milestone.metadata,
-              pccActor(client),
-              "Milestone updated",
-            ),
-            expectedRevision: params.expectedRevision,
+            ...(params.milestone.replaceExisting !== true
+              ? {
+                  metadata: attributedMetadata(
+                    params.milestone.metadata,
+                    pccActor(client),
+                    "Milestone updated",
+                  ),
+                }
+              : {}),
+            expectedRevision: params.expectedRevision ?? params.milestone.revision,
           });
           if (upsert.error || !upsert.milestone) {
             return { error: upsert.error ?? "milestone upsert failed" };
@@ -2183,12 +2227,16 @@ export const pccHandlers: GatewayRequestHandlers = {
         (ledger) => {
           const upsert = upsertSubMilestone(ledger, {
             ...params.subMilestone,
-            metadata: attributedMetadata(
-              params.subMilestone.metadata,
-              pccActor(client),
-              "Sub-milestone updated",
-            ),
-            expectedRevision: params.expectedRevision,
+            ...(params.subMilestone.replaceExisting !== true
+              ? {
+                  metadata: attributedMetadata(
+                    params.subMilestone.metadata,
+                    pccActor(client),
+                    "Sub-milestone updated",
+                  ),
+                }
+              : {}),
+            expectedRevision: params.expectedRevision ?? params.subMilestone.revision,
           });
           if (upsert.error || !upsert.subMilestone || !upsert.milestone) {
             return { error: upsert.error ?? "sub-milestone upsert failed" };
@@ -2239,7 +2287,10 @@ export const pccHandlers: GatewayRequestHandlers = {
           const existing = params.permission.id
             ? ledger.permissions.find((permission) => permission.id === params.permission.id)
             : null;
-          const conflict = revisionConflict(existing, params.expectedRevision);
+          const conflict = revisionConflict(
+            existing,
+            params.expectedRevision ?? params.permission.revision,
+          );
           if (conflict) {
             return { error: conflict };
           }
@@ -2578,6 +2629,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           setAt(ledger.lastKnownGood, lastKnownGood);
           const updatedMilestone: PccMilestone = {
             ...milestone,
+            revision: recordRevision(milestone) + 1,
             status: "complete",
             percentComplete: 100,
             receiptIds: [...(milestone.receiptIds ?? []), receipt.id],

@@ -293,6 +293,7 @@ async function setDisposableProjectStatus(
   await gateway("pcc.projects.upsert", {
     project: {
       id,
+      revision: current.project.revision ?? 1,
       title,
       status,
       metadata: {
@@ -319,6 +320,7 @@ async function setDisposableMilestoneBlocked(
   await gateway("pcc.milestones.upsert", {
     milestone: {
       id: milestoneId,
+      revision: current.milestones.find((milestone) => milestone.id === milestoneId)?.revision ?? 1,
       projectId,
       title,
       status: "blocked",
@@ -337,9 +339,11 @@ async function setDisposableMilestoneBlocked(
 }
 
 async function archiveProject(id: string, title: string): Promise<void> {
+  const current = await getProject(id);
   await gateway("pcc.projects.upsert", {
     project: {
       id,
+      revision: current.project.revision ?? 1,
       title,
       status: "archived",
       metadata: {

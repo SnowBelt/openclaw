@@ -577,6 +577,7 @@ export const PccProjectsUpsertParamsSchema = Type.Object(
     project: Type.Object(
       {
         id: Type.Optional(NonEmptyString),
+        revision: Type.Optional(Type.Integer({ minimum: 1 })),
         title: NonEmptyString,
         goal: Type.Optional(Type.String({ maxLength: 20_000 })),
         status: Type.Optional(PccStatusSchema),
@@ -1054,6 +1055,8 @@ export const PccMilestonesUpsertParamsSchema = Type.Object(
     milestone: Type.Object(
       {
         id: Type.Optional(NonEmptyString),
+        revision: Type.Optional(Type.Integer({ minimum: 1 })),
+        replaceExisting: Type.Optional(Type.Boolean()),
         projectId: NonEmptyString,
         title: NonEmptyString,
         status: Type.Optional(PccStatusSchema),
@@ -1105,6 +1108,8 @@ export const PccSubMilestonesUpsertParamsSchema = Type.Object(
     subMilestone: Type.Object(
       {
         id: Type.Optional(NonEmptyString),
+        revision: Type.Optional(Type.Integer({ minimum: 1 })),
+        replaceExisting: Type.Optional(Type.Boolean()),
         projectId: NonEmptyString,
         milestoneId: NonEmptyString,
         title: NonEmptyString,
@@ -1142,6 +1147,7 @@ export const PccPermissionsUpsertParamsSchema = Type.Object(
     permission: Type.Object(
       {
         id: Type.Optional(NonEmptyString),
+        revision: Type.Optional(Type.Integer({ minimum: 1 })),
         projectId: NonEmptyString,
         milestoneId: Type.Optional(NonEmptyString),
         type: PccPermissionTypeSchema,

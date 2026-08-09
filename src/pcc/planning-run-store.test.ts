@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,8 @@ import {
   readPccPlanningRun,
   resetPccPlanningRunsForTest,
   startPccPlanningRun,
+  type PccPlanningRun,
+  type PccPlanningRunStatus,
 } from "./planning-run-store.js";
 import { DEFAULT_PCC_PLANNING_POLICY, type PccPlanGenerationResult } from "./planning.js";
 
@@ -40,6 +43,28 @@ function plan(): PccPlanGenerationResult {
       planningOnly: true,
     },
   };
+}
+
+function writeOrphanedRun(env: NodeJS.ProcessEnv, status: PccPlanningRunStatus): string {
+  const id = randomUUID();
+  const timestamp = new Date().toISOString();
+  const run: PccPlanningRun = {
+    schemaVersion: 1,
+    id,
+    requestFingerprint: `orphan-${id}`,
+    surface: "project_creation",
+    status,
+    stage: status === "queued" ? "preparing" : "planner_running",
+    model: DEFAULT_PCC_PLANNING_POLICY.model,
+    effort: "medium",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...(status === "running" ? { startedAt: timestamp } : { queuePosition: 1 }),
+  };
+  const root = path.join(env.OPENCLAW_STATE_DIR!, "pcc", "planning-runs");
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, `${id}.json`), `${JSON.stringify(run)}\n`);
+  return id;
 }
 
 async function waitForTerminal(runId: string, env: NodeJS.ProcessEnv) {
@@ -168,6 +193,26 @@ describe("PCC durable planning runs", () => {
     releaseSecond();
     await waitForTerminal(second.id, env);
     expect((await waitForTerminal(third.id, env)).status).toBe("succeeded");
+  });
+
+  it("reconciles orphaned durable runs before admitting new work", async () => {
+    const env = makeEnv();
+    const orphanedRunningIds = [writeOrphanedRun(env, "running"), writeOrphanedRun(env, "running")];
+    const orphanedQueuedId = writeOrphanedRun(env, "queued");
+
+    const run = await startPccPlanningRun({
+      cfg: {} as OpenClawConfig,
+      request: { surface: "project_creation", description: "Recover after restart." },
+      policy: DEFAULT_PCC_PLANNING_POLICY,
+      env,
+      maxConcurrentRuns: 2,
+      generatePlan: async () => plan(),
+    });
+
+    expect((await waitForTerminal(run.id, env)).status).toBe("succeeded");
+    for (const orphanedId of [...orphanedRunningIds, orphanedQueuedId]) {
+      expect((await readPccPlanningRun(orphanedId, env))?.status).toBe("lost");
+    }
   });
 
   it("cancels immediately and never overwrites cancellation with success", async () => {

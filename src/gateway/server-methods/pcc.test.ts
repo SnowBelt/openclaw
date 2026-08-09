@@ -1510,6 +1510,7 @@ describe("Project Command Center gateway methods", () => {
     expect(listed.subMilestones).toHaveLength(1);
 
     const blocked = await invoke("pcc.milestones.upsert", {
+      expectedRevision: 1,
       milestone: {
         id: milestone.id,
         projectId: project.id,
@@ -1520,6 +1521,7 @@ describe("Project Command Center gateway methods", () => {
     expect(errorMessage(blocked)).toContain("sub-milestone");
 
     await invoke("pcc.subMilestones.upsert", {
+      expectedRevision: 1,
       subMilestone: {
         id: subMilestone.id,
         projectId: project.id,
@@ -1625,12 +1627,14 @@ describe("Project Command Center gateway methods", () => {
       }),
     );
     await invoke("pcc.projects.upsert", {
+      expectedRevision: 1,
       project: { id: project.id, title: "Transition project", status: "archived" },
     });
 
     expect(
       errorMessage(
         await invoke("pcc.projects.upsert", {
+          expectedRevision: 2,
           project: { id: project.id, title: "Transition project", status: "active" },
         }),
       ),
@@ -1638,6 +1642,7 @@ describe("Project Command Center gateway methods", () => {
 
     const reopenedProject = okPayload<{ project: { status: string } }>(
       await invoke("pcc.projects.upsert", {
+        expectedRevision: 2,
         project: { id: project.id, title: "Transition project", status: "reopened" },
       }),
     ).project;
@@ -1651,6 +1656,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.milestones.upsert", {
+          expectedRevision: 1,
           milestone: {
             id: archivedMilestone.id,
             projectId: project.id,
@@ -1663,6 +1669,7 @@ describe("Project Command Center gateway methods", () => {
 
     const resetMilestone = okPayload<{ milestone: { status: string } }>(
       await invoke("pcc.milestones.upsert", {
+        expectedRevision: 1,
         milestone: {
           id: archivedMilestone.id,
           projectId: project.id,
@@ -1686,6 +1693,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.subMilestones.upsert", {
+          expectedRevision: 1,
           subMilestone: {
             id: archivedSubMilestone.id,
             projectId: project.id,
@@ -1715,6 +1723,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.projects.upsert", {
+          expectedRevision: 1,
           project: {
             id: project.id,
             title: "Incomplete completion project",
@@ -1836,6 +1845,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.milestones.upsert", {
+          expectedRevision: 1,
           milestone: {
             id: secondMilestone.id,
             projectId: project.id,
@@ -1848,6 +1858,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.milestones.upsert", {
+          expectedRevision: 1,
           milestone: {
             id: firstMilestone.id,
             projectId: project.id,
@@ -1860,6 +1871,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.milestones.upsert", {
+          expectedRevision: 1,
           milestone: {
             id: firstMilestone.id,
             projectId: project.id,
@@ -1882,6 +1894,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.subMilestones.upsert", {
+          expectedRevision: 1,
           subMilestone: {
             id: firstSubMilestone.id,
             projectId: project.id,
@@ -1905,6 +1918,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.subMilestones.upsert", {
+          expectedRevision: 1,
           subMilestone: {
             id: firstSubMilestone.id,
             projectId: project.id,
@@ -2133,6 +2147,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.milestones.upsert", {
+          expectedRevision: 1,
           milestone: {
             id: firstMilestone.id,
             projectId: secondProject.id,
@@ -2145,6 +2160,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.subMilestones.upsert", {
+          expectedRevision: 1,
           subMilestone: {
             id: subMilestone.id,
             projectId: secondProject.id,
@@ -2158,6 +2174,7 @@ describe("Project Command Center gateway methods", () => {
     expect(
       errorMessage(
         await invoke("pcc.subMilestones.upsert", {
+          expectedRevision: 1,
           subMilestone: {
             id: subMilestone.id,
             projectId: firstProject.id,
@@ -2385,6 +2402,191 @@ describe("Project Command Center gateway methods", () => {
       await invoke("pcc.projects.get", { projectId: created.project.id }),
     );
     expect(current.project).toMatchObject({ title: "First editor", revision: 2 });
+  });
+
+  it("requires current revisions for every existing PCC record update", async () => {
+    const project = okPayload<{ project: { id: string; revision: number } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "revision-required-project", title: "Revision required", status: "active" },
+      }),
+    );
+    const milestone = okPayload<{ milestone: { id: string; revision: number } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          id: "revision-required-milestone",
+          projectId: project.project.id,
+          title: "Revision required milestone",
+          status: "not_started",
+        },
+      }),
+    );
+    const subMilestone = okPayload<{ subMilestone: { id: string; revision: number } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          id: "revision-required-sub-milestone",
+          projectId: project.project.id,
+          milestoneId: milestone.milestone.id,
+          title: "Revision required sub-milestone",
+          status: "not_started",
+        },
+      }),
+    );
+    const permission = okPayload<{ permission: { id: string; revision: number } }>(
+      await invoke("pcc.permissions.upsert", {
+        permission: {
+          id: "revision-required-permission",
+          projectId: project.project.id,
+          type: "codex_usage",
+          status: "needed",
+          riskLevel: "medium",
+          allowedActions: ["planning"],
+        },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.projects.upsert", {
+          project: {
+            id: project.project.id,
+            title: "Missing project revision",
+            status: "active",
+          },
+        }),
+      ),
+    ).toContain("must be provided");
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            id: milestone.milestone.id,
+            projectId: project.project.id,
+            title: "Missing milestone revision",
+            status: "not_started",
+          },
+        }),
+      ),
+    ).toContain("must be provided");
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            id: subMilestone.subMilestone.id,
+            projectId: project.project.id,
+            milestoneId: milestone.milestone.id,
+            title: "Missing sub-milestone revision",
+            status: "not_started",
+          },
+        }),
+      ),
+    ).toContain("must be provided");
+    expect(
+      errorMessage(
+        await invoke("pcc.permissions.upsert", {
+          permission: {
+            id: permission.permission.id,
+            projectId: project.project.id,
+            type: "codex_usage",
+            status: "granted",
+            riskLevel: "medium",
+            allowedActions: ["planning"],
+          },
+        }),
+      ),
+    ).toContain("must be provided");
+  });
+
+  it("replaces existing milestone fields when a full snapshot omits them", async () => {
+    const project = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "replace-project", title: "Replace project", status: "active" },
+      }),
+    );
+    const milestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          id: "replace-milestone",
+          projectId: project.project.id,
+          title: "Replace milestone",
+          status: "in_progress",
+          phaseId: "mvp",
+          owner: "owner",
+          order: 10,
+          percentComplete: 40,
+          blocker: "old blocker",
+          implementationPlan: "old plan",
+          acceptanceCriteria: ["old criterion"],
+          metadata: { custom: "old" },
+        },
+      }),
+    );
+    const replacedMilestone = okPayload<{
+      milestone: Record<string, unknown>;
+    }>(
+      await invoke("pcc.milestones.upsert", {
+        expectedRevision: 1,
+        milestone: {
+          id: milestone.milestone.id,
+          replaceExisting: true,
+          projectId: project.project.id,
+          title: "Replace milestone",
+          status: "not_started",
+        },
+      }),
+    );
+    expect(replacedMilestone.milestone).not.toHaveProperty("phaseId");
+    expect(replacedMilestone.milestone).not.toHaveProperty("owner");
+    expect(replacedMilestone.milestone).not.toHaveProperty("order");
+    expect(replacedMilestone.milestone).not.toHaveProperty("percentComplete");
+    expect(replacedMilestone.milestone).not.toHaveProperty("blocker");
+    expect(replacedMilestone.milestone).not.toMatchObject({
+      implementationPlan: "old plan",
+      acceptanceCriteria: ["old criterion"],
+      metadata: { custom: "old" },
+    });
+
+    const subMilestone = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          id: "replace-sub-milestone",
+          projectId: project.project.id,
+          milestoneId: milestone.milestone.id,
+          title: "Replace sub-milestone",
+          status: "in_progress",
+          order: 10,
+          owner: "owner",
+          percentComplete: 40,
+          blocker: "old blocker",
+          implementationPlan: "old plan",
+          acceptanceCriteria: ["old criterion"],
+          metadata: { custom: "old" },
+        },
+      }),
+    );
+    const replacedSubMilestone = okPayload<{
+      subMilestone: Record<string, unknown>;
+    }>(
+      await invoke("pcc.subMilestones.upsert", {
+        expectedRevision: 1,
+        subMilestone: {
+          id: subMilestone.subMilestone.id,
+          replaceExisting: true,
+          projectId: project.project.id,
+          milestoneId: milestone.milestone.id,
+          title: "Replace sub-milestone",
+          status: "not_started",
+        },
+      }),
+    );
+    expect(replacedSubMilestone.subMilestone).not.toHaveProperty("owner");
+    expect(replacedSubMilestone.subMilestone).not.toHaveProperty("order");
+    expect(replacedSubMilestone.subMilestone).not.toHaveProperty("percentComplete");
+    expect(replacedSubMilestone.subMilestone).not.toHaveProperty("blocker");
+    expect(replacedSubMilestone.subMilestone).not.toMatchObject({
+      implementationPlan: "old plan",
+      acceptanceCriteria: ["old criterion"],
+      metadata: { custom: "old" },
+    });
   });
 
   it("commits a generated project plan atomically", async () => {
