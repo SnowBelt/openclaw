@@ -37,6 +37,21 @@ async function main() {
       status: "active" as const,
       priority: 3,
       metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccIntake: {
+          approved: true,
+          answers: {
+            goal: "Track work safely.",
+            firstDeliverable: "A permission-gated work-loop proof.",
+            doneProof: "The local smoke passes without starting gated work.",
+            constraints: "Do not spend Codex tokens or run remote proof without permission.",
+            owner: "local_openclaw_agent",
+            blockers: "Remote proof permission is intentionally missing.",
+          },
+        },
+        pccQualityGate: { status: "passing" },
+        pccSetupScore: { score: 100, runnable: true },
+        pccCompliance: { badge: "Passing", status: "passing" },
         pccWorkLoop: {
           enabled: false,
           state: "idle",
@@ -58,6 +73,32 @@ async function main() {
       implementationPlan: "Prepare one safe milestone task.",
       acceptanceCriteria: ["No Codex tokens are spent", "Missing permission stops the loop"],
       permissionGrantIds: ["permission-remote"],
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        pccCostRisk: "low",
+      },
+      createdAt: "2026-06-26T00:00:00Z",
+      updatedAt: "2026-06-26T00:00:00Z",
+    };
+    const subMilestone = {
+      id: "submilestone-loop",
+      projectId: "pcc",
+      milestoneId: "milestone-loop",
+      title: "Run the guarded local proof",
+      status: "not_started" as const,
+      order: 1,
+      owner: "local_openclaw_agent",
+      percentComplete: 0,
+      implementationPlan: "Run the local proof without crossing the missing permission gate.",
+      acceptanceCriteria: ["No gated work starts"],
+      permissionGrantIds: ["permission-remote"],
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        pccCostRisk: "low",
+        proofRequired: "Targeted local smoke",
+      },
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
@@ -112,6 +153,7 @@ async function main() {
         projectDetail: {
           project,
           milestones: [milestone],
+          subMilestones: [subMilestone],
           permissions: [permission],
           evidence: [],
           receipts: [],
@@ -180,9 +222,11 @@ async function main() {
       workLoop: root.querySelectorAll("[data-pcc-work-loop]").length === 1,
       stopBeforeCodex: text.includes("Stop before Codex"),
       stopBeforeRemoteProof: text.includes("Stop before remote proof"),
-      waiting: text.includes("Missing granted permission") || text.includes("remote proof"),
+      permissionBlocked: text.includes(
+        "Missing granted permission for Run the guarded local proof.",
+      ),
       noCodexStart: !calls.some((call) => call.toLowerCase().includes("codex")),
-      callbacks: calls.includes("work-loop-update") || calls.includes("work-loop-next"),
+      callbacksWired: calls.includes("work-loop-update") && calls.includes("work-loop-next"),
     };
     const summaryOut = {
       artifactDir,
