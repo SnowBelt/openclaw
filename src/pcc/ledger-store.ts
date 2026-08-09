@@ -22,6 +22,7 @@ import {
   DEFAULT_PCC_PRIVATE_TEAM_POLICY,
   normalizePccPrivateTeamPolicy,
 } from "./private-team-policy.js";
+import { normalizePccTimestamp } from "./timestamps.js";
 
 export type { PccLedger } from "./domain/ledger.js";
 
@@ -321,6 +322,62 @@ function writeSnapshot(
   );
 }
 
+type TimestampedReceipt = {
+  id: string;
+  completedAt?: unknown;
+};
+
+type ReceiptTimestampInventory = Map<string, Map<unknown, number>>;
+
+function assertNewOrRetimestampedReceipts(
+  previousTimestamps: ReceiptTimestampInventory,
+  next: readonly TimestampedReceipt[],
+  collection: "receipts" | "modelRunReceipts",
+): void {
+  for (const receipt of next) {
+    const timestampCounts = previousTimestamps.get(receipt.id);
+    const unchangedCount = timestampCounts?.get(receipt.completedAt) ?? 0;
+    if (unchangedCount > 0) {
+      timestampCounts?.set(receipt.completedAt, unchangedCount - 1);
+      continue;
+    }
+    if (!normalizePccTimestamp(receipt.completedAt)) {
+      throw new Error(
+        `PCC ${collection} record ${receipt.id} must provide a valid completedAt timestamp.`,
+      );
+    }
+  }
+}
+
+function receiptTimestampInventory(
+  receipts: readonly TimestampedReceipt[],
+): ReceiptTimestampInventory {
+  const inventory: ReceiptTimestampInventory = new Map();
+  for (const receipt of receipts) {
+    const timestampCounts = inventory.get(receipt.id) ?? new Map<unknown, number>();
+    timestampCounts.set(receipt.completedAt, (timestampCounts.get(receipt.completedAt) ?? 0) + 1);
+    inventory.set(receipt.id, timestampCounts);
+  }
+  return inventory;
+}
+
+function assertPccLedgerTimestampMutation(
+  previousReceipts: ReceiptTimestampInventory,
+  previousModelRuns: ReceiptTimestampInventory,
+  next: PccLedger,
+): void {
+  assertNewOrRetimestampedReceipts(
+    previousReceipts,
+    next.receipts as unknown as TimestampedReceipt[],
+    "receipts",
+  );
+  assertNewOrRetimestampedReceipts(
+    previousModelRuns,
+    (next.modelRunReceipts ?? []) as unknown as TimestampedReceipt[],
+    "modelRunReceipts",
+  );
+}
+
 function writeLedgerBackupSync(ledger: PccLedger, revision: number, env: NodeJS.ProcessEnv): void {
   const pathname = pccLedgerBackupPath(env);
   ensurePrivateStoragePath(pathname);
@@ -473,12 +530,19 @@ export function withPccLedger<T>(
   const mutationResult = runSqliteImmediateTransactionSync(database.db, () => {
     const current = selectSnapshot(database.db);
     const ledger = current ? parseSnapshot(current) : defaultLedger();
+    const previousReceipts = receiptTimestampInventory(
+      ledger.receipts as unknown as TimestampedReceipt[],
+    );
+    const previousModelRuns = receiptTimestampInventory(
+      (ledger.modelRunReceipts ?? []) as unknown as TimestampedReceipt[],
+    );
     if (current) {
       // Preserve the last committed state before applying the next mutation.
       // If the mutation fails, this file remains a usable recovery point.
       writeLedgerBackupSync(ledger, current.revision, env);
     }
     const result = mutator(ledger);
+    assertPccLedgerTimestampMutation(previousReceipts, previousModelRuns, ledger);
     writeSnapshot(
       database.db,
       ledger,

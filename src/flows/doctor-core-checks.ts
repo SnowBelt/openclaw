@@ -69,6 +69,17 @@ const loadDoctorCoreChecksRuntimeModule = async () =>
   await import("./doctor-core-checks.runtime.js");
 const loadDoctorWorkspaceModule = async () => await import("../commands/doctor-workspace.js");
 
+function summarizePccTimestampIssues(
+  issues: readonly { collection: string; recordId: string; code: string }[],
+): string {
+  const sample = issues
+    .slice(0, 5)
+    .map((issue) => `${issue.collection}:${issue.recordId} (${issue.code})`)
+    .join(", ");
+  const remainder = issues.length > 5 ? ` and ${issues.length - 5} more` : "";
+  return `${issues.length} historical record(s) have unusable completion timestamps: ${sample}${remainder}.`;
+}
+
 export type CoreHealthCheckDeps = {
   readonly detectUnavailableSkills: (cfg: OpenClawConfig) => Promise<readonly SkillStatusEntry[]>;
   readonly collectSecurityWarnings: (cfg: OpenClawConfig) => Promise<readonly string[]>;
@@ -1143,7 +1154,7 @@ const pccLedgerStorageCheck: HealthCheck = {
 const pccProductionTruthBindingsCheck: HealthCheck = {
   id: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
   kind: "core",
-  description: "PCC production proof flags are bound to their verified source and runtime SHAs.",
+  description: "PCC proof bindings and historical completion-receipt integrity remain canonical.",
   source: "doctor",
   async detect() {
     const { readPccLedger } = await import("../pcc/ledger-store.js");
@@ -1151,23 +1162,29 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
     const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
     const currentLedger = readPccLedger();
     const project = currentLedger.projects.find((item) => item.id === "project-command-center");
-    if (!project) {
-      return [];
-    }
-    const bindingRepair = repairPccProductionTruthBindings(project);
+    const bindingRepair = project ? repairPccProductionTruthBindings(project) : undefined;
     const integrityRepair = repairPccLedgerIntegrity(structuredClone(currentLedger));
-    const changes = [...bindingRepair.changes, ...integrityRepair.changes];
-    return changes.length
-      ? [
-          {
-            checkId: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
-            severity: "warning",
-            message: `PCC production truth needs canonical proof bindings: ${changes.join(" ")}`,
-            fixHint:
-              "Run `openclaw doctor --fix` to bind existing proof records to their verified SHAs.",
-          },
-        ]
-      : [];
+    const changes = [...(bindingRepair?.changes ?? []), ...integrityRepair.changes];
+    const findings: HealthFinding[] = [];
+    if (changes.length > 0) {
+      findings.push({
+        checkId: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
+        severity: "warning",
+        message: `PCC production truth needs canonical proof bindings: ${changes.join(" ")}`,
+        fixHint:
+          "Run `openclaw doctor --fix` to bind existing proof records to their verified SHAs.",
+      });
+    }
+    if (integrityRepair.issues.length > 0) {
+      findings.push({
+        checkId: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
+        severity: "warning",
+        message: summarizePccTimestampIssues(integrityRepair.issues),
+        fixHint:
+          "Historical records are preserved but excluded from chronological activity. Supply an authoritative completedAt timestamp; doctor will not infer one.",
+      });
+    }
+    return findings;
   },
   async repair(ctx) {
     const { readPccLedger, withPccLedger } = await import("../pcc/ledger-store.js");
@@ -1188,27 +1205,47 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
           },
         ]
       : [];
+    const previewWarnings =
+      integrityPreview.issues.length > 0
+        ? [summarizePccTimestampIssues(integrityPreview.issues)]
+        : [];
     if (previewChanges.length === 0 || ctx.dryRun === true) {
-      return { status: "repaired" as const, changes: [], effects };
+      const status =
+        previewChanges.length > 0 || previewWarnings.length === 0 ? "repaired" : "skipped";
+      return {
+        status,
+        ...(previewChanges.length === 0 && previewWarnings.length > 0
+          ? { reason: "Historical receipt timestamps require authoritative evidence." }
+          : {}),
+        changes: [],
+        warnings: previewWarnings,
+        effects,
+      };
     }
     const repairedAt = new Date().toISOString();
     let changes: string[] = [];
+    let warnings = previewWarnings;
     withPccLedger(
       (ledger) => {
         const index = ledger.projects.findIndex((item) => item.id === "project-command-center");
-        if (index < 0) {
-          return;
-        }
-        const repair = repairPccProductionTruthBindings(ledger.projects[index], repairedAt);
-        if (repair.changes.length > 0) {
-          ledger.projects[index] = repair.project;
+        const bindingChanges: string[] = [];
+        if (index >= 0) {
+          const repair = repairPccProductionTruthBindings(ledger.projects[index], repairedAt);
+          if (repair.changes.length > 0) {
+            ledger.projects[index] = repair.project;
+          }
+          bindingChanges.push(...repair.changes);
         }
         const integrityRepair = repairPccLedgerIntegrity(ledger);
-        changes = [...repair.changes, ...integrityRepair.changes];
+        changes = [...bindingChanges, ...integrityRepair.changes];
+        warnings =
+          integrityRepair.issues.length > 0
+            ? [summarizePccTimestampIssues(integrityRepair.issues)]
+            : [];
       },
       { write: true, auditKind: "production_truth_and_ledger.canonicalize" },
     );
-    return { status: "repaired" as const, changes, effects };
+    return { status: "repaired" as const, changes, warnings, effects };
   },
 };
 
