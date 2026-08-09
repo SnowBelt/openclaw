@@ -5,7 +5,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import { captureReleaseLocalProof, createReleaseLocalProofReceipt } from "./local-proof.js";
 
 const CANDIDATE_SHA = "a".repeat(40);
+const VERIFIER_SHA = "b".repeat(64);
 const roots: string[] = [];
+
+const candidateReceiptFields = {
+  proofProfileVersion: 2,
+  proofPhase: "candidate" as const,
+  activeRuntimeSha: null,
+  verifierSha256: VERIFIER_SHA,
+  browserArtifactSha256: null,
+};
 
 function commandForNode(script: string): string {
   return `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
@@ -32,13 +41,15 @@ describe("release local proof capture", () => {
       createReleaseLocalProofReceipt({
         candidateSha: CANDIDATE_SHA,
         proofProfile: "mac_studio_control_director",
+        ...candidateReceiptFields,
         checkId: "source_typecheck",
         command: "pnpm tsgo",
       }),
     ).toEqual({
-      schema: "openclaw.release-local-proof.v1",
+      schema: "openclaw.release-local-proof.v2",
       candidateSha: CANDIDATE_SHA,
       proofProfile: "mac_studio_control_director",
+      ...candidateReceiptFields,
       checkId: "source_typecheck",
       command: "pnpm tsgo",
       result: "passed",
@@ -53,6 +64,7 @@ describe("release local proof capture", () => {
     const captured = captureReleaseLocalProof({
       candidateSha: CANDIDATE_SHA,
       proofProfile: "mac_studio_control_director",
+      ...candidateReceiptFields,
       checkId: "source_typecheck",
       command,
       output,
@@ -72,6 +84,7 @@ describe("release local proof capture", () => {
       captureReleaseLocalProof({
         candidateSha: CANDIDATE_SHA,
         proofProfile: "mac_studio_control_director",
+        ...candidateReceiptFields,
         checkId: "source_typecheck",
         command: commandForNode("process.exit(7)"),
         output,
@@ -90,6 +103,7 @@ describe("release local proof capture", () => {
       captureReleaseLocalProof({
         candidateSha: CANDIDATE_SHA,
         proofProfile: "mac_studio_control_director",
+        ...candidateReceiptFields,
         checkId: "source_typecheck",
         command: commandForNode("process.exit(0)"),
         output,

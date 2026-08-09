@@ -75,6 +75,7 @@ import {
 } from "../../../../src/pcc/plan-revision.js";
 import {
   DEFAULT_PCC_PLANNING_POLICY,
+  PCC_LOCAL_PLANNER_MODEL,
   PCC_CODEX_PLANNER_MODEL,
   type PccGeneratedMilestone,
   type PccPlanGenerationResult,
@@ -126,6 +127,7 @@ import {
   type PccProjectEditMode,
   type PccProjectFilter,
   type PccProjectFormState,
+  type PccSurface,
   type PccViewMode,
 } from "../pcc/application/state.ts";
 import type {
@@ -135,10 +137,12 @@ import type {
   PccEvidence,
   PccLastKnownGood,
   PccMilestone,
+  PccOverviewGetResult,
   PccSubMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
   PccPlanningRun,
+  PccPresenceEntry,
   PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
@@ -177,10 +181,6 @@ export type {
   PccViewMode,
 } from "../pcc/application/state.ts";
 
-type PccProjectsListResult = {
-  projects?: PccProjectSummary[];
-};
-
 type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
   planningPolicy?: PccPlanningPolicy;
@@ -190,6 +190,119 @@ type PccSummaryGetResult = {
   updateSafety?: PccUpdateSafety;
   releaseGovernance?: ReleaseGovernanceStatus | null;
 };
+
+type PccPresenceListResult = { presence: PccPresenceEntry[] };
+
+const PCC_FAVORITES_KEY = "openclaw.pcc.favorites.v1";
+const PCC_RECENTS_KEY = "openclaw.pcc.recents.v1";
+const PCC_PROJECT_FILTERS = new Set<PccProjectFilter>([
+  "active",
+  "needs_you",
+  "on_hold",
+  "completed",
+  "archived",
+  "all",
+]);
+
+function readProjectPreference(key: string): string[] {
+  try {
+    const parsed = JSON.parse(globalThis.localStorage?.getItem(key) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string").slice(0, 20)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProjectPreference(key: string, value: readonly string[]): void {
+  try {
+    globalThis.localStorage?.setItem(key, JSON.stringify(value.slice(0, 20)));
+  } catch {
+    // Preferences are a local convenience. Shared project state never depends on them.
+  }
+}
+
+function syncPccUrl(surface: PccSurface, projectId?: string): void {
+  if (globalThis.location === undefined || globalThis.history === undefined) {
+    return;
+  }
+  const url = new URL(globalThis.location.href);
+  url.searchParams.set("pcc", surface);
+  if (surface === "project" && projectId) {
+    url.searchParams.set("project", projectId);
+  } else {
+    url.searchParams.delete("project");
+  }
+  if (surface !== "projects") {
+    url.searchParams.delete("pccFilter");
+    url.searchParams.delete("pccQuery");
+  }
+  globalThis.history.pushState({}, "", url);
+}
+
+function syncPccDirectoryUrl(
+  filter: PccProjectFilter | undefined,
+  query: string | undefined,
+  replace: boolean,
+): void {
+  if (globalThis.location === undefined || globalThis.history === undefined) {
+    return;
+  }
+  const url = new URL(globalThis.location.href);
+  url.searchParams.set("pcc", "projects");
+  if (filter && filter !== "active") {
+    url.searchParams.set("pccFilter", filter);
+  } else {
+    url.searchParams.delete("pccFilter");
+  }
+  const normalizedQuery = query?.trim();
+  if (normalizedQuery) {
+    url.searchParams.set("pccQuery", normalizedQuery);
+  } else {
+    url.searchParams.delete("pccQuery");
+  }
+  globalThis.history[replace ? "replaceState" : "pushState"]({}, "", url);
+}
+
+export function restorePccLocation(state: PccDashboardState): void {
+  if (globalThis.location === undefined) {
+    return;
+  }
+  const url = new URL(globalThis.location.href);
+  const requested = url.searchParams.get("pcc");
+  const surface: PccSurface =
+    requested === "projects" ||
+    requested === "activity" ||
+    requested === "system" ||
+    requested === "project"
+      ? requested
+      : "overview";
+  const projectId = url.searchParams.get("project")?.trim();
+  const requestedFilter = url.searchParams.get("pccFilter");
+  const directoryFilter = PCC_PROJECT_FILTERS.has(requestedFilter as PccProjectFilter)
+    ? (requestedFilter as PccProjectFilter)
+    : undefined;
+  const directoryQuery = url.searchParams.get("pccQuery")?.trim() ?? "";
+  if (surface === "project" && projectId) {
+    state.pccSurface = "project";
+    state.pccSelectedProjectId = projectId;
+    state.pccProjectDetail = state.pccProjectDetails[projectId] ?? null;
+  } else {
+    state.pccSurface = surface === "project" ? "overview" : surface;
+    state.pccSelectedProjectId = null;
+    state.pccProjectDetail = null;
+    state.pccExecutionProjection = null;
+  }
+  state.pccProjectFilter = surface === "projects" ? directoryFilter : undefined;
+  state.pccProjectSearchQuery = surface === "projects" ? directoryQuery : "";
+  state.requestUpdate?.();
+}
+
+function hydratePccPreferences(state: PccDashboardState): void {
+  state.pccFavorites ??= readProjectPreference(PCC_FAVORITES_KEY);
+  state.pccRecentProjectIds ??= readProjectPreference(PCC_RECENTS_KEY);
+}
 
 type PccProjectsGetResult = {
   project: PccProject;
@@ -211,6 +324,11 @@ type PccAttachmentsListResult = {
 type PccProjectsUpsertResult = {
   project: PccProject;
   summary: PccProjectSummary;
+};
+
+type PccProjectPlanCommitResult = PccProjectsUpsertResult & {
+  milestones: PccMilestone[];
+  subMilestones: PccSubMilestone[];
 };
 
 type PccPermissionsUpsertResult = {
@@ -647,13 +765,15 @@ function canonicalizeProjectAiRouting(form: PccProjectFormState): PccProjectForm
     pccExecutionProfile: form.executionProfile,
   });
   const aiUsePolicy = derivePccAiUsePolicy(executionProfile);
+  const plannerMode = form.plannerMode ?? plannerModeFromPlanningMode(form.planningMode);
+  const usesCodexForInitialPlan = plannerMode === "codex" || plannerMode === "high_reasoning_codex";
   return {
     ...form,
     executionProfile,
     aiUsePolicy,
-    plannerMode: "codex",
-    planningMode: "codex_full_plan",
-    plannerModelId: PCC_CODEX_PLANNER_MODEL,
+    plannerMode,
+    planningMode: plannerModeToPlanningMode(plannerMode),
+    plannerModelId: usesCodexForInitialPlan ? PCC_CODEX_PLANNER_MODEL : PCC_LOCAL_PLANNER_MODEL,
     plannerPermissionScope: executionProfile.approvalScope,
     codexPlanningAllowed: executionProfile.codexRole === "off" ? false : form.codexPlanningAllowed,
     plannerPermissionBudget: "",
@@ -757,7 +877,9 @@ function generatedPlanIntake(plan: PccPlanGenerationResult): Record<string, stri
         ? plan.risks.join("\n")
         : "Stop before missing permissions, unavailable tools, destructive actions, deployment, credentials, purchases, publication, or unrelated external writes.",
     owner:
-      "Codex plans. OpenClaw local agents execute routine work. The user owns gated decisions.",
+      plan.provenance.runtime === "codex"
+        ? "Codex plans. OpenClaw local agents execute routine work. The user owns gated decisions."
+        : "Local AI plans. OpenClaw local agents execute routine work. The user owns gated decisions.",
     blockers:
       plan.assumptions.length > 0
         ? `Validate these assumptions before dependent work:\n${plan.assumptions.join("\n")}`
@@ -1106,7 +1228,7 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
     codexPlanningAllowed: false,
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
-    planningMode: "codex_full_plan",
+    planningMode: plan.provenance.runtime === "codex" ? "codex_full_plan" : "template_only",
     aiUsePolicy: "local_only",
   });
   const milestones = plan.milestones.map((milestone, order) =>
@@ -1376,7 +1498,11 @@ function workflowDraftForSetup(
     goal: previewGoal ?? autofillGoal(detail),
     templateId: existingWorkflow || workflow.templateId,
     priority: detail.project.priority,
-    planningMode: generatedPlan ? "codex_full_plan" : "local_project_manager",
+    planningMode: generatedPlan
+      ? generatedPlan.provenance.runtime === "codex"
+        ? "codex_full_plan"
+        : "template_only"
+      : "local_project_manager",
     codexPlanningAllowed: false,
     remoteProofAllowed: false,
     runtimeActionsAllowed: false,
@@ -1711,12 +1837,12 @@ function projectFormFromProject(
     ) as PccPlanningMode,
     plannerMode: metadataString(
       aiRouting.plannerMode ?? metadata.pccPlannerMode,
-      "local_project_manager",
+      "local_model",
     ) as PccPlannerMode,
     aiUsePolicy: normalizeAiUsePolicy(
       aiRouting.policy ?? metadata.pccAiUsePolicy,
       aiUsePolicyFromPlannerMode(
-        metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
+        metadataString(metadata.pccPlannerMode, "local_model") as PccPlannerMode,
       ),
     ),
     plannerModelId: executionProfile.localModelId,
@@ -1875,72 +2001,68 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
   state.pccError = null;
   state.requestUpdate?.();
   try {
-    const [projectsResult, summaryResult] = await Promise.all([
-      state.client.request<PccProjectsListResult>("pcc.projects.list", {}),
+    hydratePccPreferences(state);
+    const firstLoad = state.pccUpdatedAt == null;
+    if (firstLoad) {
+      restorePccLocation(state);
+    }
+    const [overviewResult, summaryResult] = await Promise.all([
+      state.client.request<PccOverviewGetResult | { projects?: PccProjectSummary[] }>(
+        "pcc.overview.get",
+        {},
+      ),
       state.client.request<PccSummaryGetResult>("pcc.summary.get", {}),
     ]);
-    const projects = Array.isArray(projectsResult.projects)
-      ? projectsResult.projects.map(safeProjectSummary)
+    const projects = Array.isArray(overviewResult.projects)
+      ? overviewResult.projects.map(safeProjectSummary)
       : [];
+    const overview =
+      "generatedAt" in overviewResult && "system" in overviewResult
+        ? (overviewResult as PccOverviewGetResult)
+        : null;
+    state.pccOverview = overview;
     state.pccProjects = projects;
-    state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
+    state.pccPortfolioSummary =
+      overview?.portfolio ?? summaryResult.portfolio ?? summarizePortfolio(projects);
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
     state.pccPlanningPolicy = summaryResult.planningPolicy ?? DEFAULT_PCC_PLANNING_POLICY;
     state.pccPrivateTeamPolicy = summaryResult.privateTeamPolicy;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
     state.pccUpdateSafety = summaryResult.updateSafety ?? null;
     state.pccReleaseGovernance = summaryResult.releaseGovernance ?? null;
-    if (state.pccProjectDetail) {
+    const activeSurface =
+      state.pccSurface ??
+      (state.pccSelectedProjectId || state.pccProjectDetail ? "project" : "overview");
+    state.pccSurface = activeSurface;
+    if (state.pccProjectDetail && activeSurface === "project") {
       rememberPccProjectDetailForState(state, state.pccProjectDetail);
     }
-    const pccProjectSummary = projects.find((project) => project.id === "project-command-center");
-    if (pccProjectSummary && !state.pccProjectDetails[pccProjectSummary.id]) {
-      try {
-        const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
-          projectId: pccProjectSummary.id,
-        });
-        const normalized = normalizePccProjectDetail(detail);
-        rememberPccProjectDetailForState(state, normalized);
-      } catch {
-        // Keep the dashboard usable if the optional production-truth preload fails.
-      }
-    }
-    const selectedProjectStillExists = Boolean(
-      state.pccProjectDetail &&
-      projects.some((project) => project.id === state.pccProjectDetail?.project.id),
-    );
-    if (!selectedProjectStillExists) {
-      const preferredSummary =
-        projects.find((project) => project.id === state.pccSelectedProjectId) ??
-        pccProjectSummary ??
-        projects.find((project) => project.status === "active") ??
-        projects[0];
-      if (preferredSummary) {
-        const cachedDetail = state.pccProjectDetails[preferredSummary.id];
-        if (cachedDetail) {
-          state.pccSelectedProjectId = cachedDetail.project.id;
-          state.pccProjectDetail = cachedDetail;
-        } else {
-          try {
-            const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
-              projectId: preferredSummary.id,
-            });
-            const normalized = normalizePccProjectDetail(detail);
-            state.pccSelectedProjectId = normalized.project.id;
-            state.pccProjectDetail = normalized;
-            rememberPccProjectDetailForState(state, normalized);
-          } catch {
-            state.pccSelectedProjectId = null;
-            state.pccProjectDetail = null;
-          }
-        }
+    if (activeSurface !== "project") {
+      state.pccSelectedProjectId = null;
+      state.pccProjectDetail = null;
+    } else if (state.pccSelectedProjectId) {
+      const selectedProjectId = state.pccSelectedProjectId;
+      const cached = state.pccProjectDetails[selectedProjectId];
+      if (cached) {
+        state.pccProjectDetail = cached;
       } else {
-        state.pccSelectedProjectId = null;
-        state.pccProjectDetail = null;
+        try {
+          const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
+            projectId: selectedProjectId,
+          });
+          const normalized = normalizePccProjectDetail(detail);
+          state.pccProjectDetail = normalized;
+          rememberPccProjectDetailForState(state, normalized);
+        } catch {
+          state.pccSurface = "overview";
+          state.pccSelectedProjectId = null;
+          state.pccProjectDetail = null;
+        }
       }
     }
     state.pccUpdatedAt = Date.now();
-    if (state.pccSelectedProjectId) {
+    await updatePccPresence(state);
+    if (activeSurface === "project" && state.pccSelectedProjectId) {
       void loadPccExecutionProjection(state, state.pccSelectedProjectId);
     }
   } catch (err) {
@@ -1971,10 +2093,91 @@ export async function updatePccPlanningPolicy(
     setActionNotice(
       state,
       enabled
-        ? "Codex planning enabled. The grant remains planning-only and tool-free."
-        : "Codex planning disabled. Local project execution settings were not changed.",
+        ? "Planning grant enabled. Local AI remains the default; Codex is opt-in and planning-only."
+        : "Planning grant disabled. Local project execution settings were not changed.",
     );
   });
+}
+
+export async function updatePccPresence(
+  state: PccDashboardState,
+  status: "online" | "away" = "online",
+): Promise<void> {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  try {
+    const result = await state.client.request<PccPresenceListResult>("pcc.presence.update", {
+      displayName: "Team member",
+      status,
+      surface: state.pccSurface ?? "overview",
+      ...(state.pccSurface === "project" && state.pccSelectedProjectId
+        ? { projectId: state.pccSelectedProjectId }
+        : {}),
+      editing: state.pccEditorMode != null,
+    });
+    state.pccPresence = result.presence;
+    state.requestUpdate?.();
+  } catch {
+    // Presence is ephemeral and must never block durable project work.
+  }
+}
+
+export function updatePccSurface(state: PccDashboardState, surface: PccSurface): void {
+  state.pccSurface = surface;
+  if (surface !== "project") {
+    state.pccSelectedProjectId = null;
+    state.pccProjectDetail = null;
+    state.pccExecutionProjection = null;
+  }
+  if (surface === "projects") {
+    syncPccDirectoryUrl(state.pccProjectFilter, state.pccProjectSearchQuery, false);
+  } else {
+    syncPccUrl(surface);
+  }
+  state.requestUpdate?.();
+  void updatePccPresence(state);
+}
+
+export function togglePccFavorite(state: PccDashboardState, projectId: string): void {
+  hydratePccPreferences(state);
+  const favorites = new Set(state.pccFavorites ?? []);
+  if (favorites.has(projectId)) {
+    favorites.delete(projectId);
+  } else {
+    favorites.add(projectId);
+  }
+  state.pccFavorites = [...favorites];
+  writeProjectPreference(PCC_FAVORITES_KEY, state.pccFavorites);
+  state.requestUpdate?.();
+}
+
+export async function openPccAttention(
+  state: PccDashboardState,
+  projectId: string,
+  recordId?: string,
+): Promise<void> {
+  state.pccAttentionRecordId = recordId ?? null;
+  await selectPccProject(state, projectId);
+  if (!recordId || globalThis.document === undefined) {
+    return;
+  }
+  globalThis.setTimeout(() => {
+    const dialog = [
+      ...globalThis.document.querySelectorAll<HTMLDialogElement>(
+        "[data-pcc-permission-review-dialog]",
+      ),
+    ].find((candidate) => candidate.dataset.pccPermissionReviewDialog === projectId);
+    if (!dialog) {
+      return;
+    }
+    if (typeof dialog.showModal === "function" && !dialog.open) {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+    }
+    dialog.querySelector<HTMLButtonElement>("[data-pcc-permission-grant]")?.focus();
+  }, 0);
 }
 
 export async function selectPccProject(state: PccDashboardState, projectId: string): Promise<void> {
@@ -1985,7 +2188,15 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
     return;
   }
   state.pccActionError = null;
+  state.pccSurface = "project";
   state.pccSelectedProjectId = projectId;
+  hydratePccPreferences(state);
+  state.pccRecentProjectIds = [
+    projectId,
+    ...(state.pccRecentProjectIds ?? []).filter((id) => id !== projectId),
+  ].slice(0, 10);
+  writeProjectPreference(PCC_RECENTS_KEY, state.pccRecentProjectIds);
+  syncPccUrl("project", projectId);
   const cached = state.pccProjectDetails?.[projectId];
   if (cached) {
     state.pccProjectDetail = cached;
@@ -2004,6 +2215,7 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
     rememberPccProjectDetailForState(state, state.pccProjectDetail);
     refreshPccChatSyncProposals(state);
     void loadPccExecutionProjection(state, detail.project.id);
+    void updatePccPresence(state);
   } catch (err) {
     setActionError(state, err);
   } finally {
@@ -2278,11 +2490,17 @@ export function updatePccProjectEditMode(state: PccDashboardState, mode: PccProj
 
 export function updatePccProjectFilter(state: PccDashboardState, filter: PccProjectFilter): void {
   state.pccProjectFilter = filter;
+  if (state.pccSurface === "projects") {
+    syncPccDirectoryUrl(filter, state.pccProjectSearchQuery, false);
+  }
   state.requestUpdate?.();
 }
 
 export function updatePccProjectSearchQuery(state: PccDashboardState, query: string): void {
   state.pccProjectSearchQuery = query;
+  if (state.pccSurface === "projects") {
+    syncPccDirectoryUrl(state.pccProjectFilter, query, true);
+  }
   state.requestUpdate?.();
 }
 
@@ -2312,7 +2530,10 @@ export function updatePccProjectForm(
     });
   }
   if (patch.plannerMode) {
-    nextForm.planningMode = plannerModeToPlanningMode(patch.plannerMode);
+    nextForm = canonicalizeProjectAiRouting({
+      ...nextForm,
+      plannerMode: patch.plannerMode,
+    });
   }
   if (patch.projectDescription !== undefined) {
     nextForm = {
@@ -2356,6 +2577,10 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
     }
     const planningRequest = {
       surface: form.id ? "project_replan" : "project_creation",
+      plannerMode:
+        form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex"
+          ? ("codex" as const)
+          : ("local" as const),
       description,
       ...(form.title.trim() ? { existingTitle: form.title.trim() } : {}),
       ...(form.goal.trim() ? { existingGoal: form.goal.trim() } : {}),
@@ -2424,8 +2649,8 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
         ? form.outcomeMetrics
         : plan.outcomeMetrics.join("\n"),
       workflowTemplateId: plan.workflowTemplateId,
-      planningMode: "codex_full_plan",
-      plannerMode: "codex",
+      planningMode: plan.provenance.runtime === "codex" ? "codex_full_plan" : "template_only",
+      plannerMode: plan.provenance.runtime === "codex" ? "codex" : "local_model",
       plannerModelId: plan.provenance.model,
       planPreviewAccepted: !form.id,
       generatedPlan: plan,
@@ -3133,10 +3358,22 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       creating && state.pccPlanningRun?.status === "succeeded"
         ? state.pccPlanningRun.id
         : undefined;
-    const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
-      ...(planningRunId ? { planningRunId } : {}),
-      project: projectUpsertPayload(projectForUpsert),
-    });
+    if (creating && !form.generatedPlan) {
+      state.pccActionError = "Generate and review a complete project plan before creating it.";
+      return;
+    }
+    const result = creating
+      ? await state.client.request<PccProjectPlanCommitResult>("pcc.projects.commitPlan", {
+          ...(planningRunId ? { planningRunId } : {}),
+          project: projectUpsertPayload(projectForUpsert),
+          plan: form.generatedPlan!,
+        })
+      : await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
+          ...(state.pccProjectDetail?.project.revision
+            ? { expectedRevision: state.pccProjectDetail.project.revision }
+            : {}),
+          project: projectUpsertPayload(projectForUpsert),
+        });
     const previousDetail = form.id ? state.pccProjectDetail : null;
     let revisionResult: Awaited<ReturnType<typeof applyGeneratedPlanRevision>> | null = null;
     if (form.id && form.generatedPlan && form.planRevision && previousDetail) {
@@ -3161,38 +3398,6 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           throw recoveryError;
         }
         throw error;
-      }
-    }
-    if (draft && !form.id) {
-      const createdMilestones: PccMilestone[] = [];
-      for (const milestone of draft.milestones) {
-        const created = await state.client.request<{ milestone: PccMilestone }>(
-          "pcc.milestones.upsert",
-          { milestone: milestoneUpsertPayload({ ...milestone, projectId: result.project.id }) },
-        );
-        createdMilestones.push(created.milestone);
-        for (const subMilestone of draft.subMilestonesByMilestoneTitle[milestone.title] ?? []) {
-          await state.client.request("pcc.subMilestones.upsert", {
-            subMilestone: subMilestoneUpsertPayload({
-              ...subMilestone,
-              projectId: result.project.id,
-              milestoneId: created.milestone.id,
-            }),
-          });
-        }
-      }
-      if (form.generatedPlan) {
-        for (const [index, generated] of form.generatedPlan.milestones.entries()) {
-          const created = createdMilestones[index];
-          const dependsOn = generated.dependencies
-            .map((dependency) => createdMilestones[dependency]?.id)
-            .filter((id): id is string => Boolean(id));
-          if (created && dependsOn.length > 0) {
-            await state.client.request("pcc.milestones.upsert", {
-              milestone: milestoneUpsertPayload({ ...created, dependsOn }),
-            });
-          }
-        }
       }
     }
     const existingCodexPermissions = (state.pccProjectDetail?.permissions ?? []).filter(
@@ -3334,7 +3539,11 @@ export async function savePccMilestone(state: PccDashboardState): Promise<void> 
     }
     const order = parseOptionalInteger(form.order);
     const percentComplete = parseOptionalPercent(form.percentComplete);
+    const existingMilestone = form.id
+      ? state.pccProjectDetail?.milestones.find((milestone) => milestone.id === form.id)
+      : undefined;
     await state.client.request("pcc.milestones.upsert", {
+      ...(existingMilestone?.revision ? { expectedRevision: existingMilestone.revision } : {}),
       milestone: milestoneUpsertPayload({
         ...(form.id ? { id: form.id } : {}),
         projectId: form.projectId,
@@ -3999,6 +4208,7 @@ export async function setPccPermissionStatus(
     const result = await state.client.request<PccPermissionsUpsertResult>(
       "pcc.permissions.upsert",
       {
+        ...(permission.revision ? { expectedRevision: permission.revision } : {}),
         permission: {
           id: permission.id,
           projectId: permission.projectId,

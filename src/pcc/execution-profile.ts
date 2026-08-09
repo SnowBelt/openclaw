@@ -233,10 +233,6 @@ const PRESETS: Record<PccExecutionProfilePresetId, PccExecutionProfile> = {
 
 export const DEFAULT_PCC_EXECUTION_PROFILE: PccExecutionProfile = {
   ...PRESETS.local_parallel,
-  codexRole: "checkpoints",
-  codexPolicyId: "recommended_minimum",
-  codexCheckpoints: checkpointsForPolicy("recommended_minimum"),
-  approvalScope: "project",
 };
 
 function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T {

@@ -32,6 +32,7 @@ import {
   validatePccProjectsGetParams,
   validatePccProjectsListParams,
   validatePccProjectsUpsertParams,
+  validatePccProjectPlanCommitParams,
   validatePccPlansGenerateParams,
   validatePccPlansStartParams,
   validatePccPlansGetParams,
@@ -40,6 +41,9 @@ import {
   validatePccPlanningPolicyUpsertParams,
   validatePccReceiptsAddParams,
   validatePccSummaryGetParams,
+  validatePccOverviewGetParams,
+  validatePccPresenceListParams,
+  validatePccPresenceUpdateParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { assessControlDirectorResourceAdmission } from "../../agents/control-director-resource-admission.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -65,6 +69,7 @@ import {
   closePccLedgerStorageForTest,
   pccLedgerJsonPath as ledgerPath,
   pccLedgerSqlitePath,
+  pccLedgerRevision,
   readPccLedger as readLedger,
   replacePccLedgerForTest,
   type PccLedger,
@@ -78,21 +83,24 @@ import {
   pccWorkScopeForProject,
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
+import { buildPccOverview } from "../../pcc/overview.js";
 import {
   cancelPccPlanningRun,
   readPccPlanningRun,
   resetPccPlanningRunsForTest,
   startPccPlanningRun,
 } from "../../pcc/planning-run-store.js";
-import { generatePccPlanWithCodex } from "../../pcc/planning-runtime.js";
+import { generatePccPlan } from "../../pcc/planning-runtime.js";
 import {
   DEFAULT_PCC_PLANNING_POLICY,
   normalizePccPlanningPolicy,
   parsePccPlanGenerationResult,
+  resolvePccPlanningPolicy,
   resolvePccPlanningEffort,
   type PccPlanGenerationRequest,
   type PccPlanningPolicy,
 } from "../../pcc/planning.js";
+import { listPccPresence, resetPccPresenceForTest, updatePccPresence } from "../../pcc/presence.js";
 import {
   normalizePccPrivateTeamPolicy,
   projectCapacityError,
@@ -106,7 +114,12 @@ import { readReleaseGovernanceStatus } from "../../pcc/release-governance/store.
 import { readPccRuntimeIdentity, type PccRuntimeIdentity } from "../../pcc/runtime-identity.js";
 import { readPccUpdateSafety } from "../../pcc/update-safety.js";
 import { listTaskRecords } from "../../tasks/runtime-internal.js";
-import type { GatewayRequestHandlers, RespondFn } from "./types.js";
+import type {
+  GatewayClient,
+  GatewayRequestContext,
+  GatewayRequestHandlers,
+  RespondFn,
+} from "./types.js";
 
 const REOPEN_STATUSES = new Set<PccStatus>(["reopened", "not_started"]);
 const ACTIVE_WORK_STATUSES = new Set<PccStatus>([
@@ -153,7 +166,7 @@ const DEFAULT_PCC_PHASES: PccProject["phases"] = [
   { id: "maintenance", title: "Maintenance", status: "not_started", weight: 5, order: 5 },
 ];
 
-let pccPlanGenerator = generatePccPlanWithCodex;
+let pccPlanGenerator = generatePccPlan;
 
 function isolatedPlanFixtureEnabled(): boolean {
   return (
@@ -205,6 +218,7 @@ function generateIsolatedPlanFixture(request: PccPlanGenerationRequest, policy: 
       assumptions: ["No live Codex request is made by the isolated proof."],
     }),
     effort: resolvePccPlanningEffort(request, policy),
+    policy,
     model: policy.model,
     auth: "none",
     source: "isolated_test_fixture",
@@ -317,8 +331,25 @@ function bindPccProductionProofMetadata(
   const truth = pccMetadataObject(metadata.pccProductionTruth);
   const isRuntimeProof = ACTIVE_RUNTIME_PROOF_EVIDENCE_KINDS.has(evidence.kind);
   const isBrowserProof = evidence.kind === "browser_proof" || evidence.kind === "screenshot";
+  const evidenceMetadata = pccMetadataObject(evidence.metadata);
+  const evidenceProofProfile =
+    evidenceMetadata.proofProfile === "default" ||
+    evidenceMetadata.proofProfile === "mac_studio_control_director"
+      ? evidenceMetadata.proofProfile
+      : null;
+  const isLocalSourceProof =
+    evidenceProofProfile === "mac_studio_control_director" &&
+    (isRuntimeProof || evidenceMetadata.pccProductionSourceProof === true);
   const nextTruth = {
     ...truth,
+    ...(evidenceProofProfile ? { proofProfile: evidenceProofProfile } : {}),
+    ...(isLocalSourceProof
+      ? {
+          latestVerifiedSha: evidence.sha,
+          sourceProofSha: evidence.sha,
+          sourceProofPassed: true,
+        }
+      : {}),
     ...(evidence.kind === "remote_ci"
       ? {
           latestVerifiedSha: evidence.sha,
@@ -397,6 +428,40 @@ function setAt<T extends { id: string }>(items: T[], item: T): T {
   return item;
 }
 
+function recordRevision(record: { revision?: number } | null | undefined): number {
+  return record?.revision ?? 1;
+}
+
+function revisionConflict(
+  record: { id: string; revision?: number } | null | undefined,
+  expectedRevision: number | undefined,
+): string | null {
+  if (!record || expectedRevision === undefined || recordRevision(record) === expectedRevision) {
+    return null;
+  }
+  return `Review latest changes before saving ${record.id}. Expected revision ${expectedRevision}, but the current revision is ${recordRevision(record)}.`;
+}
+
+function nextRecordRevision(record: { revision?: number } | null | undefined): number {
+  return record ? recordRevision(record) + 1 : 1;
+}
+
+function generatedExecutionResponsibility(value: string): string {
+  return value === "remote_proof" || value === "user" ? value : "local_openclaw_agent";
+}
+
+function pccActor(client: GatewayClient | null): string {
+  return client?.connect.client.displayName?.trim() || "PCC operator";
+}
+
+function attributedMetadata(
+  metadata: unknown,
+  actor: string,
+  action: string,
+): Record<string, unknown> {
+  return { ...pccMetadataObject(metadata), pccLastActor: actor, pccLastAction: action };
+}
+
 function respondInvalid(respond: RespondFn, method: string, errors: unknown): void {
   respond(
     false,
@@ -422,6 +487,25 @@ function respondUnhandled(respond: RespondFn, error: unknown): void {
   );
 }
 
+function broadcastPccChanged(
+  context: GatewayRequestContext,
+  mutation: string,
+  projectId?: string,
+  recordId?: string,
+): void {
+  context.broadcast(
+    "pcc.changed",
+    {
+      ledgerRevision: pccLedgerRevision() ?? 0,
+      changedAt: nowIso(),
+      mutation,
+      ...(projectId ? { projectId } : {}),
+      ...(recordId ? { recordId } : {}),
+    },
+    { dropIfSlow: true },
+  );
+}
+
 function upsertProject(
   ledger: PccLedger,
   input: {
@@ -433,9 +517,14 @@ function upsertProject(
     priority?: number;
     phases?: PccProject["phases"];
     metadata?: PccProject["metadata"];
+    expectedRevision?: number;
   },
 ): { project?: PccProject; error?: string } {
   const existing = input.id ? projectOrError(ledger, input.id) : null;
+  const conflict = revisionConflict(existing, input.expectedRevision);
+  if (conflict) {
+    return { error: conflict };
+  }
   const timestamp = nowIso();
   const status = input.status ?? existing?.status ?? "active";
   const transitionError = validateStatusTransition("project", existing?.status, status);
@@ -456,6 +545,7 @@ function upsertProject(
   const project: PccProject = canonicalizePccProjectForWrite(
     {
       id: projectId,
+      revision: nextRecordRevision(existing),
       title: input.title,
       status,
       createdAt: existing?.createdAt ?? timestamp,
@@ -908,12 +998,17 @@ function upsertMilestone(
     implementationPlan?: string;
     acceptanceCriteria?: string[];
     metadata?: PccMilestone["metadata"];
+    expectedRevision?: number;
   },
 ): { milestone?: PccMilestone; error?: string } {
   if (!projectOrError(ledger, input.projectId)) {
     return { error: `project not found: ${input.projectId}` };
   }
   const existing = input.id ? milestoneOrError(ledger, input.id) : null;
+  const conflict = revisionConflict(existing, input.expectedRevision);
+  if (conflict) {
+    return { error: conflict };
+  }
   if (existing && existing.projectId !== input.projectId) {
     return {
       error: `milestone ${existing.id} belongs to project ${existing.projectId}; cannot move to project ${input.projectId}`,
@@ -952,6 +1047,7 @@ function upsertMilestone(
   const milestone = canonicalizePccWorkItemForWrite<PccMilestone>(
     {
       id,
+      revision: nextRecordRevision(existing),
       projectId: input.projectId,
       title: input.title,
       status,
@@ -1034,6 +1130,7 @@ function upsertSubMilestone(
     implementationPlan?: string;
     acceptanceCriteria?: string[];
     metadata?: PccSubMilestone["metadata"];
+    expectedRevision?: number;
   },
 ): { subMilestone?: PccSubMilestone; milestone?: PccMilestone; error?: string } {
   if (!projectOrError(ledger, input.projectId)) {
@@ -1044,6 +1141,10 @@ function upsertSubMilestone(
     return { error: `milestone not found: ${input.milestoneId}` };
   }
   const existing = input.id ? subMilestoneOrError(ledger, input.id) : null;
+  const conflict = revisionConflict(existing, input.expectedRevision);
+  if (conflict) {
+    return { error: conflict };
+  }
   if (existing && existing.projectId !== input.projectId) {
     return {
       error: `sub-milestone ${existing.id} belongs to project ${existing.projectId}; cannot move to project ${input.projectId}`,
@@ -1113,6 +1214,7 @@ function upsertSubMilestone(
   const subMilestone = canonicalizePccWorkItemForWrite<PccSubMilestone>(
     {
       id,
+      revision: nextRecordRevision(existing),
       projectId: input.projectId,
       milestoneId: input.milestoneId,
       title: input.title,
@@ -1401,6 +1503,53 @@ function responseForProject(ledger: PccLedger, project: PccProject) {
 }
 
 export const pccHandlers: GatewayRequestHandlers = {
+  "pcc.overview.get": ({ params, respond }) => {
+    if (!validatePccOverviewGetParams(params)) {
+      respondInvalid(respond, "pcc.overview.get", validatePccOverviewGetParams.errors);
+      return;
+    }
+    try {
+      const ledger = readLedger();
+      respond(true, buildPccOverview(ledger, pccLedgerRevision() ?? 0));
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.presence.list": ({ params, respond }) => {
+    if (!validatePccPresenceListParams(params)) {
+      respondInvalid(respond, "pcc.presence.list", validatePccPresenceListParams.errors);
+      return;
+    }
+    respond(true, { presence: listPccPresence() });
+  },
+  "pcc.presence.update": ({ params, respond, client, context }) => {
+    if (!validatePccPresenceUpdateParams(params)) {
+      respondInvalid(respond, "pcc.presence.update", validatePccPresenceUpdateParams.errors);
+      return;
+    }
+    try {
+      const identity = client?.connect.device?.id ?? client?.connId;
+      if (!identity) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "PCC presence requires an authenticated client identity.",
+          ),
+        );
+        return;
+      }
+      const presence = updatePccPresence(identity, {
+        ...params,
+        displayName: client?.connect.client.displayName?.trim() || params.displayName,
+      });
+      respond(true, { presence });
+      context.broadcast("pcc.presence", { presence }, { dropIfSlow: true });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
   "pcc.projects.list": ({ params, respond }) => {
     if (!validatePccProjectsListParams(params)) {
       respondInvalid(respond, "pcc.projects.list", validatePccProjectsListParams.errors);
@@ -1441,7 +1590,10 @@ export const pccHandlers: GatewayRequestHandlers = {
     }
     try {
       const request = params as PccPlanGenerationRequest;
-      const policy = normalizePccPlanningPolicy(readLedger().settings?.planningPolicy);
+      const policy = resolvePccPlanningPolicy(
+        readLedger().settings?.planningPolicy,
+        request.plannerMode,
+      );
       const plan = isolatedPlanFixtureEnabled()
         ? generateIsolatedPlanFixture(request, policy)
         : await pccPlanGenerator({
@@ -1462,7 +1614,7 @@ export const pccHandlers: GatewayRequestHandlers = {
     try {
       const request = params as PccPlanGenerationRequest;
       const ledger = readLedger();
-      const policy = normalizePccPlanningPolicy(ledger.settings?.planningPolicy);
+      const policy = resolvePccPlanningPolicy(ledger.settings?.planningPolicy, request.plannerMode);
       const privateTeamPolicy = normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy);
       const run = await startPccPlanningRun({
         cfg: context.getRuntimeConfig(),
@@ -1473,7 +1625,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           ? {
               generatePlan: async () => generateIsolatedPlanFixture(request, policy),
             }
-          : {}),
+          : { generatePlan: pccPlanGenerator }),
       });
       respond(true, { run });
     } catch (error) {
@@ -1537,7 +1689,7 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.attachments.upload.commit": async ({ params, respond }) => {
+  "pcc.attachments.upload.commit": async ({ params, respond, context }) => {
     if (!validatePccAttachmentsUploadCommitParams(params)) {
       respondInvalid(
         respond,
@@ -1547,7 +1699,14 @@ export const pccHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      respond(true, { attachment: await commitPccAttachmentUpload(params) });
+      const attachment = await commitPccAttachmentUpload(params);
+      respond(true, { attachment });
+      broadcastPccChanged(
+        context,
+        "pcc.attachments.upload.commit",
+        attachment.projectId,
+        attachment.id,
+      );
     } catch (error) {
       respondUnhandled(respond, error);
     }
@@ -1578,13 +1737,15 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.attachments.update": ({ params, respond }) => {
+  "pcc.attachments.update": ({ params, respond, context }) => {
     if (!validatePccAttachmentsUpdateParams(params)) {
       respondInvalid(respond, "pcc.attachments.update", validatePccAttachmentsUpdateParams.errors);
       return;
     }
     try {
-      respond(true, { attachment: updatePccAttachment(params) });
+      const attachment = updatePccAttachment(params);
+      respond(true, { attachment });
+      broadcastPccChanged(context, "pcc.attachments.update", attachment.projectId, attachment.id);
     } catch (error) {
       respondUnhandled(respond, error);
     }
@@ -1629,11 +1790,12 @@ export const pccHandlers: GatewayRequestHandlers = {
         { write: true, auditKind: "pcc.attachments.clarify" },
       );
       respond(true, result);
+      broadcastPccChanged(context, "pcc.attachments.clarify", params.projectId, result.runId);
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.attachments.usage.record": ({ params, respond }) => {
+  "pcc.attachments.usage.record": ({ params, respond, context }) => {
     if (!validatePccAttachmentUsageRecordParams(params)) {
       respondInvalid(
         respond,
@@ -1643,7 +1805,9 @@ export const pccHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      respond(true, { receipt: recordPccAttachmentUsage(params) });
+      const receipt = recordPccAttachmentUsage(params);
+      respond(true, { receipt });
+      broadcastPccChanged(context, "pcc.attachments.usage.record", receipt.projectId, receipt.id);
     } catch (error) {
       respondUnhandled(respond, error);
     }
@@ -1670,13 +1834,13 @@ export const pccHandlers: GatewayRequestHandlers = {
     }
     try {
       respond(true, {
-        policy: normalizePccPlanningPolicy(readLedger().settings?.planningPolicy),
+        policy: resolvePccPlanningPolicy(readLedger().settings?.planningPolicy),
       });
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.planningPolicy.upsert": ({ params, respond }) => {
+  "pcc.planningPolicy.upsert": ({ params, respond, context }) => {
     if (!validatePccPlanningPolicyUpsertParams(params)) {
       respondInvalid(
         respond,
@@ -1703,22 +1867,24 @@ export const pccHandlers: GatewayRequestHandlers = {
         { write: true, auditKind: "pcc.planningPolicy.upsert" },
       );
       respond(true, { policy });
+      broadcastPccChanged(context, "pcc.planningPolicy.upsert");
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.ledger.repairCanonicalMetadata": ({ params, respond }) => {
+  "pcc.ledger.repairCanonicalMetadata": ({ params, respond, context }) => {
     try {
       const result = withLedger((ledger) => repairCanonicalMetadataForLedger(ledger, params), {
         write: true,
         auditKind: "pcc.ledger.repairCanonicalMetadata",
       });
       respond(true, result);
+      broadcastPccChanged(context, "pcc.ledger.repairCanonicalMetadata");
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.projects.upsert": async ({ params, respond }) => {
+  "pcc.projects.upsert": async ({ params, respond, context, client }) => {
     if (!validatePccProjectsUpsertParams(params)) {
       respondInvalid(respond, "pcc.projects.upsert", validatePccProjectsUpsertParams.errors);
       return;
@@ -1746,7 +1912,15 @@ export const pccHandlers: GatewayRequestHandlers = {
       }
       const result = withLedger(
         (ledger) => {
-          const upsert = upsertProject(ledger, params.project);
+          const upsert = upsertProject(ledger, {
+            ...params.project,
+            metadata: attributedMetadata(
+              params.project.metadata,
+              pccActor(client),
+              "Project updated",
+            ),
+            expectedRevision: params.expectedRevision,
+          });
           if (upsert.error || !upsert.project) {
             return { error: upsert.error ?? "project upsert failed" };
           }
@@ -1783,11 +1957,145 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(context, "pcc.projects.upsert", result.project.id, result.project.id);
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.milestones.upsert": ({ params, respond }) => {
+  "pcc.projects.commitPlan": async ({ params, respond, context, client }) => {
+    if (!validatePccProjectPlanCommitParams(params)) {
+      respondInvalid(respond, "pcc.projects.commitPlan", validatePccProjectPlanCommitParams.errors);
+      return;
+    }
+    try {
+      const planningRun = params.planningRunId
+        ? await readPccPlanningRun(params.planningRunId)
+        : null;
+      if (
+        params.planningRunId &&
+        (!planningRun ||
+          planningRun.status !== "succeeded" ||
+          !planningRun.startedAt ||
+          !planningRun.endedAt)
+      ) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "The planning run is not complete and cannot be committed.",
+          ),
+        );
+        return;
+      }
+      const result = withLedger(
+        (ledger) => {
+          if (params.project.id && projectOrError(ledger, params.project.id)) {
+            throw new Error(`project already exists: ${params.project.id}`);
+          }
+          const projectResult = upsertProject(ledger, {
+            ...params.project,
+            title: params.project.title || params.plan.title,
+            goal: params.project.goal ?? params.plan.goal,
+            metadata: attributedMetadata(
+              params.project.metadata,
+              pccActor(client),
+              "Project plan created",
+            ),
+          });
+          if (projectResult.error || !projectResult.project) {
+            throw new Error(projectResult.error ?? "project creation failed");
+          }
+          const project = projectResult.project;
+          const milestones: PccMilestone[] = [];
+          const subMilestones: PccSubMilestone[] = [];
+          for (const [order, generated] of params.plan.milestones.entries()) {
+            const dependencyIds = generated.dependencies.flatMap((index) =>
+              milestones[index] ? [milestones[index]!.id] : [],
+            );
+            if (dependencyIds.length !== generated.dependencies.length) {
+              throw new Error(`generated milestone ${generated.title} has an invalid dependency`);
+            }
+            const milestoneResult = upsertMilestone(ledger, {
+              projectId: project.id,
+              title: generated.title,
+              status: "not_started",
+              phaseId: generated.phaseId,
+              order,
+              percentComplete: 0,
+              dependsOn: dependencyIds,
+              implementationPlan: generated.implementationPlan,
+              acceptanceCriteria: generated.acceptanceCriteria,
+              metadata: {
+                pccResponsibility: generatedExecutionResponsibility(generated.responsibility),
+                pccPlannerSuggestedResponsibility: generated.responsibility,
+                pccProofLevel: generated.proofLevel,
+                pccGeneratedBy: params.plan.provenance.source,
+                pccParallelSafe: generated.dependencies.length === 0,
+                pccLastActor: pccActor(client),
+                pccLastAction: "Milestone created from project plan",
+              },
+            });
+            if (milestoneResult.error || !milestoneResult.milestone) {
+              throw new Error(milestoneResult.error ?? `failed to create ${generated.title}`);
+            }
+            milestones.push(milestoneResult.milestone);
+            for (const [subOrder, generatedSub] of generated.subMilestones.entries()) {
+              const subResult = upsertSubMilestone(ledger, {
+                projectId: project.id,
+                milestoneId: milestoneResult.milestone.id,
+                title: generatedSub.title,
+                status: "not_started",
+                order: subOrder,
+                percentComplete: 0,
+                implementationPlan: generatedSub.implementationPlan,
+                acceptanceCriteria: generatedSub.acceptanceCriteria,
+                metadata: {
+                  pccResponsibility: generatedExecutionResponsibility(generatedSub.responsibility),
+                  pccPlannerSuggestedResponsibility: generatedSub.responsibility,
+                  pccProofLevel: generatedSub.proofLevel,
+                  pccGeneratedBy: params.plan.provenance.source,
+                  pccLastActor: pccActor(client),
+                  pccLastAction: "Sub-milestone created from project plan",
+                },
+              });
+              if (subResult.error || !subResult.subMilestone) {
+                throw new Error(subResult.error ?? `failed to create ${generatedSub.title}`);
+              }
+              subMilestones.push(subResult.subMilestone);
+            }
+          }
+          if (
+            planningRun?.startedAt &&
+            planningRun.endedAt &&
+            params.plan.provenance.source === "live_codex"
+          ) {
+            recordPccModelRunReceipt(ledger, {
+              projectId: project.id,
+              sourceRunId: planningRun.id,
+              executor: "codex",
+              purpose: "planning",
+              provider: "openai",
+              model: planningRun.model,
+              effort: planningRun.effort,
+              status: "succeeded",
+              startedAt: planningRun.startedAt,
+              completedAt: planningRun.endedAt,
+              ...(planningRun.usage ? { usage: planningRun.usage } : {}),
+              usageSource: planningRun.usage ? "provider_reported" : "unavailable",
+            });
+          }
+          return { project, milestones, subMilestones, summary: summarizeProject(ledger, project) };
+        },
+        { write: true, auditKind: "pcc.projects.commitPlan" },
+      );
+      respond(true, result);
+      broadcastPccChanged(context, "pcc.projects.commitPlan", result.project.id, result.project.id);
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.milestones.upsert": ({ params, respond, context, client }) => {
     if (!validatePccMilestonesUpsertParams(params)) {
       respondInvalid(respond, "pcc.milestones.upsert", validatePccMilestonesUpsertParams.errors);
       return;
@@ -1795,7 +2103,15 @@ export const pccHandlers: GatewayRequestHandlers = {
     try {
       const result = withLedger(
         (ledger) => {
-          const upsert = upsertMilestone(ledger, params.milestone);
+          const upsert = upsertMilestone(ledger, {
+            ...params.milestone,
+            metadata: attributedMetadata(
+              params.milestone.metadata,
+              pccActor(client),
+              "Milestone updated",
+            ),
+            expectedRevision: params.expectedRevision,
+          });
           if (upsert.error || !upsert.milestone) {
             return { error: upsert.error ?? "milestone upsert failed" };
           }
@@ -1819,6 +2135,12 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(
+        context,
+        "pcc.milestones.upsert",
+        result.milestone.projectId,
+        result.milestone.id,
+      );
     } catch (error) {
       respondUnhandled(respond, error);
     }
@@ -1847,7 +2169,7 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.subMilestones.upsert": ({ params, respond }) => {
+  "pcc.subMilestones.upsert": ({ params, respond, context, client }) => {
     if (!validatePccSubMilestonesUpsertParams(params)) {
       respondInvalid(
         respond,
@@ -1859,7 +2181,15 @@ export const pccHandlers: GatewayRequestHandlers = {
     try {
       const result = withLedger(
         (ledger) => {
-          const upsert = upsertSubMilestone(ledger, params.subMilestone);
+          const upsert = upsertSubMilestone(ledger, {
+            ...params.subMilestone,
+            metadata: attributedMetadata(
+              params.subMilestone.metadata,
+              pccActor(client),
+              "Sub-milestone updated",
+            ),
+            expectedRevision: params.expectedRevision,
+          });
           if (upsert.error || !upsert.subMilestone || !upsert.milestone) {
             return { error: upsert.error ?? "sub-milestone upsert failed" };
           }
@@ -1884,11 +2214,17 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(
+        context,
+        "pcc.subMilestones.upsert",
+        result.subMilestone.projectId,
+        result.subMilestone.id,
+      );
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.permissions.upsert": ({ params, respond }) => {
+  "pcc.permissions.upsert": ({ params, respond, context, client }) => {
     if (!validatePccPermissionsUpsertParams(params)) {
       respondInvalid(respond, "pcc.permissions.upsert", validatePccPermissionsUpsertParams.errors);
       return;
@@ -1903,6 +2239,10 @@ export const pccHandlers: GatewayRequestHandlers = {
           const existing = params.permission.id
             ? ledger.permissions.find((permission) => permission.id === params.permission.id)
             : null;
+          const conflict = revisionConflict(existing, params.expectedRevision);
+          if (conflict) {
+            return { error: conflict };
+          }
           if (existing && existing.projectId !== params.permission.projectId) {
             return {
               error: `permission ${existing.id} belongs to project ${existing.projectId}; cannot move to project ${params.permission.projectId}`,
@@ -1923,12 +2263,14 @@ export const pccHandlers: GatewayRequestHandlers = {
             {
               at: timestamp,
               status,
+              actor: pccActor(client),
               ...(params.permission.note ? { note: params.permission.note } : {}),
             },
           ].slice(-200);
           const permission: PccPermissionGrant = {
             id:
               existing?.id ?? params.permission.id ?? makeId("permission", params.permission.type),
+            revision: nextRecordRevision(existing),
             projectId: params.permission.projectId,
             type: params.permission.type,
             status,
@@ -1999,11 +2341,17 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(
+        context,
+        "pcc.permissions.upsert",
+        result.permission.projectId,
+        result.permission.id,
+      );
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.evidence.add": ({ params, respond }) => {
+  "pcc.evidence.add": ({ params, respond, context }) => {
     if (!validatePccEvidenceAddParams(params)) {
       respondInvalid(respond, "pcc.evidence.add", validatePccEvidenceAddParams.errors);
       return;
@@ -2066,11 +2414,17 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(
+        context,
+        "pcc.evidence.add",
+        result.evidence.projectId,
+        result.evidence.id,
+      );
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.decisions.add": ({ params, respond }) => {
+  "pcc.decisions.add": ({ params, respond, context }) => {
     if (!validatePccDecisionsAddParams(params)) {
       respondInvalid(respond, "pcc.decisions.add", validatePccDecisionsAddParams.errors);
       return;
@@ -2128,11 +2482,17 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(
+        context,
+        "pcc.decisions.add",
+        result.decision.projectId,
+        result.decision.id,
+      );
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.receipts.add": ({ params, respond }) => {
+  "pcc.receipts.add": ({ params, respond, context }) => {
     if (!validatePccReceiptsAddParams(params)) {
       respondInvalid(respond, "pcc.receipts.add", validatePccReceiptsAddParams.errors);
       return;
@@ -2242,11 +2602,12 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(context, "pcc.receipts.add", result.receipt.projectId, result.receipt.id);
     } catch (error) {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.lastKnownGood.upsert": ({ params, respond }) => {
+  "pcc.lastKnownGood.upsert": ({ params, respond, context }) => {
     if (!validatePccLastKnownGoodUpsertParams(params)) {
       respondInvalid(
         respond,
@@ -2323,6 +2684,12 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, result);
+      broadcastPccChanged(
+        context,
+        "pcc.lastKnownGood.upsert",
+        result.lastKnownGood.projectId,
+        result.lastKnownGood.id,
+      );
     } catch (error) {
       respondUnhandled(respond, error);
     }
@@ -2345,7 +2712,7 @@ export const pccHandlers: GatewayRequestHandlers = {
         respond(true, {
           project: summarizeProject(ledger, project, index),
           portfolio: summarizePortfolio(ledger, index),
-          planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
+          planningPolicy: resolvePccPlanningPolicy(ledger.settings?.planningPolicy),
           privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
@@ -2356,7 +2723,7 @@ export const pccHandlers: GatewayRequestHandlers = {
       }
       respond(true, {
         portfolio: summarizePortfolio(ledger, index),
-        planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
+        planningPolicy: resolvePccPlanningPolicy(ledger.settings?.planningPolicy),
         privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
@@ -2379,11 +2746,12 @@ export const pccTesting = {
   summarizeProject,
   summarizePortfolio,
   readExecutionCapacity: readPccExecutionCapacity,
-  setPlanGenerator: (generator: typeof generatePccPlanWithCodex) => {
+  setPlanGenerator: (generator: typeof generatePccPlan) => {
     pccPlanGenerator = generator;
   },
   resetPlanGenerator: () => {
-    pccPlanGenerator = generatePccPlanWithCodex;
+    pccPlanGenerator = generatePccPlan;
     resetPccPlanningRunsForTest();
+    resetPccPresenceForTest();
   },
 };

@@ -29,15 +29,15 @@ for (const [operation, checks] of Object.entries(policy.requiredChecks)) {
     throw new Error(`Release Governor operation ${operation} has no required checks.`);
   }
 }
-if (policy.version < 2) {
-  throw new Error("Release Governor policy must include the versioned proof-profile contract.");
+if (policy.version !== 3) {
+  throw new Error("Release Governor policy must use the phase-aware proof contract version 3.");
 }
 const localProfile = policy.proofProfiles.mac_studio_control_director;
 if (!localProfile) {
   throw new Error("Release Governor policy is missing mac_studio_control_director.");
 }
 if (
-  localProfile.version !== 1 ||
+  localProfile.version !== 2 ||
   localProfile.project !== "project-command-center" ||
   localProfile.destination !== "local-only" ||
   localProfile.externalDisclosure
@@ -68,7 +68,7 @@ for (const operation of ["stage", "promotion", "restart", "rollback", "finalize"
     for (const required of [
       "gateway_readiness",
       "rpc_health",
-      "authenticated_local_control_director_pcc_browser",
+      "authenticated_local_candidate_control_director_pcc_browser",
       "local_disposable_pcc_e2e",
       "ledger_ready",
     ]) {
@@ -76,6 +76,12 @@ for (const operation of ["stage", "promotion", "restart", "rollback", "finalize"
         throw new Error(`Mac Studio ${operation} is missing required local proof ${required}.`);
       }
     }
+  }
+  if (
+    operation === "finalize" &&
+    !checks.includes("authenticated_local_active_runtime_control_director_pcc_browser")
+  ) {
+    throw new Error("Mac Studio finalize is missing active-runtime browser proof.");
   }
   if (operation === "finalize" && !checks.includes("post_deployment_health")) {
     throw new Error("Mac Studio finalize is missing post-deployment health proof.");

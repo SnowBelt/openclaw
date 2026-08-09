@@ -2,7 +2,11 @@
 import { LitElement } from "lit";
 import { state } from "lit/decorators.js";
 import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/src/index.js";
-import type { PccPrivateTeamPolicy } from "../../../packages/gateway-protocol/src/schema/types.js";
+import type {
+  PccOverviewGetResult,
+  PccPresenceEntry,
+  PccPrivateTeamPolicy,
+} from "../../../packages/gateway-protocol/src/schema/types.js";
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
@@ -515,6 +519,12 @@ export class OpenClawApp extends LitElement {
   private operationsVisitStartedAt: number | null = null;
   @state() pccProjects: PccProjectSummary[] = [];
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
+  @state() pccOverview: PccOverviewGetResult | null = null;
+  @state() pccPresence: PccPresenceEntry[] = [];
+  @state() pccSurface: import("./pcc/application/state.ts").PccSurface = "overview";
+  @state() pccFavorites: string[] = [];
+  @state() pccRecentProjectIds: string[] = [];
+  @state() pccAttentionRecordId: string | null = null;
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
   @state() pccUpdateSafety: PccUpdateSafety | null = null;
   @state() pccReleaseGovernance: ReleaseGovernanceStatus | null = null;

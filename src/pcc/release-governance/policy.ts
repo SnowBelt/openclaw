@@ -9,6 +9,8 @@ import {
 } from "./contracts.js";
 
 const OPERATIONS: ReleaseOperation[] = ["stage", "promotion", "restart", "rollback", "finalize"];
+const RELEASE_GOVERNOR_POLICY_VERSION = 3;
+const MAC_STUDIO_CONTROL_DIRECTOR_PROFILE_VERSION = 2;
 const RISKS = new Set<ReleaseRiskLevel>(["P0", "P1", "P2", "P3"]);
 const CUSTOM_PROOF_PROFILES = new Set<Exclude<ReleaseProofProfile, "default">>([
   "mac_studio_control_director",
@@ -33,8 +35,7 @@ export function parseReleaseGovernorPolicy(value: unknown): ReleaseGovernorPolic
     return null;
   }
   if (
-    !Number.isInteger(value.version) ||
-    (value.version as number) < 1 ||
+    value.version !== RELEASE_GOVERNOR_POLICY_VERSION ||
     !finiteNumber(value.confidenceThreshold) ||
     value.confidenceThreshold < 0 ||
     value.confidenceThreshold > 1 ||
@@ -102,7 +103,7 @@ export function parseReleaseGovernorPolicy(value: unknown): ReleaseGovernorPolic
     if (
       !CUSTOM_PROOF_PROFILES.has(profileName as Exclude<ReleaseProofProfile, "default">) ||
       !isRecord(rawProfile) ||
-      rawProfile.version !== 1 ||
+      rawProfile.version !== MAC_STUDIO_CONTROL_DIRECTOR_PROFILE_VERSION ||
       rawProfile.project !== "project-command-center" ||
       rawProfile.destination !== "local-only" ||
       rawProfile.externalDisclosure !== false ||
@@ -126,7 +127,7 @@ export function parseReleaseGovernorPolicy(value: unknown): ReleaseGovernorPolic
       profileRequiredChecks[operation] = checks;
     }
     proofProfiles[profileName as Exclude<ReleaseProofProfile, "default">] = {
-      version: 1,
+      version: MAC_STUDIO_CONTROL_DIRECTOR_PROFILE_VERSION,
       project: rawProfile.project,
       destination: rawProfile.destination,
       externalDisclosure: false,

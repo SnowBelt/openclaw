@@ -10,6 +10,7 @@ import {
   type PccAutopilotModeId,
   type PccAutopilotPromptSlot,
 } from "../../../../src/pcc/autopilot.js";
+import { isPccCompleteStatus } from "../../../../src/pcc/domain/completion-policy.js";
 import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
@@ -52,7 +53,11 @@ import {
   buildPccOperationalMetrics,
   type PccOperationalMetrics,
 } from "../../../../src/pcc/operational-metrics.js";
-import type { PccPlanningPolicy } from "../../../../src/pcc/planning.js";
+import {
+  PCC_CODEX_PLANNER_MODEL,
+  PCC_LOCAL_PLANNER_MODEL,
+  type PccPlanningPolicy,
+} from "../../../../src/pcc/planning.js";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import {
@@ -63,6 +68,7 @@ import {
   buildPccWorkflowDraft,
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
+import { PCC_BROWSER_CONTRACT_VERSION } from "../../../../src/pcc/release-governance/browser-proof-contract.js";
 import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../../src/pcc/update-safety.js";
@@ -96,6 +102,7 @@ import type {
   PccPlannerMode,
   PccProjectFilter,
   PccProjectFormState,
+  PccSurface,
   PccViewMode,
 } from "../pcc/application/state.ts";
 import {
@@ -110,10 +117,12 @@ import type {
   PccEvidence,
   PccLastKnownGood,
   PccMilestone,
+  PccOverviewGetResult,
   PccSubMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
   PccPlanningRun,
+  PccPresenceEntry,
   PccPrivateTeamPolicy,
   PccPortfolioSummary,
   PccProject,
@@ -136,6 +145,12 @@ export type PccDashboardProps = {
   connected?: boolean;
   projects: PccProjectSummary[];
   portfolio: PccPortfolioSummary | null;
+  overview?: PccOverviewGetResult | null;
+  presence?: PccPresenceEntry[];
+  surface?: PccSurface;
+  favorites?: string[];
+  recentProjectIds?: string[];
+  attentionRecordId?: string | null;
   updatedAt: number | null;
   selectedProjectId: string | null;
   projectDetail: PccProjectDetail | null;
@@ -184,6 +199,9 @@ export type PccDashboardProps = {
   onDismissActionNotice?: () => void;
   onUndoAction?: () => void;
   onRefresh: () => void;
+  onSetSurface?: (surface: PccSurface) => void;
+  onToggleFavorite?: (projectId: string) => void;
+  onOpenAttention?: (projectId: string, recordId?: string) => void;
   onSelectProject: (projectId: string) => void;
   onOpenProjectEditor: (project?: PccProject) => void;
   onOpenMilestoneEditor: (milestone?: PccMilestone) => void;
@@ -418,6 +436,7 @@ function renderPccProjectFiles(detail: PccProjectDetail, props: PccDashboardProp
             id=${fileInputId}
             class="pcc-sr-only"
             type="file"
+            aria-label="Choose a project file"
             name="attachmentFile"
             ?disabled=${props.actionBusy}
             data-pcc-attachment-file
@@ -596,14 +615,13 @@ const CODEX_POLICY_OPTIONS = [
     value: "recommended_minimum",
     title: "Recommended minimum",
     detail:
-      "After planning, Codex handles major replans, helps when local AI is stuck, and reviews completion.",
+      "After initial planning, Codex handles major replans, helps when local AI is stuck, and reviews completion.",
     usage: "2 planned post-plan checkpoints · extra help only when evidence shows it is needed",
   },
   {
     value: "local_only",
     title: "Local AI only",
-    detail:
-      "After Codex creates the initial plan, OpenClaw local models handle the work and review.",
+    detail: "After initial planning, OpenClaw local models handle the work and review.",
     usage: "No Codex project checkpoints after planning",
   },
   {
@@ -652,6 +670,7 @@ const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
   ["active", "Active"],
   ["needs_you", "Needs You"],
   ["on_hold", "On Hold"],
+  ["completed", "Completed"],
   ["archived", "Archived"],
   ["all", "All"],
 ];
@@ -1211,7 +1230,18 @@ function runResolvedProjectPrimaryAction(
 
 const pccPermissionReviewTriggers = new WeakMap<HTMLDialogElement, HTMLElement>();
 
-function pendingPermissionForDetail(detail: PccProjectDetail): PccPermissionGrant | undefined {
+function pendingPermissionForDetail(
+  detail: PccProjectDetail,
+  preferredId?: string | null,
+): PccPermissionGrant | undefined {
+  const preferred = preferredId
+    ? detail.permissions.find(
+        (permission) => permission.id === preferredId && permission.status === "needed",
+      )
+    : undefined;
+  if (preferred) {
+    return preferred;
+  }
   const currentMilestoneId = currentMilestoneForDetail(detail)?.id;
   return detail.permissions
     .filter((permission) => permission.status === "needed")
@@ -1297,12 +1327,12 @@ function blockerKindForLine(line: string): string {
   return "Blocked";
 }
 
-function blockerFixLabelForLine(line: string): string {
+function blockerFixLabelForLine(line: string, plannerLabel = "Local AI"): string {
   if (/on hold|resume/iu.test(line)) {
     return "Resume Project";
   }
   if (/setup|intake|workflow|owner|responsibility|goal/iu.test(line)) {
-    return "Plan Setup with Codex";
+    return `Plan Setup with ${plannerLabel}`;
   }
   if (/permission|approval|approve/iu.test(line)) {
     return "Review Permission";
@@ -1769,18 +1799,22 @@ function productionTruthDetail(props: PccDashboardProps): PccProjectDetail | nul
 }
 
 function liveRuntimeTruthInput(props: PccDashboardProps) {
-  if (!props.runtimeIdentity) {
-    return {};
-  }
   return {
-    runtimeSha: props.runtimeIdentity.runtimeSha,
-    runtimeEntrypoint: props.runtimeIdentity.runtimeEntrypoint,
-    expectedRuntimeRoot: props.runtimeIdentity.expectedRuntimeRoot,
-    runtimeDriftReason:
-      props.runtimeIdentity.driftReason ??
-      (props.runtimeIdentity.verified
-        ? undefined
-        : "Active Gateway did not expose a verified runtime identity."),
+    ...(props.releaseGovernance?.proofProfile
+      ? { proofProfile: props.releaseGovernance.proofProfile }
+      : {}),
+    ...(props.runtimeIdentity
+      ? {
+          runtimeSha: props.runtimeIdentity.runtimeSha,
+          runtimeEntrypoint: props.runtimeIdentity.runtimeEntrypoint,
+          expectedRuntimeRoot: props.runtimeIdentity.expectedRuntimeRoot,
+          runtimeDriftReason:
+            props.runtimeIdentity.driftReason ??
+            (props.runtimeIdentity.verified
+              ? undefined
+              : "Active Gateway did not expose a verified runtime identity."),
+        }
+      : {}),
   };
 }
 
@@ -1796,6 +1830,14 @@ function renderProductionTruthCard(props: PccDashboardProps) {
   return html`<section
     class="pcc-production-truth pcc-production-truth--${truth.status}"
     data-pcc-production-truth
+    data-pcc-production-truth-profile=${truth.proofProfile}
+    data-pcc-production-source-proof=${truth.sourceProofPassed ? "passed" : "missing"}
+    data-pcc-production-proof-source=${truth.proofProfile === "mac_studio_control_director"
+      ? "local"
+      : "remote"}
+    data-pcc-production-current=${truth.status === "current" ? "true" : "false"}
+    data-pcc-runtime-proof=${truth.runtimeProofPassed ? "passed" : "missing"}
+    data-pcc-proof-gaps=${truth.proofGaps.length}
     aria-label="Production truth"
   >
     <div class="pcc-section-heading">
@@ -1820,8 +1862,20 @@ function renderProductionTruthCard(props: PccDashboardProps) {
         <dd>${truth.runtimeSha ? truth.runtimeSha.slice(0, 12) : "Not recorded"}</dd>
       </div>
       <div>
-        <dt>Current remote proof</dt>
-        <dd>${truth.remoteProofPassed ? "Passed" : "Missing"}</dd>
+        <dt>
+          ${truth.proofProfile === "mac_studio_control_director"
+            ? "Current local source proof"
+            : "Current remote proof"}
+        </dt>
+        <dd>
+          ${truth.proofProfile === "mac_studio_control_director"
+            ? truth.sourceProofPassed
+              ? "Passed"
+              : "Missing"
+            : truth.remoteProofPassed
+              ? "Passed"
+              : "Missing"}
+        </dd>
       </div>
       <div>
         <dt>Current runtime proof</dt>
@@ -2557,14 +2611,47 @@ function codexPolicyOption(id: PccCodexPolicyId) {
   return CODEX_POLICY_OPTIONS.find((option) => option.value === id) ?? CODEX_POLICY_OPTIONS[0];
 }
 
+function initialPlannerUsesCodex(form: PccProjectFormState): boolean {
+  return form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex";
+}
+
+function planningActionDisabled(
+  props: Pick<PccDashboardProps, "actionBusy" | "planningPolicy" | "projectForm">,
+): boolean {
+  return (
+    props.actionBusy ||
+    (initialPlannerUsesCodex(props.projectForm) && props.planningPolicy?.grant.enabled === false)
+  );
+}
+
+function initialPlannerPatch(mode: "local_model" | "codex"): Partial<PccProjectFormState> {
+  return {
+    plannerMode: mode,
+    planningMode: mode === "codex" ? "codex_full_plan" : "template_only",
+    plannerModelId: mode === "codex" ? PCC_CODEX_PLANNER_MODEL : PCC_LOCAL_PLANNER_MODEL,
+  };
+}
+
+function initialPlannerLabel(form: PccProjectFormState): "Local AI" | "Codex" {
+  return initialPlannerUsesCodex(form) ? "Codex" : "Local AI";
+}
+
+function projectActionLabel(action: PccProjectActionResolution, form: PccProjectFormState): string {
+  return action.primaryActionId === "fix_setup"
+    ? `Plan Setup with ${initialPlannerLabel(form)}`
+    : action.primaryLabel;
+}
+
 function projectCreationAiTruth(form: PccProjectFormState): string {
   const planning = form.generatedPlan
     ? `${form.generatedPlan.provenance.model} generated this plan at ${form.generatedPlan.provenance.effort} effort.`
-    : "Codex GPT-5.6 Sol will generate the project plan after you choose Generate.";
+    : initialPlannerUsesCodex(form)
+      ? "Codex GPT-5.6 Sol will generate the project plan after you explicitly choose Codex."
+      : "Local AI will generate the project plan by default; Codex is available only when explicitly selected.";
   const execution =
     form.executionProfile.codexPolicyId === "local_only"
       ? "OpenClaw local agents execute and review the work."
-      : "OpenClaw local agents execute routine work. Codex checkpoints remain visible and approval-gated.";
+      : `OpenClaw local agents execute routine work. Codex checkpoints remain visible and approval-gated after ${initialPlannerLabel(form)} planning.`;
   return `${planning} ${execution}`;
 }
 
@@ -2705,14 +2792,15 @@ function runProjectIntakeFormAutofill(props: PccDashboardProps): void {
 }
 
 function projectIntakePrimaryAiLabel(props: PccDashboardProps): string {
+  const planner = initialPlannerLabel(props.projectForm);
   return canPreviewProjectIntakeAutofill(props)
-    ? "Plan setup repair with Codex"
-    : "Generate plan with Codex";
+    ? `Plan setup repair with ${planner}`
+    : `Generate plan with ${planner}`;
 }
 
 function renderProjectIntakeFormAutofillButton(
   props: PccDashboardProps,
-  label = "Generate plan with Codex",
+  label = `Generate plan with ${initialPlannerLabel(props.projectForm)}`,
 ) {
   return html`<button
     class="btn pcc-intake-wizard__primary-ai"
@@ -2721,8 +2809,8 @@ function renderProjectIntakeFormAutofillButton(
     data-pcc-project-intake-autofill
     data-pcc-project-intake-ai-generate
     data-pcc-project-intake-form-only-autofill
-    title="Use Codex GPT-5.6 Sol to plan from the current prompt while preserving everything you typed."
-    ?disabled=${props.actionBusy || props.planningPolicy?.grant.enabled === false}
+    title=${`Use ${initialPlannerLabel(props.projectForm)} to plan from the current prompt while preserving everything you typed.`}
+    ?disabled=${planningActionDisabled(props)}
     @click=${() => runProjectIntakeFormAutofill(props)}
   >
     ${label}
@@ -2734,6 +2822,7 @@ function renderProjectIntakeAutofillButton(
   label = projectIntakePrimaryAiLabel(props),
 ) {
   const previewsLedgerRepair = canPreviewProjectIntakeAutofill(props);
+  const planner = initialPlannerLabel(props.projectForm);
   return html`<button
     class="btn pcc-intake-wizard__primary-ai"
     type="button"
@@ -2742,9 +2831,9 @@ function renderProjectIntakeAutofillButton(
     data-pcc-project-intake-ai-generate
     data-pcc-project-intake-primary-ai
     title=${previewsLedgerRepair
-      ? "Preview a Codex-generated setup plan before applying it to this saved project."
-      : "Generate the missing project intake answers with Codex from the current context."}
-    ?disabled=${props.actionBusy || props.planningPolicy?.grant.enabled === false}
+      ? `Preview a ${planner}-generated setup plan before applying it to this saved project.`
+      : `Generate the missing project intake answers with ${planner} from the current context.`}
+    ?disabled=${planningActionDisabled(props)}
     @click=${() => runProjectIntakeAutofill(props)}
   >
     ${label}
@@ -2777,14 +2866,15 @@ function runSectionAiRegenerate(props: PccDashboardProps, section: PccAiRegenera
 }
 
 function renderSectionAiRegeneratePanel(props: PccDashboardProps) {
+  const planner = initialPlannerLabel(props.projectForm);
   return html`<section class="pcc-ai-regenerate" data-pcc-section-ai-regenerate>
     <div class="pcc-section-heading">
       <div>
         <p class="pcc-kicker">Change this project with AI</p>
         <h4>Describe the change in your own words</h4>
         <p>
-          Codex proposes a revised plan. PCC shows what will change, protects completed work, pauses
-          affected active work, checks dependencies, and offers Undo after applying.
+          ${planner} proposes a revised plan. PCC shows what will change, protects completed work,
+          pauses affected active work, checks dependencies, and offers Undo after applying.
         </p>
       </div>
       <span>Planning only · nothing changes before review</span>
@@ -2806,12 +2896,10 @@ function renderSectionAiRegeneratePanel(props: PccDashboardProps) {
       class="btn"
       type="button"
       data-pcc-preview-project-change
-      ?disabled=${props.actionBusy ||
-      props.planningPolicy?.grant.enabled === false ||
-      !props.projectForm.changeRequest.trim()}
+      ?disabled=${planningActionDisabled(props) || !props.projectForm.changeRequest.trim()}
       @click=${() => props.onGenerateProjectPlan?.()}
     >
-      Preview project change with Codex
+      Preview project change with ${planner}
     </button>
     <details class="pcc-detail-drawer">
       <summary>Change only one section</summary>
@@ -2886,9 +2974,8 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
           : "PCC will ask before the first Codex checkpoint"}
       </h4>
       <p>
-        ${selected.title}: ${selected.detail} Initial project planning uses the separate
-        planning-only OAuth grant. This optional approval covers only the visible project
-        checkpoints below.
+        ${selected.title}: ${selected.detail} Initial planning uses the engine selected above. This
+        optional approval covers only the visible post-plan project checkpoints below.
       </p>
       <p data-pcc-codex-usage-guidance>
         ${selected.usage}. Deployment, credentials, destructive actions, purchases, publishing,
@@ -2984,7 +3071,7 @@ function renderAutofillPreview(props: PccDashboardProps) {
   return html`<section class="pcc-autofill-preview" data-pcc-autofill-preview tabindex="-1">
     <div class="pcc-section-heading">
       <div>
-        <p class="pcc-kicker">Codex Plan Preview</p>
+        <p class="pcc-kicker">${initialPlannerLabel(props.projectForm)} Plan Preview</p>
         <h4>Review before applying</h4>
         <p>${preview.summary}</p>
         <p class="pcc-autofill-preview__summary" data-pcc-autofill-preview-summary>
@@ -3142,10 +3229,10 @@ function renderSetupRepairCard(
         class="btn"
         type="button"
         data-pcc-setup-repair-ai-fill
-        ?disabled=${props.actionBusy || props.planningPolicy?.grant.enabled === false}
+        ?disabled=${planningActionDisabled(props)}
         @click=${() => props.onPreviewSetupAutofill?.()}
       >
-        Plan missing setup with Codex
+        Plan missing setup with ${initialPlannerLabel(props.projectForm)}
       </button>
       <button
         class="btn btn--subtle"
@@ -3180,8 +3267,8 @@ function renderSetupRepairCard(
         : nothing}
     </div>
     <p class="pcc-setup-repair__codex-note" data-pcc-setup-repair-codex-note>
-      Codex GPT-5.6 Sol creates a planning-only draft through the PCC OAuth grant. It cannot run
-      tools or start implementation. Review the draft before PCC saves anything.
+      ${initialPlannerLabel(props.projectForm)} creates a planning-only draft. It cannot run tools
+      or start implementation. Review the draft before PCC saves anything.
     </p>
     ${renderAutofillPreview(props)}
   </section>`;
@@ -3345,7 +3432,7 @@ function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboar
 
 function renderPccPermissionReviewDialog(detail: PccProjectDetail, props: PccDashboardProps) {
   const pending = detail.permissions.filter((permission) => permission.status === "needed");
-  const permission = pendingPermissionForDetail(detail);
+  const permission = pendingPermissionForDetail(detail, props.attentionRecordId);
   if (!permission) {
     return nothing;
   }
@@ -4458,6 +4545,9 @@ function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilt
   if (filter === "on_hold") {
     return project.status === "on_hold" || project.status === "deferred";
   }
+  if (filter === "completed") {
+    return isPccCompleteStatus(project.status) || project.status === "skipped";
+  }
   if (filter === "needs_you") {
     return projectNeedsAttention(project);
   }
@@ -4579,6 +4669,7 @@ function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly Pc
       const count = projects.filter((project) => projectMatchesFilter(project, filter)).length;
       return html`<button
         type="button"
+        data-pcc-project-filter=${filter}
         class=${filter === selected ? "is-selected" : ""}
         aria-pressed=${filter === selected}
         @click=${() => props.onSetProjectFilter?.(filter)}
@@ -6037,7 +6128,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
       <div class="pcc-work-loop__header">
         <div>
           <p class="pcc-kicker">Work controls</p>
-          <h4>${resolvedAction.primaryLabel}</h4>
+          <h4>${projectActionLabel(resolvedAction, props.projectForm)}</h4>
           <p>${resolvedAction.explanation}</p>
         </div>
         <span class="pcc-status">${resolvedAction.statusLabel}</span>
@@ -6490,9 +6581,11 @@ function renderBlockerClarityCenter(
     </div>
     <ol class="pcc-blocker-center__list" data-pcc-work-start-blockers>
       ${visible.map((line, index) => {
-        const fixLabel = blockerFixLabelForLine(line);
+        const fixLabel = blockerFixLabelForLine(line, initialPlannerLabel(props.projectForm));
         const canResume = fixLabel === "Resume Project" && props.onResumeProject;
-        const canFixSetup = fixLabel === "Plan Setup with Codex" && props.onPreviewSetupAutofill;
+        const canFixSetup =
+          fixLabel === `Plan Setup with ${initialPlannerLabel(props.projectForm)}` &&
+          props.onPreviewSetupAutofill;
         const canReviewPermission =
           fixLabel === "Review Permission" && pendingPermissionForDetail(detail);
         const issueChatDescriptor: IssueChatDescriptor = {
@@ -6532,7 +6625,7 @@ function renderBlockerClarityCenter(
                   ?disabled=${props.actionBusy}
                   @click=${() => props.onPreviewSetupAutofill?.()}
                 >
-                  Plan Setup with Codex
+                  ${fixLabel}
                 </button>`
               : canReviewPermission
                 ? html`<button
@@ -6782,7 +6875,7 @@ function renderPrivateTeamPolicy(props: PccDashboardProps) {
     <dl>
       <div>
         <dt>Planning</dt>
-        <dd>${policy.maxConcurrentPlanningRuns} Codex planning runs at once</dd>
+        <dd>${policy.maxConcurrentPlanningRuns} planning runs at once</dd>
       </div>
       <div>
         <dt>Projects</dt>
@@ -6813,7 +6906,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const settings = getPccWorkLoopSettings(project);
   const worker = current ? itemWorkerLabel(current) : "None";
   const resolvedAction = resolvePccProjectAction(detail);
-  const primaryAction = resolvedAction.primaryLabel;
+  const primaryAction = projectActionLabel(resolvedAction, props.projectForm);
   const needsSetupRepair = !setupEvaluation.runnable;
   const terminal = PROJECT_TERMINAL_STATUSES.has(project.status);
   const hasIncompleteMilestones = detail.milestones.some(
@@ -7366,7 +7459,8 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
 
 function renderProjectDetail(props: PccDashboardProps) {
   const detail = props.projectDetail;
-  const mode = pccViewMode(props);
+  const modernWorkspace = props.surface === "project";
+  const mode = modernWorkspace ? "detailed" : pccViewMode(props);
   if (!detail) {
     return html`
       <aside class="pcc-detail" data-pcc-detail-empty>
@@ -7377,6 +7471,7 @@ function renderProjectDetail(props: PccDashboardProps) {
   }
   try {
     const permissions = detail.permissions ?? [];
+    const activeDetailTab = props.decisionFormOpen ? "decisions" : "plan";
     return html`
       <aside
         class="pcc-detail pcc-detail--${mode}"
@@ -7392,7 +7487,7 @@ function renderProjectDetail(props: PccDashboardProps) {
         <details
           class="pcc-detail-drawer"
           data-pcc-mobile-section="more"
-          ?open=${mode !== "simple"}
+          ?open=${props.decisionFormOpen || (!modernWorkspace && mode !== "simple")}
         >
           <summary>Details</summary>
           ${mode === "simple"
@@ -7419,8 +7514,8 @@ function renderProjectDetail(props: PccDashboardProps) {
                       type="button"
                       role="tab"
                       data-pcc-detail-tab=${id}
-                      aria-selected=${id === "plan" ? "true" : "false"}
-                      tabindex=${id === "plan" ? "0" : "-1"}
+                      aria-selected=${id === activeDetailTab ? "true" : "false"}
+                      tabindex=${id === activeDetailTab ? "0" : "-1"}
                       @click=${(event: Event) =>
                         activatePccDetailTab(
                           id,
@@ -7433,7 +7528,11 @@ function renderProjectDetail(props: PccDashboardProps) {
                     </button>`,
                   )}
                 </div>
-                <section data-pcc-detail-tab-panel="plan" role="tabpanel">
+                <section
+                  data-pcc-detail-tab-panel="plan"
+                  role="tabpanel"
+                  ?hidden=${activeDetailTab !== "plan"}
+                >
                   ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
                   ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
                 </section>
@@ -7443,7 +7542,11 @@ function renderProjectDetail(props: PccDashboardProps) {
                 <section data-pcc-detail-tab-panel="proof" role="tabpanel" hidden>
                   ${renderProjectReceiptsAndArtifacts(detail, props)}
                 </section>
-                <section data-pcc-detail-tab-panel="decisions" role="tabpanel" hidden>
+                <section
+                  data-pcc-detail-tab-panel="decisions"
+                  role="tabpanel"
+                  ?hidden=${activeDetailTab !== "decisions"}
+                >
                   ${renderDecisionCapturePanel(detail, props)} ${renderDecisionList(detail, props)}
                 </section>
                 <section data-pcc-detail-tab-panel="automation" role="tabpanel" hidden>
@@ -7613,6 +7716,7 @@ function renderChatSyncCard(props: PccDashboardProps) {
     </div>
     <textarea
       class="pcc-chat-sync__input"
+      aria-label="Proposed OpenClaw or Codex plan"
       placeholder="Paste a proposed plan"
       .value=${props.chatSyncText}
       @input=${(event: Event) =>
@@ -8131,23 +8235,29 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeFormAutofillButton(props, "Fill blanks with Codex")}
+        ${renderProjectIntakeFormAutofillButton(
+          props,
+          `Fill blanks with ${initialPlannerLabel(props.projectForm)}`,
+        )}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
-      Codex GPT-5.6 Sol fills blanks from the project prompt and current context. Everything you
-      typed stays unchanged. Review the planning-only draft before saving.
+      ${initialPlannerLabel(form)} fills blanks from the project prompt and current context.
+      Everything you typed stays unchanged. Review the planning-only draft before saving.
     </p>
     <section class="pcc-intake-wizard__generate-card" data-pcc-intake-generate-card>
       <div>
-        <strong>Generate missing answers with Codex.</strong>
+        <strong>Generate missing answers with ${initialPlannerLabel(form)}.</strong>
         <span
           >Use this when blanks such as Goal block the setup quality gate. PCC generates a draft
           first; you stay in control before saving or applying.</span
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeFormAutofillButton(props, "Fill blanks with Codex")}
+        ${renderProjectIntakeFormAutofillButton(
+          props,
+          `Fill blanks with ${initialPlannerLabel(props.projectForm)}`,
+        )}
         ${canPreviewFullSetupRepair
           ? renderProjectIntakeAutofillButton(props, "Preview full setup repair")
           : nothing}
@@ -8155,14 +8265,17 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
     </section>
     <div class="pcc-intake-wizard__ai-tools" data-pcc-intake-answer-ai-tools>
       <div>
-        <strong>Codex can fill any blanks here.</strong>
+        <strong>${initialPlannerLabel(form)} can fill any blanks here.</strong>
         <span
           >Use the current project context to draft missing intake answers. Existing project setup
           opens a preview before PCC writes anything.</span
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeFormAutofillButton(props, "Fill blanks with Codex")}
+        ${renderProjectIntakeFormAutofillButton(
+          props,
+          `Fill blanks with ${initialPlannerLabel(props.projectForm)}`,
+        )}
         ${canPreviewFullSetupRepair
           ? renderProjectIntakeAutofillButton(props, "Preview full setup repair")
           : nothing}
@@ -8186,7 +8299,9 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
               ?disabled=${props.actionBusy}
               @click=${() => runProjectIntakeFormAutofill(props)}
             >
-              ${hasValue ? "Regenerate plan" : "Fill with Codex"}
+              ${hasValue
+                ? "Regenerate plan"
+                : `Fill with ${initialPlannerLabel(props.projectForm)}`}
             </button>
           </span>
           <textarea
@@ -8232,7 +8347,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
     ${missing.length || !form.intakeApproved
       ? html`<p class="pcc-intake-wizard__missing" data-pcc-intake-blocked>
           ${missing.length
-            ? "Complete every intake answer before saving, or choose Fill blanks with Codex."
+            ? `Complete every intake answer before saving, or choose Fill blanks with ${initialPlannerLabel(props.projectForm)}.`
             : "Approve the intake brief before saving."}
         </p>`
       : nothing}
@@ -8293,7 +8408,9 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
         >${generatedPlan
           ? generatedPlan.provenance.source === "live_codex"
             ? "Live Codex planning"
-            : "Deterministic isolated proof"
+            : generatedPlan.provenance.source === "live_local"
+              ? "Live local AI planning"
+              : "Deterministic isolated proof"
           : form.plannerMode.replace(/_/gu, " ")}</span
       >
       <span>${form.workflowTemplateId.replace(/-/gu, " ")}</span>
@@ -8517,10 +8634,13 @@ function renderProjectScheduleAndWorkflow(props: PccDashboardProps) {
 
 function renderProjectPlannerSummary(props: PccDashboardProps) {
   const summary = projectPlannerSummary(props);
+  const initialPlanner = initialPlannerUsesCodex(props.projectForm)
+    ? "Codex initial planning · explicit opt-in"
+    : "Local AI initial planning · recommended";
   return html`<section class="pcc-create-planner-summary" data-pcc-create-planner-summary>
     <div>
-      <span>How work runs after Codex plans it</span>
-      <strong>${summary.title}</strong>
+      <span>Initial plan and execution</span>
+      <strong>${initialPlanner}</strong>
       <p>${summary.detail}</p>
     </div>
     <em>${summary.safety}</em>
@@ -8532,6 +8652,57 @@ function renderProjectAiRolePicker(props: PccDashboardProps) {
   const execution = localExecutionOption(form.executionProfile.speed);
   const codex = codexPolicyOption(form.executionProfile.codexPolicyId);
   return html`<section class="pcc-ai-role-picker" data-pcc-ai-role-picker>
+    <details data-pcc-initial-planner-picker>
+      <summary>
+        <span>
+          <small>How should PCC create the initial plan?</small>
+          <strong
+            >${initialPlannerUsesCodex(form)
+              ? "Codex · explicit opt-in"
+              : "Local AI · Recommended"}</strong
+          >
+          <em
+            >${initialPlannerUsesCodex(form)
+              ? "Uses Codex only after you select it."
+              : "Runs locally and preserves Codex compute."}</em
+          >
+        </span>
+        <span class="pcc-ai-role-picker__change">Change</span>
+      </summary>
+      <fieldset>
+        <legend>Choose the initial planning engine</legend>
+        <label class="pcc-ai-role-option ${initialPlannerUsesCodex(form) ? "" : "is-selected"}">
+          <input
+            type="radio"
+            name="pcc-initial-planner"
+            value="local_model"
+            data-pcc-initial-planner="local"
+            .checked=${!initialPlannerUsesCodex(form)}
+            @change=${() => props.onProjectFormChange(initialPlannerPatch("local_model"))}
+          />
+          <span>
+            <strong>Local AI · Recommended</strong>
+            <small>Generate the first plan on this Mac. No Codex usage.</small>
+            <em>Planning remains tool-free, review-first, and local-only.</em>
+          </span>
+        </label>
+        <label class="pcc-ai-role-option ${initialPlannerUsesCodex(form) ? "is-selected" : ""}">
+          <input
+            type="radio"
+            name="pcc-initial-planner"
+            value="codex"
+            data-pcc-initial-planner="codex"
+            .checked=${initialPlannerUsesCodex(form)}
+            @change=${() => props.onProjectFormChange(initialPlannerPatch("codex"))}
+          />
+          <span>
+            <strong>Codex · explicit opt-in</strong>
+            <small>Use the planning-only Codex grant for this plan.</small>
+            <em>It does not authorize implementation, deployment, or external writes.</em>
+          </span>
+        </label>
+      </fieldset>
+    </details>
     <details data-pcc-local-execution-picker>
       <summary>
         <span>
@@ -8671,6 +8842,13 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
   const form = props.projectForm;
   const profile = form.executionProfile;
   const usesCodex = profile.codexPolicyId !== "local_only";
+  const initialCodex = initialPlannerUsesCodex(form);
+  const planningPolicy = props.planningPolicy;
+  const planningModel = initialCodex
+    ? PCC_CODEX_PLANNER_MODEL
+    : planningPolicy?.provider === "ollama"
+      ? planningPolicy.model
+      : PCC_LOCAL_PLANNER_MODEL;
   const capacity = props.executionCapacity?.safeLocalAgentSlots ?? 0;
   const counts = resolvePccEstimatedAgentCounts(profile, capacity);
   return html`<section class="pcc-create-options__group" data-pcc-create-model-options>
@@ -8681,11 +8859,12 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
     <div class="pcc-callout" data-pcc-planning-policy>
       <div>
         <strong
-          >Codex planning ${props.planningPolicy?.grant.enabled === false ? "off" : "on"}</strong
+          >Initial planning:
+          ${initialCodex ? "Codex · explicit opt-in" : "Local AI · default"}</strong
         >
         <span
-          >${props.planningPolicy?.model ?? "openai/gpt-5.6-sol"} ·
-          ${props.planningPolicy?.depth ?? "automatic"} depth · OAuth · planning only</span
+          >${planningModel} · ${planningPolicy?.depth ?? "automatic"} depth ·
+          ${initialCodex ? "OAuth" : "local-only"} · planning only</span
         >
       </div>
       ${props.onSetCodexPlanningEnabled
@@ -8695,11 +8874,11 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
             data-pcc-planning-policy-toggle
             ?disabled=${props.actionBusy}
             @click=${() =>
-              props.onSetCodexPlanningEnabled?.(props.planningPolicy?.grant.enabled === false)}
+              props.onSetCodexPlanningEnabled?.(planningPolicy?.grant.enabled === false)}
           >
-            ${props.planningPolicy?.grant.enabled === false
-              ? "Enable planning"
-              : "Disable planning"}
+            ${planningPolicy?.grant.enabled === false
+              ? "Enable Codex planning"
+              : "Disable Codex planning"}
           </button>`
         : nothing}
     </div>
@@ -8906,7 +9085,7 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
     <ol class="pcc-create-steps" aria-label="New project progress">
       <li class=${reviewing ? "is-complete" : "is-current"}><span>1</span>Goal</li>
       <li class="is-complete"><span>2</span>Work speed</li>
-      <li class="is-complete"><span>3</span>Codex help</li>
+      <li class="is-complete"><span>3</span>AI plan</li>
       <li class=${reviewing ? "is-current" : ""}><span>4</span>Review & create</li>
     </ol>
     ${reviewing
@@ -8971,14 +9150,15 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
               <option value="high">High · complex architecture or migration</option>
             </select>
             <small
-              >Codex GPT-5.6 Sol plans. PCC raises depth only when complexity requires it.</small
+              >${initialPlannerUsesCodex(form) ? "Codex GPT-5.6 Sol" : "Local AI"} plans. PCC raises
+              depth only when complexity requires it.</small
             >
           </label>
           <section class="pcc-create-ai-explainer" data-pcc-create-ai-explainer>
             <div>
               <span class="pcc-create-ai-explainer__icon" aria-hidden="true">✦</span>
               <div>
-                <strong>Codex fills only the blanks</strong>
+                <strong>Planner fills only the blanks</strong>
                 <p>Anything you type stays unchanged. Before saving, you will review:</p>
               </div>
             </div>
@@ -9057,7 +9237,10 @@ function renderProjectEditor(props: PccDashboardProps) {
           ? nothing
           : needsAiDraft
             ? html`<div class="pcc-editor__header-actions">
-                ${renderProjectIntakeAutofillButton(props, "Plan missing details with Codex")}
+                ${renderProjectIntakeAutofillButton(
+                  props,
+                  `Plan missing details with ${initialPlannerLabel(props.projectForm)}`,
+                )}
                 <span class="pcc-status">${intakeSummary}</span>
               </div>`
             : html`<span class="pcc-status">Setup ready</span>`}
@@ -9086,7 +9269,10 @@ function renderProjectEditor(props: PccDashboardProps) {
                       writes anything.</span
                     >
                   </div>
-                  ${renderProjectIntakeAutofillButton(props, "Plan missing details with Codex")}
+                  ${renderProjectIntakeAutofillButton(
+                    props,
+                    `Plan missing details with ${initialPlannerLabel(props.projectForm)}`,
+                  )}
                 </section>`
               : nothing}
             ${renderProjectCoreFields(props)} ${renderProjectScheduleAndWorkflow(props)}
@@ -9172,10 +9358,10 @@ function renderProjectEditor(props: PccDashboardProps) {
                   class="btn btn--subtle"
                   type="button"
                   data-pcc-create-fill-remaining
-                  ?disabled=${props.actionBusy || props.planningPolicy?.grant.enabled === false}
+                  ?disabled=${planningActionDisabled(props)}
                   @click=${() => props.onGenerateProjectPlan?.()}
                 >
-                  Regenerate missing details with Codex
+                  Regenerate missing details with ${initialPlannerLabel(form)}
                 </button>
               `
             : html`<button
@@ -9187,14 +9373,13 @@ function renderProjectEditor(props: PccDashboardProps) {
                 title=${hasProjectRequest
                   ? "Generate a project plan from the information above"
                   : "Describe the result you want above to enable planning"}
-                ?disabled=${props.actionBusy ||
-                props.planningPolicy?.grant.enabled === false ||
+                ?disabled=${planningActionDisabled(props) ||
                 !(form.projectDescription.trim() || form.title.trim() || form.goal.trim())}
                 @click=${() => props.onGenerateProjectPlan?.()}
               >
                 ${props.actionBusy
-                  ? "Generating project plan…"
-                  : "Generate project plan with Codex"}
+                  ? `Generating ${initialPlannerUsesCodex(form) ? "Codex" : "local AI"} project plan…`
+                  : `Generate project plan with ${initialPlannerUsesCodex(form) ? "Codex" : "Local AI"}`}
               </button>`
           : html`<button
               class="btn pcc-action-primary pcc-editor-primary-action"
@@ -9213,12 +9398,10 @@ function renderProjectEditor(props: PccDashboardProps) {
               class="btn btn--subtle"
               type="button"
               data-pcc-project-regenerate-ai
-              ?disabled=${props.actionBusy ||
-              props.planningPolicy?.grant.enabled === false ||
-              !props.onPreviewSetupAutofill}
+              ?disabled=${planningActionDisabled(props) || !props.onPreviewSetupAutofill}
               @click=${() => props.onPreviewSetupAutofill?.()}
             >
-              Plan missing details with Codex
+              Plan missing details with ${initialPlannerLabel(form)}
             </button>`}
         <button
           class="btn btn--subtle"
@@ -9379,12 +9562,12 @@ function renderPccBusyFeedback(props: PccDashboardProps) {
     if (run && (run.status === "queued" || run.status === "running")) {
       const stageText: Record<PccPlanningRun["stage"], string> = {
         preparing: "Preparing the planner",
-        planner_running: "Codex is planning milestones and sub-steps",
+        planner_running: `${run?.model.startsWith("ollama/") ? "Local AI" : "Codex"} is planning milestones and sub-steps`,
         validating: "Checking owners, proof, and dependencies",
         ready: "Preparing your review",
       };
       const modelLabel = run.model
-        .replace(/^openai\//u, "")
+        .replace(/^(?:openai|ollama)\//u, "")
         .replace(/^gpt-/u, "GPT-")
         .replace(/-sol$/u, " Sol");
       const effortLabel = `${run.effort.slice(0, 1).toUpperCase()}${run.effort.slice(1)} effort`;
@@ -9392,6 +9575,10 @@ function renderPccBusyFeedback(props: PccDashboardProps) {
       const elapsedSeconds = Number.isFinite(started)
         ? Math.max(0, Math.round((Date.now() - started) / 1000))
         : 0;
+      const activity =
+        run.status === "queued"
+          ? `Waiting for a planning slot${run.queuePosition ? ` · position ${run.queuePosition}` : ""}`
+          : stageText[run.stage];
       return html`<div
         class="pcc-callout pcc-callout--busy pcc-planning-progress"
         data-pcc-planning-progress
@@ -9401,8 +9588,12 @@ function renderPccBusyFeedback(props: PccDashboardProps) {
       >
         <div class="pcc-planning-progress__indicator" aria-hidden="true"></div>
         <div>
-          <strong>Creating your project plan</strong>
-          <span>${stageText[run.stage]}</span>
+          <strong
+            >${run.status === "queued"
+              ? "Your project plan is queued"
+              : "Creating your project plan"}</strong
+          >
+          <span>${activity}</span>
           <small
             >${modelLabel} · ${effortLabel} · ${elapsedSeconds}s elapsed. You can leave this screen;
             PCC keeps the run record so you can reconnect.</small
@@ -9496,7 +9687,7 @@ function renderProjectListEmptyState(
   allProjects: readonly PccProjectSummary[],
   filteredByTabCount: number,
 ) {
-  const selected = props.projectFilter ?? "active";
+  const selected = effectiveProjectFilter(props, allProjects);
   const searchActive = Boolean(props.projectSearchQuery?.trim());
   const needsYouCount = allProjects.filter((project) =>
     projectMatchesFilter(project, "needs_you"),
@@ -9550,7 +9741,509 @@ function renderProjectListEmptyState(
   </div>`;
 }
 
-export function renderPccDashboard(props: PccDashboardProps) {
+type PccOverviewProject = PccOverviewGetResult["projects"][number];
+type PccOverviewAttention = PccOverviewGetResult["attention"][number];
+
+function pccSurface(props: PccDashboardProps): PccSurface {
+  return props.surface ?? (props.projectDetail ? "project" : "overview");
+}
+
+function overviewProjects(props: PccDashboardProps): PccOverviewProject[] {
+  if (props.overview?.projects) {
+    return props.overview.projects;
+  }
+  return props.projects.map((project) => ({
+    ...project,
+    workState:
+      isPccCompleteStatus(project.status) || project.status === "archived"
+        ? "complete"
+        : project.status === "blocked"
+          ? "blocked"
+          : project.status === "needs_approval"
+            ? "needs_you"
+            : "ready",
+    activeAgentCount: 0,
+  }));
+}
+
+function workStateLabel(state: PccOverviewProject["workState"]): string {
+  return {
+    needs_you: "Needs You",
+    working: "Working",
+    ready: "Ready",
+    paused: "Paused",
+    blocked: "Blocked",
+    failed: "Failed",
+    complete: "Complete",
+  }[state];
+}
+
+function renderWorkOverviewNav(props: PccDashboardProps) {
+  const surface = pccSurface(props);
+  const items: Array<{ id: Exclude<PccSurface, "project">; label: string }> = [
+    { id: "overview", label: "Overview" },
+    { id: "projects", label: "Projects" },
+    { id: "activity", label: "Activity" },
+    { id: "system", label: "System" },
+  ];
+  return html`<nav class="pcc-work-nav" aria-label="Project Command Center">
+    ${items.map(
+      (item) => html`<button
+        class=${surface === item.id ? "pcc-work-nav__item is-active" : "pcc-work-nav__item"}
+        type="button"
+        aria-current=${surface === item.id ? "page" : nothing}
+        @click=${() => props.onSetSurface?.(item.id)}
+      >
+        ${item.label}
+      </button>`,
+    )}
+  </nav>`;
+}
+
+function renderOverviewProjectCard(project: PccOverviewProject, props: PccDashboardProps) {
+  const favorite = props.favorites?.includes(project.id) ?? false;
+  const complete = project.milestoneCounts.complete;
+  const total = project.milestoneCounts.total;
+  return html`<article
+    class="pcc-work-card pcc-work-card--project"
+    data-pcc-overview-project=${project.id}
+  >
+    <header>
+      <div>
+        <span class="pcc-work-state pcc-work-state--${project.workState}">
+          ${workStateLabel(project.workState)}
+        </span>
+        <h3>${project.title}</h3>
+      </div>
+      <button
+        class=${favorite ? "pcc-favorite is-active" : "pcc-favorite"}
+        type="button"
+        aria-label=${favorite
+          ? `Remove ${project.title} from favorites`
+          : `Favorite ${project.title}`}
+        aria-pressed=${favorite}
+        @click=${() => props.onToggleFavorite?.(project.id)}
+      >
+        ${favorite ? "★" : "☆"}
+      </button>
+    </header>
+    <div class="pcc-project-progress" aria-label=${`${project.percentComplete}% complete`}>
+      <div>
+        <strong>${Math.round(project.percentComplete)}%</strong>
+        <span>${complete}/${total} milestones</span>
+      </div>
+      <progress max="100" value=${project.percentComplete}></progress>
+    </div>
+    <dl class="pcc-work-card__facts">
+      <div>
+        <dt>Now</dt>
+        <dd>${project.currentMilestone ?? "Ready for the next step"}</dd>
+      </div>
+      <div>
+        <dt>Next</dt>
+        <dd>${project.nextAction ?? project.nextActions[0] ?? "Open project"}</dd>
+      </div>
+      ${project.activeAgentCount > 0
+        ? html`<div>
+            <dt>Agents</dt>
+            <dd>${project.activeAgentCount} working now</dd>
+          </div>`
+        : nothing}
+      ${project.blocker
+        ? html`<div class="pcc-work-card__blocker">
+            <dt>Blocked by</dt>
+            <dd>${project.blocker}</dd>
+          </div>`
+        : nothing}
+    </dl>
+    <footer>
+      <button
+        class="btn pcc-action-primary"
+        type="button"
+        @click=${() => props.onSelectProject(project.id)}
+      >
+        Open project
+      </button>
+    </footer>
+  </article>`;
+}
+
+function renderAttentionCard(item: PccOverviewAttention, props: PccDashboardProps) {
+  return html`<article class="pcc-attention-row" data-pcc-attention=${item.id}>
+    <div>
+      <span>${item.kind === "permission" ? "Permission" : "Needs attention"}</span>
+      <h3>${item.title}</h3>
+      ${item.detail ? html`<p>${item.detail}</p>` : nothing}
+    </div>
+    <button
+      class="btn pcc-action-primary"
+      type="button"
+      @click=${() => props.onOpenAttention?.(item.projectId, item.recordId)}
+    >
+      ${item.actionLabel}
+    </button>
+  </article>`;
+}
+
+function formatAgentElapsed(startedAt?: string): string {
+  if (!startedAt) {
+    return "Waiting";
+  }
+  const elapsed = Math.max(0, Date.now() - Date.parse(startedAt));
+  const minutes = Math.floor(elapsed / 60_000);
+  return minutes < 1 ? "Just started" : `${minutes}m elapsed`;
+}
+
+function renderWorkOverview(props: PccDashboardProps) {
+  const overview = props.overview;
+  const projects = overviewProjects(props);
+  const activeProjects = projects.filter((project) => project.workState !== "complete");
+  const attention = overview?.attention ?? [];
+  const agents = overview?.activeAgents ?? [];
+  const recent = props.recentProjectIds
+    ?.map((id) => projects.find((project) => project.id === id))
+    .filter((project): project is PccOverviewProject => Boolean(project));
+  return html`<main class="pcc-work-overview" data-pcc-work-overview>
+    ${attention.length
+      ? html`<section
+          class="pcc-work-section pcc-work-section--attention"
+          aria-labelledby="pcc-needs-you-title"
+        >
+          <header>
+            <div>
+              <span>Needs You</span>
+              <h2 id="pcc-needs-you-title">
+                ${attention.length} item${attention.length === 1 ? "" : "s"} waiting
+              </h2>
+            </div>
+          </header>
+          <div class="pcc-attention-list">
+            ${attention.map((item) => renderAttentionCard(item, props))}
+          </div>
+        </section>`
+      : nothing}
+
+    <section class="pcc-work-section" aria-labelledby="pcc-working-now-title">
+      <header>
+        <div>
+          <span>Working Now</span>
+          <h2 id="pcc-working-now-title">
+            ${agents.length
+              ? `${agents.length} active agent${agents.length === 1 ? "" : "s"}`
+              : "No agents running"}
+          </h2>
+        </div>
+        <span class="pcc-team-presence">${props.presence?.length ?? 0}/6 team members online</span>
+      </header>
+      ${agents.length
+        ? html`<div class="pcc-agent-list">
+            ${agents.map(
+              (agent) => html`<button
+                class="pcc-agent-row"
+                type="button"
+                @click=${() => props.onSelectProject(agent.projectId)}
+              >
+                <span class="pcc-agent-avatar" aria-hidden="true"
+                  >${agent.agentName.slice(0, 1).toUpperCase()}</span
+                >
+                <span class="pcc-agent-row__body">
+                  <strong>${agent.agentName}</strong>
+                  <span>${agent.projectTitle} · ${agent.task}</span>
+                </span>
+                <span class="pcc-agent-row__status">
+                  ${formatStatus(agent.status)} · ${formatAgentElapsed(agent.startedAt)}
+                </span>
+              </button>`,
+            )}
+          </div>`
+        : html`<p class="pcc-work-empty">
+            Start a ready project when you want agents to begin. PCC will show verified live work
+            here.
+          </p>`}
+    </section>
+
+    <section class="pcc-work-section" aria-labelledby="pcc-projects-title">
+      <header>
+        <div>
+          <span>Active Projects</span>
+          <h2 id="pcc-projects-title">
+            ${activeProjects.length} project${activeProjects.length === 1 ? "" : "s"}
+          </h2>
+        </div>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          @click=${() => props.onSetSurface?.("projects")}
+        >
+          View all
+        </button>
+      </header>
+      ${activeProjects.length
+        ? html`<div class="pcc-work-project-grid">
+            ${activeProjects
+              .slice(0, 8)
+              .map((project) => renderOverviewProjectCard(project, props))}
+          </div>`
+        : html`<div class="pcc-work-empty pcc-work-empty--large">
+            <h3>${projects.length ? "No active projects" : "No projects yet"}</h3>
+            <p>
+              ${projects.length
+                ? "Open Projects to review completed work, or create something new."
+                : "Create a project and PCC will keep its work, progress, agents, and next action together."}
+            </p>
+            <button
+              class="btn pcc-action-primary"
+              type="button"
+              @click=${() => props.onOpenProjectEditor()}
+            >
+              New project
+            </button>
+          </div>`}
+    </section>
+
+    ${recent?.length
+      ? html`<section class="pcc-recent-shortcuts" aria-label="Recently opened projects">
+          <span>Recently opened</span>
+          ${recent
+            .slice(0, 4)
+            .map(
+              (project) => html`<button
+                type="button"
+                @click=${() => props.onSelectProject(project.id)}
+              >
+                ${project.title}
+              </button>`,
+            )}
+        </section>`
+      : nothing}
+
+    <section
+      class="pcc-work-section pcc-work-section--activity"
+      aria-labelledby="pcc-recent-activity-title"
+    >
+      <header>
+        <div>
+          <span>Recent Activity</span>
+          <h2 id="pcc-recent-activity-title">What changed</h2>
+        </div>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          @click=${() => props.onSetSurface?.("activity")}
+        >
+          See history
+        </button>
+      </header>
+      <ol class="pcc-activity-list">
+        ${(overview?.recentActivity ?? []).slice(0, 5).map(
+          (activity) => html`<li>
+            <button type="button" @click=${() => props.onSelectProject(activity.projectId)}>
+              <strong>${activity.projectTitle}</strong>
+              <span>${activity.actor} · ${activity.action}</span>
+              <time>${formatUpdatedAt(Date.parse(activity.at))}</time>
+            </button>
+          </li>`,
+        )}
+      </ol>
+    </section>
+
+    <button class="pcc-system-pill" type="button" @click=${() => props.onSetSurface?.("system")}>
+      <span
+        class="pcc-system-pill__dot pcc-system-pill__dot--${overview?.system.status ??
+        "unavailable"}"
+      ></span>
+      <strong>${overview?.system.label ?? "PCC status unavailable"}</strong>
+      <span>System details</span>
+    </button>
+  </main>`;
+}
+
+function renderProjectsDirectory(props: PccDashboardProps) {
+  const query = props.projectSearchQuery?.trim().toLowerCase() ?? "";
+  const allProjects = overviewProjects(props);
+  const selectedFilter = effectiveProjectFilter(props, allProjects);
+  const filteredByStatus = allProjects.filter((project) =>
+    projectMatchesFilter(project, selectedFilter),
+  );
+  const projects = filteredByStatus.filter((project) =>
+    query
+      ? projectMatchesSearch(
+          project,
+          query,
+          props.projectDetails?.[project.id] ??
+            (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined),
+        )
+      : true,
+  );
+  const favorites = new Set(props.favorites ?? []);
+  projects.sort(
+    (left, right) =>
+      Number(favorites.has(right.id)) - Number(favorites.has(left.id)) ||
+      right.updatedAt.localeCompare(left.updatedAt),
+  );
+  return html`<main class="pcc-work-overview" data-pcc-projects-directory>
+    <section class="pcc-work-section">
+      <header class="pcc-directory-header">
+        <div>
+          <span>Projects</span>
+          <h2>Everything in one place</h2>
+        </div>
+        <label class="pcc-directory-search" data-pcc-project-search>
+          <span class="pcc-sr-only">Search projects</span>
+          <input
+            type="search"
+            placeholder="Search projects"
+            .value=${props.projectSearchQuery ?? ""}
+            @input=${(event: Event) =>
+              props.onSetProjectSearchQuery?.((event.currentTarget as HTMLInputElement).value)}
+          />
+        </label>
+      </header>
+      <div class="pcc-directory-controls">
+        ${renderProjectFilterTabs(props, allProjects)}
+        <div class="pcc-directory-result-count" role="status" aria-live="polite">
+          <strong>${projects.length}</strong>
+          <span>shown</span>
+          ${query
+            ? html`<button
+                class="btn btn--subtle"
+                type="button"
+                aria-label="Clear search"
+                @click=${() => props.onSetProjectSearchQuery?.("")}
+              >
+                Clear search
+              </button>`
+            : nothing}
+        </div>
+      </div>
+      <div class="pcc-work-project-grid">
+        ${projects.map((project) => renderOverviewProjectCard(project, props))}
+      </div>
+      ${projects.length === 0
+        ? renderProjectListEmptyState(props, allProjects, filteredByStatus.length)
+        : nothing}
+    </section>
+  </main>`;
+}
+
+function renderActivityDirectory(props: PccDashboardProps) {
+  const activity = props.overview?.recentActivity ?? [];
+  return html`<main class="pcc-work-overview" data-pcc-activity-directory>
+    <section class="pcc-work-section">
+      <header>
+        <div>
+          <span>Activity</span>
+          <h2>Recent project changes</h2>
+        </div>
+      </header>
+      <ol class="pcc-activity-list pcc-activity-list--full">
+        ${activity.map(
+          (item) => html`<li>
+            <button type="button" @click=${() => props.onSelectProject(item.projectId)}>
+              <strong>${item.projectTitle}</strong>
+              <span
+                >${item.actor} ·
+                ${item.action}${item.progress == null
+                  ? ""
+                  : ` · ${Math.round(item.progress)}%`}</span
+              >
+              <time>${formatUpdatedAt(Date.parse(item.at))}</time>
+            </button>
+          </li>`,
+        )}
+      </ol>
+    </section>
+  </main>`;
+}
+
+function renderSystemOverview(props: PccDashboardProps) {
+  const system = props.overview?.system;
+  return html`<main class="pcc-work-overview" data-pcc-system-overview>
+    <section class="pcc-work-section pcc-system-overview">
+      <span
+        class="pcc-system-pill__dot pcc-system-pill__dot--${system?.status ?? "unavailable"}"
+      ></span>
+      <div>
+        <span>System</span>
+        <h2>${system?.label ?? "PCC status unavailable"}</h2>
+        <p>${system?.detail ?? "Project Command Center is serving the shared work ledger."}</p>
+      </div>
+      <button
+        class="btn pcc-action-primary"
+        type="button"
+        @click=${() => props.onSelectProject("project-command-center")}
+      >
+        Open system record
+      </button>
+    </section>
+    ${renderProductionTruthCard(props)}
+  </main>`;
+}
+
+function renderProjectWorkspaceSurface(props: PccDashboardProps) {
+  const detail = props.projectDetail;
+  if (!detail) {
+    return html`<main class="pcc-work-overview">
+      <p class="pcc-work-empty">Loading project…</p>
+    </main>`;
+  }
+  const activeAgents =
+    props.overview?.activeAgents.filter((agent) => agent.projectId === detail.project.id).length ??
+    0;
+  const resolvedAction = resolvePccProjectAction(detail);
+  const setupEvaluation = setupEvaluationForDetail(detail);
+  const terminal = PROJECT_TERMINAL_STATUSES.has(detail.project.status);
+  const primaryActionDisabled =
+    props.actionBusy ||
+    resolvedAction.primaryActionId === "no_action_required" ||
+    (!terminal &&
+      !projectIsOnHold(detail.project) &&
+      !setupEvaluation.runnable &&
+      !props.onPreviewSetupAutofill);
+  return html`<main class="pcc-project-workspace" data-pcc-project-workspace>
+    <header class="pcc-project-workspace__header">
+      <button
+        class="btn btn--subtle"
+        type="button"
+        @click=${() => props.onSetSurface?.("overview")}
+      >
+        ← Overview
+      </button>
+      <div>
+        <h2>${detail.project.title}</h2>
+        <span
+          >${Math.round(detail.summary.percentComplete)}% complete ·
+          ${formatStatus(detail.project.status)} · ${activeAgents}
+          agent${activeAgents === 1 ? "" : "s"} working</span
+        >
+      </div>
+      ${resolvedAction.primaryActionId !== "no_action_required"
+        ? html`<div data-pcc-primary-action>
+            <button
+              class="btn pcc-action-primary"
+              type="button"
+              data-pcc-primary-action-id=${resolvedAction.primaryActionId}
+              ?disabled=${primaryActionDisabled}
+              @click=${(event: Event) =>
+                runResolvedProjectPrimaryAction(
+                  resolvedAction,
+                  detail,
+                  props,
+                  event.currentTarget as HTMLElement,
+                )}
+            >
+              ${projectActionLabel(resolvedAction, props.projectForm)}
+            </button>
+          </div>`
+        : nothing}
+    </header>
+    <section class="pcc-project-workspace__body">
+      ${renderProjectDetail({ ...props, viewMode: "detailed" })}
+    </section>
+  </main>`;
+}
+
+function renderLegacyPccDashboard(props: PccDashboardProps) {
   const scopedProjects = focusScopedProjectsForToday(props, props.projects);
   const selectedProjectSummary = props.projectDetail
     ? props.projects.find((project) => project.id === props.projectDetail?.project.id)
@@ -9592,23 +10285,146 @@ export function renderPccDashboard(props: PccDashboardProps) {
   const mode = pccViewMode(props);
   const deferTodayUntilAfterWorkspace = mode === "simple" && Boolean(props.projectDetail);
   const focusWorkspace = mode === "simple" && Boolean(props.projectDetail);
+  return html`<section
+    class="pcc-shell"
+    data-pcc-shell
+    data-pcc-product-focus=${effectivePccFocusMode(props)}
+  >
+    <header class="pcc-hero pcc-hero--compact">
+      <div>
+        <p class="pcc-kicker">Projects</p>
+        <h2>Project Command Center</h2>
+        <p class="pcc-hero__subtitle">PCC product status, project work, and safe next actions.</p>
+      </div>
+      <div class="pcc-hero__actions">
+        <span class="pcc-updated">${formatUpdatedAt(props.updatedAt)}</span>
+        ${renderViewModeSwitcher(props)}
+        <button
+          class="btn"
+          type="button"
+          data-pcc-new-project
+          @click=${() => props.onOpenProjectEditor()}
+        >
+          New project
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.loading}
+          @click=${props.onRefresh}
+        >
+          ${props.loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+    </header>
+    ${props.error
+      ? html`<div class="pcc-callout" role="alert">
+          <strong>Project Command Center unavailable</strong><span>${props.error}</span>
+        </div>`
+      : nothing}
+    ${props.editorMode === "create-project" || props.editorMode === "edit-project"
+      ? nothing
+      : renderPccActionFeedback(props)}
+    ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
+    ${renderPccOfflineState(props)}
+    ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
+    ${renderPccMobileCommandRail(props)} ${renderReleaseGovernance(props)}
+    <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
+      <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
+        ${renderProjectFocusBar(
+          props,
+          allProjects,
+          projects.length,
+          filteredByTab.length,
+          selectedFilter,
+        )}
+        ${props.loading && projects.length === 0
+          ? renderPccLoadingState()
+          : !props.loading && projects.length === 0
+            ? renderProjectListEmptyState(
+                { ...props, projectFilter: selectedFilter },
+                allProjects,
+                filteredByTab.length,
+              )
+            : html`<section class="pcc-project-grid" aria-label="Project cards">
+                ${repeat(
+                  projects,
+                  (project) => project.id,
+                  (project) => renderProjectCard(project, props),
+                )}
+              </section>`}
+      </section>
+      <section class="pcc-workspace" data-pcc-selected-project-workspace>
+        ${renderProjectDetail(props)}
+        ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
+      </section>
+    </div>
+    ${deferTodayUntilAfterWorkspace
+      ? html`<div class="pcc-today-slot pcc-today-slot--after-workspace">
+          ${renderTodayView(props)}
+        </div>`
+      : nothing}
+    ${mode === "simple"
+      ? nothing
+      : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
+          <summary>Needs You list</summary>
+          ${renderNeedsAttentionNow(props)}
+        </details>`}
+    ${mode === "simple"
+      ? nothing
+      : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
+          <summary>Needs You details</summary>
+          ${renderImpactAttentionInbox(props)}
+        </details>`}
+    ${mode === "simple"
+      ? renderUpdateSafetyDrawer(props)
+      : html`${renderProductionTruthDrawer(props)} ${renderUpdateSafetyDrawer(props)}
+        ${renderRecentActivityFeed(props)}`}
+    ${props.editorMode === "create-project" || props.editorMode === "edit-project"
+      ? renderProjectEditor(props)
+      : nothing}
+    ${props.editorMode === "create-milestone" || props.editorMode === "edit-milestone"
+      ? renderMilestoneEditor(props)
+      : nothing}
+  </section>`;
+}
+
+export function renderPccDashboard(props: PccDashboardProps) {
+  if (props.surface === undefined) {
+    return renderLegacyPccDashboard(props);
+  }
+  const surface = pccSurface(props);
   return html`
     <section
-      class="pcc-shell"
+      class="pcc-shell pcc-shell--work-overview"
       data-pcc-shell
-      data-pcc-product-focus=${effectivePccFocusMode(props)}
+      data-pcc-surface=${surface}
+      data-pcc-contract-version=${PCC_BROWSER_CONTRACT_VERSION}
+      data-pcc-ready=${props.error
+        ? "error"
+        : props.loading
+          ? "loading"
+          : props.overview
+            ? "ready"
+            : "loading"}
+      data-pcc-ledger-revision=${props.overview?.ledgerRevision ?? ""}
     >
-      <header class="pcc-hero pcc-hero--compact">
+      <header class="pcc-work-hero">
         <div>
-          <p class="pcc-kicker">Projects</p>
-          <h2>Project Command Center</h2>
-          <p class="pcc-hero__subtitle">PCC product status, project work, and safe next actions.</p>
+          <p class="pcc-kicker">Project Command Center</p>
+          <h1>
+            ${surface === "overview"
+              ? "Your work"
+              : surface === "project"
+                ? "Project"
+                : surface[0]!.toUpperCase() + surface.slice(1)}
+          </h1>
+          <p>See what needs you, what agents are doing, and what happens next.</p>
         </div>
-        <div class="pcc-hero__actions">
+        <div class="pcc-work-hero__actions">
           <span class="pcc-updated">${formatUpdatedAt(props.updatedAt)}</span>
-          ${renderViewModeSwitcher(props)}
           <button
-            class="btn"
+            class="btn pcc-action-primary"
             type="button"
             data-pcc-new-project
             @click=${() => props.onOpenProjectEditor()}
@@ -9625,7 +10441,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
           </button>
         </div>
       </header>
-
+      ${renderWorkOverviewNav(props)}
       ${props.error
         ? html`<div class="pcc-callout" role="alert">
             <strong>Project Command Center unavailable</strong><span>${props.error}</span>
@@ -9634,62 +10450,18 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? nothing
         : renderPccActionFeedback(props)}
-      ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)}
-      ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
-      ${renderPccMobileCommandRail(props)} ${renderReleaseGovernance(props)}
-
-      <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
-        <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
-          ${renderProjectFocusBar(
-            props,
-            allProjects,
-            projects.length,
-            filteredByTab.length,
-            selectedFilter,
-          )}
-          ${props.loading && projects.length === 0
-            ? renderPccLoadingState()
-            : !props.loading && projects.length === 0
-              ? renderProjectListEmptyState(
-                  { ...props, projectFilter: selectedFilter },
-                  allProjects,
-                  filteredByTab.length,
-                )
-              : html`<section class="pcc-project-grid" aria-label="Project cards">
-                  ${repeat(
-                    projects,
-                    (project) => project.id,
-                    (project) => renderProjectCard(project, props),
-                  )}
-                </section>`}
-        </section>
-        <section class="pcc-workspace" data-pcc-selected-project-workspace>
-          ${renderProjectDetail(props)}
-          ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
-        </section>
-      </div>
-      ${deferTodayUntilAfterWorkspace
-        ? html`<div class="pcc-today-slot pcc-today-slot--after-workspace">
-            ${renderTodayView(props)}
-          </div>`
-        : nothing}
-      ${mode === "simple"
-        ? nothing
-        : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
-            <summary>Needs You list</summary>
-            ${renderNeedsAttentionNow(props)}
-          </details>`}
-      ${mode === "simple"
-        ? nothing
-        : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
-            <summary>Needs You details</summary>
-            ${renderImpactAttentionInbox(props)}
-          </details>`}
-      ${mode === "simple"
-        ? renderUpdateSafetyDrawer(props)
-        : html`${renderProductionTruthDrawer(props)} ${renderUpdateSafetyDrawer(props)}
-          ${renderRecentActivityFeed(props)}`}
+      ${props.loading && !props.overview
+        ? renderPccLoadingState()
+        : surface === "overview"
+          ? renderWorkOverview(props)
+          : surface === "projects"
+            ? renderProjectsDirectory(props)
+            : surface === "activity"
+              ? renderActivityDirectory(props)
+              : surface === "system"
+                ? renderSystemOverview(props)
+                : renderProjectWorkspaceSurface(props)}
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? renderProjectEditor(props)
         : nothing}

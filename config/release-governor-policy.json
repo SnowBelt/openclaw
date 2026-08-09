@@ -1,6 +1,6 @@
 {
   "schema": "openclaw.release-governor-policy.v1",
-  "version": 2,
+  "version": 3,
   "confidenceThreshold": 0.95,
   "reviewConfidenceThreshold": 0.9,
   "classificationRules": [
@@ -166,7 +166,7 @@
   },
   "proofProfiles": {
     "mac_studio_control_director": {
-      "version": 1,
+      "version": 2,
       "project": "project-command-center",
       "destination": "local-only",
       "externalDisclosure": false,
@@ -212,7 +212,7 @@
           "staging",
           "gateway_readiness",
           "rpc_health",
-          "authenticated_local_control_director_pcc_browser",
+          "authenticated_local_candidate_control_director_pcc_browser",
           "local_disposable_pcc_e2e",
           "ledger_ready"
         ],
@@ -233,7 +233,7 @@
           "staging",
           "gateway_readiness",
           "rpc_health",
-          "authenticated_local_control_director_pcc_browser",
+          "authenticated_local_candidate_control_director_pcc_browser",
           "local_disposable_pcc_e2e",
           "ledger_ready"
         ],
@@ -253,7 +253,7 @@
           "staging",
           "gateway_readiness",
           "rpc_health",
-          "authenticated_local_control_director_pcc_browser",
+          "authenticated_local_candidate_control_director_pcc_browser",
           "local_disposable_pcc_e2e",
           "ledger_ready"
         ],
@@ -274,7 +274,8 @@
           "staging",
           "gateway_readiness",
           "rpc_health",
-          "authenticated_local_control_director_pcc_browser",
+          "authenticated_local_candidate_control_director_pcc_browser",
+          "authenticated_local_active_runtime_control_director_pcc_browser",
           "local_disposable_pcc_e2e",
           "post_deployment_health",
           "ledger_ready"

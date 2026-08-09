@@ -1,3 +1,4 @@
+import { proofPhaseForOperation } from "./browser-proof-contract.js";
 import { diffReleaseCapabilities } from "./capability-diff.js";
 import { classifyReleaseCandidate, validateReleaseCandidateFacts } from "./classifier.js";
 import type {
@@ -18,6 +19,12 @@ export function evaluateReleaseGovernor(
   }
   if (!Number.isFinite(Date.parse(input.now))) {
     throw new Error("Release evaluation timestamp is invalid.");
+  }
+  const expectedProofPhase = proofPhaseForOperation(input.operation);
+  if (input.facts.proofPhase !== expectedProofPhase) {
+    throw new Error(
+      `Release proof phase ${input.facts.proofPhase} does not match ${input.operation}; expected ${expectedProofPhase}.`,
+    );
   }
   const capabilityDiff = diffReleaseCapabilities({
     activeManifest: input.activeCapabilityManifest,

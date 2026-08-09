@@ -17,16 +17,18 @@ function makeOptions(
   method: string,
   params: Record<string, unknown>,
   respond: ReturnType<typeof vi.fn>,
+  client: GatewayRequestHandlerOptions["client"] = null,
 ): GatewayRequestHandlerOptions {
   return {
     req: { type: "req", id: `${method}-1`, method, params },
     params,
-    client: null,
+    client,
     isWebchatConnect: () => false,
     respond: respond as unknown as GatewayRequestHandlerOptions["respond"],
     context: {
       getRuntimeConfig: () => ({ agents: { defaults: { subagents: { maxConcurrent: 4 } } } }),
-    } as GatewayRequestHandlerOptions["context"],
+      broadcast: vi.fn(),
+    } as unknown as GatewayRequestHandlerOptions["context"],
   };
 }
 
@@ -40,6 +42,21 @@ async function invoke(
   await handler(makeOptions(method, params, respond));
   expect(respond).toHaveBeenCalledTimes(1);
   return respond.mock.calls[0] as RespondCall;
+}
+
+async function invokeWithBroadcast(
+  method: keyof typeof pccHandlers,
+  params: Record<string, unknown>,
+  client: GatewayRequestHandlerOptions["client"] = null,
+): Promise<{ response: RespondCall; broadcast: ReturnType<typeof vi.fn> }> {
+  const respond = vi.fn();
+  const options = makeOptions(method, params, respond, client);
+  const broadcast = options.context.broadcast as ReturnType<typeof vi.fn>;
+  const handler = pccHandlers[method];
+  expect(handler).toBeTruthy();
+  await handler(options);
+  expect(respond).toHaveBeenCalledTimes(1);
+  return { response: respond.mock.calls[0] as RespondCall, broadcast };
 }
 
 function okPayload<T extends Record<string, unknown>>(call: RespondCall, _shape?: T): T {
@@ -149,6 +166,7 @@ describe("Project Command Center gateway methods", () => {
     const payload = okPayload<{ plan: typeof generated }>(
       await invoke("pcc.plans.generate", {
         surface: "project_creation",
+        plannerMode: "codex",
         description: "Create a genuine Codex planner",
         depth: "automatic",
       }),
@@ -165,11 +183,49 @@ describe("Project Command Center gateway methods", () => {
     expect(payload.plan.provenance.source).toBe("live_codex");
   });
 
+  it("uses the local planner when no Codex opt-in is present", async () => {
+    const generated = {
+      schemaVersion: 1 as const,
+      title: "Local Planning",
+      goal: "Generate a plan locally.",
+      outcomeMetrics: ["The plan is reviewable."],
+      workflowTemplateId: "software-product" as const,
+      milestones: [],
+      risks: [],
+      assumptions: [],
+      provenance: {
+        generatedAt: "2026-07-22T12:00:00.000Z",
+        provider: "ollama" as const,
+        model: "ollama/qwen3.5:4b",
+        runtime: "openclaw" as const,
+        effort: "medium" as const,
+        auth: "none" as const,
+        source: "live_local" as const,
+        planningOnly: true as const,
+      },
+    };
+    const generator = vi.fn(async (params: { policy: { provider: string; runtime: string } }) => {
+      expect(params.policy).toMatchObject({ provider: "ollama", runtime: "openclaw" });
+      return generated;
+    });
+    pccTesting.setPlanGenerator(generator as never);
+
+    await invoke("pcc.plans.generate", {
+      surface: "project_creation",
+      description: "Create a local planner",
+    });
+
+    expect(generator).toHaveBeenCalledOnce();
+  });
+
   it("persists and revokes the PCC-wide planning-only grant", async () => {
     const initial = okPayload<{ policy: { grant: { enabled: boolean }; depth: string } }>(
       await invoke("pcc.planningPolicy.get", {}),
     );
     expect(initial.policy).toMatchObject({
+      provider: "ollama",
+      model: "ollama/qwen3.5:4b",
+      runtime: "openclaw",
       depth: "automatic",
       grant: { enabled: true },
     });
@@ -792,7 +848,7 @@ describe("Project Command Center gateway methods", () => {
       "External local-model process occupancy is unavailable; this is a CPU/RAM safety ceiling, not a throughput guarantee.",
     );
     expect(capacitySummary.privateTeamPolicy).toMatchObject({
-      memberLimit: 5,
+      memberLimit: 6,
       maxConcurrentPlanningRuns: 2,
       backupMode: "transactional_sqlite_plus_last_known_good",
     });
@@ -837,6 +893,8 @@ describe("Project Command Center gateway methods", () => {
         schema: "openclaw.release-governance-status.v1",
         policyVersion: 1,
         proofProfile: "default",
+        proofProfileVersion: 1,
+        proofPhase: "candidate",
         candidateSha: "a".repeat(40),
         activeRuntimeSha: "b".repeat(40),
         riskLevel: "P1",
@@ -1055,6 +1113,44 @@ describe("Project Command Center gateway methods", () => {
       remoteProofSha: verifiedSha,
       remoteProofPassed: true,
     });
+  });
+
+  it("binds explicit Mac Studio local source proof without claiming remote proof", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "project-command-center", title: "Project Command Center" },
+      }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "Local runtime proof" },
+      }),
+    );
+    const verifiedSha = "89abcdef0123456789abcdef0123456789abcdef";
+    await invoke("pcc.evidence.add", {
+      evidence: {
+        projectId: project.id,
+        milestoneId: milestone.id,
+        kind: "runtime_status",
+        status: "passed",
+        sha: verifiedSha,
+        metadata: {
+          proofProfile: "mac_studio_control_director",
+          pccProductionSourceProof: true,
+        },
+      },
+    });
+
+    const detail = okPayload<{ project: { metadata?: Record<string, unknown> } }>(
+      await invoke("pcc.projects.get", { projectId: project.id }),
+    );
+    expect(detail.project.metadata?.pccProductionTruth).toMatchObject({
+      proofProfile: "mac_studio_control_director",
+      latestVerifiedSha: verifiedSha,
+      sourceProofSha: verifiedSha,
+      sourceProofPassed: true,
+    });
+    expect(detail.project.metadata?.pccProductionTruth).not.toHaveProperty("remoteProofPassed");
   });
 
   it("blocks complete milestone claims until a completion receipt is added", async () => {
@@ -2151,5 +2247,210 @@ describe("Project Command Center gateway methods", () => {
     expect(summary.portfolio.proofGaps).toBe(1);
     expect(summary.portfolio.overdue).toBe(1);
     expect(summary.portfolio.stale).toBe(1);
+  });
+
+  it("returns one overview snapshot without selecting or hiding user projects", async () => {
+    await invoke("pcc.projects.upsert", {
+      project: {
+        id: "project-command-center",
+        title: "Project Command Center",
+        status: "complete_with_maintenance",
+      },
+    });
+    const user = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "user-project", title: "Visible user project", status: "active" },
+      }),
+    );
+    await invoke("pcc.permissions.upsert", {
+      permission: {
+        projectId: user.project.id,
+        type: "codex_usage",
+        status: "needed",
+        riskLevel: "medium",
+        allowedActions: ["Review completion"],
+      },
+    });
+
+    const overview = okPayload<{
+      ledgerRevision: number;
+      projects: Array<{ id: string; workState: string }>;
+      attention: Array<{ projectId: string; actionLabel: string }>;
+      system: { projectId: string };
+    }>(await invoke("pcc.overview.get", {}));
+
+    expect(overview.ledgerRevision).toBeGreaterThan(0);
+    expect(overview.projects).toEqual([
+      expect.objectContaining({ id: "user-project", workState: "needs_you" }),
+    ]);
+    expect(overview.attention).toContainEqual(
+      expect.objectContaining({ projectId: "user-project", actionLabel: "Review permission" }),
+    );
+    expect(overview.system.projectId).toBe("project-command-center");
+  });
+
+  it("broadcasts a redacted revision event after a committed mutation", async () => {
+    const { response, broadcast } = await invokeWithBroadcast(
+      "pcc.projects.upsert",
+      { project: { id: "event-project", title: "Shared project", status: "active" } },
+      {
+        connect: {
+          minProtocol: 1,
+          maxProtocol: 4,
+          client: {
+            id: "openclaw-control-ui",
+            displayName: "Matthew",
+            version: "1.0.0",
+            platform: "macos",
+            mode: "webchat",
+          },
+        },
+      },
+    );
+
+    expect(response[0]).toBe(true);
+    expect(
+      (response[1] as { project: { metadata?: Record<string, unknown> } }).project.metadata,
+    ).toMatchObject({ pccLastActor: "Matthew", pccLastAction: "Project updated" });
+    expect(broadcast).toHaveBeenCalledWith(
+      "pcc.changed",
+      expect.objectContaining({
+        ledgerRevision: expect.any(Number),
+        mutation: "pcc.projects.upsert",
+        projectId: "event-project",
+        recordId: "event-project",
+      }),
+      { dropIfSlow: true },
+    );
+    expect(JSON.stringify(broadcast.mock.calls)).not.toContain("Shared project");
+  });
+
+  it("binds ephemeral presence to the authenticated client identity", async () => {
+    const { response, broadcast } = await invokeWithBroadcast(
+      "pcc.presence.update",
+      {
+        displayName: "Spoofed name",
+        status: "online",
+        surface: "overview",
+      },
+      {
+        connId: "connection-1",
+        connect: {
+          minProtocol: 1,
+          maxProtocol: 4,
+          client: {
+            id: "openclaw-control-ui",
+            displayName: "Authenticated operator",
+            version: "1.0.0",
+            platform: "macos",
+            mode: "webchat",
+          },
+        },
+      },
+    );
+
+    expect(response[0]).toBe(true);
+    expect(response[1]).toEqual({
+      presence: [expect.objectContaining({ displayName: "Authenticated operator" })],
+    });
+    expect(broadcast).toHaveBeenCalledWith(
+      "pcc.presence",
+      { presence: [expect.objectContaining({ displayName: "Authenticated operator" })] },
+      { dropIfSlow: true },
+    );
+  });
+
+  it("rejects stale record revisions instead of silently overwriting edits", async () => {
+    const created = okPayload<{ project: { id: string; revision: number } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "revision-project", title: "Original title", status: "active" },
+      }),
+    );
+    expect(created.project.revision).toBe(1);
+
+    const updated = okPayload<{ project: { revision: number; title: string } }>(
+      await invoke("pcc.projects.upsert", {
+        expectedRevision: 1,
+        project: { id: created.project.id, title: "First editor", status: "active" },
+      }),
+    );
+    expect(updated.project).toMatchObject({ revision: 2, title: "First editor" });
+
+    const stale = await invoke("pcc.projects.upsert", {
+      expectedRevision: 1,
+      project: { id: created.project.id, title: "Stale editor", status: "active" },
+    });
+    expect(errorMessage(stale)).toContain("Review latest changes");
+    const current = okPayload<{ project: { title: string; revision: number } }>(
+      await invoke("pcc.projects.get", { projectId: created.project.id }),
+    );
+    expect(current.project).toMatchObject({ title: "First editor", revision: 2 });
+  });
+
+  it("commits a generated project plan atomically", async () => {
+    const committed = okPayload<{
+      project: { id: string };
+      milestones: Array<{
+        id: string;
+        title: string;
+        metadata?: { pccResponsibility?: string; pccPlannerSuggestedResponsibility?: string };
+      }>;
+      subMilestones: Array<{ title: string }>;
+    }>(
+      await invoke("pcc.projects.commitPlan", {
+        project: { id: "atomic-project", title: "Atomic project", status: "active" },
+        plan: {
+          schemaVersion: 1,
+          title: "Atomic project",
+          goal: "Never show a partial project plan.",
+          outcomeMetrics: ["The complete plan is stored in one transaction."],
+          workflowTemplateId: "software-product",
+          milestones: [
+            {
+              title: "Create the complete plan",
+              phaseId: "mvp",
+              implementationPlan: "Write every related record together.",
+              acceptanceCriteria: ["Project, milestone, and sub-step are all visible."],
+              responsibility: "codex",
+              proofLevel: "local",
+              dependencies: [],
+              subMilestones: [
+                {
+                  title: "Verify atomic visibility",
+                  implementationPlan: "Read the committed project.",
+                  acceptanceCriteria: ["No partial state exists."],
+                  responsibility: "local_openclaw_agent",
+                  proofLevel: "local",
+                },
+              ],
+            },
+          ],
+          risks: [],
+          assumptions: [],
+          provenance: {
+            generatedAt: "2026-08-02T00:00:00.000Z",
+            provider: "openai",
+            model: "openai/gpt-5.6-sol",
+            runtime: "codex",
+            effort: "high",
+            auth: "oauth",
+            source: "live_codex",
+            planningOnly: true,
+          },
+        },
+      }),
+    );
+    expect(committed.milestones).toHaveLength(1);
+    expect(committed.subMilestones).toHaveLength(1);
+    expect(committed.milestones[0]?.metadata).toMatchObject({
+      pccResponsibility: "local_openclaw_agent",
+      pccPlannerSuggestedResponsibility: "codex",
+    });
+
+    const detail = okPayload<{ milestones: unknown[]; subMilestones: unknown[] }>(
+      await invoke("pcc.projects.get", { projectId: committed.project.id }),
+    );
+    expect(detail.milestones).toHaveLength(1);
+    expect(detail.subMilestones).toHaveLength(1);
   });
 });

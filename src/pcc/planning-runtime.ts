@@ -12,6 +12,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   assertPccPlanningAuthorized,
   buildPccPlanningPrompt,
+  CODEX_PCC_PLANNING_POLICY,
   DEFAULT_PCC_PLANNING_POLICY,
   parsePccPlanGenerationResult,
   resolvePccPlanningEffort,
@@ -64,22 +65,32 @@ function payloadText(result: EmbeddedPlannerResult): string {
   );
 }
 
-function safePlannerError(error: unknown): Error {
+function safePlannerError(error: unknown, policy: PccPlanningPolicy): Error {
   const message = error instanceof Error ? error.message : String(error);
   if (/auth|oauth|401|unauthorized|login|sign.?in/iu.test(message)) {
-    return new Error(
-      "Codex planning needs OpenAI OAuth. Sign in with `openclaw models auth login --provider openai`, then retry.",
-    );
+    return policy.runtime === "codex"
+      ? new Error(
+          "Codex planning needs OpenAI OAuth. Sign in with `openclaw models auth login --provider openai`, then retry.",
+        )
+      : new Error(
+          `Local AI planning needs the configured ${policy.model} model. Confirm the local model service is running, then retry.`,
+        );
   }
   if (/unknown model|model.*unavailable|not found/iu.test(message)) {
-    return new Error(
-      "GPT-5.6 Sol is not available to this OpenAI OAuth account. Refresh the model catalog or choose an available Codex planner.",
-    );
+    return policy.runtime === "codex"
+      ? new Error(
+          "GPT-5.6 Sol is not available to this OpenAI OAuth account. Refresh the model catalog or choose an available Codex planner.",
+        )
+      : new Error(
+          `The local planning model ${policy.model} is unavailable. Refresh the local model catalog or choose another configured local model.`,
+        );
   }
-  return new Error(`Codex could not generate the project plan: ${message.slice(0, 400)}`);
+  return new Error(
+    `${policy.runtime === "codex" ? "Codex" : "Local AI"} could not generate the project plan: ${message.slice(0, 400)}`,
+  );
 }
 
-export async function generatePccPlanWithCodex(params: {
+export async function generatePccPlan(params: {
   cfg: OpenClawConfig;
   request: PccPlanGenerationRequest;
   policy?: PccPlanningPolicy;
@@ -112,7 +123,7 @@ export async function generatePccPlanWithCodex(params: {
       agentDir,
       config: params.cfg,
       provider: policy.provider,
-      model: policy.model.replace(/^openai\//u, ""),
+      model: policy.model.replace(/^(?:openai|ollama)\//u, ""),
       agentHarnessRuntimeOverride: policy.runtime,
       prompt: buildPccPlanningPrompt(params.request),
       disableTools: true,
@@ -134,22 +145,40 @@ export async function generatePccPlanWithCodex(params: {
     }
     const text = payloadText(result);
     if (!text) {
-      throw new Error("Codex returned no project-plan content.");
+      throw new Error("The planner returned no project-plan content.");
     }
     const firstError = result.payloads?.find((payload) => payload.isError);
     if (firstError) {
-      throw new Error(firstError.text || "Codex planning failed.");
+      throw new Error(firstError.text || "Project planning failed.");
     }
     await params.onStage?.("validating");
     return parsePccPlanGenerationResult({
       text,
       effort,
+      policy,
       model: policy.model,
       generatedAt: (params.now ?? (() => new Date()))().toISOString(),
     });
   } catch (error) {
-    throw safePlannerError(error);
+    throw safePlannerError(error, policy);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/** Backward-compatible explicit Codex entry point for tests and opt-in callers. */
+export async function generatePccPlanWithCodex(params: {
+  cfg: OpenClawConfig;
+  request: PccPlanGenerationRequest;
+  policy?: PccPlanningPolicy;
+  runAgent?: PccPlannerRunner;
+  now?: () => Date;
+  abortSignal?: AbortSignal;
+  onStage?: (stage: "preparing" | "planner_running" | "validating") => void | Promise<void>;
+  onUsage?: (usage: PccModelUsage) => void | Promise<void>;
+}): Promise<PccPlanGenerationResult> {
+  return generatePccPlan({
+    ...params,
+    policy: params.policy ?? CODEX_PCC_PLANNING_POLICY,
+  });
 }

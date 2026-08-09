@@ -6,9 +6,12 @@ import {
   validatePccAttachmentsUploadBeginParams,
   validatePccDecisionsAddParams,
   validatePccMilestonesUpsertParams,
+  validatePccOverviewGetParams,
   validatePccPermissionsUpsertParams,
   validatePccPlansGenerateParams,
   validatePccPlanningPolicyUpsertParams,
+  validatePccPresenceUpdateParams,
+  validatePccProjectPlanCommitParams,
   validatePccProjectsUpsertParams,
   validatePccReceiptsAddParams,
   validatePccSubMilestonesListParams,
@@ -83,6 +86,118 @@ describe("Project Command Center protocol schemas", () => {
     expect(ProtocolSchemas.PccDecision).toBeTruthy();
     expect(ProtocolSchemas.PccDecisionsAddParams).toBeTruthy();
     expect(ProtocolSchemas.PccLastKnownGoodUpsertParams).toBeTruthy();
+    expect(ProtocolSchemas.PccOverviewGetResult).toBeTruthy();
+    expect(ProtocolSchemas.PccChangedEvent).toBeTruthy();
+    expect(ProtocolSchemas.PccPresenceEntry).toBeTruthy();
+  });
+
+  it("validates the six-user overview, presence, and atomic plan contracts", () => {
+    expect(validatePccOverviewGetParams({})).toBe(true);
+    expect(
+      Value.Check(ProtocolSchemas.PccOverviewGetResult, {
+        ledgerRevision: 7,
+        generatedAt: "2026-08-02T00:00:00.000Z",
+        projects: [
+          {
+            id: "project-1",
+            title: "User project",
+            status: "active",
+            percentComplete: 25,
+            milestoneCounts: {
+              total: 4,
+              complete: 1,
+              blocked: 0,
+              needsApproval: 0,
+              deferred: 0,
+              skipped: 0,
+            },
+            nextActions: ["Continue work"],
+            proofGaps: [],
+            updatedAt: "2026-08-02T00:00:00.000Z",
+            workState: "working",
+            currentMilestone: "Build the feature",
+            nextAction: "Run local proof",
+            activeAgentCount: 1,
+          },
+        ],
+        attention: [],
+        activeAgents: [],
+        recentActivity: [],
+        portfolio: {
+          projectsTotal: 1,
+          active: 1,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 25,
+          nextActions: ["Continue work"],
+        },
+        system: {
+          status: "healthy",
+          label: "PCC healthy",
+          projectId: "project-command-center",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      validatePccPresenceUpdateParams({
+        displayName: "Matthew",
+        status: "online",
+        surface: "overview",
+      }),
+    ).toBe(true);
+    expect(
+      validatePccPresenceUpdateParams({
+        displayName: "Matthew",
+        status: "online",
+        surface: "external_destination",
+      }),
+    ).toBe(false);
+    expect(
+      validatePccProjectPlanCommitParams({
+        project: { title: "Complete plan" },
+        plan: {
+          schemaVersion: 1,
+          title: "Complete plan",
+          goal: "Commit all generated records atomically.",
+          outcomeMetrics: ["No partial project is visible."],
+          workflowTemplateId: "software-product",
+          milestones: [
+            {
+              title: "Commit the plan",
+              phaseId: "mvp",
+              implementationPlan: "Write one transaction.",
+              acceptanceCriteria: ["Every record is present."],
+              responsibility: "local_openclaw_agent",
+              proofLevel: "local",
+              dependencies: [],
+              subMilestones: [
+                {
+                  title: "Verify the result",
+                  implementationPlan: "Read it once.",
+                  acceptanceCriteria: ["The plan is complete."],
+                  responsibility: "local_openclaw_agent",
+                  proofLevel: "local",
+                },
+              ],
+            },
+          ],
+          risks: [],
+          assumptions: [],
+          provenance: {
+            generatedAt: "2026-08-02T00:00:00.000Z",
+            provider: "openai",
+            model: "openai/gpt-5.6-sol",
+            runtime: "codex",
+            effort: "high",
+            auth: "oauth",
+            source: "live_codex",
+            planningOnly: true,
+          },
+        },
+      }),
+    ).toBe(true);
   });
 
   it("validates project and milestone upsert params", () => {
@@ -150,6 +265,9 @@ describe("Project Command Center protocol schemas", () => {
         releaseGovernance: {
           schema: "openclaw.release-governance-status.v1",
           policyVersion: 1,
+          proofProfile: "default",
+          proofProfileVersion: 1,
+          proofPhase: "candidate",
           candidateSha: "a".repeat(40),
           activeRuntimeSha: "b".repeat(40),
           riskLevel: "P1",

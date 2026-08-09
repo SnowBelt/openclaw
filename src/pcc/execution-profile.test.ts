@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
+  DEFAULT_PCC_EXECUTION_PROFILE,
   applyPccCodexPolicy,
   applyPccLocalExecutionPreset,
   derivePccAiUsePolicy,
@@ -13,6 +14,25 @@ import {
 } from "./execution-profile.js";
 
 describe("PCC canonical execution profile", () => {
+  it("defaults new projects to local-only execution", () => {
+    expect(DEFAULT_PCC_EXECUTION_PROFILE).toMatchObject({
+      presetId: "local_parallel",
+      speed: "parallel",
+      codexRole: "off",
+      codexPolicyId: "local_only",
+    });
+    expect(derivePccAiUsePolicy(DEFAULT_PCC_EXECUTION_PROFILE)).toBe("local_only");
+  });
+
+  it("preserves an explicitly selected Codex policy", () => {
+    const explicit = applyPccCodexPolicy(DEFAULT_PCC_EXECUTION_PROFILE, "recommended_minimum");
+
+    expect(explicit).toMatchObject({
+      codexRole: "checkpoints",
+      codexPolicyId: "recommended_minimum",
+    });
+  });
+
   it("keeps Ultra local-only and performs no Codex routing", () => {
     const profile = resolvePccExecutionProfilePreset("ultra_local");
 

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isReleaseProofPhase, proofProfileVersion } from "./browser-proof-contract.js";
 import {
   RELEASE_GOVERNANCE_STATUS_SCHEMA,
   type ReleaseEvidenceBundle,
@@ -61,8 +62,11 @@ export function readReleaseGovernanceStatus(
   }
   try {
     const value = JSON.parse(fs.readFileSync(target, "utf8")) as Partial<ReleaseGovernanceStatus>;
+    const profile = value.proofProfile;
     return value.schema === RELEASE_GOVERNANCE_STATUS_SCHEMA &&
-      (value.proofProfile === "default" || value.proofProfile === "mac_studio_control_director")
+      (profile === "default" || profile === "mac_studio_control_director") &&
+      value.proofProfileVersion === proofProfileVersion(profile) &&
+      isReleaseProofPhase(value.proofPhase)
       ? (value as ReleaseGovernanceStatus)
       : null;
   } catch {

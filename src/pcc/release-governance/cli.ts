@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import type { ReleaseProofPhase } from "./browser-proof-contract.js";
 import type {
   ReleaseEvidenceBundle,
   ReleaseEvidenceBundleInput,
@@ -128,6 +129,7 @@ function verify(args: Arguments): void {
     candidateSha,
     operation,
     proofProfile: evidence.facts.proofProfile,
+    proofPhase: evidence.facts.proofPhase,
     receiptHash: evidence.receiptHash,
     stored,
   });
@@ -154,9 +156,14 @@ function captureProof(args: Arguments): void {
   const result = captureReleaseLocalProof({
     candidateSha: stringValue(args, "candidate-sha")!,
     proofProfile: stringValue(args, "proof-profile") as ReleaseProofProfile,
+    proofProfileVersion: Number(stringValue(args, "proof-profile-version")),
+    proofPhase: stringValue(args, "proof-phase") as ReleaseProofPhase,
+    activeRuntimeSha: stringValue(args, "active-runtime-sha", false),
     checkId: stringValue(args, "check-id")!,
     command: stringValue(args, "command")!,
     output: stringValue(args, "output")!,
+    verifierSha256: stringValue(args, "verifier-sha256")!,
+    browserArtifactSha256: stringValue(args, "browser-artifact-sha256", false),
     cwd: stringValue(args, "cwd", false) ?? undefined,
     timeoutMs: timeout ? Number(timeout) : undefined,
   });

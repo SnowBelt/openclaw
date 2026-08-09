@@ -388,6 +388,36 @@ describe("connectGateway", () => {
     expect(host.eventLogBuffer[0]?.event).toBe("presence");
   });
 
+  it("coalesces committed PCC changes and refreshes the overview within two seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      const { host, client } = connectHostGateway();
+      host.tab = "pcc";
+      host.connected = true;
+      client.request.mockClear();
+
+      client.emitEvent({
+        event: "pcc.changed",
+        payload: { ledgerRevision: 8, mutation: "project.updated" },
+      });
+      client.emitEvent({
+        event: "pcc.changed",
+        payload: { ledgerRevision: 9, mutation: "milestone.updated" },
+      });
+
+      await vi.advanceTimersByTimeAsync(49);
+      expect(client.request).not.toHaveBeenCalledWith("pcc.overview.get", {});
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(
+        client.request.mock.calls.filter(([method]) => method === "pcc.overview.get"),
+      ).toHaveLength(1);
+      expect(client.request).toHaveBeenCalledWith("pcc.summary.get", {});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks orphaned run state interrupted after reconnect hello", () => {
     vi.useFakeTimers();
     try {

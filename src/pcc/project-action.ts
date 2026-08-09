@@ -108,9 +108,9 @@ export function resolvePccProjectAction(input: PccProjectActionInput): PccProjec
   if (!input.setupReady) {
     return {
       primaryActionId: "fix_setup",
-      primaryLabel: "Plan Setup with Codex",
+      primaryLabel: "Plan Setup",
       explanation:
-        "Codex can draft the missing setup without tools, then you approve it before work starts.",
+        "AI can draft the missing setup without tools, then you approve it before work starts.",
       statusLabel: "Needs setup",
       blockerLines: blockers,
       topBlocker: blockers[0],

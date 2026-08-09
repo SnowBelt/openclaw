@@ -1,3 +1,4 @@
+import { isReleaseProofPhase } from "./browser-proof-contract.js";
 import type {
   ReleaseCandidateFacts,
   ReleaseCapabilityDiffEntry,
@@ -72,6 +73,9 @@ export function validateReleaseCandidateFacts(facts: ReleaseCandidateFacts): str
   }
   if (typeof facts.scopeCoordinationMaterial !== "boolean") {
     errors.push("Release scope-coordination status must be explicit.");
+  }
+  if (!isReleaseProofPhase(facts.proofPhase)) {
+    errors.push("Release proof phase is missing or unsupported.");
   }
   if (!PROOF_PROFILES.has(facts.proofProfile)) {
     errors.push("Release proof profile is missing or unsupported.");
@@ -233,5 +237,6 @@ export function classifyReleaseCandidate(params: {
     confidence,
     policyVersion: params.policy.version,
     proofProfile: params.facts.proofProfile,
+    proofPhase: params.facts.proofPhase,
   };
 }

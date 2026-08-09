@@ -4,6 +4,7 @@ import { html, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PCC_OPERATIONAL_QUALITY_DIMENSIONS } from "../../../../src/pcc/capability-contract.js";
 import { resolvePccExecutionProfilePreset } from "../../../../src/pcc/execution-profile.js";
+import type { PccPlanningPolicy } from "../../../../src/pcc/planning.js";
 import {
   EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
@@ -177,6 +178,73 @@ const summary = {
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
+const workOverview = {
+  ledgerRevision: 12,
+  generatedAt: "2026-08-02T14:00:00.000Z",
+  projects: [
+    {
+      ...summary,
+      id: "family-fighters",
+      title: "Family Fighters",
+      workState: "needs_you" as const,
+      currentMilestone: "Approve fighter references",
+      nextAction: "Review permission",
+      activeAgentCount: 1,
+    },
+  ],
+  attention: [
+    {
+      id: "permission:permission-1",
+      projectId: "family-fighters",
+      kind: "permission" as const,
+      title: "Family Fighters needs permission",
+      detail: "Review high reasoning model before work continues.",
+      actionLabel: "Review permission",
+      recordId: "permission-1",
+      updatedAt: "2026-08-02T13:59:00.000Z",
+    },
+  ],
+  activeAgents: [
+    {
+      id: "plan-1:task-1",
+      projectId: "family-fighters",
+      projectTitle: "Family Fighters",
+      agentName: "pixel-artist",
+      task: "Prepare fighter references",
+      status: "running" as const,
+      startedAt: "2026-08-02T13:45:00.000Z",
+      lastActivityAt: "2026-08-02T13:59:00.000Z",
+    },
+  ],
+  recentActivity: [
+    {
+      id: "activity:family-fighters",
+      projectId: "family-fighters",
+      projectTitle: "Family Fighters",
+      actor: "pixel-artist",
+      action: "Prepared source references",
+      progress: 42,
+      at: "2026-08-02T13:59:00.000Z",
+    },
+  ],
+  portfolio: {
+    projectsTotal: 1,
+    active: 1,
+    blocked: 0,
+    needsApproval: 1,
+    complete: 0,
+    archived: 0,
+    averagePercentComplete: 42,
+    nextActions: ["Review permission"],
+  },
+  system: {
+    status: "healthy" as const,
+    label: "PCC healthy",
+    detail: "Runtime proof is current.",
+    projectId: "project-command-center" as const,
+  },
+} satisfies NonNullable<PccDashboardProps["overview"]>;
+
 function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardProps {
   return {
     loading: false,
@@ -255,6 +323,258 @@ afterEach(() => {
 });
 
 describe("renderPccDashboard", () => {
+  it("opens on a high-signal work overview without presenting PCC Product as a user project", () => {
+    const onSelectProject = vi.fn();
+    const onOpenAttention = vi.fn();
+    const onSetSurface = vi.fn();
+    const container = renderView(
+      createProps({
+        surface: "overview",
+        overview: workOverview,
+        projects: workOverview.projects,
+        presence: Array.from({ length: 6 }, (_, index) => ({
+          displayName: `Operator ${index + 1}`,
+          status: "online" as const,
+          surface: "overview" as const,
+          updatedAt: "2026-08-02T14:00:00.000Z",
+        })),
+        selectedProjectId: null,
+        projectDetail: null,
+        onSelectProject,
+        onOpenAttention,
+        onSetSurface,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-work-overview]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-overview-project]")).toHaveLength(1);
+    expect(
+      container.querySelector("[data-pcc-overview-project='project-command-center']"),
+    ).toBeNull();
+    expect(container.textContent).toContain("Needs You");
+    expect(container.textContent).toContain("pixel-artist");
+    expect(container.textContent).toContain("42%");
+    expect(container.textContent).toContain("6/6 team members online");
+    expect(container.textContent).toContain("PCC healthy");
+
+    (container.querySelector("[data-pcc-attention] button") as HTMLButtonElement).click();
+    expect(onOpenAttention).toHaveBeenCalledWith("family-fighters", "permission-1");
+
+    (container.querySelector(".pcc-agent-row") as HTMLButtonElement).click();
+    expect(onSelectProject).toHaveBeenCalledWith("family-fighters");
+
+    (container.querySelector(".pcc-system-pill") as HTMLButtonElement).click();
+    expect(onSetSurface).toHaveBeenCalledWith("system");
+  });
+
+  it("keeps all user projects discoverable on the Projects surface", () => {
+    const secondProject = {
+      ...workOverview.projects[0],
+      id: "finished-project",
+      title: "Finished Project",
+      status: "complete" as const,
+      workState: "complete" as const,
+      percentComplete: 100,
+      activeAgentCount: 0,
+    };
+    const container = renderView(
+      createProps({
+        surface: "projects",
+        overview: { ...workOverview, projects: [...workOverview.projects, secondProject] },
+        projects: [...workOverview.projects, secondProject],
+        projectFilter: "all",
+        selectedProjectId: null,
+        projectDetail: null,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-projects-directory]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-overview-project]")).toHaveLength(2);
+    expect(container.textContent).toContain("Family Fighters");
+    expect(container.textContent).toContain("Finished Project");
+  });
+
+  it("filters the Projects directory without hiding projects from All", () => {
+    const projects = [
+      {
+        ...workOverview.projects[0],
+        id: "active-project",
+        title: "Active Project",
+        status: "active" as const,
+        workState: "ready" as const,
+        milestoneCounts: {
+          ...workOverview.projects[0].milestoneCounts,
+          blocked: 0,
+          needsApproval: 0,
+        },
+        proofGaps: [],
+        health: "On track",
+        updatedAt: "2026-08-02T14:00:00.000Z",
+      },
+      {
+        ...workOverview.projects[0],
+        id: "needs-you-project",
+        title: "Needs You Project",
+        status: "needs_approval" as const,
+        workState: "needs_you" as const,
+      },
+      {
+        ...workOverview.projects[0],
+        id: "on-hold-project",
+        title: "On Hold Project",
+        status: "on_hold" as const,
+        workState: "paused" as const,
+      },
+      {
+        ...workOverview.projects[0],
+        id: "completed-project",
+        title: "Completed Project",
+        status: "complete_with_maintenance" as const,
+        workState: "complete" as const,
+      },
+      {
+        ...workOverview.projects[0],
+        id: "archived-project",
+        title: "Archived Project",
+        status: "archived" as const,
+        workState: "complete" as const,
+      },
+    ];
+    const overview = { ...workOverview, projects };
+
+    const expectedByFilter = {
+      active: ["active-project", "needs-you-project"],
+      needs_you: ["needs-you-project"],
+      on_hold: ["on-hold-project"],
+      completed: ["completed-project"],
+      archived: ["archived-project"],
+      all: projects.map((item) => item.id),
+    } as const;
+
+    for (const [projectFilter, expectedIds] of Object.entries(expectedByFilter)) {
+      const container = renderView(
+        createProps({
+          surface: "projects",
+          overview,
+          projects,
+          projectFilter: projectFilter as PccDashboardProps["projectFilter"],
+          selectedProjectId: null,
+          projectDetail: null,
+        }),
+      );
+      const visibleIds = [...container.querySelectorAll<HTMLElement>("[data-pcc-overview-project]")]
+        .map((item) => item.dataset.pccOverviewProject)
+        .filter((item): item is string => Boolean(item));
+      expect(visibleIds.toSorted()).toEqual([...expectedIds].toSorted());
+      expect(container.querySelectorAll("[data-pcc-project-tabs] button")).toHaveLength(6);
+    }
+  });
+
+  it("combines project status filters with search and exposes a clear zero state", () => {
+    const activeProject = {
+      ...workOverview.projects[0],
+      id: "active-search-target",
+      title: "Active Search Target",
+      status: "active" as const,
+      workState: "ready" as const,
+    };
+    const completedProject = {
+      ...workOverview.projects[0],
+      id: "completed-search-target",
+      title: "Completed Search Target",
+      status: "complete" as const,
+      workState: "complete" as const,
+    };
+    const projects = [activeProject, completedProject];
+    const overview = { ...workOverview, projects };
+
+    const searched = renderView(
+      createProps({
+        surface: "projects",
+        overview,
+        projects,
+        projectFilter: "active",
+        projectSearchQuery: "search target",
+        selectedProjectId: null,
+        projectDetail: null,
+      }),
+    );
+    expect(searched.querySelectorAll("[data-pcc-overview-project]")).toHaveLength(1);
+    expect(searched.textContent).toContain("Active Search Target");
+    expect(searched.textContent).not.toContain("Completed Search Target");
+    expect(searched.querySelector("[data-pcc-shell]")?.getAttribute("data-pcc-surface")).toBe(
+      "projects",
+    );
+
+    const empty = renderView(
+      createProps({
+        surface: "projects",
+        overview,
+        projects,
+        projectFilter: "archived",
+        selectedProjectId: null,
+        projectDetail: null,
+      }),
+    );
+    expect(empty.querySelector("[data-pcc-project-empty-state='archived']")).not.toBeNull();
+    expect(empty.textContent).toContain("No projects in this view");
+  });
+
+  it("opens active projects directly and keeps PCC Product under System", () => {
+    const onSelectProject = vi.fn();
+    const onSetSurface = vi.fn();
+    const container = renderView(
+      createProps({
+        surface: "overview",
+        overview: workOverview,
+        projects: workOverview.projects,
+        selectedProjectId: null,
+        projectDetail: null,
+        onSelectProject,
+        onSetSurface,
+      }),
+    );
+
+    (
+      container.querySelector(
+        "[data-pcc-overview-project='family-fighters'] footer button",
+      ) as HTMLButtonElement
+    ).click();
+    expect(onSelectProject).toHaveBeenCalledWith("family-fighters");
+    expect(
+      container.querySelector("[data-pcc-overview-project='project-command-center']"),
+    ).toBeNull();
+
+    (container.querySelector(".pcc-system-pill") as HTMLButtonElement).click();
+    expect(onSetSurface).toHaveBeenCalledWith("system");
+  });
+
+  it("keeps the current project action and status in the compact workspace header", () => {
+    const container = renderView(
+      createProps({
+        surface: "project",
+        overview: workOverview,
+        projects: workOverview.projects,
+        selectedProjectId: project.id,
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+
+    const header = container.querySelector(".pcc-project-workspace__header");
+    expect(header?.textContent).toContain(project.title);
+    expect(header?.textContent).toContain("Active");
+    expect(header?.querySelector("[data-pcc-primary-action-id]")).not.toBeNull();
+  });
+
   it("renders fail-closed release governance with exact blockers and approval wording", () => {
     const container = renderView(
       createProps({
@@ -263,6 +583,8 @@ describe("renderPccDashboard", () => {
           schema: "openclaw.release-governance-status.v1",
           policyVersion: 1,
           proofProfile: "default",
+          proofProfileVersion: 1,
+          proofPhase: "candidate",
           candidateSha: "a".repeat(40),
           activeRuntimeSha: "b".repeat(40),
           riskLevel: "P1",
@@ -498,7 +820,7 @@ describe("renderPccDashboard", () => {
     expect(policy?.textContent).toMatch(
       /does not provide separate\s+per-person project permissions/u,
     );
-    expect(policy?.textContent).toContain("2 Codex planning runs at once");
+    expect(policy?.textContent).toContain("2 planning runs at once");
     expect(policy?.textContent).toContain("100 active projects");
     expect(policy?.textContent).toContain("200 files or 1 GiB per project");
   });
@@ -1008,6 +1330,7 @@ describe("renderPccDashboard", () => {
   it("renders last-known-good verified state in project history details", () => {
     const container = renderView(
       createProps({
+        surface: "project",
         viewMode: "detailed",
         projectDetail: {
           project,
@@ -1102,6 +1425,9 @@ describe("renderPccDashboard", () => {
     expect(
       container.querySelector<HTMLElement>('[data-pcc-detail-tab-panel="decisions"]')?.hidden,
     ).toBe(false);
+    expect(
+      container.querySelector<HTMLDetailsElement>('details[data-pcc-mobile-section="more"]')?.open,
+    ).toBe(true);
     container.querySelector<HTMLButtonElement>("[data-pcc-open-decision-form]")?.click();
     expect(onOpenDecisionForm).toHaveBeenCalledTimes(2);
 
@@ -2139,13 +2465,13 @@ describe("renderPccDashboard", () => {
     const primaryButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-primary-action] button",
     );
-    expect(primaryButton?.textContent).toContain("Plan Setup with Codex");
+    expect(primaryButton?.textContent).toContain("Plan Setup with Local AI");
     const setupRepairButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-setup-repair-ai-fill]",
     );
-    expect(setupRepairButton?.textContent).toContain("Plan missing setup with Codex");
+    expect(setupRepairButton?.textContent).toContain("Plan missing setup with Local AI");
     expect(container.querySelector("[data-pcc-setup-repair-codex-note]")?.textContent).toContain(
-      "planning-only draft through the PCC OAuth grant",
+      "Local AI creates a planning-only draft",
     );
     expect(container.querySelector("[data-pcc-setup-repair-issues]")?.textContent).toContain(
       "Required intake answer missing",
@@ -2919,6 +3245,82 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).toContain("/tmp/pcc-proof.png");
   });
 
+  it("renders local production truth without a remote-proof claim for the Mac Studio profile", () => {
+    const verifiedSha = "4d8408034d7131470980c316a2af2f311aa6b785";
+    const container = renderView(
+      createProps({
+        releaseGovernance: {
+          schema: "openclaw.release-governance-status.v1",
+          policyVersion: 2,
+          proofProfile: "mac_studio_control_director",
+          proofProfileVersion: 2,
+          proofPhase: "post_deployment",
+          candidateSha: verifiedSha,
+          activeRuntimeSha: verifiedSha,
+          riskLevel: "P2",
+          protectedPaths: [],
+          capabilityDiff: [],
+          checks: [],
+          approvalStatus: "none",
+          approvalScope: null,
+          reviews: [],
+          rollbackTarget: verifiedSha,
+          decision: "none",
+          evidenceReceiptHash: null,
+          evidencePath: null,
+          exactBlocker: null,
+          approvalWording: null,
+          updatedAt: "2026-07-03T12:00:00.000Z",
+        },
+        projectDetail: {
+          project: {
+            ...project,
+            metadata: {
+              ...project.metadata,
+              pccProductionTruth: {
+                proofProfile: "mac_studio_control_director",
+                latestVerifiedSha: "old-sha-must-not-win",
+                runtimeSha: verifiedSha,
+                browserProofScreenshotPath: "/tmp/pcc-local-proof.png",
+              },
+            },
+          },
+          milestones: [
+            {
+              ...milestone,
+              status: "complete",
+              receiptIds: ["receipt-1"],
+              metadata: { requiresRemoteProof: true, requiresRuntimeProof: true },
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [
+            { ...evidence, kind: "runtime_status", sha: verifiedSha },
+            {
+              ...evidence,
+              id: "local-browser-proof",
+              kind: "browser_proof",
+              sha: verifiedSha,
+            },
+          ],
+          receipts: [receipt],
+          summary,
+        },
+      }),
+    );
+
+    const productionTruth = container.querySelector("[data-pcc-production-truth]");
+    expect(productionTruth?.getAttribute("data-pcc-production-truth-profile")).toBe(
+      "mac_studio_control_director",
+    );
+    expect(productionTruth?.getAttribute("data-pcc-production-source-proof")).toBe("passed");
+    expect(productionTruth?.textContent).toContain("Current local source proof");
+    expect(productionTruth?.textContent).not.toContain("Current remote proof");
+    expect(productionTruth?.textContent).not.toContain("PCC remote Workflow Sanity proof");
+    expect(productionTruth?.textContent).toContain(verifiedSha.slice(0, 12));
+  });
+
   it("surfaces plan integrity issues in the impact detail drawer", () => {
     const container = renderView(
       createProps({
@@ -3210,7 +3612,7 @@ describe("renderPccDashboard", () => {
       container.querySelector("[data-pcc-create-flow]")?.getAttribute("data-pcc-create-step"),
     ).toBe("describe");
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
-      "Codex fills only the blanks",
+      "Planner fills only the blanks",
     );
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
       "Anything you type stays unchanged",
@@ -3220,7 +3622,7 @@ describe("renderPccDashboard", () => {
       "Recommended minimum",
     );
     expect(container.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "Codex GPT-5.6 Sol will generate the project plan",
+      "Local AI will generate the project plan by default",
     );
     expect(container.querySelector("[data-pcc-create-customize]")?.hasAttribute("open")).toBe(
       false,
@@ -3229,7 +3631,7 @@ describe("renderPccDashboard", () => {
       container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
     ).toBe(true);
     expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
-      "Generate project plan with Codex",
+      "Generate project plan with Local AI",
     );
     expect(
       container
@@ -3244,6 +3646,58 @@ describe("renderPccDashboard", () => {
     expect(
       container.querySelector("[data-pcc-create-review-plan]")?.getAttribute("aria-describedby"),
     ).toBe("pcc-create-start-hint");
+  });
+
+  it("keeps local initial planning available when the Codex grant is disabled", () => {
+    const disabledCodexGrant: PccPlanningPolicy = {
+      schemaVersion: 1,
+      provider: "ollama",
+      model: "ollama/qwen3.5:4b",
+      runtime: "openclaw",
+      depth: "automatic",
+      grant: {
+        kind: "persistent_planning_only",
+        enabled: false,
+        allowedSurfaces: [
+          "project_creation",
+          "project_replan",
+          "setup_repair",
+          "autopilot_prompts",
+        ],
+        forbiddenActions: ["implementation"],
+      },
+    };
+    const localContainer = renderView(
+      createProps({
+        editorMode: "create-project",
+        planningPolicy: disabledCodexGrant,
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Local planner project",
+          projectDescription: "Create a local-only plan.",
+        },
+      }),
+    );
+    expect(
+      localContainer.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
+    ).toBe(false);
+
+    const codexContainer = renderView(
+      createProps({
+        editorMode: "create-project",
+        planningPolicy: disabledCodexGrant,
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Codex planner project",
+          projectDescription: "Create a Codex plan.",
+          plannerMode: "codex",
+          planningMode: "codex_full_plan",
+        },
+      }),
+    );
+    expect(
+      codexContainer.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
+    ).toBe(true);
   });
 
   it("shows truthful project-planning progress instead of an idle saving state", () => {
@@ -3277,8 +3731,42 @@ describe("renderPccDashboard", () => {
     expect(progress?.textContent).toContain("High effort");
     expect(progress?.textContent).toContain("You can leave this screen");
     expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
-      "Generating project plan…",
+      "Generating local AI project plan…",
     );
+  });
+
+  it("shows planning queue position and keeps cancellation visible", () => {
+    const onCancelProjectPlan = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        actionBusy: true,
+        onCancelProjectPlan,
+        planningRun: {
+          schemaVersion: 1,
+          id: "run-queued",
+          requestFingerprint: "fingerprint-queued",
+          surface: "project_creation",
+          status: "queued",
+          stage: "preparing",
+          queuePosition: 3,
+          model: "openai/gpt-5.6-sol",
+          effort: "medium",
+          createdAt: "2026-08-02T00:00:00.000Z",
+          updatedAt: "2026-08-02T00:00:01.000Z",
+        },
+      }),
+    );
+
+    const progress = container.querySelector("[data-pcc-planning-progress]");
+    expect(progress?.textContent).toContain("Your project plan is queued");
+    expect(progress?.textContent).toContain("position 3");
+    const cancel = Array.from(progress?.querySelectorAll("button") ?? []).find((button) =>
+      button.textContent?.includes("Cancel generation"),
+    );
+    expect(cancel).toBeTruthy();
+    cancel?.click();
+    expect(onCancelProjectPlan).toHaveBeenCalledTimes(1);
   });
 
   it("captures a file's role, project target, instructions, and AI access in one form", () => {
@@ -3332,7 +3820,7 @@ describe("renderPccDashboard", () => {
       expect.objectContaining({
         executionProfile: expect.objectContaining({
           speed: "ultra",
-          codexPolicyId: "recommended_minimum",
+          codexPolicyId: "local_only",
         }),
       }),
     );
@@ -3812,7 +4300,7 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Generate missing answers with Codex.",
+      "Generate missing answers with Local AI.",
     );
     const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.matches("[data-pcc-project-intake-autofill]"),
@@ -3847,7 +4335,7 @@ describe("renderPccDashboard", () => {
     const goalFill = container.querySelector<HTMLButtonElement>(
       '[data-pcc-intake-question-ai-fill="goal"]',
     );
-    expect(goalFill?.textContent).toContain("Fill with Codex");
+    expect(goalFill?.textContent).toContain("Fill with Local AI");
 
     goalFill?.click();
 
@@ -3898,7 +4386,7 @@ describe("renderPccDashboard", () => {
     const autofill = container.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-autofill]",
     );
-    expect(autofill?.textContent).toContain("Plan missing details with Codex");
+    expect(autofill?.textContent).toContain("Plan missing details with Local AI");
 
     autofill?.click();
 
@@ -3974,13 +4462,13 @@ describe("renderPccDashboard", () => {
     ).toContain("Project intake answers");
     const intakeTools = container.querySelector("[data-pcc-intake-answer-ai-tools]");
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Generate missing answers with Codex.",
+      "Generate missing answers with Local AI.",
     );
-    expect(intakeTools?.textContent).toContain("Codex can fill any blanks here.");
+    expect(intakeTools?.textContent).toContain("Local AI can fill any blanks here.");
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-form-only-autofill]",
     );
-    expect(pageAutofill?.textContent).toContain("Fill blanks with Codex");
+    expect(pageAutofill?.textContent).toContain("Fill blanks with Local AI");
 
     pageAutofill?.click();
 
@@ -3996,7 +4484,7 @@ describe("renderPccDashboard", () => {
 
     expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(2);
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
-    expect(container.textContent).toContain("Codex Plan Preview");
+    expect(container.textContent).toContain("Local AI Plan Preview");
     expect(container.querySelector("[data-pcc-autofill-preview]")?.textContent).toContain(
       "Apply draft",
     );
@@ -4072,15 +4560,17 @@ describe("renderPccDashboard", () => {
       "Codex",
     );
     expect(codexContainer.textContent).toContain("Codex checkpoint permission");
-    expect(codexContainer.textContent).toContain("planning-only OAuth grant");
+    expect(codexContainer.textContent).toContain("Initial planning uses the engine selected above");
     expect(codexContainer.textContent?.replace(/\s+/gu, " ").toLowerCase()).toContain(
       "no hard token cap",
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
     expect(codexContainer.querySelectorAll("[data-pcc-planner-permission-card]")).toHaveLength(1);
-    expect(codexContainer.querySelector("[data-pcc-planning-policy]")?.textContent).toContain(
-      "Codex planning on",
-    );
+    expect(
+      codexContainer
+        .querySelector("[data-pcc-planning-policy]")
+        ?.textContent?.replace(/\s+/gu, " "),
+    ).toContain("Initial planning: Codex · explicit opt-in");
     codexContainer.querySelector<HTMLButtonElement>("[data-pcc-planning-policy-toggle]")?.click();
     expect(onSetCodexPlanningEnabled).toHaveBeenCalledWith(false);
 
@@ -4101,7 +4591,7 @@ describe("renderPccDashboard", () => {
     expect(pmContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "Focused",
     );
-    expect(pmContainer.textContent).toContain("Codex GPT-5.6 Sol will generate the project plan");
+    expect(pmContainer.textContent).toContain("Local AI will generate the project plan by default");
   });
 
   it("renders responsibility routing labels and editor controls", () => {

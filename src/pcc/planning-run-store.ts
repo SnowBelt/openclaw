@@ -5,7 +5,7 @@ import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readDurableJsonFile, writeJsonAtomic } from "../infra/json-files.js";
 import type { PccModelUsage, PccPlannerRunner } from "./planning-runtime.js";
-import { generatePccPlanWithCodex } from "./planning-runtime.js";
+import { generatePccPlan } from "./planning-runtime.js";
 import type { PccPlanGenerationRequest, PccPlanGenerationResult } from "./planning.js";
 import type { PccPlanningPolicy } from "./planning.js";
 import {
@@ -30,6 +30,7 @@ export type PccPlanningRun = {
   surface: PccPlanGenerationRequest["surface"];
   status: PccPlanningRunStatus;
   stage: PccPlanningRunStage;
+  queuePosition?: number;
   model: string;
   effort: "medium" | "high";
   createdAt: string;
@@ -44,9 +45,30 @@ export type PccPlanningRun = {
 type ActiveRun = {
   controller: AbortController;
   promise: Promise<void>;
+  root: string;
+};
+
+type PlanningRunStartParams = {
+  cfg: OpenClawConfig;
+  request: PccPlanGenerationRequest;
+  policy: PccPlanningPolicy;
+  runAgent?: PccPlannerRunner;
+  generatePlan?: typeof generatePccPlan;
+  env?: NodeJS.ProcessEnv;
+  now?: () => Date;
+  maxConcurrentRuns?: number;
+};
+
+type PendingRun = {
+  run: PccPlanningRun;
+  params: PlanningRunStartParams;
+  env: NodeJS.ProcessEnv;
+  clock: () => Date;
+  maxConcurrentRuns: number;
 };
 
 const activeRuns = new Map<string, ActiveRun>();
+const pendingRuns = new Map<string, PendingRun>();
 const startRunLocks = new Map<string, Promise<void>>();
 
 async function acquireStartRunLock(key: string): Promise<() => void> {
@@ -94,7 +116,26 @@ export async function readPccPlanningRun(
   id: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<PccPlanningRun | null> {
-  return readDurableJsonFile<PccPlanningRun>(runPath(id, env));
+  const run = await readDurableJsonFile<PccPlanningRun>(runPath(id, env));
+  if (
+    run &&
+    (run.status === "queued" || run.status === "running") &&
+    !activeRuns.has(run.id) &&
+    !pendingRuns.has(run.id)
+  ) {
+    const now = new Date().toISOString();
+    const lost = {
+      ...run,
+      status: "lost" as const,
+      error: "The Gateway restarted before this planning run finished. Retry generation.",
+      updatedAt: now,
+      endedAt: now,
+    };
+    delete lost.queuePosition;
+    await writeRun(lost, env);
+    return lost;
+  }
+  return run;
 }
 
 async function findMatchingActiveRun(
@@ -112,7 +153,7 @@ async function findMatchingActiveRun(
       run?.requestFingerprint === requestFingerprint &&
       (run.status === "queued" || run.status === "running")
     ) {
-      if (!activeRuns.has(run.id)) {
+      if (!activeRuns.has(run.id) && !pendingRuns.has(run.id)) {
         const now = new Date().toISOString();
         const lost = {
           ...run,
@@ -130,7 +171,15 @@ async function findMatchingActiveRun(
   return null;
 }
 
-async function countDurableActiveRuns(env: NodeJS.ProcessEnv): Promise<number> {
+function boundedConcurrentRuns(value: number | undefined): number {
+  const candidate =
+    typeof value === "number" && Number.isInteger(value)
+      ? value
+      : DEFAULT_PCC_PRIVATE_TEAM_POLICY.maxConcurrentPlanningRuns;
+  return Math.max(1, Math.min(candidate, PCC_PRIVATE_TEAM_MAX_CONCURRENT_PLANNING_RUNS));
+}
+
+async function durableRunningCount(env: NodeJS.ProcessEnv): Promise<number> {
   await fs.mkdir(runsRoot(env), { recursive: true, mode: 0o700 });
   let count = 0;
   for (const name of await fs.readdir(runsRoot(env))) {
@@ -138,53 +187,138 @@ async function countDurableActiveRuns(env: NodeJS.ProcessEnv): Promise<number> {
       continue;
     }
     const run = await readDurableJsonFile<PccPlanningRun>(path.join(runsRoot(env), name));
-    if (run?.status === "queued" || run?.status === "running") {
+    if (run?.status === "running") {
       count += 1;
     }
   }
   return count;
 }
 
-export async function startPccPlanningRun(params: {
-  cfg: OpenClawConfig;
-  request: PccPlanGenerationRequest;
-  policy: PccPlanningPolicy;
-  runAgent?: PccPlannerRunner;
-  generatePlan?: typeof generatePccPlanWithCodex;
-  env?: NodeJS.ProcessEnv;
-  now?: () => Date;
-  maxConcurrentRuns?: number;
-}): Promise<PccPlanningRun> {
+async function currentRunningCount(env: NodeJS.ProcessEnv): Promise<number> {
+  const root = runsRoot(env);
+  const inMemory = [...activeRuns.values()].filter((active) => active.root === root).length;
+  return Math.max(inMemory, await durableRunningCount(env));
+}
+
+async function refreshQueuePositions(root: string): Promise<void> {
+  const queued = [...pendingRuns.values()]
+    .filter((pending) => runsRoot(pending.env) === root)
+    .toSorted((a, b) => a.run.createdAt.localeCompare(b.run.createdAt));
+  for (const [index, pending] of queued.entries()) {
+    if (pending.run.queuePosition === index + 1) {
+      continue;
+    }
+    pending.run = {
+      ...pending.run,
+      queuePosition: index + 1,
+      updatedAt: pending.clock().toISOString(),
+    };
+    await writeRun(pending.run, pending.env);
+  }
+}
+
+function executePlanningRun(pending: PendingRun): void {
+  let run = pending.run;
+  const { params, env, clock } = pending;
+  const controller = new AbortController();
+  const promise = (async () => {
+    const update = async (patch: Partial<PccPlanningRun>) => {
+      if (
+        run.status === "cancelled" &&
+        patch.status !== undefined &&
+        patch.status !== "cancelled"
+      ) {
+        return;
+      }
+      run = { ...run, ...patch, updatedAt: clock().toISOString() };
+      if (patch.status === "running") {
+        delete run.queuePosition;
+      }
+      await writeRun(run, env);
+    };
+    await update({ status: "running", startedAt: clock().toISOString() });
+    try {
+      const plan = await (params.generatePlan ?? generatePccPlan)({
+        cfg: params.cfg,
+        request: params.request,
+        policy: params.policy,
+        runAgent: params.runAgent,
+        now: clock,
+        abortSignal: controller.signal,
+        onStage: (stage) => update({ stage }),
+        onUsage: (usage) => update({ usage }),
+      });
+      controller.signal.throwIfAborted();
+      await update({
+        status: "succeeded",
+        stage: "ready",
+        plan,
+        endedAt: clock().toISOString(),
+      });
+    } catch (error) {
+      const cancelled = controller.signal.aborted;
+      await update({
+        status: cancelled ? "cancelled" : "failed",
+        error: cancelled
+          ? "Plan generation was cancelled. Your project description is still available."
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        endedAt: clock().toISOString(),
+      });
+    } finally {
+      activeRuns.delete(run.id);
+      void drainQueuedRuns(env, pending.maxConcurrentRuns);
+    }
+  })();
+  activeRuns.set(run.id, { controller, promise, root: runsRoot(env) });
+}
+
+async function drainQueuedRuns(env: NodeJS.ProcessEnv, maxConcurrentRuns: number): Promise<void> {
+  const root = runsRoot(env);
+  const release = await acquireStartRunLock(`${root}:capacity`);
+  try {
+    let available = maxConcurrentRuns - (await currentRunningCount(env));
+    if (available <= 0) {
+      return;
+    }
+    const queued = [...pendingRuns.values()]
+      .filter((pending) => runsRoot(pending.env) === root)
+      .toSorted((a, b) => a.run.createdAt.localeCompare(b.run.createdAt));
+    for (const pending of queued) {
+      if (available <= 0) {
+        break;
+      }
+      pendingRuns.delete(pending.run.id);
+      executePlanningRun(pending);
+      available -= 1;
+    }
+    await refreshQueuePositions(root);
+  } finally {
+    release();
+  }
+}
+
+export async function startPccPlanningRun(params: PlanningRunStartParams): Promise<PccPlanningRun> {
   const env = params.env ?? process.env;
   const requestFingerprint = fingerprint(params.request);
-  const lockKey = `${runsRoot(env)}:${requestFingerprint}`;
-  const releaseStartLock = await acquireStartRunLock(lockKey);
-  const releaseCapacityLock = await acquireStartRunLock(`${runsRoot(env)}:capacity`);
+  const root = runsRoot(env);
+  const releaseStartLock = await acquireStartRunLock(`${root}:${requestFingerprint}`);
+  const releaseCapacityLock = await acquireStartRunLock(`${root}:capacity`);
   try {
     const existing = await findMatchingActiveRun(requestFingerprint, env);
     if (existing) {
       return existing;
     }
-    const requestedMaxConcurrentRuns = params.maxConcurrentRuns;
-    const maxCandidate =
-      typeof requestedMaxConcurrentRuns === "number" && Number.isInteger(requestedMaxConcurrentRuns)
-        ? requestedMaxConcurrentRuns
-        : DEFAULT_PCC_PRIVATE_TEAM_POLICY.maxConcurrentPlanningRuns;
-    const maxConcurrentRuns = Math.max(
-      1,
-      Math.min(maxCandidate, PCC_PRIVATE_TEAM_MAX_CONCURRENT_PLANNING_RUNS),
-    );
-    const activeRunCount = await countDurableActiveRuns(env);
-    if (activeRunCount >= maxConcurrentRuns) {
-      throw new Error(
-        `PCC planning capacity is full (${maxConcurrentRuns} active runs maximum). Wait for a run to finish or cancel it, then retry.`,
-      );
-    }
+    const maxConcurrentRuns = boundedConcurrentRuns(params.maxConcurrentRuns);
     const clock = params.now ?? (() => new Date());
     const createdAt = clock().toISOString();
     const effort =
       params.request.depth === "high" || params.policy.depth === "high" ? "high" : "medium";
-    let run: PccPlanningRun = {
+    const queuedBefore = [...pendingRuns.values()].filter(
+      (pending) => runsRoot(pending.env) === root,
+    ).length;
+    const run: PccPlanningRun = {
       schemaVersion: 1,
       id: randomUUID(),
       requestFingerprint,
@@ -196,56 +330,22 @@ export async function startPccPlanningRun(params: {
       createdAt,
       updatedAt: createdAt,
     };
-    await writeRun(run, env);
-    const controller = new AbortController();
-    const promise = (async () => {
-      const update = async (patch: Partial<PccPlanningRun>) => {
-        if (
-          run.status === "cancelled" &&
-          patch.status !== undefined &&
-          patch.status !== "cancelled"
-        ) {
-          return;
-        }
-        run = { ...run, ...patch, updatedAt: clock().toISOString() };
-        await writeRun(run, env);
-      };
-      await update({ status: "running", startedAt: clock().toISOString() });
-      try {
-        const plan = await (params.generatePlan ?? generatePccPlanWithCodex)({
-          cfg: params.cfg,
-          request: params.request,
-          policy: params.policy,
-          runAgent: params.runAgent,
-          now: clock,
-          abortSignal: controller.signal,
-          onStage: (stage) => update({ stage }),
-          onUsage: (usage) => update({ usage }),
-        });
-        controller.signal.throwIfAborted();
-        await update({
-          status: "succeeded",
-          stage: "ready",
-          plan,
-          endedAt: clock().toISOString(),
-        });
-      } catch (error) {
-        const cancelled = controller.signal.aborted;
-        await update({
-          status: cancelled ? "cancelled" : "failed",
-          error: cancelled
-            ? "Plan generation was cancelled. Your project description is still available."
-            : error instanceof Error
-              ? error.message
-              : String(error),
-          endedAt: clock().toISOString(),
-        });
-      } finally {
-        activeRuns.delete(run.id);
-      }
-    })();
-    activeRuns.set(run.id, { controller, promise });
-    return run;
+    const running = await currentRunningCount(env);
+    const pending: PendingRun = { run, params, env, clock, maxConcurrentRuns };
+    if (running >= maxConcurrentRuns || queuedBefore > 0) {
+      pending.run = { ...run, queuePosition: queuedBefore + 1 };
+      pendingRuns.set(run.id, pending);
+      await writeRun(pending.run, env);
+      return pending.run;
+    }
+    pending.run = {
+      ...run,
+      status: "running",
+      startedAt: clock().toISOString(),
+    };
+    await writeRun(pending.run, env);
+    executePlanningRun(pending);
+    return pending.run;
   } finally {
     releaseCapacityLock();
     releaseStartLock();
@@ -271,6 +371,10 @@ export async function cancelPccPlanningRun(
       endedAt: now,
     };
     await writeRun(cancelled, env);
+    if (run.status === "queued") {
+      pendingRuns.delete(id);
+      await refreshQueuePositions(runsRoot(env));
+    }
     active?.controller.abort(new Error("Cancelled by the operator"));
     return cancelled;
   }
@@ -287,5 +391,6 @@ export function resetPccPlanningRunsForTest(): void {
     void active.promise.catch(() => undefined);
   }
   activeRuns.clear();
+  pendingRuns.clear();
   startRunLocks.clear();
 }
