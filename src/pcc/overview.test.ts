@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 import type { PccProject } from "../../packages/gateway-protocol/src/schema/types.js";
 import type { PccLedger } from "./domain/ledger.js";
+import { assertPccLedger } from "./ledger-store.js";
 import { buildPccOverview } from "./overview.js";
 
 function project(id: string, updatedOffset: number): PccProject {
@@ -224,5 +225,25 @@ describe("PCC overview read model", () => {
       "activity:receipt:receipt-a",
       "activity:receipt:receipt-z",
     ]);
+  });
+
+  it("keeps legacy receipt timestamps from breaking overview activity sorting", () => {
+    const createdAt = "2026-08-02T02:00:00.000Z";
+    const legacy = ledgerWithProjects(1) as unknown as Record<string, unknown>;
+    legacy.receipts = [
+      {
+        id: "legacy-receipt",
+        projectId: "user-1",
+        milestoneId: "milestone-1",
+        summary: "Legacy receipt",
+        proofEvidenceIds: [],
+        proofLevel: "local",
+        createdAt,
+      },
+    ];
+
+    const canonical = assertPccLedger(legacy);
+    expect(() => buildPccOverview(canonical, 4)).not.toThrow();
+    expect(canonical.receipts[0]?.completedAt).toBe(createdAt);
   });
 });

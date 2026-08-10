@@ -178,7 +178,23 @@ describe("PCC ledger storage", () => {
 
     const stored = readPccLedger(env);
     expect(stored.projects[0]?.id).toBe("project-1");
-    expect((stored.receipts[0] as unknown as { completedAt?: string }).completedAt).toBeUndefined();
+    expect(stored.receipts[0]?.completedAt).toBe("2026-07-11T00:00:00.000Z");
+
+    closePccLedgerStorageForTest();
+    const { DatabaseSync } = requireNodeSqlite();
+    const db = new DatabaseSync(pccLedgerSqlitePath(env), { readOnly: true });
+    try {
+      const row = db
+        .prepare("SELECT payload_json FROM pcc_ledger_snapshot WHERE singleton = 1")
+        .get() as { payload_json: string };
+      const persisted = JSON.parse(row.payload_json) as {
+        receipts: Array<{ completedAt?: string; createdAt?: string }>;
+      };
+      expect(persisted.receipts[0]).not.toHaveProperty("completedAt");
+      expect(persisted.receipts[0]?.createdAt).toBe("2026-07-11T00:00:00.000Z");
+    } finally {
+      db.close();
+    }
   });
 
   it("rejects new or retimestamped receipts with unusable completion timestamps", () => {

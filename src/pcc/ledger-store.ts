@@ -125,7 +125,39 @@ function defaultLedger(): PccLedger {
   };
 }
 
-export function assertPccLedger(value: unknown): PccLedger {
+type PccReceipt = PccLedger["receipts"][number];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizePccReceipts(value: unknown): PccLedger["receipts"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((receipt) => {
+    if (!isRecord(receipt)) {
+      return receipt as PccReceipt;
+    }
+    if (typeof receipt.completedAt === "string" && receipt.completedAt.length > 0) {
+      return receipt as PccReceipt;
+    }
+    // Older receipts stored the completion timestamp as createdAt; normalize only the
+    // in-memory read model so the dashboard cannot fail before a state migration runs.
+    return typeof receipt.createdAt === "string" && receipt.createdAt.length > 0
+      ? ({ ...receipt, completedAt: receipt.createdAt } as PccReceipt)
+      : (receipt as PccReceipt);
+  });
+}
+
+type PccLedgerAssertionOptions = {
+  normalizeLegacyReceipts?: boolean;
+};
+
+export function assertPccLedger(
+  value: unknown,
+  options: PccLedgerAssertionOptions = {},
+): PccLedger {
   if (!value || typeof value !== "object") {
     return defaultLedger();
   }
@@ -137,7 +169,12 @@ export function assertPccLedger(value: unknown): PccLedger {
     subMilestones: Array.isArray(raw.subMilestones) ? raw.subMilestones : [],
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
     evidence: Array.isArray(raw.evidence) ? raw.evidence : [],
-    receipts: Array.isArray(raw.receipts) ? raw.receipts : [],
+    receipts:
+      options.normalizeLegacyReceipts === false
+        ? Array.isArray(raw.receipts)
+          ? raw.receipts
+          : []
+        : normalizePccReceipts(raw.receipts),
     decisions: Array.isArray(raw.decisions) ? raw.decisions : [],
     lastKnownGood: Array.isArray(raw.lastKnownGood) ? raw.lastKnownGood : [],
     attachments: Array.isArray(raw.attachments) ? raw.attachments : [],
@@ -254,7 +291,7 @@ function selectSnapshot(db: DatabaseSync): LedgerSnapshotRow | null {
   return row ?? null;
 }
 
-function parseSnapshot(row: LedgerSnapshotRow): PccLedger {
+function parseSnapshot(row: LedgerSnapshotRow, options: PccLedgerAssertionOptions = {}): PccLedger {
   if (row.schema_version !== PCC_LEDGER_STORAGE_SCHEMA_VERSION) {
     throw new Error(
       `PCC ledger snapshot uses unsupported schema version ${row.schema_version}; run openclaw doctor --fix to repair it.`,
@@ -266,7 +303,7 @@ function parseSnapshot(row: LedgerSnapshotRow): PccLedger {
     );
   }
   try {
-    return assertPccLedger(JSON.parse(row.payload_json) as unknown);
+    return assertPccLedger(JSON.parse(row.payload_json) as unknown, options);
   } catch (error) {
     throw new Error(
       "PCC ledger snapshot JSON is corrupt; run openclaw doctor --fix to recover it.",
@@ -529,7 +566,11 @@ export function withPccLedger<T>(
   const database = openLedgerDatabase(env);
   const mutationResult = runSqliteImmediateTransactionSync(database.db, () => {
     const current = selectSnapshot(database.db);
-    const ledger = current ? parseSnapshot(current) : defaultLedger();
+    // Keep legacy receipts raw for writes so read-time compatibility does not
+    // silently rewrite persisted history during an unrelated mutation.
+    const ledger = current
+      ? parseSnapshot(current, { normalizeLegacyReceipts: false })
+      : defaultLedger();
     const previousReceipts = receiptTimestampInventory(
       ledger.receipts as unknown as TimestampedReceipt[],
     );
@@ -571,7 +612,12 @@ export function replacePccLedgerForTest(
   const database = openLedgerDatabase(env);
   runSqliteImmediateTransactionSync(database.db, () => {
     const revision = (selectSnapshot(database.db)?.revision ?? 0) + 1;
-    writeSnapshot(database.db, assertPccLedger(ledger), revision, "test_seed");
+    writeSnapshot(
+      database.db,
+      assertPccLedger(ledger, { normalizeLegacyReceipts: false }),
+      revision,
+      "test_seed",
+    );
   });
   ensurePrivateStoragePath(database.path);
 }
