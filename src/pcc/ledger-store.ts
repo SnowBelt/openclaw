@@ -124,6 +124,31 @@ function defaultLedger(): PccLedger {
   };
 }
 
+type PccReceipt = PccLedger["receipts"][number];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizePccReceipts(value: unknown): PccLedger["receipts"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((receipt) => {
+    if (!isRecord(receipt)) {
+      return receipt as PccReceipt;
+    }
+    if (typeof receipt.completedAt === "string" && receipt.completedAt.length > 0) {
+      return receipt as PccReceipt;
+    }
+    // Older receipts stored the completion timestamp as createdAt; normalize only the
+    // in-memory read model so the dashboard cannot fail before a state migration runs.
+    return typeof receipt.createdAt === "string" && receipt.createdAt.length > 0
+      ? ({ ...receipt, completedAt: receipt.createdAt } as PccReceipt)
+      : (receipt as PccReceipt);
+  });
+}
+
 export function assertPccLedger(value: unknown): PccLedger {
   if (!value || typeof value !== "object") {
     return defaultLedger();
@@ -136,7 +161,7 @@ export function assertPccLedger(value: unknown): PccLedger {
     subMilestones: Array.isArray(raw.subMilestones) ? raw.subMilestones : [],
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
     evidence: Array.isArray(raw.evidence) ? raw.evidence : [],
-    receipts: Array.isArray(raw.receipts) ? raw.receipts : [],
+    receipts: normalizePccReceipts(raw.receipts),
     decisions: Array.isArray(raw.decisions) ? raw.decisions : [],
     lastKnownGood: Array.isArray(raw.lastKnownGood) ? raw.lastKnownGood : [],
     attachments: Array.isArray(raw.attachments) ? raw.attachments : [],

@@ -135,4 +135,42 @@ describe("PCC ledger storage", () => {
 
     expect(() => readPccLedger(env)).toThrow("checksum mismatch");
   });
+
+  it("normalizes legacy receipt timestamps in memory without rewriting the snapshot", () => {
+    const env = makeEnv();
+    const createdAt = "2026-07-11T00:00:00.000Z";
+    withPccLedger(
+      (ledger) => {
+        ledger.receipts.push({
+          id: "legacy-receipt",
+          projectId: "project-1",
+          milestoneId: "milestone-1",
+          summary: "Legacy receipt",
+          proofEvidenceIds: [],
+          proofLevel: "local",
+          createdAt,
+        } as (typeof ledger.receipts)[number]);
+      },
+      { write: true },
+      env,
+    );
+
+    closePccLedgerStorageForTest();
+    const { DatabaseSync } = requireNodeSqlite();
+    const db = new DatabaseSync(pccLedgerSqlitePath(env), { readOnly: true });
+    try {
+      const row = db
+        .prepare("SELECT payload_json FROM pcc_ledger_snapshot WHERE singleton = 1")
+        .get() as { payload_json: string };
+      const persisted = JSON.parse(row.payload_json) as {
+        receipts: Array<{ completedAt?: string; createdAt?: string }>;
+      };
+      expect(persisted.receipts[0]).not.toHaveProperty("completedAt");
+      expect(persisted.receipts[0]?.createdAt).toBe(createdAt);
+    } finally {
+      db.close();
+    }
+
+    expect(readPccLedger(env).receipts[0]?.completedAt).toBe(createdAt);
+  });
 });
