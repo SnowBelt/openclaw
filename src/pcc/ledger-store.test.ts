@@ -149,7 +149,7 @@ describe("PCC ledger storage", () => {
           proofEvidenceIds: [],
           proofLevel: "local",
           createdAt,
-        } as (typeof ledger.receipts)[number]);
+        } as unknown as (typeof ledger.receipts)[number]);
       },
       { write: true },
       env,
