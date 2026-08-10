@@ -97,4 +97,132 @@ describe("PCC overview read model", () => {
       action: "Milestone updated: Build the overview",
     });
   });
+
+  it("isolates malformed historical receipt timestamps without hiding project work", () => {
+    const ledger = ledgerWithProjects(1);
+    ledger.receipts.push(
+      {
+        id: "missing-completion-time",
+        projectId: "user-1",
+        milestoneId: "legacy-milestone",
+        summary: "Historical receipt",
+        proofEvidenceIds: ["proof-1"],
+        proofLevel: "local",
+      } as unknown as PccLedger["receipts"][number],
+      {
+        id: "invalid-completion-time",
+        projectId: "user-1",
+        milestoneId: "legacy-milestone",
+        summary: "Historical receipt",
+        proofEvidenceIds: ["proof-2"],
+        proofLevel: "local",
+        completedAt: "20260802T043752Z",
+      },
+      {
+        id: "null-completion-time",
+        projectId: "user-1",
+        milestoneId: "legacy-milestone",
+        summary: "Historical receipt",
+        proofEvidenceIds: ["proof-null"],
+        proofLevel: "local",
+        completedAt: null,
+      } as unknown as PccLedger["receipts"][number],
+      {
+        id: "valid-completion-time",
+        projectId: "user-1",
+        milestoneId: "legacy-milestone",
+        summary: "Current receipt",
+        proofEvidenceIds: ["proof-3"],
+        proofLevel: "local",
+        completedAt: "2026-08-02T04:37:52Z",
+      },
+    );
+    ledger.modelRunReceipts = [
+      {
+        id: "invalid-model-run",
+        projectId: "user-1",
+        sourceRunId: "run-1",
+        executor: "local",
+        purpose: "qa",
+        provider: "local",
+        model: "test-model",
+        status: "succeeded",
+        startedAt: "2026-08-02T04:00:00.000Z",
+        completedAt: "not-a-date",
+        usageSource: "unavailable",
+      },
+      {
+        id: "null-model-run",
+        projectId: "user-1",
+        sourceRunId: "run-null",
+        executor: "local",
+        purpose: "qa",
+        provider: "local",
+        model: "test-model",
+        status: "succeeded",
+        startedAt: "2026-08-02T04:00:00.000Z",
+        completedAt: null,
+        usageSource: "unavailable",
+      } as never,
+    ];
+
+    const overview = buildPccOverview(ledger, 44, "2026-08-02T05:00:00.000Z");
+
+    expect(overview.projects.map((item) => item.id)).toEqual(["user-1"]);
+    expect(overview.recentActivity).toContainEqual(
+      expect.objectContaining({
+        id: "activity:receipt:valid-completion-time",
+        at: "2026-08-02T04:37:52.000Z",
+      }),
+    );
+    expect(overview.recentActivity.map((item) => item.id)).not.toContain(
+      "activity:receipt:missing-completion-time",
+    );
+    expect(overview.recentActivity.map((item) => item.id)).not.toContain(
+      "activity:receipt:invalid-completion-time",
+    );
+    expect(overview.recentActivity.map((item) => item.id)).not.toContain(
+      "activity:receipt:null-completion-time",
+    );
+    expect(overview.recentActivity.map((item) => item.id)).not.toContain(
+      "activity:model:invalid-model-run",
+    );
+    expect(overview.recentActivity.map((item) => item.id)).not.toContain(
+      "activity:model:null-model-run",
+    );
+    expect(ledger.receipts).toHaveLength(4);
+  });
+
+  it("orders equal-time activity deterministically by stable activity id", () => {
+    const ledger = ledgerWithProjects(1);
+    ledger.receipts.push(
+      {
+        id: "receipt-z",
+        projectId: "user-1",
+        milestoneId: "milestone-1",
+        summary: "Z",
+        proofEvidenceIds: ["proof-z"],
+        proofLevel: "local",
+        completedAt: "2026-08-02T04:00:00.000Z",
+      },
+      {
+        id: "receipt-a",
+        projectId: "user-1",
+        milestoneId: "milestone-1",
+        summary: "A",
+        proofEvidenceIds: ["proof-a"],
+        proofLevel: "local",
+        completedAt: "2026-08-02T04:00:00.000Z",
+      },
+    );
+
+    const receiptActivity = buildPccOverview(ledger, 45).recentActivity.filter((item) =>
+      item.id.startsWith("activity:receipt:"),
+    );
+
+    expect(receiptActivity.map((item) => item.id)).toEqual([
+      "activity:receipt:receipt-a",
+      "activity:receipt:receipt-z",
+    ]);
+  });
 });

@@ -84,6 +84,8 @@ Overview, Projects, Activity, and System are stable navigation surfaces. Opening
 
 The private-team profile supports up to six authenticated operators on one trusted Gateway. `pcc.overview.get` returns one ledger-revision-consistent snapshot, and redacted `pcc.changed` events refresh connected PCC browsers after committed mutations. Presence is ephemeral, device-deduplicated, bounded to six entries, and never written to the project ledger. Editable project, milestone, sub-milestone, permission, and attachment metadata records use explicit revisions: a stale write returns Review latest changes rather than overwriting another operator. Different records remain independently editable. New generated plans use one atomic commit so a partial project cannot become visible.
 
+Historical receipts remain durable even when an older or noncanonical writer omitted a usable completion timestamp. PCC excludes only that receipt's chronological activity row, keeps the project and receipt visible through their canonical surfaces, and reports the integrity issue through the PCC doctor check. It never substitutes `createdAt`, snapshot time, or the current time for missing completion evidence. New and explicitly retimestamped receipts must provide a parseable `completedAt` value, while unchanged legacy records do not block unrelated project edits.
+
 Run the deterministic scale budget locally with:
 
 ```bash

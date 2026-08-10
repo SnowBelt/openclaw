@@ -99,4 +99,47 @@ describe("repairPccLedgerIntegrity", () => {
     expect(ledger.receipts[1]?.milestoneId).toBe("pcc-production-governor-runtime-proof");
     expect(repairPccLedgerIntegrity(ledger).changes).toEqual([]);
   });
+
+  it("reports unusable historical timestamps without inventing replacements", () => {
+    const ledger = ledgerFixture();
+    const missing = ledger.receipts[0] as unknown as { completedAt?: string; createdAt?: string };
+    delete missing.completedAt;
+    missing.createdAt = "2026-07-25T01:00:00.000Z";
+    ledger.modelRunReceipts = [
+      {
+        id: "invalid-model-run",
+        projectId: "project-command-center",
+        sourceRunId: "run-1",
+        executor: "local",
+        purpose: "qa",
+        provider: "local",
+        model: "test-model",
+        status: "succeeded",
+        startedAt: "2026-07-25T01:00:00.000Z",
+        completedAt: "not-a-date",
+        usageSource: "unavailable",
+      },
+    ];
+
+    const result = repairPccLedgerIntegrity(ledger);
+
+    expect(result.issues).toEqual([
+      {
+        code: "receipt_completed_at_missing",
+        collection: "receipts",
+        recordId: "legacy-receipt",
+        projectId: "project-command-center",
+        field: "completedAt",
+      },
+      {
+        code: "receipt_completed_at_invalid",
+        collection: "modelRunReceipts",
+        recordId: "invalid-model-run",
+        projectId: "project-command-center",
+        field: "completedAt",
+      },
+    ]);
+    expect(missing.completedAt).toBeUndefined();
+    expect(missing.createdAt).toBe("2026-07-25T01:00:00.000Z");
+  });
 });

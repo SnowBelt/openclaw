@@ -9,6 +9,7 @@ import type { PccLedger } from "./domain/ledger.js";
 import { pccMetadataObject, pccMetadataString } from "./metadata.js";
 import { buildPccLedgerReadIndex, pccIndexedItems } from "./read-model/ledger-index.js";
 import { summarizePccPortfolio, summarizePccProject } from "./read-model/project-summary.js";
+import { normalizePccTimestamp } from "./timestamps.js";
 
 type PccOverviewProject = PccOverviewGetResult["projects"][number];
 type PccOverviewAttentionItem = PccOverviewGetResult["attention"][number];
@@ -288,14 +289,16 @@ export function buildPccOverview(
     projectId: string;
     actor: string;
     action: string;
-    at: string;
+    at: unknown;
   }) => {
     const project = overviewByProjectId.get(params.projectId);
-    if (!project) {
+    const at = normalizePccTimestamp(params.at);
+    if (!project || !at) {
       return;
     }
     recentActivity.push({
       ...params,
+      at,
       projectTitle: project.title,
       progress: project.percentComplete,
     });
@@ -366,7 +369,7 @@ export function buildPccOverview(
       at: run.completedAt,
     });
   }
-  recentActivity.sort((a, b) => b.at.localeCompare(a.at));
+  recentActivity.sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
   recentActivity.splice(20);
 
   return {

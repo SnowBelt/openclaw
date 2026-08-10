@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Project Command Center receipt resilience:** keep Work Overview available when historical completion receipts have missing or invalid timestamps, preserve affected evidence, and report integrity warnings without inventing completion times.
 - **npm plugin updates:** accept singleton-array metadata from newer npm clients so tracked official plugins can install and update to correction releases. (#108336)
 
 ## 2026.7.1-1

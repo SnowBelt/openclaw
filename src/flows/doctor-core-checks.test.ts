@@ -8,6 +8,7 @@ import {
   closePccLedgerStorageForTest,
   pccLedgerSqlitePath,
   readPccLedger,
+  replacePccLedgerForTest,
   withPccLedger,
 } from "../pcc/ledger-store.js";
 import type { SkillStatusEntry } from "../skills/discovery/status.js";
@@ -318,6 +319,57 @@ describe("CORE_HEALTH_CHECKS", () => {
         browserProofSha: "98723615c988f4ded568806d51b63f54412aa556",
       });
       await expect(check.detect({ mode: "lint", runtime, cfg: {} })).resolves.toEqual([]);
+    });
+  });
+
+  it("reports historical receipt timestamp corruption without fabricating a repair", async () => {
+    tmp = await fs.mkdtemp(join(tmpdir(), "openclaw-health-pcc-receipt-time-"));
+    await withEnvAsync({ OPENCLAW_STATE_DIR: tmp }, async () => {
+      replacePccLedgerForTest({
+        version: 1,
+        projects: [],
+        milestones: [],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [
+          {
+            id: "legacy-receipt",
+            projectId: "user-project",
+            milestoneId: "legacy-milestone",
+            summary: "Historical proof",
+            proofEvidenceIds: ["legacy-proof"],
+            proofLevel: "local",
+            createdAt: "2026-06-30T00:00:00.000Z",
+          } as never,
+        ],
+        decisions: [],
+        lastKnownGood: [],
+      });
+      const check = getCheck(
+        createCoreHealthChecks(createDeps()),
+        "core/doctor/pcc-production-truth-bindings",
+      );
+
+      const findings = await check.detect({ mode: "lint", runtime, cfg: {} });
+
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "warning",
+          message: expect.stringContaining("legacy-receipt"),
+          fixHint: expect.stringContaining("will not infer one"),
+        }),
+      );
+      const repaired = await check.repair?.({ mode: "fix", runtime, cfg: {} }, findings);
+      expect(repaired).toMatchObject({
+        status: "skipped",
+        changes: [],
+        reason: "Historical receipt timestamps require authoritative evidence.",
+      });
+      expect(repaired?.warnings).toContainEqual(expect.stringContaining("legacy-receipt"));
+      expect(
+        (readPccLedger().receipts[0] as unknown as { completedAt?: string }).completedAt,
+      ).toBeUndefined();
     });
   });
 

@@ -178,6 +178,12 @@ transactional SQLite when needed and repairs the PCC product's verified source, 
 and browser-proof SHA bindings. It preserves the legacy ledger as a backup and does not
 change project work, Gateway configuration, credentials, services, or other doctor areas.
 
+The PCC check also reports historical completion or model-run receipts whose `completedAt`
+value is missing or unusable. Those records remain preserved and are excluded only from
+chronological activity. Doctor never invents a completion time from `createdAt`, ledger
+revision time, or the current clock; an operator must supply an authoritative timestamp
+before that warning can clear.
+
 ## Post-upgrade mode
 
 `openclaw doctor --post-upgrade` runs plugin compatibility probes for chaining after a build or upgrade. Findings go to stdout; exit code is 1 if any finding has `level: "error"`. Add `--json` for a machine-readable envelope (`{ probesRun, findings }`), suitable for CI, the community `fork-upgrade` skill, and other post-upgrade smoke tooling. If the installed plugin index is missing or malformed, JSON mode still emits the envelope with a `plugin.index_unavailable` error finding.

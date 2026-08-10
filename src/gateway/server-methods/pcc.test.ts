@@ -2306,6 +2306,35 @@ describe("Project Command Center gateway methods", () => {
     expect(overview.system.projectId).toBe("project-command-center");
   });
 
+  it("returns the overview when a checksum-valid historical receipt lacks completedAt", async () => {
+    const user = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "user-project", title: "Visible user project", status: "active" },
+      }),
+    );
+    const ledger = pccTesting.readLedger();
+    ledger.receipts.push({
+      id: "legacy-receipt",
+      projectId: user.project.id,
+      milestoneId: "legacy-milestone",
+      summary: "Historical proof",
+      proofEvidenceIds: ["legacy-proof"],
+      proofLevel: "local",
+      createdAt: "2026-06-30T00:00:00.000Z",
+    } as unknown as PccLedger["receipts"][number]);
+    pccTesting.replaceLedger(ledger);
+
+    const overview = okPayload<{
+      projects: Array<{ id: string }>;
+      recentActivity: Array<{ id: string }>;
+    }>(await invoke("pcc.overview.get", {}));
+
+    expect(overview.projects).toContainEqual(expect.objectContaining({ id: user.project.id }));
+    expect(overview.recentActivity.map((item) => item.id)).not.toContain(
+      "activity:receipt:legacy-receipt",
+    );
+  });
+
   it("broadcasts a redacted revision event after a committed mutation", async () => {
     const { response, broadcast } = await invokeWithBroadcast(
       "pcc.projects.upsert",

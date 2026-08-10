@@ -1,4 +1,5 @@
 import type { PccLedger } from "./domain/ledger.js";
+import { pccTimestampIssueCode, type PccTimestampIssueCode } from "./timestamps.js";
 
 const PCC_PROJECT_ID = "project-command-center";
 const RELEASE_GOVERNOR_MILESTONE_ID = "pcc-production-governor-runtime-proof";
@@ -9,6 +10,15 @@ type LegacyReceipt = {
 
 export type PccLedgerIntegrityRepair = {
   changes: string[];
+  issues: PccLedgerIntegrityIssue[];
+};
+
+export type PccLedgerIntegrityIssue = {
+  code: PccTimestampIssueCode;
+  collection: "receipts" | "modelRunReceipts";
+  recordId: string;
+  projectId: string;
+  field: "completedAt";
 };
 
 function stringIds(value: unknown): string[] {
@@ -24,6 +34,7 @@ function stringIds(value: unknown): string[] {
  */
 export function repairPccLedgerIntegrity(ledger: PccLedger): PccLedgerIntegrityRepair {
   const changes: string[] = [];
+  const issues: PccLedgerIntegrityIssue[] = [];
   const milestoneIds = new Set(
     ledger.milestones
       .filter((milestone) => milestone.projectId === PCC_PROJECT_ID)
@@ -32,6 +43,18 @@ export function repairPccLedgerIntegrity(ledger: PccLedger): PccLedgerIntegrityR
   const evidenceById = new Map(ledger.evidence.map((evidence) => [evidence.id, evidence]));
 
   for (const receipt of ledger.receipts) {
+    const issueCode = pccTimestampIssueCode(
+      (receipt as unknown as { completedAt?: unknown }).completedAt,
+    );
+    if (issueCode) {
+      issues.push({
+        code: issueCode,
+        collection: "receipts",
+        recordId: receipt.id,
+        projectId: receipt.projectId,
+        field: "completedAt",
+      });
+    }
     if (receipt.projectId !== PCC_PROJECT_ID) {
       continue;
     }
@@ -48,8 +71,23 @@ export function repairPccLedgerIntegrity(ledger: PccLedger): PccLedgerIntegrityR
     }
   }
 
+  for (const receipt of ledger.modelRunReceipts ?? []) {
+    const issueCode = pccTimestampIssueCode(
+      (receipt as unknown as { completedAt?: unknown }).completedAt,
+    );
+    if (issueCode) {
+      issues.push({
+        code: issueCode,
+        collection: "modelRunReceipts",
+        recordId: receipt.id,
+        projectId: receipt.projectId,
+        field: "completedAt",
+      });
+    }
+  }
+
   if (!milestoneIds.has(RELEASE_GOVERNOR_MILESTONE_ID)) {
-    return { changes };
+    return { changes, issues };
   }
   for (const evidence of ledger.evidence) {
     if (
@@ -72,5 +110,5 @@ export function repairPccLedgerIntegrity(ledger: PccLedger): PccLedgerIntegrityR
       changes.push(`Rebound Release Governor receipt ${receipt.id}.`);
     }
   }
-  return { changes };
+  return { changes, issues };
 }
