@@ -917,7 +917,7 @@ function generatedMilestoneDraft(
       pccPlannerSuggestedResponsibility: normalizePccResponsibility(milestone.responsibility),
       pccProofLevel: milestone.proofLevel,
       pccGeneratedBy: generatedBy,
-      pccParallelSafe: milestone.dependencies.length === 0,
+      parallelSafe: milestone.dependencies.length === 0,
     },
   };
 }
@@ -1404,7 +1404,9 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
             ),
             pccProofLevel: subMilestone.proofLevel,
             pccGeneratedBy: plan.provenance.source,
-            pccParallelSafe: true,
+            parallelSafe:
+              generatedExecutionResponsibility(subMilestone.responsibility) !== "user" &&
+              generatedExecutionResponsibility(subMilestone.responsibility) !== "remote_proof",
           },
         })),
       ]),
@@ -1680,7 +1682,9 @@ function workflowDraftForSetup(
             ),
             pccProofLevel: subMilestone.proofLevel,
             pccGeneratedBy: generatedPlan.provenance.source,
-            parallelSafe: true,
+            parallelSafe:
+              generatedExecutionResponsibility(subMilestone.responsibility) !== "user" &&
+              generatedExecutionResponsibility(subMilestone.responsibility) !== "remote_proof",
           },
         })),
       ]),
@@ -5902,6 +5906,84 @@ export async function updatePccWorkLoopSettings(
             : "Work controls saved.",
     );
   });
+}
+
+/** Starts durable Gateway-owned execution; the legacy work-loop toggle remains a settings control. */
+export async function startPccProjectExecution(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Open a project before starting supervised work.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const expectedRevision = detail.project.revision ?? 1;
+    const idempotencyKey = `ui:${detail.project.id}:revision:${expectedRevision}`;
+    const result = await state.client.request<{ plan: unknown }>("pcc.execution.start", {
+      projectId: detail.project.id,
+      expectedRevision,
+      idempotencyKey,
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+    const plan = result.plan && typeof result.plan === "object" ? result.plan : null;
+    setActionNotice(
+      state,
+      plan
+        ? "Work This Project started a durable supervised execution plan. PCC will stop before gated work and require reviewed proof before completion."
+        : "PCC saved the execution request without starting a worker.",
+    );
+  });
+}
+
+async function controlPccProjectExecution(
+  state: PccDashboardState,
+  action: "pause" | "stop",
+): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Open a project before controlling supervised work.";
+    state.requestUpdate?.();
+    return;
+  }
+  const activePlan = executionPlansFromProject(detail.project).findLast((plan) =>
+    isPccExecutionPlanActive(plan.status),
+  );
+  if (!activePlan) {
+    state.pccActionError = "No active supervised execution plan exists for this project.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const method = action === "pause" ? "pcc.execution.pause" : "pcc.execution.stop";
+    await state.client.request<{ plan: unknown }>(method, {
+      projectId: detail.project.id,
+      planId: activePlan.id,
+      expectedRevision: detail.project.revision ?? 1,
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+    setActionNotice(
+      state,
+      action === "pause"
+        ? "Work paused. The Gateway preserved the execution plan for safe resumption."
+        : "Work stopped. The Gateway preserved the cancelled execution plan; no milestone was completed.",
+    );
+  });
+}
+
+export function pausePccProjectExecution(state: PccDashboardState): Promise<void> {
+  return controlPccProjectExecution(state, "pause");
+}
+
+export function stopPccProjectExecution(state: PccDashboardState): Promise<void> {
+  return controlPccProjectExecution(state, "stop");
 }
 
 export async function preparePccNextWorkItem(state: PccDashboardState): Promise<void> {

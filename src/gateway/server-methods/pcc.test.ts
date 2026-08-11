@@ -18,6 +18,7 @@ function makeOptions(
   params: Record<string, unknown>,
   respond: ReturnType<typeof vi.fn>,
   client: GatewayRequestHandlerOptions["client"] = null,
+  contextOverrides: Record<string, unknown> = {},
 ): GatewayRequestHandlerOptions {
   return {
     req: { type: "req", id: `${method}-1`, method, params },
@@ -28,6 +29,7 @@ function makeOptions(
     context: {
       getRuntimeConfig: () => ({ agents: { defaults: { subagents: { maxConcurrent: 4 } } } }),
       broadcast: vi.fn(),
+      ...contextOverrides,
     } as unknown as GatewayRequestHandlerOptions["context"],
   };
 }
@@ -2686,5 +2688,62 @@ describe("Project Command Center gateway methods", () => {
     );
     expect(detail.milestones).toHaveLength(1);
     expect(detail.subMilestones).toHaveLength(1);
+  });
+
+  it("fails closed before creating a plan when no verified local coordinator exists", async () => {
+    const { project } = okPayload<{ project: { id: string; revision?: number } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "No coordinator project" } }),
+    );
+    const milestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Safe local task",
+          status: "not_started",
+          metadata: { pccResponsibility: "local_openclaw_agent", parallelSafe: true },
+        },
+      }),
+    );
+    const before = pccTesting.readLedger();
+    const respond = vi.fn();
+    await pccHandlers["pcc.execution.start"](
+      makeOptions(
+        "pcc.execution.start",
+        {
+          projectId: project.id,
+          expectedRevision: project.revision ?? 1,
+          idempotencyKey: "no-coordinator-start",
+        },
+        respond,
+        null,
+        { loadGatewayModelCatalog: async () => [] },
+      ),
+    );
+
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(errorMessage(respond.mock.calls[0] as RespondCall)).toContain(
+      "No configured local OpenClaw coordinator/model is available",
+    );
+    const after = pccTesting.readLedger();
+    expect(after.projects.find((item) => item.id === project.id)?.metadata).not.toHaveProperty(
+      "pccExecutionPlans",
+    );
+    expect(after.milestones.find((item) => item.id === milestone.milestone.id)).toEqual(
+      before.milestones.find((item) => item.id === milestone.milestone.id),
+    );
+    expect(after).toEqual(before);
+  });
+
+  it("returns a durable execution plan read without mutating the ledger", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Execution read project" } }),
+    );
+    const before = pccTesting.readLedger();
+    const payload = okPayload<{ plan: unknown }>(
+      await invoke("pcc.execution.get", { projectId: project.id }),
+    );
+
+    expect(payload.plan).toBeNull();
+    expect(pccTesting.readLedger()).toEqual(before);
   });
 });

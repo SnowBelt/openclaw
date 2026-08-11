@@ -91,11 +91,42 @@ async function main(): Promise<void> {
     name,
     cwd: process.cwd(),
     env: {
+      OPENCLAW_TEST_MINIMAL_GATEWAY: "1",
       OPENCLAW_PCC_LIVE_E2E_PLAN_FIXTURE: "1",
     },
     config: {
       gateway: {
         controlUi: { enabled: true },
+      },
+      agents: {
+        defaults: {
+          model: { primary: "ollama/qwen3:0.6b" },
+        },
+        list: [
+          {
+            id: "main",
+            default: true,
+            role: "program_manager",
+            // This disposable fixture proves the real Gateway-owned lifecycle and
+            // terminal receipt path while limiting the tiny local model to the
+            // read-only tool needed to inspect the temporary task.
+            tools: { allow: ["read"] },
+          },
+        ],
+      },
+      models: {
+        providers: {
+          ollama: {
+            baseUrl: "http://127.0.0.1:11434",
+            maxTokens: 64,
+            models: [
+              {
+                id: "qwen3:0.6b",
+                name: "qwen3:0.6b",
+              },
+            ],
+          },
+        },
       },
     },
   });
@@ -105,16 +136,21 @@ async function main(): Promise<void> {
     const screenshotPath =
       process.env.OPENCLAW_PCC_LIVE_E2E_SCREENSHOT ??
       path.join(instance.state.root, "pcc-live-disposable-e2e.png");
-    await runChild({
-      cwd: process.cwd(),
-      env: {
-        ...instance.env,
-        OPENCLAW_CONFIG_PATH: instance.configPath,
-        OPENCLAW_GATEWAY_TOKEN: instance.gatewayToken,
-        OPENCLAW_PCC_LIVE_E2E_ISOLATED: "1",
-        OPENCLAW_PCC_LIVE_E2E_SCREENSHOT: screenshotPath,
-      },
-    });
+    try {
+      await runChild({
+        cwd: process.cwd(),
+        env: {
+          ...instance.env,
+          OPENCLAW_CONFIG_PATH: instance.configPath,
+          OPENCLAW_GATEWAY_TOKEN: instance.gatewayToken,
+          OPENCLAW_PCC_LIVE_E2E_ISOLATED: "1",
+          OPENCLAW_PCC_LIVE_E2E_SCREENSHOT: screenshotPath,
+        },
+      });
+    } catch (error) {
+      console.error(instance.logs());
+      throw error;
+    }
     console.log("PCC isolated disposable browser E2E passed; temporary Gateway state removed.");
   } finally {
     console.log("PCC isolated disposable Gateway cleanup starting.");

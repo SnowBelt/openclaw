@@ -8,6 +8,7 @@ import {
   createPccExecutionPlan,
   findDuplicateActivePccExecutionPlan,
   findPccExecutionWorkspaceLeaseCollision,
+  isPccExecutionPlanActive,
   isPccExecutionWorkspaceLeaseExpired,
   partitionPccExecutionTasks,
   transitionPccExecutionPlan,
@@ -104,6 +105,24 @@ describe("PCC multi-agent execution plans", () => {
     );
     expect(transitionPccExecutionPlan(running, "completed").status).toBe("completed");
     expect(canTransitionPccExecutionPlan("completed", "running")).toBe(false);
+  });
+
+  it("makes a missing Gateway run explicitly lost and retryable without treating it as active", () => {
+    const running = transitionPccExecutionPlan(
+      transitionPccExecutionPlan(plan("lost-candidate"), "dispatching"),
+      "running",
+    );
+    const lost = transitionPccExecutionPlan(running, "lost", {
+      at: new Date(Date.parse(running.updatedAt) + 1_000).toISOString(),
+      reason: "The Gateway no longer reports the run.",
+    });
+
+    expect(lost.status).toBe("lost");
+    expect(isPccExecutionPlanActive(lost.status)).toBe(false);
+    expect(canTransitionPccExecutionPlan("lost", "dispatching")).toBe(true);
+    expect(lost.auditEvents.at(-1)).toEqual(
+      expect.objectContaining({ status: "lost", reason: expect.stringContaining("no longer") }),
+    );
   });
 
   it("prevents another active plan for the same project across revisions", () => {

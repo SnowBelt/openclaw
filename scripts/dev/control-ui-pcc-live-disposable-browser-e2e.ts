@@ -5,7 +5,12 @@ import path from "node:path";
 import { callGateway } from "../../src/gateway/call.ts";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../../src/gateway/operator-scopes.ts";
 import { PCC_BROWSER_CONTRACT_VERSION } from "../../src/pcc/release-governance/browser-proof-contract.ts";
-import type { PccProject, PccProjectSummary, PccMilestone } from "../../ui/src/ui/types.ts";
+import type {
+  PccMilestone,
+  PccProject,
+  PccProjectAiUsageSummary,
+  PccProjectSummary,
+} from "../../ui/src/ui/types.ts";
 
 type ProjectGetResult = {
   project: PccProject;
@@ -13,6 +18,7 @@ type ProjectGetResult = {
   subMilestones?: Array<{ status?: string }>;
   permissions?: Array<{ status?: string; type?: string }>;
   decisions?: Array<{ title?: string; summary?: string }>;
+  aiUsage?: PccProjectAiUsageSummary;
   summary: PccProjectSummary;
 };
 
@@ -253,6 +259,7 @@ async function upsertMilestone(projectId: string, id: string, title: string, ord
         pccResponsibility: "local_openclaw_agent",
         pccProofLevel: "local",
         proofRequired: "Disposable browser E2E proof",
+        parallelSafe: true,
       },
     },
   });
@@ -279,6 +286,7 @@ async function upsertSubMilestone(
         pccResponsibility: "local_openclaw_agent",
         pccProofLevel: "local",
         proofRequired: "Disposable browser E2E proof",
+        parallelSafe: true,
       },
     },
   });
@@ -359,6 +367,39 @@ async function archiveProject(id: string, title: string): Promise<void> {
 
 async function getProject(projectId: string): Promise<ProjectGetResult> {
   return await gateway<ProjectGetResult>("pcc.projects.get", { projectId });
+}
+
+function executionPlansForProject(project: PccProject): Array<Record<string, unknown>> {
+  const metadata =
+    project.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
+      ? (project.metadata as Record<string, unknown>)
+      : {};
+  const plans = metadata.pccExecutionPlans;
+  return Array.isArray(plans)
+    ? plans.filter(
+        (plan): plan is Record<string, unknown> =>
+          plan !== null && typeof plan === "object" && !Array.isArray(plan),
+      )
+    : [];
+}
+
+async function waitForExecutionObservation(
+  projectId: string,
+  predicate: (result: ProjectGetResult) => boolean,
+  timeoutMs = 45_000,
+): Promise<ProjectGetResult> {
+  const deadline = Date.now() + timeoutMs;
+  let latest = await getProject(projectId);
+  while (!predicate(latest) && Date.now() < deadline) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 500);
+    });
+    latest = await getProject(projectId);
+  }
+  if (!predicate(latest)) {
+    throw new Error("Timed out waiting for the durable PCC execution observation.");
+  }
+  return latest;
 }
 
 async function clickSafely(locator: import("playwright").Locator): Promise<void> {
@@ -1370,55 +1411,144 @@ async function main() {
     summary.phase = phase;
     const workLoop = page.locator("[data-pcc-work-loop]").first();
     await workLoop.waitFor({ state: "visible", timeout: 15_000 });
-    await workLoop.getByRole("button", { name: /^Work This Project$/i }).click({ force: true });
+    const beforeExecution = await getProject(actionProjectId);
+    const beforeExecutionStatuses = new Map(
+      [...beforeExecution.milestones, ...(beforeExecution.subMilestones ?? [])].map((item) => [
+        item.id,
+        item.status,
+      ]),
+    );
+    const workButton = workLoop.getByRole("button", { name: /^Work This Project$/i });
+    await workButton.click({ force: true });
+    await page.waitForFunction(
+      () =>
+        Boolean(document.querySelector("[data-pcc-action-notice]")) ||
+        Boolean(document.querySelector("[data-pcc-action-error]")),
+      undefined,
+      { timeout: 30_000 },
+    );
+    const executionActionError = page.locator("[data-pcc-action-error]").first();
+    if (await executionActionError.isVisible().catch(() => false)) {
+      throw new Error(
+        `durable PCC execution start failed: ${(await executionActionError.textContent())?.trim()}`,
+      );
+    }
     await page
-      .getByText("Work This Project is on", { exact: false })
+      .getByText("durable supervised execution plan", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
-    const workLoopEnabled =
-      (
-        (await getProject(actionProjectId)).project.metadata as {
-          pccWorkLoop?: { enabled?: boolean };
-        }
-      )?.pccWorkLoop?.enabled === true;
-    await workLoop.getByRole("button", { name: /^Pause$/i }).click({ force: true });
-    await page
-      .getByText("Work paused", { exact: false })
-      .first()
-      .waitFor({ state: "visible", timeout: 30_000 });
-    const workLoopPaused =
-      (
-        (await getProject(actionProjectId)).project.metadata as {
-          pccWorkLoop?: { state?: string };
-        }
-      )?.pccWorkLoop?.state === "paused";
-    await workLoop.getByRole("button", { name: /^Turn off$/i }).click({ force: true });
-    await page
-      .getByText("Work controls turned off", { exact: false })
-      .first()
-      .waitFor({ state: "visible", timeout: 30_000 });
-    await workLoop
-      .getByRole("button", { name: /^Prepare next safe task$/i })
-      .click({ force: true });
-    await page
-      .getByText("Next safe task prepared", { exact: false })
-      .first()
-      .waitFor({ state: "visible", timeout: 30_000 });
-    const afterPrepare = await getProject(actionProjectId);
-    const prepareNextPersisted =
-      afterPrepare.milestones.some((item) => item.status === "in_progress") ||
-      (afterPrepare.subMilestones?.some((item) => item.status === "in_progress") ?? false);
-    await workLoop.getByRole("button", { name: /^Turn off$/i }).click({ force: true });
-    await page
-      .getByText("Work controls turned off", { exact: false })
-      .first()
-      .waitFor({ state: "visible", timeout: 30_000 });
-    const workLoopTurnedOff =
-      (
-        (await getProject(actionProjectId)).project.metadata as {
-          pccWorkLoop?: { enabled?: boolean };
-        }
-      )?.pccWorkLoop?.enabled === false;
+    const executionStarted = await waitForExecutionObservation(
+      actionProjectId,
+      (result) => executionPlansForProject(result.project).length > 0,
+      30_000,
+    );
+    const executionPlans = executionPlansForProject(executionStarted.project);
+    const firstExecutionPlan = executionPlans.at(-1);
+    const executionPlanPersisted = Boolean(firstExecutionPlan);
+    const executionPlanStatuses = new Set([
+      "prepared",
+      "dispatching",
+      "running",
+      "paused",
+      "blocked",
+      "failed",
+      "lost",
+      "completed",
+      "cancelled",
+    ]);
+    const executionStatus =
+      typeof firstExecutionPlan?.status === "string" ? firstExecutionPlan.status : "";
+    const executionStatusTruthful = executionPlanStatuses.has(executionStatus);
+    const activeExecutionStatuses = new Set([
+      "prepared",
+      "dispatching",
+      "running",
+      "paused",
+      "blocked",
+    ]);
+    const terminalExecutionStatuses = new Set(["failed", "lost", "completed", "cancelled"]);
+    let executionObservation = await waitForExecutionObservation(
+      actionProjectId,
+      (result) => {
+        const plan = executionPlansForProject(result.project).at(-1);
+        const status = typeof plan?.status === "string" ? plan.status : "";
+        return terminalExecutionStatuses.has(status) || (result.aiUsage?.completedRuns ?? 0) > 0;
+      },
+      180_000,
+    );
+    let latestExecutionPlan = executionPlansForProject(executionObservation.project).at(-1);
+    if (latestExecutionPlan && activeExecutionStatuses.has(String(latestExecutionPlan.status))) {
+      await gateway("pcc.execution.stop", {
+        projectId: actionProjectId,
+        planId: latestExecutionPlan.id,
+        expectedRevision: executionObservation.project.revision ?? 1,
+      });
+      executionObservation = await waitForExecutionObservation(
+        actionProjectId,
+        (result) => {
+          const plan = executionPlansForProject(result.project).at(-1);
+          return terminalExecutionStatuses.has(typeof plan?.status === "string" ? plan.status : "");
+        },
+        30_000,
+      );
+      latestExecutionPlan = executionPlansForProject(executionObservation.project).at(-1);
+    }
+    const latestExecutionStatus =
+      typeof latestExecutionPlan?.status === "string" ? latestExecutionPlan.status : "";
+    const executionReachedTerminalState = terminalExecutionStatuses.has(latestExecutionStatus);
+    const executionWorkLoopMetadata = recordObject(
+      executionObservation.project.metadata,
+      "pccWorkLoop",
+    );
+    const expectedWorkLoopState =
+      latestExecutionStatus === "paused"
+        ? "paused"
+        : latestExecutionStatus === "blocked"
+          ? "blocked"
+          : latestExecutionStatus === "failed" || latestExecutionStatus === "lost"
+            ? "failed"
+            : activeExecutionStatuses.has(latestExecutionStatus)
+              ? "working"
+              : "idle";
+    const executionWorkLoopStateTruthful =
+      executionWorkLoopMetadata.enabled === activeExecutionStatuses.has(latestExecutionStatus) &&
+      executionWorkLoopMetadata.state === expectedWorkLoopState;
+    const executionAiUsageReceipt =
+      (executionObservation.aiUsage?.completedRuns ?? 0) >= 1 &&
+      (executionObservation.aiUsage?.localRuns ?? 0) >= 1;
+    const executionNoAutoCompletion = [
+      ...executionObservation.milestones,
+      ...(executionObservation.subMilestones ?? []),
+    ].every((item) => {
+      const beforeStatus = beforeExecutionStatuses.get(item.id);
+      return beforeStatus !== undefined && item.status !== "complete";
+    });
+    const prepareNextButton = workLoop.getByRole("button", { name: /^Prepare next safe task$/i });
+    let prepareNextPersisted = false;
+    if (await prepareNextButton.isVisible().catch(() => false)) {
+      // The terminal receipt is persisted independently of the browser's selected-project
+      // snapshot. Reload before the next guided-work assertion so this proof covers the
+      // durable refresh contract instead of acting on the pre-run Working view.
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await waitForPccReady(page);
+      const refreshedWorkLoop = page.locator("[data-pcc-work-loop]").first();
+      await refreshedWorkLoop.waitFor({ state: "visible", timeout: 15_000 });
+      const refreshedPrepareNextButton = refreshedWorkLoop.getByRole("button", {
+        name: /^Prepare next safe task$/i,
+      });
+      if (!(await refreshedPrepareNextButton.isVisible().catch(() => false))) {
+        throw new Error("Prepare next safe task disappeared after the durable execution refresh.");
+      }
+      await refreshedPrepareNextButton.click({ force: true });
+      await page
+        .getByText("Next safe task prepared", { exact: false })
+        .first()
+        .waitFor({ state: "visible", timeout: 30_000 });
+      const afterPrepare = await getProject(actionProjectId);
+      prepareNextPersisted =
+        afterPrepare.milestones.some((item) => item.status === "in_progress") ||
+        (afterPrepare.subMilestones?.some((item) => item.status === "in_progress") ?? false);
+    }
 
     phase = "testing milestone and sub-step disclosure";
     summary.phase = phase;
@@ -2078,9 +2208,12 @@ async function main() {
       attachmentReloadPersisted,
       editSavePersisted,
       editCancelDiscarded,
-      workLoopEnabled,
-      workLoopPaused,
-      workLoopTurnedOff,
+      executionPlanPersisted,
+      executionStatusTruthful,
+      executionReachedTerminalState,
+      executionWorkLoopStateTruthful,
+      executionAiUsageReceipt,
+      executionNoAutoCompletion,
       prepareNextPersisted,
       milestoneDisclosureWorked,
       subStepDisclosureWorked,
