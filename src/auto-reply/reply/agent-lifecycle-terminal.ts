@@ -37,6 +37,47 @@ export function resolveAgentLifecycleTerminalMetadata(meta: unknown): Record<str
   return metadata;
 }
 
+function resolveAgentLifecycleTerminalUsage(meta: unknown): Record<string, number> | undefined {
+  if (!meta || typeof meta !== "object") {
+    return undefined;
+  }
+  const agentMeta = (meta as Record<string, unknown>).agentMeta;
+  if (!agentMeta || typeof agentMeta !== "object") {
+    return undefined;
+  }
+  const record = agentMeta as Record<string, unknown>;
+  const rawUsage =
+    record.usage && typeof record.usage === "object"
+      ? record.usage
+      : record.lastCallUsage && typeof record.lastCallUsage === "object"
+        ? record.lastCallUsage
+        : undefined;
+  if (!rawUsage || typeof rawUsage !== "object") {
+    return undefined;
+  }
+  const usage = rawUsage as Record<string, unknown>;
+  const readNonNegativeInteger = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+  const normalized = {
+    ...(readNonNegativeInteger(usage.input) !== undefined
+      ? { input: readNonNegativeInteger(usage.input) }
+      : {}),
+    ...(readNonNegativeInteger(usage.output) !== undefined
+      ? { output: readNonNegativeInteger(usage.output) }
+      : {}),
+    ...(readNonNegativeInteger(usage.cacheRead) !== undefined
+      ? { cacheRead: readNonNegativeInteger(usage.cacheRead) }
+      : {}),
+    ...(readNonNegativeInteger(usage.cacheWrite) !== undefined
+      ? { cacheWrite: readNonNegativeInteger(usage.cacheWrite) }
+      : {}),
+    ...(readNonNegativeInteger(usage.totalTokens ?? usage.total) !== undefined
+      ? { totalTokens: readNonNegativeInteger(usage.totalTokens ?? usage.total) }
+      : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 export function createAgentLifecycleTerminalBackstop(params: {
   runId: string;
   sessionKey?: string;
@@ -97,6 +138,10 @@ export function createAgentLifecycleTerminalBackstop(params: {
           ? (resultOrError as { meta?: Record<string, unknown> }).meta
           : undefined;
       Object.assign(data, resolveAgentLifecycleTerminalMetadata(meta));
+      const usage = resolveAgentLifecycleTerminalUsage(meta);
+      if (usage) {
+        data.usage = usage;
+      }
       if (terminationFields.aborted === true) {
         data.aborted = true;
       }

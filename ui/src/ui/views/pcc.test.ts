@@ -3021,6 +3021,48 @@ describe("renderPccDashboard", () => {
     expect(onPrepareNextWorkItem).toHaveBeenCalledTimes(1);
   });
 
+  it("does not present a legacy enabled toggle as Working without a durable execution plan", () => {
+    const staleProject = {
+      ...project,
+      status: "active" as const,
+      metadata: {
+        ...project.metadata,
+        pccWorkLoop: {
+          enabled: true,
+          state: "working",
+          stopBeforeCodex: true,
+          stopBeforeRemoteProof: true,
+          stopAfterCurrentMilestone: false,
+        },
+      },
+    };
+    const staleSummary = {
+      ...summary,
+      status: "active" as const,
+      proofGaps: [],
+      milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
+    };
+    const container = renderView(
+      createProps({
+        projects: [staleSummary],
+        selectedProjectId: staleProject.id,
+        projectDetail: {
+          project: staleProject,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: staleSummary,
+        },
+      }),
+    );
+
+    const card = container.querySelector("[data-pcc-project-card]");
+    expect(card?.textContent).toContain("Work: Off");
+    expect(card?.textContent).not.toContain("Work: Working");
+  });
+
   it("shows resume as the primary fix for on-hold projects with legacy worker metadata", () => {
     const onResumeProject = vi.fn();
     const onPreviewSetupAutofill = vi.fn();

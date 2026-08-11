@@ -589,6 +589,20 @@ import {
   PccPlansCancelParamsSchema,
   type PccPlansCancelResult,
   PccPlansCancelResultSchema,
+  type PccExecutionStartParams,
+  PccExecutionStartParamsSchema,
+  type PccExecutionStartResult,
+  PccExecutionStartResultSchema,
+  type PccExecutionGetParams,
+  PccExecutionGetParamsSchema,
+  type PccExecutionGetResult,
+  PccExecutionGetResultSchema,
+  type PccExecutionControlParams,
+  PccExecutionControlParamsSchema,
+  type PccExecutionPauseResult,
+  PccExecutionPauseResultSchema,
+  type PccExecutionStopResult,
+  PccExecutionStopResultSchema,
   type PccAttachment,
   PccAttachmentSchema,
   type PccAttachmentUsageReceipt,
@@ -1308,6 +1322,15 @@ export const validatePccPlansGetParams = lazyCompile<PccPlansGetParams>(PccPlans
 export const validatePccPlansCancelParams = lazyCompile<PccPlansCancelParams>(
   PccPlansCancelParamsSchema,
 );
+export const validatePccExecutionStartParams = lazyCompile<PccExecutionStartParams>(
+  PccExecutionStartParamsSchema,
+);
+export const validatePccExecutionGetParams = lazyCompile<PccExecutionGetParams>(
+  PccExecutionGetParamsSchema,
+);
+export const validatePccExecutionControlParams = lazyCompile<PccExecutionControlParams>(
+  PccExecutionControlParamsSchema,
+);
 export const validatePccAttachmentsUploadBeginParams = lazyCompile<PccAttachmentsUploadBeginParams>(
   PccAttachmentsUploadBeginParamsSchema,
 );
@@ -1865,6 +1888,13 @@ export {
   PccPlansGetResultSchema,
   PccPlansCancelParamsSchema,
   PccPlansCancelResultSchema,
+  PccExecutionStartParamsSchema,
+  PccExecutionStartResultSchema,
+  PccExecutionGetParamsSchema,
+  PccExecutionGetResultSchema,
+  PccExecutionControlParamsSchema,
+  PccExecutionPauseResultSchema,
+  PccExecutionStopResultSchema,
   PccAttachmentSchema,
   PccAttachmentUsageReceiptSchema,
   PccAttachmentsUploadBeginParamsSchema,
@@ -2338,6 +2368,13 @@ export type {
   PccPlansGetResult,
   PccPlansCancelParams,
   PccPlansCancelResult,
+  PccExecutionStartParams,
+  PccExecutionStartResult,
+  PccExecutionGetParams,
+  PccExecutionGetResult,
+  PccExecutionControlParams,
+  PccExecutionPauseResult,
+  PccExecutionStopResult,
   PccAttachment,
   PccAttachmentUsageReceipt,
   PccAttachmentsUploadBeginParams,

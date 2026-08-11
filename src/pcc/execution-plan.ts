@@ -16,6 +16,7 @@ export type PccExecutionPlanStatus =
   | "paused"
   | "blocked"
   | "failed"
+  | "lost"
   | "completed"
   | "cancelled";
 export type PccExecutionPartitionStatus =
@@ -125,13 +126,26 @@ const ACTIVE_STATUSES = new Set<PccExecutionPlanStatus>([
 ]);
 const MAX_AUDIT_EVENTS = 128;
 
+export const PCC_EXECUTION_PLAN_STATUSES = new Set<PccExecutionPlanStatus>([
+  "prepared",
+  "dispatching",
+  "running",
+  "paused",
+  "blocked",
+  "failed",
+  "lost",
+  "completed",
+  "cancelled",
+]);
+
 const TRANSITIONS: Readonly<Record<PccExecutionPlanStatus, readonly PccExecutionPlanStatus[]>> = {
-  prepared: ["dispatching", "cancelled"],
-  dispatching: ["running", "paused", "blocked", "failed", "cancelled"],
-  running: ["paused", "blocked", "failed", "completed", "cancelled"],
+  prepared: ["dispatching", "cancelled", "lost"],
+  dispatching: ["running", "paused", "blocked", "failed", "cancelled", "lost"],
+  running: ["paused", "blocked", "failed", "lost", "completed", "cancelled"],
   paused: ["dispatching", "blocked", "failed", "cancelled"],
   blocked: ["dispatching", "paused", "failed", "cancelled"],
   failed: ["dispatching", "cancelled"],
+  lost: ["dispatching", "cancelled"],
   completed: [],
   cancelled: [],
 };
@@ -288,6 +302,12 @@ export function consumePccExecutionPlanCodexApproval(params: {
 
 export function isPccExecutionPlanActive(status: PccExecutionPlanStatus): boolean {
   return ACTIVE_STATUSES.has(status);
+}
+
+export function isPccExecutionPlanStatus(value: unknown): value is PccExecutionPlanStatus {
+  return (
+    typeof value === "string" && PCC_EXECUTION_PLAN_STATUSES.has(value as PccExecutionPlanStatus)
+  );
 }
 
 /** Active plans are exclusive per project, including across a project revision change. */

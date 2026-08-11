@@ -12,6 +12,7 @@ import {
 } from "../../../../src/pcc/autopilot.js";
 import { isPccCompleteStatus } from "../../../../src/pcc/domain/completion-policy.js";
 import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
+import { isPccExecutionPlanActive } from "../../../../src/pcc/execution-plan.js";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
   applyPccCodexPolicy,
@@ -86,6 +87,7 @@ import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
 import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
 import {
   buildPccExecutionTeamReadiness,
+  executionPlansFromProject,
   isPccLocalCatalogModel,
 } from "../pcc/application/execution-readiness.ts";
 import type {
@@ -242,6 +244,9 @@ export type PccDashboardProps = {
   onAddCompletionReceipt: (milestone: PccMilestone) => void;
   onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
+  onStartExecution?: () => void;
+  onPauseExecution?: () => void;
+  onStopExecution?: () => void;
   onPrepareNextWorkItem: () => void;
   onResumeProject?: () => void;
   onStartIssueChat?: (descriptor: IssueChatDescriptor) => void;
@@ -1491,9 +1496,18 @@ function workStateForProject(
   if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
     return "Waiting for you";
   }
-  const settings = detail ? getPccWorkLoopSettings(detail.project) : undefined;
-  if (settings?.enabled) {
-    return settings.state === "paused" ? "Paused" : "Working";
+  const plans = detail ? executionPlansFromProject(detail.project) : [];
+  const activePlan = plans.findLast((plan) => isPccExecutionPlanActive(plan.status));
+  if (activePlan) {
+    return activePlan.status === "paused"
+      ? "Paused"
+      : activePlan.status === "blocked"
+        ? "Blocked"
+        : "Working";
+  }
+  const latestPlan = plans.at(-1);
+  if (latestPlan?.status === "failed" || latestPlan?.status === "lost") {
+    return "Blocked";
   }
   return "Off";
 }
@@ -1604,14 +1618,30 @@ function openPccDecisionCapture(event: Event, props: PccDashboardProps): void {
   props.onOpenDecisionForm?.();
 }
 
-function openPccAutopilot(props: PccDashboardProps, root?: ParentNode): void {
-  const reveal = (target?: ParentNode) => {
-    activatePccDetailTab("automation", target);
-    scrollPccAutopilotIntoView(target);
+function revealPccAutopilot(props: PccDashboardProps, source?: HTMLElement): void {
+  const reveal = () => {
+    const detail =
+      source?.closest<HTMLElement>("[data-pcc-detail]") ??
+      source?.querySelector<HTMLElement>("[data-pcc-detail]") ??
+      globalThis.document?.querySelector<HTMLElement>("[data-pcc-detail]");
+    const drawer = detail?.querySelector<HTMLDetailsElement>(
+      'details[data-pcc-mobile-section="more"]',
+    );
+    if (drawer) {
+      drawer.open = true;
+    }
+    const root = drawer ?? detail ?? undefined;
+    activatePccDetailTab("automation", root);
+    scrollPccAutopilotIntoView(root);
+    root?.querySelector<HTMLButtonElement>('[data-pcc-detail-tab="automation"]')?.focus();
   };
-  reveal(root);
+  reveal();
   props.onSetViewMode?.("detailed");
-  requestAnimationFrame(() => reveal());
+  globalThis.requestAnimationFrame?.(reveal);
+}
+
+function openPccAutopilot(event: Event, props: PccDashboardProps): void {
+  revealPccAutopilot(props, (event.currentTarget as HTMLElement | null) ?? undefined);
 }
 
 function setPccMobileActiveSection(section: string): void {
@@ -1669,7 +1699,7 @@ function openPccMobileSection(
   source?: HTMLElement,
 ): void {
   if (section === "autopilot") {
-    openPccAutopilot(props, source?.closest("[data-pcc-shell]") ?? undefined);
+    revealPccAutopilot(props, source?.closest<HTMLElement>("[data-pcc-shell]") ?? undefined);
     return;
   }
   scrollPccMobileSectionIntoView(section);
@@ -4150,7 +4180,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
     ? project.status === "complete_with_maintenance"
       ? "Maintenance"
       : formatStatus(project.status)
-    : (resolved?.statusLabel ?? workStateForProject(project, detail));
+    : workStateForProject(project, detail);
   const onHold = projectIsOnHold(project);
   const blocker = resolved?.topBlocker ?? projectBlockerLine(project);
   const cardStatus = resolved?.statusLabel ?? formatStatus(project.status);
@@ -5949,7 +5979,9 @@ function renderPccExecutionTeamCard(props: PccDashboardProps, detail: PccProject
   const buttonLabel = running
     ? "Stop agent team"
     : ready
-      ? `Run with ${readiness.admittedLocalAgents} worker${readiness.admittedLocalAgents === 1 ? "" : "s"}`
+      ? props.onStartExecution
+        ? "Start supervised execution"
+        : `Run with ${readiness.admittedLocalAgents} worker${readiness.admittedLocalAgents === 1 ? "" : "s"}`
       : readiness.status === "needs_approval"
         ? "Review Codex approval"
         : "Change team";
@@ -5996,12 +6028,15 @@ function renderPccExecutionTeamCard(props: PccDashboardProps, detail: PccProject
         class="btn ${ready || running ? "" : "btn--subtle"}"
         type="button"
         data-pcc-execution-team-action=${running ? "stop" : ready ? "start" : "configure"}
-        ?disabled=${props.actionBusy || ((ready || running) && !props.onRunExecutionTeam)}
+        ?disabled=${props.actionBusy ||
+        (running
+          ? !props.onStopExecution && !props.onRunExecutionTeam
+          : ready && !props.onStartExecution && !props.onRunExecutionTeam)}
         @click=${() =>
           running
-            ? props.onRunExecutionTeam?.("stop")
+            ? (props.onStopExecution?.() ?? props.onRunExecutionTeam?.("stop"))
             : ready
-              ? props.onRunExecutionTeam?.("start")
+              ? (props.onStartExecution?.() ?? props.onRunExecutionTeam?.("start"))
               : props.onOpenProjectEditor(detail.project)}
       >
         ${buttonLabel}
@@ -6091,6 +6126,10 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   }
   const setupEvaluation = setupEvaluationForDetail(detail);
   const settings = getPccWorkLoopSettings(detail.project);
+  const activePlan = executionPlansFromProject(detail.project).findLast((plan) =>
+    isPccExecutionPlanActive(plan.status),
+  );
+  const latestPlan = executionPlansFromProject(detail.project).at(-1);
   const next = getPccWorkLoopNext({
     project: detail.project,
     milestones: detail.milestones,
@@ -6098,7 +6137,17 @@ function renderWorkLoopCard(props: PccDashboardProps) {
     permissions: detail.permissions,
     receipts: detail.receipts,
   });
-  const workLabel = settings.enabled ? formatStatus(next.state) : "Off";
+  const workLabel = activePlan
+    ? activePlan.status === "paused"
+      ? "Paused"
+      : activePlan.status === "blocked"
+        ? "Blocked"
+        : "Working"
+    : latestPlan?.status === "failed" || latestPlan?.status === "lost"
+      ? "Failed"
+      : next.blocker
+        ? formatStatus(next.state)
+        : "Ready";
   const nextTitle = next.subMilestone
     ? `${next.milestone?.title ?? "Milestone"}: ${next.subMilestone.title}`
     : (next.milestone?.title ?? "No eligible milestone");
@@ -6109,11 +6158,14 @@ function renderWorkLoopCard(props: PccDashboardProps) {
     ? "Project is complete or archived; reopen it before starting new work."
     : workStartBlockers.length > 0
       ? (workStartBlockers[0] ?? "Review blockers before starting work.")
-      : !setupEvaluation.runnable
-        ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Generate setup with AI or Edit manually before starting.`
-        : (next.blocker?.message ??
-          settings.lastLoopMessage ??
-          "Ready for the next safe milestone.");
+      : latestPlan?.status === "failed" || latestPlan?.status === "lost"
+        ? (latestPlan.statusReason ??
+          "The previous execution attempt failed; review it before retrying.")
+        : !setupEvaluation.runnable
+          ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Generate setup with AI or Edit manually before starting.`
+          : (next.blocker?.message ??
+            settings.lastLoopMessage ??
+            "Ready for the next safe milestone.");
   const prepareNeedsSetupRepair = !setupEvaluation.runnable && !projectIsTerminal(detail.project);
   if (projectIsTerminal(detail.project)) {
     return nothing;
@@ -6139,7 +6191,9 @@ function renderWorkLoopCard(props: PccDashboardProps) {
     props.actionBusy ||
     projectIsTerminal(detail.project) ||
     projectOnHold ||
-    (!settings.enabled && !setupEvaluation.runnable);
+    !setupEvaluation.runnable ||
+    Boolean(activePlan);
+  const startWithGateway = Boolean(props.onStartExecution) && !activePlan;
   return html`
     <section class="pcc-work-loop" data-pcc-work-loop aria-label="Guided work loop">
       <div class="pcc-work-loop__header">
@@ -6151,7 +6205,10 @@ function renderWorkLoopCard(props: PccDashboardProps) {
             permission.
           </p>
         </div>
-        <span class="pcc-status pcc-work-loop-state--${settings.enabled ? next.state : "idle"}">
+        <span
+          class="pcc-status pcc-work-loop-state--${activePlan?.status ??
+          (next.blocker ? next.state : "idle")}"
+        >
           ${workLabel}
         </span>
       </div>
@@ -6161,12 +6218,20 @@ function renderWorkLoopCard(props: PccDashboardProps) {
           type="button"
           ?disabled=${workStartDisabled}
           @click=${() =>
-            props.onUpdateWorkLoop({
-              enabled: !settings.enabled,
-              state: settings.enabled ? "idle" : "working",
-            })}
+            startWithGateway
+              ? props.onStartExecution?.()
+              : props.onUpdateWorkLoop({
+                  enabled: !settings.enabled,
+                  state: settings.enabled ? "idle" : "working",
+                })}
         >
-          ${settings.enabled ? "Turn off" : "Work This Project"}
+          ${activePlan
+            ? "Working"
+            : startWithGateway
+              ? "Work This Project"
+              : settings.enabled
+                ? "Turn off"
+                : "Work This Project"}
         </button>
         ${projectOnHold
           ? html`<button
@@ -6182,8 +6247,11 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <button
           class="btn btn--subtle"
           type="button"
-          ?disabled=${props.actionBusy}
-          @click=${() => props.onUpdateWorkLoop({ state: "paused", enabled: true })}
+          ?disabled=${props.actionBusy || (Boolean(activePlan) && !props.onPauseExecution)}
+          @click=${() =>
+            activePlan
+              ? props.onPauseExecution?.()
+              : props.onUpdateWorkLoop({ state: "paused", enabled: true })}
         >
           Pause
         </button>
@@ -6904,6 +6972,9 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   });
   const setupEvaluation = setupEvaluationForDetail(detail);
   const settings = getPccWorkLoopSettings(project);
+  const activeExecutionPlan = executionPlansFromProject(project).findLast((plan) =>
+    isPccExecutionPlanActive(plan.status),
+  );
   const worker = current ? itemWorkerLabel(current) : "None";
   const resolvedAction = resolvePccProjectAction(detail);
   const primaryAction = projectActionLabel(resolvedAction, props.projectForm);
@@ -7078,9 +7149,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             <button
               class="btn btn--subtle"
               type="button"
-              @click=${() => {
-                openPccAutopilot(props);
-              }}
+              @click=${(event: Event) => openPccAutopilot(event, props)}
             >
               Open Autopilot
             </button>
@@ -7095,7 +7164,18 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             ${renderTruthFact("Current milestone", current?.title ?? "Not started")}
             ${renderTruthFact("Next milestone", next?.title ?? "None")}
             ${renderTruthFact("Worker", worker)}
-            ${renderTruthFact("Work", settings.enabled ? formatStatus(settings.state) : "Off")}
+            ${renderTruthFact(
+              "Work",
+              activeExecutionPlan
+                ? activeExecutionPlan.status === "paused"
+                  ? "Paused"
+                  : activeExecutionPlan.status === "blocked"
+                    ? "Blocked"
+                    : "Working"
+                : settings.enabled
+                  ? "Ready"
+                  : "Off",
+            )}
           </dl>
           <section class="pcc-project-brief" data-pcc-project-brief>
             <span>Project brief</span>

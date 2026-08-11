@@ -162,6 +162,7 @@ import {
   resumePccProjectForWork,
   runPccAutopilotLoopAction,
   runPccExecutionTeamAction,
+  startPccProjectExecution,
   runPccUndoAction,
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
@@ -172,6 +173,7 @@ import {
   openPccMilestoneEditor,
   openPccAttention,
   openPccProjectEditor,
+  pausePccProjectExecution,
   savePccDecision,
   savePccMilestone,
   savePccProject,
@@ -181,6 +183,7 @@ import {
   setPccSubMilestoneStatus,
   setPccPermissionStatus,
   setPccProjectStatus,
+  stopPccProjectExecution,
   updatePccAutopilotLoopPrompt,
   updatePccAutofillApproval,
   updatePccDecisionForm,
@@ -3160,6 +3163,9 @@ export function renderApp(state: AppViewState) {
                 onSetPermissionStatus: (permission, status) =>
                   void setPccPermissionStatus(state, permission, status),
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
+                onStartExecution: () => void startPccProjectExecution(state),
+                onPauseExecution: () => void pausePccProjectExecution(state),
+                onStopExecution: () => void stopPccProjectExecution(state),
                 onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
                 onResumeProject: () => void resumePccProjectForWork(state),
                 onStartIssueChat: (descriptor) => {

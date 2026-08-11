@@ -806,6 +806,43 @@ export const PccPlansGetResultSchema = Type.Object(
 export const PccPlansCancelParamsSchema = PccPlansGetParamsSchema;
 export const PccPlansCancelResultSchema = PccPlansGetResultSchema;
 
+/** Durable, Gateway-owned project execution controls. */
+export const PccExecutionStartParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    expectedRevision: Type.Integer({ minimum: 1 }),
+    idempotencyKey: Type.String({ minLength: 1, maxLength: 2_048 }),
+  },
+  { additionalProperties: false },
+);
+
+export const PccExecutionGetParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    planId: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+export const PccExecutionControlParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    planId: NonEmptyString,
+    expectedRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+const PccExecutionPlanResultSchema = Type.Object(
+  { plan: Type.Unknown() },
+  { additionalProperties: false },
+);
+
+export const PccExecutionStartResultSchema = PccExecutionPlanResultSchema;
+export const PccExecutionGetResultSchema = PccExecutionPlanResultSchema;
+export const PccExecutionPauseResultSchema = PccExecutionPlanResultSchema;
+export const PccExecutionStopResultSchema = PccExecutionPlanResultSchema;
+
 const PccAttachmentRoleSchema = Type.Union([
   Type.Literal("requirement"),
   Type.Literal("reference"),

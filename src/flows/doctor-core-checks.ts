@@ -33,6 +33,9 @@ import { resolveSecretInputRef, type SecretRef } from "../config/types.secrets.j
 import { hasAmbiguousGatewayAuthModeConfig } from "../gateway/auth-mode-policy.js";
 import { resolveGatewayAuthToken } from "../gateway/auth-token-resolution.js";
 import { resolveGatewayAuth } from "../gateway/auth.js";
+import { isPccTerminalStatus } from "../pcc/domain/completion-policy.js";
+import type { PccLedger } from "../pcc/domain/ledger.js";
+import { repairPccExecutionMetadata } from "../pcc/execution-service.js";
 import { getSkippedExecRefStaticError } from "../secrets/exec-resolution-policy.js";
 import type { SkillStatusEntry } from "../skills/discovery/status.js";
 import { resolveSkillWorkshopConfig } from "../skills/workshop/config.js";
@@ -78,6 +81,50 @@ function summarizePccTimestampIssues(
     .join(", ");
   const remainder = issues.length > 5 ? ` and ${issues.length - 5} more` : "";
   return `${issues.length} historical record(s) have unusable completion timestamps: ${sample}${remainder}.`;
+}
+
+type PccExecutionRepairRecord = { recordId: string; issueCodes: readonly string[] };
+type PccExecutionDoctorWorkItem =
+  | PccLedger["milestones"][number]
+  | PccLedger["subMilestones"][number];
+
+function collectPccExecutionMetadataRepairs(
+  ledger: PccLedger,
+  now?: string,
+): PccExecutionRepairRecord[] {
+  const projects = new Set(ledger.projects.map((project) => project.id));
+  const repairs: PccExecutionRepairRecord[] = [];
+  const inspect = (items: PccExecutionDoctorWorkItem[]) => {
+    for (const [index, item] of items.entries()) {
+      if (!projects.has(item.projectId) || isPccTerminalStatus(item.status)) {
+        continue;
+      }
+      const repaired = repairPccExecutionMetadata(item.projectId, item);
+      if (repaired.issueCodes.length === 0) {
+        continue;
+      }
+      repairs.push({ recordId: item.id, issueCodes: repaired.issueCodes });
+      if (now) {
+        items[index] = {
+          ...repaired.item,
+          revision: (item.revision ?? 1) + 1,
+          updatedAt: now,
+        };
+      }
+    }
+  };
+  inspect(ledger.milestones);
+  inspect(ledger.subMilestones);
+  return repairs;
+}
+
+function summarizePccExecutionRepairs(repairs: readonly PccExecutionRepairRecord[]): string {
+  const sample = repairs
+    .slice(0, 8)
+    .map((repair) => `${repair.recordId} (${repair.issueCodes.join(", ")})`)
+    .join(", ");
+  const remainder = repairs.length > 8 ? ` and ${repairs.length - 8} more` : "";
+  return `${repairs.length} active PCC execution record(s) need canonical metadata repair: ${sample}${remainder}.`;
 }
 
 export type CoreHealthCheckDeps = {
@@ -1157,13 +1204,14 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
   description: "PCC proof bindings and historical completion-receipt integrity remain canonical.",
   source: "doctor",
   async detect() {
-    const { readPccLedger } = await import("../pcc/ledger-store.js");
+    const { readPccLedgerUnnormalized } = await import("../pcc/ledger-store.js");
     const { repairPccLedgerIntegrity } = await import("../pcc/ledger-integrity-repair.js");
     const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
-    const currentLedger = readPccLedger();
+    const currentLedger = readPccLedgerUnnormalized();
     const project = currentLedger.projects.find((item) => item.id === "project-command-center");
     const bindingRepair = project ? repairPccProductionTruthBindings(project) : undefined;
     const integrityRepair = repairPccLedgerIntegrity(structuredClone(currentLedger));
+    const executionRepairs = collectPccExecutionMetadataRepairs(structuredClone(currentLedger));
     const changes = [...(bindingRepair?.changes ?? []), ...integrityRepair.changes];
     const findings: HealthFinding[] = [];
     if (changes.length > 0) {
@@ -1184,27 +1232,53 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
           "Historical records are preserved but excluded from chronological activity. Supply an authoritative completedAt timestamp; doctor will not infer one.",
       });
     }
+    if (executionRepairs.length > 0) {
+      findings.push({
+        checkId: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
+        severity: "warning",
+        message: summarizePccExecutionRepairs(executionRepairs),
+        fixHint:
+          "Run `openclaw doctor --fix pcc` to migrate legacy PCC execution metadata without changing progress.",
+      });
+    }
     return findings;
   },
   async repair(ctx) {
-    const { readPccLedger, withPccLedger } = await import("../pcc/ledger-store.js");
+    const { readPccLedgerUnnormalized, withPccLedger } = await import("../pcc/ledger-store.js");
     const { repairPccLedgerIntegrity } = await import("../pcc/ledger-integrity-repair.js");
     const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
-    const currentLedger = readPccLedger();
+    const currentLedger = readPccLedgerUnnormalized();
     const project = currentLedger.projects.find((item) => item.id === "project-command-center");
     const bindingPreview = project ? repairPccProductionTruthBindings(project) : undefined;
     const integrityPreview = repairPccLedgerIntegrity(structuredClone(currentLedger));
-    const previewChanges = [...(bindingPreview?.changes ?? []), ...integrityPreview.changes];
-    const effects = previewChanges.length
-      ? [
-          {
-            kind: "state" as const,
-            action: "bind-pcc-production-proof-shas",
-            target: "project-command-center",
-            dryRunSafe: true,
-          },
-        ]
-      : [];
+    const executionPreview = collectPccExecutionMetadataRepairs(structuredClone(currentLedger));
+    const previewChanges = [
+      ...(bindingPreview?.changes ?? []),
+      ...integrityPreview.changes,
+      ...executionPreview.map((repair) => `${repair.recordId}: ${repair.issueCodes.join(", ")}`),
+    ];
+    const effects = [
+      ...(bindingPreview?.changes?.length || integrityPreview.changes.length
+        ? [
+            {
+              kind: "state" as const,
+              action: "bind-pcc-production-proof-shas",
+              target: "project-command-center",
+              dryRunSafe: true,
+            },
+          ]
+        : []),
+      ...(executionPreview.length > 0
+        ? [
+            {
+              kind: "state" as const,
+              action: "repair-pcc-execution-metadata",
+              target: "pcc-ledger",
+              dryRunSafe: true,
+            },
+          ]
+        : []),
+    ];
     const previewWarnings =
       integrityPreview.issues.length > 0
         ? [summarizePccTimestampIssues(integrityPreview.issues)]
@@ -1242,6 +1316,12 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
           integrityRepair.issues.length > 0
             ? [summarizePccTimestampIssues(integrityRepair.issues)]
             : [];
+        const executionRepairs = collectPccExecutionMetadataRepairs(ledger, repairedAt);
+        changes.push(
+          ...executionRepairs.map(
+            (repair) => `${repair.recordId}: ${repair.issueCodes.join(", ")}`,
+          ),
+        );
       },
       { write: true, auditKind: "production_truth_and_ledger.canonicalize" },
     );
