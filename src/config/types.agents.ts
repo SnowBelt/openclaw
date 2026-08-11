@@ -34,6 +34,14 @@ export type AgentRuntimeConfig =
       acp?: AgentRuntimeAcpConfig;
     };
 
+/** Stable runtime responsibility; unlike display names and models this drives policy. */
+export type AgentOperationalRole =
+  | "general"
+  | "control_director"
+  | "program_manager"
+  | "judge"
+  | "worker";
+
 export type AgentBindingMatch = {
   channel: string;
   /**
@@ -81,11 +89,15 @@ export type AgentConfig = {
   id: string;
   default?: boolean;
   name?: string;
+  /** Stable runtime responsibility used for authorization and prompt policy. */
+  role?: AgentOperationalRole;
   /** Optional human-authored agent description. */
   description?: string;
   workspace?: string;
   agentDir?: string;
   model?: AgentModelConfig;
+  /** Optional per-agent model for short internal tasks such as generated session titles. */
+  utilityModel?: string;
   /**
    * @deprecated Legacy raw config accepted only by doctor/migration repair.
    * Normal schema parsing rejects this key; use per-model agentRuntime instead.

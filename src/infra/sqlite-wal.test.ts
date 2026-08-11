@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_TIMER_TIMEOUT_MS } from "../shared/number-coercion.js";
 import {
   DEFAULT_SQLITE_WAL_AUTOCHECKPOINT_PAGES,
+  configureSqliteConnectionPragmas,
   configureSqliteWalMaintenance,
 } from "./sqlite-wal.js";
 
@@ -78,5 +79,25 @@ describe("sqlite WAL maintenance", () => {
 
     expect(maintenance.checkpoint()).toBe(false);
     expect(onCheckpointError).toHaveBeenCalledWith(error);
+  });
+
+  it("configures connection pragmas before WAL maintenance", () => {
+    const db = createMockDb();
+
+    configureSqliteConnectionPragmas(db, {
+      busyTimeoutMs: 30_000,
+      checkpointIntervalMs: 0,
+      foreignKeys: true,
+      synchronous: "NORMAL",
+    });
+
+    expect(db["exec"]).toHaveBeenNthCalledWith(1, "PRAGMA busy_timeout = 30000;");
+    expect(db["exec"]).toHaveBeenNthCalledWith(2, "PRAGMA journal_mode = WAL;");
+    expect(db["exec"]).toHaveBeenNthCalledWith(
+      3,
+      `PRAGMA wal_autocheckpoint = ${DEFAULT_SQLITE_WAL_AUTOCHECKPOINT_PAGES};`,
+    );
+    expect(db["exec"]).toHaveBeenNthCalledWith(4, "PRAGMA synchronous = NORMAL;");
+    expect(db["exec"]).toHaveBeenNthCalledWith(5, "PRAGMA foreign_keys = ON;");
   });
 });

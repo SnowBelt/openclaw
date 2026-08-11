@@ -1240,6 +1240,40 @@ export type ProviderTransformSystemPromptContext = ProviderSystemPromptContribut
 
 export type PluginTextTransformRegistration = PluginTextTransforms;
 
+/** Provider-owned, bounded observation of models currently resident in local inference memory. */
+export type ProviderModelResidencyContext = {
+  config?: OpenClawConfig;
+  provider: string;
+  modelId: string;
+  timeoutMs: number;
+};
+
+export type ProviderResidentModel = {
+  modelId: string;
+  state: "active" | "idle";
+  estimatedMemoryBytes?: number;
+};
+
+export type ProviderModelResidencySnapshot = {
+  residentModels: ProviderResidentModel[];
+  observedProcessCount: number;
+  warnings?: string[];
+};
+
+/** Provider-owned, bounded request to make one local model ready for inference. */
+export type ProviderModelWarmupContext = ProviderModelResidencyContext & {
+  keepAliveMs: number;
+  signal: AbortSignal;
+};
+
+export type ProviderModelWarmupResult = {
+  modelId: string;
+  ready: boolean;
+  totalDurationMs?: number;
+  loadDurationMs?: number;
+  warnings?: string[];
+};
+
 /** Text-inference provider capability registered by a plugin. */
 export type ProviderPlugin = {
   id: string;
@@ -1263,6 +1297,27 @@ export type ProviderPlugin = {
    */
   envVars?: string[];
   auth: ProviderAuthMethod[];
+  /**
+   * Provider-owned local-model residency probe.
+   *
+   * The hook must be bounded by `timeoutMs`, return no secrets, and never load,
+   * unload, or otherwise mutate provider state. Core uses the prepared provider
+   * handle rather than rediscovering all providers on this request path.
+   */
+  probeModelResidency?: (
+    ctx: ProviderModelResidencyContext,
+  ) => Promise<ProviderModelResidencySnapshot | null | undefined>;
+  /**
+   * Provider-owned local-model warmup.
+   *
+   * Unlike `probeModelResidency`, this hook may load exactly `ctx.modelId` and
+   * extend its idle residency. It must honor both `timeoutMs` and `signal`, may
+   * not pull or unload models, and must return no secrets. Core invokes it only
+   * after host-capacity admission through an already-loaded provider handle.
+   */
+  warmModel?: (
+    ctx: ProviderModelWarmupContext,
+  ) => Promise<ProviderModelWarmupResult | null | undefined>;
   /**
    * Legacy text-provider catalog hook.
    *

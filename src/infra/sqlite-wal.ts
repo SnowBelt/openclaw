@@ -28,6 +28,12 @@ export type SqliteWalMaintenanceOptions = {
   onCheckpointError?: (error: unknown) => void;
 };
 
+export type SqliteConnectionPragmaOptions = SqliteWalMaintenanceOptions & {
+  busyTimeoutMs?: number;
+  foreignKeys?: boolean;
+  synchronous?: "NORMAL";
+};
+
 function normalizeNonNegativeInteger(value: number, label: string): number {
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${label} must be a non-negative integer`);
@@ -79,4 +85,25 @@ export function configureSqliteWalMaintenance(
       return checkpoint();
     },
   };
+}
+
+/** Configure per-connection pragmas before enabling WAL maintenance. */
+export function configureSqliteConnectionPragmas(
+  db: DatabaseSync,
+  options: SqliteConnectionPragmaOptions = {},
+): SqliteWalMaintenance {
+  const { busyTimeoutMs, foreignKeys, synchronous, ...walOptions } = options;
+  if (busyTimeoutMs !== undefined) {
+    db.exec(
+      `PRAGMA busy_timeout = ${normalizeNonNegativeInteger(busyTimeoutMs, "busyTimeoutMs")};`,
+    );
+  }
+  const maintenance = configureSqliteWalMaintenance(db, walOptions);
+  if (synchronous) {
+    db.exec(`PRAGMA synchronous = ${synchronous};`);
+  }
+  if (foreignKeys) {
+    db.exec("PRAGMA foreign_keys = ON;");
+  }
+  return maintenance;
 }

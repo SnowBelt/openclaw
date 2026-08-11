@@ -28,4 +28,6 @@ export * from "./schema/tasks.js";
 export * from "./schema/types.js";
 export * from "./schema/plugin-approvals.js";
 export * from "./schema/plugins.js";
+export * from "./schema/pcc.js";
+export * from "./schema/pcc-attachments-clarify-migration.js";
 export * from "./schema/wizard.js";

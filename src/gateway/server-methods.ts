@@ -141,6 +141,10 @@ const loadNodeHandlers = lazyHandlerModule(
   () => import("./server-methods/nodes.js"),
   (module) => module.nodeHandlers,
 );
+const loadPccHandlers = lazyHandlerModule(
+  () => import("./server-methods/pcc.js"),
+  (module) => module.pccHandlers,
+);
 const loadPluginHostHookHandlers = lazyHandlerModule(
   () => import("./server-methods/plugin-host-hooks.js"),
   (module) => module.pluginHostHookHandlers,
@@ -410,6 +414,39 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
     methods: ["tasks.list", "tasks.get", "tasks.cancel"],
     loadHandlers: loadTasksHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "pcc.projects.list",
+      "pcc.projects.get",
+      "pcc.plans.generate",
+      "pcc.plans.start",
+      "pcc.plans.get",
+      "pcc.plans.cancel",
+      "pcc.attachments.upload.begin",
+      "pcc.attachments.upload.chunk",
+      "pcc.attachments.upload.commit",
+      "pcc.attachments.list",
+      "pcc.attachments.read",
+      "pcc.attachments.update",
+      "pcc.attachments.clarify",
+      "pcc.attachments.usage.record",
+      "pcc.attachments.usage.list",
+      "pcc.planningPolicy.get",
+      "pcc.planningPolicy.upsert",
+      "pcc.ledger.repairCanonicalMetadata",
+      "pcc.projects.upsert",
+      "pcc.milestones.upsert",
+      "pcc.subMilestones.list",
+      "pcc.subMilestones.upsert",
+      "pcc.permissions.upsert",
+      "pcc.evidence.add",
+      "pcc.receipts.add",
+      "pcc.decisions.add",
+      "pcc.lastKnownGood.upsert",
+      "pcc.summary.get",
+    ],
+    loadHandlers: loadPccHandlers,
   }),
   ...createLazyCoreHandlers({
     methods: ["tools.catalog"],

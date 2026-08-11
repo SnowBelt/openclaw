@@ -1,0 +1,38 @@
+import type {
+  PccCompletionReceipt,
+  PccDecision,
+  PccEvidence,
+  PccLastKnownGood,
+  PccAttachment,
+  PccAttachmentUsageReceipt,
+  PccMilestone,
+  PccModelRunReceipt,
+  PccPermissionGrant,
+  PccProject,
+  PccSubMilestone,
+} from "../../../packages/gateway-protocol/src/schema/types.js";
+import type { PccPlanningPolicy } from "../planning.js";
+import type { PccPrivateTeamPolicy } from "../private-team-policy.js";
+
+/**
+ * Storage-independent PCC aggregate consumed by domain and read-model services.
+ * Persistence adapters may serialize this shape, but do not own its contract.
+ */
+export type PccLedger = {
+  version: 1;
+  projects: PccProject[];
+  milestones: PccMilestone[];
+  subMilestones: PccSubMilestone[];
+  permissions: PccPermissionGrant[];
+  evidence: PccEvidence[];
+  receipts: PccCompletionReceipt[];
+  decisions: PccDecision[];
+  lastKnownGood: PccLastKnownGood[];
+  attachments?: PccAttachment[];
+  attachmentUsageReceipts?: PccAttachmentUsageReceipt[];
+  modelRunReceipts?: PccModelRunReceipt[];
+  settings?: {
+    planningPolicy?: PccPlanningPolicy;
+    privateTeamPolicy?: PccPrivateTeamPolicy;
+  };
+};

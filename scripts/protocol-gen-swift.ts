@@ -81,6 +81,8 @@ const DEFAULTED_OPTIONAL_INIT_PARAM_ENTRIES: readonly [string, readonly string[]
   ["ExecApprovalRequestParams", ["requireDeliveryRoute", "suppressDelivery"]],
   ["AgentSummary", ["thinkingLevels", "thinkingOptions", "thinkingDefault"]],
   ["ModelChoice", ["available"]],
+  ["PccAttachmentsClarifyParams", ["projectId"]],
+  ["PccAttachmentsClarifyResult", ["runId"]],
 ];
 
 const DEFAULTED_OPTIONAL_INIT_PARAMS: Record<string, Set<string>> = Object.fromEntries(
@@ -233,8 +235,22 @@ function swiftInitializerParam(params: {
   return `${params.name}: ${type}?${defaultNil ? " = nil" : ""}`;
 }
 
+function stringEnumCases(schema: JsonSchema): string[] | undefined {
+  if (schema.type === "string" && schema.enum) {
+    return schema.enum.every((value) => typeof value === "string") ? schema.enum : undefined;
+  }
+  const variants = schema.oneOf ?? schema.anyOf;
+  if (!variants?.length) {
+    return undefined;
+  }
+  const cases = variants
+    .map((variant) => literalSchemaValue(variant))
+    .filter((value): value is string => typeof value === "string");
+  return cases.length === variants.length ? cases : undefined;
+}
+
 function emitEnum(name: string, schema: JsonSchema): string {
-  const cases = schema.enum ?? [];
+  const cases = stringEnumCases(schema) ?? [];
   return [
     `public enum ${name}: String, Codable, Sendable {`,
     ...cases.map((value) => `    case ${safeName(value)} = "${value}"`),
@@ -605,7 +621,7 @@ async function generate() {
     if (name === "GatewayFrame") {
       continue;
     }
-    if (schema.type === "string" && schema.enum) {
+    if (stringEnumCases(schema)) {
       parts.push(emitEnum(name, schema));
     }
   }
