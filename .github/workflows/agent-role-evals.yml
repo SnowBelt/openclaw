@@ -54,7 +54,6 @@ jobs:
       - uses: ./.github/actions/setup-node-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          pnpm-version: ${{ env.PNPM_VERSION }}
           install-bun: "false"
       - name: Validate role contracts
         run: pnpm agents:eval:contracts
@@ -79,7 +78,6 @@ jobs:
       - uses: ./.github/actions/setup-node-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          pnpm-version: ${{ env.PNPM_VERSION }}
           install-bun: "true"
       - name: Start local Ollama for local-first evals
         env:

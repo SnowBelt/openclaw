@@ -952,8 +952,8 @@ function validateProgramManagerToolPolicy(issues, agent, toolPolicy) {
       "Program Manager must not resolve to wildcard callable tools.",
     );
   }
-  const contract = AGENT_ROLE_CONTRACT_BY_ID.get(id);
-  const allowed = new Set((contract?.allowedTools ?? []).map(normalizeText));
+  const roleContract = AGENT_ROLE_CONTRACT_BY_ID.get(id);
+  const allowed = new Set((roleContract?.allowedTools ?? []).map(normalizeText));
   for (const tool of toolPolicy.callable) {
     if (!allowed.has(normalizeText(tool))) {
       pushIssue(
@@ -966,7 +966,7 @@ function validateProgramManagerToolPolicy(issues, agent, toolPolicy) {
       );
     }
   }
-  const forbidden = new Set((contract?.forbiddenTools ?? []).map(normalizeText));
+  const forbidden = new Set((roleContract?.forbiddenTools ?? []).map(normalizeText));
   for (const tool of toolPolicy.callable) {
     if (forbidden.has(normalizeText(tool))) {
       pushIssue(
