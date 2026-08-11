@@ -13,6 +13,9 @@ export type ChatQueueProps = {
 };
 
 function sendStateLabel(item: ChatQueueItem): string | null {
+  if (item.sendError && !item.sendState) {
+    return "Failed";
+  }
   switch (item.sendState) {
     case "waiting-model":
       return "Waiting for model";
@@ -55,7 +58,8 @@ export function renderChatQueue(props: ChatQueueProps) {
                   : nothing}
               </div>
               <div class="chat-queue__actions">
-                ${item.sendState === "failed" && props.onQueueRetry
+                ${(item.sendState === "failed" || (item.sendError && !item.sendState)) &&
+                props.onQueueRetry
                   ? html`
                       <button
                         class="btn chat-queue__retry"

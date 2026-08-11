@@ -2725,6 +2725,36 @@ describe("handleSendChat", () => {
     expect(host.chatStream).toBeNull();
   });
 
+  it("does not auto-resend legacy error-only queue records", async () => {
+    const request = vi.fn(async (method: string) => {
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      connected: true,
+      chatQueue: [
+        {
+          id: "legacy-failed-1",
+          text: "retry only after review",
+          createdAt: 1,
+          sendError: "previous send failed",
+        },
+      ],
+    });
+
+    await retryReconnectableQueuedChatSends(host);
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue[0]).toMatchObject({
+      id: "legacy-failed-1",
+      sendError: "previous send failed",
+    });
+    expect(host.chatQueue[0]?.sendState).toBeUndefined();
+  });
+
   it("defers queued global send agent selection until defaults are known", async () => {
     const request = vi.fn((method: string) => {
       if (method === "chat.send") {

@@ -141,6 +141,7 @@
 }
 
 .chat-work-surface__item-main {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -163,9 +164,8 @@
   font-size: 0.92rem;
   font-weight: 680;
   margin-top: 0.22rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .chat-work-surface__item-detail,
@@ -173,13 +173,13 @@
   color: var(--muted-foreground, #64748b);
   font-size: 0.78rem;
   margin-top: 0.18rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .chat-work-surface__item-meta {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
 }
 

@@ -3470,11 +3470,8 @@ td.data-table-key-col {
   color: var(--chat-text);
   font-size: 13px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
 }
 
 .chat-queue__error {
@@ -3482,6 +3479,7 @@ td.data-table-key-col {
   color: var(--danger);
   font-size: 12px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .chat-queue__remove {

@@ -221,7 +221,52 @@ function chatProps() {
     streamStartedAt: null,
     draft: "Restore the dashboards",
     queue: [],
-    sessions: { sessions: [{ key: "main", agentId: "main", title: "Control Director" }], defaults: {} },
+    sessions: {
+      sessions: [
+        {
+          key: "main",
+          agentId: "main",
+          title: "Control Director",
+          controlDirectorTruthAudit: [
+            {
+              ts: 1,
+              runId: "dashboard-smoke",
+              status: "blocked",
+              missing: ["command evidence"],
+              payloadsChecked: 1,
+              payloadsRewritten: 0,
+              claims: [
+                {
+                  claim: "dashboard smoke passed",
+                  claimHash: "dashboard-smoke-hash",
+                  claimType: "verification",
+                  requiredEvidenceType: "command",
+                  matchStatus: "missing",
+                  missingCondition: "command evidence is required",
+                  rewriteAction: "blocked_unsupported_truth_claim",
+                },
+              ],
+            },
+          ],
+          controlDirectorMissionLedger: [
+            {
+              missionId: "dashboard-smoke-mission",
+              runId: "dashboard-smoke",
+              requestSummary: "verify dashboard surfaces",
+              status: "blocked",
+              startedAt: 1,
+              updatedAt: 1,
+              continuationCount: 0,
+              finalStatus: "blocked",
+              nextBuildGap: "collect command evidence",
+              completionGrade: 8,
+              criticality: 5,
+            },
+          ],
+        },
+      ],
+      defaults: {},
+    },
     workTasks: [],
     goalFlows: [],
     assistantName: "Control Director",

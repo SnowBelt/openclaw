@@ -2866,6 +2866,26 @@ describe("chat queue", () => {
 
     expect(onQueueRetry).toHaveBeenCalledWith("failed-1");
   });
+
+  it("treats a legacy error-only queue item as failed and retryable", () => {
+    const onQueueRetry = vi.fn();
+    const container = renderQueue({
+      onQueueRetry,
+      queue: [
+        {
+          id: "legacy-failed-1",
+          text: "retry the preserved prompt",
+          createdAt: 1,
+          sendError: "send blocked by an older queue record",
+        },
+      ],
+    });
+
+    expect(container.querySelector(".chat-queue__badge")?.textContent?.trim()).toBe("Failed");
+    expect(container.querySelector(".chat-queue__retry")).not.toBeNull();
+    container.querySelector<HTMLButtonElement>(".chat-queue__retry")?.click();
+    expect(onQueueRetry).toHaveBeenCalledWith("legacy-failed-1");
+  });
 });
 
 describe("chat sidebar raw content", () => {
@@ -4799,6 +4819,117 @@ describe("chat Working Now surface", () => {
     expect(summary?.textContent).toContain("Goal paused");
     expect(summary?.textContent).not.toContain("Working");
     expect(summary?.getAttribute("aria-label")).toBe("Working Now: Goal paused");
+  });
+
+  it("shows a queued goal as queued instead of working", () => {
+    const container = renderChatView({
+      goalFlows: [
+        {
+          id: "flow-queued",
+          goal: "Finish the dashboard",
+          status: "queued",
+        },
+      ],
+    });
+
+    const summary = container.querySelector<HTMLElement>(".chat-work-surface__summary");
+    expect(summary?.getAttribute("aria-label")).toBe("Working Now: Goal queued");
+  });
+
+  it("labels queue-only work as queued instead of working or idle", () => {
+    const container = renderChatView({
+      queue: [{ id: "queue-1", text: "Wait for the current response", createdAt: 1 }],
+    });
+
+    const summary = container.querySelector<HTMLElement>(".chat-work-surface__summary");
+    expect(summary?.textContent).toContain("Queued");
+    expect(summary?.textContent).not.toContain("Working");
+    expect(summary?.textContent).not.toContain("Nothing running");
+    expect(summary?.getAttribute("aria-label")).toBe("Working Now: Queued");
+  });
+
+  it("surfaces failed queued work as attention", () => {
+    const container = renderChatView({
+      queue: [
+        {
+          id: "queue-failed",
+          text: "Retry this prompt",
+          createdAt: 1,
+          sendState: "failed",
+          sendError: "Gateway rejected the request",
+        },
+      ],
+    });
+
+    const summary = container.querySelector<HTMLElement>(".chat-work-surface__summary");
+    expect(summary?.getAttribute("aria-label")).toBe("Working Now: Needs attention");
+    expect(container.querySelector(".chat-work-surface")?.textContent).toContain("Chat queue");
+  });
+
+  it("does not call reconnect-waiting work failed when it has a transient error", () => {
+    const container = renderChatView({
+      queue: [
+        {
+          id: "queue-reconnect",
+          text: "Send after reconnect",
+          createdAt: 1,
+          sendState: "waiting-reconnect",
+          sendError: "Gateway disconnected",
+        },
+      ],
+    });
+
+    const summary = container.querySelector<HTMLElement>(".chat-work-surface__summary");
+    expect(summary?.getAttribute("aria-label")).toBe("Working Now: Queued");
+    expect(container.querySelector(".chat-work-surface")?.textContent).not.toContain("Chat queue");
+  });
+
+  it("shows Working only when a goal has an active worker", () => {
+    const container = renderChatView({
+      goalFlows: [
+        {
+          id: "flow-running",
+          goal: "Finish the dashboard",
+          status: "running",
+          taskSummary: { active: 1 },
+        },
+      ],
+    });
+
+    const summary = container.querySelector<HTMLElement>(".chat-work-surface__summary");
+    expect(summary?.getAttribute("aria-label")).toBe("Working Now: Working");
+  });
+
+  it("does not call a queued child task working", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 2,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          { key: "agent:main:main", kind: "direct", updatedAt: 1 },
+          {
+            key: "agent:main:subagent:worker",
+            kind: "direct",
+            spawnedBy: "agent:main:main",
+            updatedAt: 2,
+          },
+        ],
+        ts: 0,
+      },
+      workTasks: [
+        {
+          id: "task-queued",
+          taskId: "task-queued",
+          sessionKey: "agent:main:subagent:worker",
+          status: "queued",
+        },
+      ],
+    });
+
+    const summary = container.querySelector<HTMLElement>(".chat-work-surface__summary");
+    expect(summary?.getAttribute("aria-label")).toBe("Working Now: Queued");
   });
 
   it("makes a blocked goal an actionable attention disclosure", () => {
