@@ -12,7 +12,7 @@ promoting it into an executor or a source of truth.
 | PM-04 | Emits non-secret telemetry on `program_manager_telemetry` without credentials, cookies, browser/session data, or private notes.                                | Telemetry unit tests and type/build proof                     |
 | PM-05 | Fails closed for unsafe indirect execution and requires `security=deny`, `ask=always`, and `askFallback=deny` for `exec`.                                      | Static repository evaluator and focused tests                 |
 | PM-06 | Exposes stale-work signals and preserves explicit unknown metadata in canonical state fixtures.                                                                | Efficiency contract and state validation                      |
-| PM-07 | Static contracts run deterministically from the CLI with no private operator state.                                                                            | `pnpm agents:eval:contracts -- --json`                        |
+| PM-07 | Static contracts run deterministically from the CLI with no private operator state.                                                                            | `node scripts/agent-role-eval.mjs --contracts-only --json`    |
 | PM-08 | Live evaluation is opt-in/manual or local-only; scheduled CI does not hydrate live secrets.                                                                    | Workflow test and actionlint                                  |
 | PM-09 | Changed source is formatted, linted, tested, built, and diff-clean.                                                                                            | Focused tests, formatter, lint, build, and `git diff --check` |
 
