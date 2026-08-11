@@ -8,6 +8,7 @@ import {
   closePccLedgerStorageForTest,
   pccLedgerSqlitePath,
   readPccLedger,
+  readPccLedgerUnnormalized,
   replacePccLedgerForTest,
   withPccLedger,
 } from "../pcc/ledger-store.js";
@@ -368,7 +369,8 @@ describe("CORE_HEALTH_CHECKS", () => {
       });
       expect(repaired?.warnings).toContainEqual(expect.stringContaining("legacy-receipt"));
       expect(
-        (readPccLedger().receipts[0] as unknown as { completedAt?: string }).completedAt,
+        (readPccLedgerUnnormalized().receipts[0] as unknown as { completedAt?: string })
+          .completedAt,
       ).toBeUndefined();
     });
   });

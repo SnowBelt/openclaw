@@ -1204,10 +1204,10 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
   description: "PCC proof bindings and historical completion-receipt integrity remain canonical.",
   source: "doctor",
   async detect() {
-    const { readPccLedger } = await import("../pcc/ledger-store.js");
+    const { readPccLedgerUnnormalized } = await import("../pcc/ledger-store.js");
     const { repairPccLedgerIntegrity } = await import("../pcc/ledger-integrity-repair.js");
     const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
-    const currentLedger = readPccLedger();
+    const currentLedger = readPccLedgerUnnormalized();
     const project = currentLedger.projects.find((item) => item.id === "project-command-center");
     const bindingRepair = project ? repairPccProductionTruthBindings(project) : undefined;
     const integrityRepair = repairPccLedgerIntegrity(structuredClone(currentLedger));
@@ -1244,10 +1244,10 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
     return findings;
   },
   async repair(ctx) {
-    const { readPccLedger, withPccLedger } = await import("../pcc/ledger-store.js");
+    const { readPccLedgerUnnormalized, withPccLedger } = await import("../pcc/ledger-store.js");
     const { repairPccLedgerIntegrity } = await import("../pcc/ledger-integrity-repair.js");
     const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
-    const currentLedger = readPccLedger();
+    const currentLedger = readPccLedgerUnnormalized();
     const project = currentLedger.projects.find((item) => item.id === "project-command-center");
     const bindingPreview = project ? repairPccProductionTruthBindings(project) : undefined;
     const integrityPreview = repairPccLedgerIntegrity(structuredClone(currentLedger));

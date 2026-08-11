@@ -473,13 +473,16 @@ export function readPccLedgerBackup(
   }
 }
 
-function readLegacyLedger(env: NodeJS.ProcessEnv): PccLedger | null {
+function readLegacyLedger(
+  env: NodeJS.ProcessEnv,
+  options: PccLedgerAssertionOptions = {},
+): PccLedger | null {
   const file = pccLedgerJsonPath(env);
   if (!fs.existsSync(file)) {
     return null;
   }
   try {
-    return assertPccLedger(JSON.parse(fs.readFileSync(file, "utf8")) as unknown);
+    return assertPccLedger(JSON.parse(fs.readFileSync(file, "utf8")) as unknown, options);
   } catch (error) {
     throw new Error(`PCC legacy ledger is corrupt: ${file}`, { cause: error });
   }
@@ -540,13 +543,25 @@ export function migrateLegacyPccLedgerStorage(
 }
 
 export function readPccLedger(env: NodeJS.ProcessEnv = process.env): PccLedger {
+  return readPccLedgerWithOptions(env);
+}
+
+function readPccLedgerWithOptions(
+  env: NodeJS.ProcessEnv,
+  options: PccLedgerAssertionOptions = {},
+): PccLedger {
   const databasePath = pccLedgerSqlitePath(env);
   if (fs.existsSync(databasePath)) {
     const database = openLedgerDatabase(env);
     const row = selectSnapshot(database.db);
-    return row ? parseSnapshot(row) : defaultLedger();
+    return row ? parseSnapshot(row, options) : defaultLedger();
   }
-  return readLegacyLedger(env) ?? defaultLedger();
+  return readLegacyLedger(env, options) ?? defaultLedger();
+}
+
+/** Read the persisted PCC shape without compatibility normalization for doctor diagnostics. */
+export function readPccLedgerUnnormalized(env: NodeJS.ProcessEnv = process.env): PccLedger {
+  return readPccLedgerWithOptions(env, { normalizeLegacyReceipts: false });
 }
 
 export function withPccLedger<T>(
