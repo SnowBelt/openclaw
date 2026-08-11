@@ -3,6 +3,7 @@ import { existsSync, promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   closePccLedgerStorageForTest,
@@ -47,6 +48,7 @@ vi.mock("../commands/doctor-gateway-services.js", () => ({
 }));
 
 const runtime = { log() {}, error() {}, exit() {} };
+const pccTempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function createSkill(overrides: Partial<SkillStatusEntry> = {}): SkillStatusEntry {
   return {
@@ -376,7 +378,7 @@ describe("CORE_HEALTH_CHECKS", () => {
   });
 
   it("reports and repairs legacy PCC execution metadata without changing progress", async () => {
-    tmp = await fs.mkdtemp(join(tmpdir(), "openclaw-health-pcc-execution-metadata-"));
+    tmp = pccTempDirs.make("openclaw-health-pcc-execution-metadata-");
     await withEnvAsync({ OPENCLAW_STATE_DIR: tmp }, async () => {
       replacePccLedgerForTest({
         version: 1,
