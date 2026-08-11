@@ -2,7 +2,13 @@ import { html, nothing, type TemplateResult } from "lit";
 import { t } from "../../../i18n/index.ts";
 import { formatDateMs } from "../../format.ts";
 import { icons } from "../../icons.ts";
-import { derivePccProgress, isPccRunActive, type PccUiState } from "../application/model.ts";
+import {
+  derivePccProgress,
+  getPccWorkLoopState,
+  pccGoalPrimaryAction,
+  type PccGoalAction,
+  type PccUiState,
+} from "../application/model.ts";
 
 export type PccPresentationProps = {
   state: PccUiState;
@@ -12,6 +18,7 @@ export type PccPresentationProps = {
   onSelectProject: (projectId: string) => void;
   onCreateProject: (title: string, goal: string) => void;
   onStartPlan: (description: string) => void;
+  onGoalAction: (action: PccGoalAction) => void;
 };
 
 function statusLabel(status: string): string {
@@ -172,7 +179,6 @@ function renderPlanForm(props: PccPresentationProps): TemplateResult {
   if (!props.canWrite || !props.state.project) {
     return html``;
   }
-  const active = isPccRunActive(props.state.planningRun);
   return html`
     <form
       class="pcc-plan-form"
@@ -191,9 +197,7 @@ function renderPlanForm(props: PccPresentationProps): TemplateResult {
           maxlength="20000"
           placeholder=${t("pcc.planPlaceholder")}
       /></label>
-      <button class="btn primary" ?disabled=${props.state.saving || active}>
-        ${active ? t("pcc.planning") : t("pcc.startPlan")}
-      </button>
+      <button class="btn primary" ?disabled=${props.state.saving}>${t("pcc.startPlan")}</button>
     </form>
     ${props.state.planningRun
       ? html`<div class="pcc-run" role="status">
@@ -204,6 +208,128 @@ function renderPlanForm(props: PccPresentationProps): TemplateResult {
           })}
         </div>`
       : nothing}
+  `;
+}
+
+function renderGoalControls(props: PccPresentationProps): TemplateResult {
+  const project = props.state.project;
+  const workLoopState = getPccWorkLoopState(project);
+  const action = pccGoalPrimaryAction(project, props.state.planningRun);
+  if (!project || !action) {
+    return html``;
+  }
+  const labels: Record<PccGoalAction, string> = {
+    start: t("pcc.goalActions.start"),
+    continue: t("pcc.goalActions.continue"),
+    pause: t("pcc.goalActions.pause"),
+    resume: t("pcc.goalActions.resume"),
+    retry: t("pcc.goalActions.retry"),
+    stop: t("pcc.goalActions.stop"),
+  };
+  const run = props.state.planningRun;
+  return html`
+    <section class="pcc-section pcc-goal-controls" aria-labelledby="pcc-goal-controls-title">
+      <div class="pcc-section__heading">
+        <div>
+          <h2 id="pcc-goal-controls-title">${t("pcc.goalControlsTitle")}</h2>
+          <p class="pcc-muted">${t("pcc.goalControlsHint")}</p>
+        </div>
+        <span class="pcc-status pcc-status--${workLoopState}">${statusLabel(workLoopState)}</span>
+      </div>
+      <div class="pcc-goal-controls__actions">
+        <button
+          class="btn primary"
+          ?disabled=${props.state.saving}
+          @click=${() => props.onGoalAction(action)}
+        >
+          ${labels[action]}
+        </button>
+        ${action === "pause" || action === "resume"
+          ? html`<button
+              class="btn"
+              ?disabled=${props.state.saving}
+              @click=${() => props.onGoalAction("stop")}
+            >
+              ${t("pcc.goalActions.stop")}
+            </button>`
+          : nothing}
+      </div>
+      ${run
+        ? html`<div class="pcc-run" role="status" aria-live="polite">
+            <span class="pcc-run__dot pcc-run__dot--${run.status}"></span>
+            ${t("pcc.runStatus", { status: statusLabel(run.status), id: run.id })}
+          </div>`
+        : nothing}
+    </section>
+  `;
+}
+
+function renderProofAndContext(props: PccPresentationProps): TemplateResult {
+  const state = props.state;
+  const summary = state.summary;
+  const nextActions = summary?.nextActions ?? [];
+  const proofGaps = summary?.proofGaps ?? [];
+  return html`
+    <section class="pcc-section pcc-proof" aria-labelledby="pcc-proof-title">
+      <div class="pcc-section__heading">
+        <div>
+          <h2 id="pcc-proof-title">${t("pcc.proofTitle")}</h2>
+          <p class="pcc-muted">${t("pcc.proofHint")}</p>
+        </div>
+        <span class="pcc-muted"
+          >${t("pcc.evidenceCount", { count: String(state.evidence.length) })}</span
+        >
+      </div>
+      <div class="pcc-proof__grid">
+        <div>
+          <h3>${t("pcc.nextActionsTitle")}</h3>
+          ${nextActions.length
+            ? html`<ul>
+                ${nextActions.map((item) => html`<li>${item}</li>`)}
+              </ul>`
+            : html`<p class="pcc-muted">${t("pcc.noneRecorded")}</p>`}
+        </div>
+        <div>
+          <h3>${t("pcc.proofGapsTitle")}</h3>
+          ${proofGaps.length
+            ? html`<ul>
+                ${proofGaps.map((item) => html`<li>${item}</li>`)}
+              </ul>`
+            : html`<p class="pcc-muted">${t("pcc.noProofGaps")}</p>`}
+        </div>
+        <div>
+          <h3>${t("pcc.permissionsTitle")}</h3>
+          ${state.permissions.length
+            ? html`<ul>
+                ${state.permissions.map((item) => html`<li>${item.type}: ${item.status}</li>`)}
+              </ul>`
+            : html`<p class="pcc-muted">${t("pcc.noPermissions")}</p>`}
+        </div>
+        <div>
+          <h3>${t("pcc.evidenceTitle")}</h3>
+          ${state.evidence.length
+            ? html`<ul>
+                ${state.evidence
+                  .slice(0, 6)
+                  .map((item) => html`<li>${item.kind}: ${item.status}</li>`)}
+              </ul>`
+            : html`<p class="pcc-muted">${t("pcc.noneRecorded")}</p>`}
+        </div>
+      </div>
+      <details class="pcc-details">
+        <summary>${t("pcc.receiptsAndAttachments")}</summary>
+        <p>${t("pcc.receiptsAndAttachmentsCount", { count: String(state.receipts.length) })}</p>
+        ${state.attachmentsError
+          ? html`<p class="callout warning" role="alert">
+              ${t("pcc.attachmentsUnavailable")}: ${state.attachmentsError}
+            </p>`
+          : state.attachments.length
+            ? html`<ul>
+                ${state.attachments.map((item) => html`<li>${item.title} · ${item.status}</li>`)}
+              </ul>`
+            : html`<p class="pcc-muted">${t("pcc.noAttachments")}</p>`}
+      </details>
+    </section>
   `;
 }
 
@@ -247,6 +373,8 @@ export function renderPccDashboard(props: PccPresentationProps): TemplateResult 
             ${renderMilestones(props)}
           </section>`
         : nothing}
+      ${props.state.project ? renderProofAndContext(props) : nothing}
+      ${props.state.project ? renderGoalControls(props) : nothing}
       ${props.state.project
         ? html`<section class="pcc-section">
             <div class="pcc-section__heading">

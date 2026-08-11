@@ -17,9 +17,49 @@ function createClient() {
           updatedAt: "2026-08-11T00:00:00.000Z",
         },
         milestones: [],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
         summary: {
           percentComplete: 0,
           milestoneCounts: { total: 0, complete: 0, blocked: 0, needsApproval: 0 },
+        },
+      };
+    }
+    if (method === "pcc.attachments.list") {
+      return { attachments: [] };
+    }
+    if (method === "pcc.plans.get") {
+      return { run: { id: "run-1", status: "queued" } };
+    }
+    if (method === "pcc.projects.upsert") {
+      return {
+        project: {
+          id: "project-1",
+          title: "MVP",
+          goal: "Ship a reliable MVP",
+          status: "active",
+          metadata: { pccWorkLoop: { state: "working" } },
+          createdAt: "2026-08-11T00:00:00.000Z",
+          updatedAt: "2026-08-11T00:00:00.000Z",
+        },
+        summary: {
+          id: "project-1",
+          title: "MVP",
+          status: "active",
+          percentComplete: 0,
+          milestoneCounts: {
+            total: 0,
+            complete: 0,
+            blocked: 0,
+            needsApproval: 0,
+            deferred: 0,
+            skipped: 0,
+          },
+          nextActions: [],
+          proofGaps: [],
+          updatedAt: "2026-08-11T00:00:00.000Z",
         },
       };
     }

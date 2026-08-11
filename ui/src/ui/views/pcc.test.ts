@@ -19,6 +19,7 @@ function createProps(overrides: Partial<PccProps> = {}): PccProps {
     onSelectProject: vi.fn(),
     onCreateProject: vi.fn(),
     onStartPlan: vi.fn(),
+    onGoalAction: vi.fn(),
     ...overrides,
   };
 }
@@ -128,5 +129,14 @@ describe("renderPcc", () => {
       "Needs a receipt",
     );
     expect(container.querySelector(".pcc-run")?.textContent).toContain("run-1");
+    expect(container.querySelector("#pcc-proof-title")?.textContent).toContain(
+      "Evidence and next steps",
+    );
+    expect(container.querySelector("#pcc-goal-controls-title")?.textContent).toContain(
+      "Guided work loop",
+    );
+    expect(container.querySelector(".pcc-goal-controls .btn.primary")?.textContent).toContain(
+      "Pause",
+    );
   });
 });

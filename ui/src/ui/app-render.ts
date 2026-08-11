@@ -123,6 +123,7 @@ import {
   createPccProject,
   getPccState,
   loadPcc,
+  runPccGoalAction,
   selectPccProject,
   startPccPlan,
 } from "./controllers/pcc.ts";
@@ -2840,6 +2841,13 @@ export function renderApp(state: AppViewState) {
                     host: state,
                     client: state.client,
                     description,
+                    requestUpdate: requestHostUpdate,
+                  }),
+                onGoalAction: (action) =>
+                  void runPccGoalAction({
+                    host: state,
+                    client: state.client,
+                    action,
                     requestUpdate: requestHostUpdate,
                   }),
               });

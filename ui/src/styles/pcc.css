@@ -202,6 +202,32 @@
   animation: pcc-pulse 1.2s ease-in-out infinite;
   background: var(--accent-color, #6d5dfc);
 }
+.pcc-goal-controls__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.pcc-proof__grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
+}
+.pcc-proof__grid > div {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+}
+.pcc-proof__grid h3 {
+  font-size: 13px;
+  margin: 0;
+}
+.pcc-proof__grid ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
 .pcc-empty {
   border: 1px dashed var(--border-color);
   border-radius: 16px;
@@ -245,5 +271,16 @@
   .pcc-field {
     min-width: 0;
     width: 100%;
+  }
+  .pcc-proof__grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pcc-progress__track span,
+  .pcc-run__dot--queued,
+  .pcc-run__dot--running {
+    animation: none;
+    transition: none;
   }
 }

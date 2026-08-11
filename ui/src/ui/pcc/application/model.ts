@@ -1,9 +1,27 @@
 import type {
+  PccAttachment,
+  PccCompletionReceipt,
+  PccEvidence,
   PccMilestone,
+  PccPermissionGrant,
   PccPlanningRun,
   PccProject,
   PccProjectSummary,
+  PccSubMilestone,
 } from "../../../../../packages/gateway-protocol/src/index.js";
+
+export type PccWorkLoopState =
+  | "idle"
+  | "working"
+  | "paused"
+  | "blocked"
+  | "waiting_for_permission"
+  | "waiting_for_codex"
+  | "waiting_for_remote_proof"
+  | "proof_failed"
+  | "complete";
+
+export type PccGoalAction = "start" | "continue" | "pause" | "resume" | "retry" | "stop";
 
 export type PccUiState = {
   loading: boolean;
@@ -14,8 +32,15 @@ export type PccUiState = {
   selectedProjectId: string | null;
   project: PccProject | null;
   milestones: PccMilestone[];
+  subMilestones: PccSubMilestone[];
+  permissions: PccPermissionGrant[];
+  evidence: PccEvidence[];
+  receipts: PccCompletionReceipt[];
+  attachments: PccAttachment[];
+  attachmentsError: string | null;
   summary: PccProjectSummary | null;
   planningRun: PccPlanningRun | null;
+  planDescription: string;
 };
 
 export const EMPTY_PCC_STATE: PccUiState = {
@@ -27,8 +52,15 @@ export const EMPTY_PCC_STATE: PccUiState = {
   selectedProjectId: null,
   project: null,
   milestones: [],
+  subMilestones: [],
+  permissions: [],
+  evidence: [],
+  receipts: [],
+  attachments: [],
+  attachmentsError: null,
   summary: null,
   planningRun: null,
+  planDescription: "",
 };
 
 export type PccProgress = {
@@ -75,4 +107,77 @@ export function selectedProject(
 
 export function isPccRunActive(run: PccPlanningRun | null): boolean {
   return run?.status === "queued" || run?.status === "running";
+}
+
+export function getPccWorkLoopState(project: PccProject | null): PccWorkLoopState {
+  const raw = project?.metadata?.pccWorkLoop;
+  if (!raw || typeof raw !== "object") {
+    return "idle";
+  }
+  const state = (raw as { state?: unknown }).state;
+  return typeof state === "string" &&
+    [
+      "idle",
+      "working",
+      "paused",
+      "blocked",
+      "waiting_for_permission",
+      "waiting_for_codex",
+      "waiting_for_remote_proof",
+      "proof_failed",
+      "complete",
+    ].includes(state)
+    ? (state as PccWorkLoopState)
+    : "idle";
+}
+
+export function getPccPlanDescription(project: PccProject | null): string {
+  const raw = project?.metadata?.pccWorkLoop;
+  if (!raw || typeof raw !== "object") {
+    return "";
+  }
+  const value = (raw as { lastPlanDescription?: unknown }).lastPlanDescription;
+  return typeof value === "string" ? value : "";
+}
+
+export function getPccPlanningRunId(project: PccProject | null): string | null {
+  const raw = project?.metadata?.pccWorkLoop;
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const value = (raw as { runId?: unknown }).runId;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+export function pccGoalPrimaryAction(
+  project: PccProject | null,
+  run: PccPlanningRun | null,
+): PccGoalAction | null {
+  if (!project) {
+    return "start";
+  }
+  const state = getPccWorkLoopState(project);
+  if (state === "complete") {
+    return null;
+  }
+  if (isPccRunActive(run)) {
+    return "pause";
+  }
+  if (state === "paused") {
+    return "resume";
+  }
+  if (state === "working") {
+    return run?.status === "failed" || run?.status === "cancelled" || run?.status === "lost"
+      ? "retry"
+      : "continue";
+  }
+  if (
+    state === "proof_failed" ||
+    run?.status === "failed" ||
+    run?.status === "cancelled" ||
+    run?.status === "lost"
+  ) {
+    return "retry";
+  }
+  return state === "idle" ? "start" : "continue";
 }

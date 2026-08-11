@@ -87,6 +87,18 @@ describePccE2e("Control UI PCC mocked Gateway E2E", () => {
             updatedAt: "2026-01-01T00:00:00.000Z",
           },
         },
+        "pcc.projects.upsert": {
+          project: {
+            id: "project-1",
+            title: "PCC MVP",
+            goal: "A reliable local MVP",
+            status: "active",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+          summary,
+        },
+        "pcc.attachments.list": { attachments: [] },
       },
     });
 
@@ -95,6 +107,8 @@ describePccE2e("Control UI PCC mocked Gateway E2E", () => {
       expect(response?.status()).toBe(200);
       await page.getByRole("heading", { name: "Project Command Center" }).waitFor();
       await page.getByRole("heading", { name: "PCC MVP" }).waitFor();
+      await page.getByRole("heading", { name: "Proof" }).waitFor();
+      await page.getByRole("heading", { name: "Guided work loop" }).waitFor();
       expect(await page.getByText("Verify the browser journey").count()).toBeGreaterThan(0);
 
       await page.getByLabel("What should happen next?").fill("Review the next milestone");
@@ -105,9 +119,10 @@ describePccE2e("Control UI PCC mocked Gateway E2E", () => {
         description: "Review the next milestone",
         surface: "project_replan",
       });
-      const run = page.locator(".pcc-run");
+      const run = page.locator(".pcc-run").filter({ hasText: "run-browser-1" }).first();
       await run.waitFor();
       expect((await run.textContent()) ?? "").toContain("run-browser-1");
+      await page.getByRole("button", { name: "Pause" }).waitFor();
     } finally {
       await page.close();
     }

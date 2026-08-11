@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { derivePccProgress, isPccRunActive, selectedProject } from "./model.ts";
+import {
+  derivePccProgress,
+  isPccRunActive,
+  pccGoalPrimaryAction,
+  selectedProject,
+} from "./model.ts";
 
 describe("PCC application model", () => {
   it("prefers the server summary while deriving a fallback from milestones", () => {
@@ -54,5 +59,22 @@ describe("PCC application model", () => {
     expect(isPccRunActive({ status: "queued" } as never)).toBe(true);
     expect(isPccRunActive({ status: "running" } as never)).toBe(true);
     expect(isPccRunActive({ status: "succeeded" } as never)).toBe(false);
+  });
+
+  it("chooses durable lifecycle actions from persisted project state", () => {
+    const project = {
+      id: "p",
+      title: "MVP",
+      status: "active",
+      metadata: { pccWorkLoop: { state: "paused" } },
+    };
+    expect(pccGoalPrimaryAction(project as never, null)).toBe("resume");
+    expect(pccGoalPrimaryAction(project as never, { status: "running" } as never)).toBe("pause");
+    expect(
+      pccGoalPrimaryAction(
+        { ...project, metadata: { pccWorkLoop: { state: "complete" } } } as never,
+        null,
+      ),
+    ).toBeNull();
   });
 });
