@@ -101,6 +101,24 @@ function queueTitle(item: ChatQueueItem): string {
   return "Queued message";
 }
 
+function queueStatusLabel(item: ChatQueueItem): string {
+  switch (item.sendState) {
+    case "waiting-model":
+      return "Waiting for model";
+    case "sending":
+      return "Sending";
+    case "waiting-reconnect":
+      return "Waiting for reconnect";
+    case "failed":
+      return "Failed";
+    default:
+      if (item.sendError) {
+        return "Failed";
+      }
+      return item.kind === "steered" ? "Steered" : "Queued";
+  }
+}
+
 function sessionTitle(row: NonNullable<SessionsListResult["sessions"]>[number]): string {
   return (
     normalizeText(row.displayName) ??
@@ -197,14 +215,23 @@ export function buildWorkSurfaceSnapshot(input: BuildWorkSurfaceSnapshotInput): 
   }
 
   for (const item of input.chatQueue ?? []) {
+    const failed = item.sendState === "failed" || Boolean(item.sendError && !item.sendState);
     items.push({
       id: `queued:${item.id}`,
       kind: "queued_message",
       title: queueTitle(item),
-      status: item.kind === "steered" ? "Steered" : "Queued",
+      status: queueStatusLabel(item),
       detail: item.localCommandName ? `/${item.localCommandName}` : undefined,
       updatedAt: item.createdAt,
       runId: item.pendingRunId,
+      ...(failed
+        ? {
+            attention: {
+              owner: "Chat queue",
+              nextAction: "Retry the message or remove it from the queue.",
+            },
+          }
+        : {}),
       actions: ["remove_queue"],
     });
   }
@@ -252,7 +279,12 @@ export function buildWorkSurfaceSnapshot(input: BuildWorkSurfaceSnapshotInput): 
   }
 
   for (const row of input.sessionsResult?.sessions ?? []) {
-    if (row.hasActiveRun !== true) {
+    const hasExecutingRun =
+      row.hasActiveRun === true ||
+      row.hasActiveSubagentRun === true ||
+      row.subagentRunState === "active" ||
+      row.status === "running";
+    if (!hasExecutingRun) {
       continue;
     }
     if (chatRunId && currentSessionKey && row.key === currentSessionKey) {
@@ -282,4 +314,39 @@ export function buildWorkSurfaceSnapshot(input: BuildWorkSurfaceSnapshotInput): 
 
 export function hasActiveWork(items: readonly WorkSurfaceItem[]): boolean {
   return items.length > 0;
+}
+
+function normalizedItemStatus(item: WorkSurfaceItem): string {
+  return item.status.trim().toLowerCase();
+}
+
+/**
+ * Keep the summary indicator tied to execution, not mere visibility. Queue entries and paused
+ * goals remain useful in Working Now, but must not make an idle chat claim that work is running.
+ */
+export function isWorkSurfaceItemExecuting(item: WorkSurfaceItem): boolean {
+  if (item.kind === "chat_run" || item.kind === "active_session") {
+    return true;
+  }
+  if (item.kind === "task") {
+    const status = normalizedItemStatus(item);
+    return status === "running" || status === "working";
+  }
+  if (item.kind === "goal") {
+    const status = normalizedItemStatus(item);
+    return status === "goal active · worker running" || status === "stopping";
+  }
+  return false;
+}
+
+export function hasQueuedWork(items: readonly WorkSurfaceItem[]): boolean {
+  return items.some((item) => {
+    if (item.kind === "queued_message") {
+      return true;
+    }
+    if (item.kind === "task") {
+      return normalizedItemStatus(item) === "queued";
+    }
+    return item.kind === "goal" && normalizedItemStatus(item) === "goal queued";
+  });
 }

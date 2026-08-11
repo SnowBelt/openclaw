@@ -1782,6 +1782,9 @@ async function flushChatQueue(host: ChatHost) {
       item.sendState !== "sending" &&
       item.sendState !== "waiting-model" &&
       item.sendState !== "failed" &&
+      // Older persisted queue entries can retain the error without its state.
+      // Keep those sends manual-retry-only instead of silently resubmitting them.
+      !(item.sendError && !item.sendState) &&
       (item.sessionKey == null || item.sessionKey === host.sessionKey),
   );
   if (nextIndex < 0) {

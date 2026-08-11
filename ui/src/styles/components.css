@@ -3485,6 +3485,7 @@ td.data-table-key-col {
   color: var(--danger);
   font-size: 12px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .chat-queue__remove {

@@ -207,6 +207,33 @@ describe("chat composer persistence", () => {
     expect(restored.chatQueue).toEqual([failed]);
   });
 
+  it("preserves legacy error-only queued messages for manual retry", () => {
+    persistChatComposerState(
+      createState({
+        chatQueue: [
+          {
+            id: "legacy-failed-1",
+            text: "retry only after review",
+            createdAt: 1,
+            sendError: "previous send failed",
+          },
+        ],
+      }),
+    );
+
+    const restored = createState();
+    expect(restoreChatComposerState(restored)).toBe(true);
+
+    expect(restored.chatQueue).toEqual([
+      {
+        id: "legacy-failed-1",
+        text: "retry only after review",
+        createdAt: 1,
+        sendError: "previous send failed",
+      },
+    ]);
+  });
+
   it("does not restore in-flight sends that may already have reached the gateway", () => {
     persistChatComposerState(
       createState({

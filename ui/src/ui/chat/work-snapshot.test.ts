@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { CHAT_PURSUE_GOAL_CONTROLLER_ID } from "./pursue-goal.ts";
-import { buildWorkSurfaceSnapshot } from "./work-snapshot.ts";
+import {
+  buildWorkSurfaceSnapshot,
+  hasQueuedWork,
+  isWorkSurfaceItemExecuting,
+} from "./work-snapshot.ts";
 
 const sessionsResult = {
   ts: 0,
@@ -157,5 +161,105 @@ describe("buildWorkSurfaceSnapshot", () => {
       },
       actions: ["open_goal"],
     });
+  });
+
+  it("separates queued work from work that is actively executing", () => {
+    const items = buildWorkSurfaceSnapshot({
+      chatQueue: [{ id: "queue-1", text: "Wait for the current run", createdAt: 1 }],
+      tasks: [{ id: "task-1", title: "Waiting task", status: "queued" }],
+    });
+
+    expect(hasQueuedWork(items)).toBe(true);
+    expect(items.some((item) => isWorkSurfaceItemExecuting(item))).toBe(false);
+  });
+
+  it("surfaces failed queued messages as attention instead of active work", () => {
+    const items = buildWorkSurfaceSnapshot({
+      chatQueue: [
+        {
+          id: "queue-failed",
+          text: "Retry this prompt",
+          createdAt: 1,
+          sendState: "failed",
+          sendError: "Gateway rejected the request",
+        },
+      ],
+    });
+
+    expect(items[0]).toMatchObject({
+      kind: "queued_message",
+      status: "Failed",
+      attention: {
+        owner: "Chat queue",
+        nextAction: "Retry the message or remove it from the queue.",
+      },
+    });
+    expect(items.some((item) => isWorkSurfaceItemExecuting(item))).toBe(false);
+  });
+
+  it("keeps reconnectable queued messages waiting instead of failed", () => {
+    const items = buildWorkSurfaceSnapshot({
+      chatQueue: [
+        {
+          id: "queue-reconnect",
+          text: "Send after reconnect",
+          createdAt: 1,
+          sendState: "waiting-reconnect",
+          sendError: "Gateway disconnected",
+        },
+      ],
+    });
+
+    expect(items[0]).toMatchObject({
+      kind: "queued_message",
+      status: "Waiting for reconnect",
+    });
+    expect(items[0]?.attention).toBeUndefined();
+    expect(hasQueuedWork(items)).toBe(true);
+    expect(items.some((item) => isWorkSurfaceItemExecuting(item))).toBe(false);
+  });
+
+  it("treats a worker-backed goal and running session as executing", () => {
+    const items = buildWorkSurfaceSnapshot({
+      goals: [
+        {
+          id: "flow-1",
+          goal: "Finish the dashboard",
+          status: "running",
+          taskSummary: { active: 1 },
+        },
+      ],
+      sessionsResult,
+    });
+
+    expect(items.some((item) => isWorkSurfaceItemExecuting(item))).toBe(true);
+  });
+
+  it("recognizes subagent activity flags as executing sessions", () => {
+    const items = buildWorkSurfaceSnapshot({
+      sessionsResult: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        ts: 0,
+        sessions: [
+          {
+            key: "agent:main:subagent:worker",
+            kind: "direct",
+            updatedAt: 1,
+            hasActiveSubagentRun: true,
+          },
+        ],
+      },
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "active_session",
+        status: "Active",
+        sessionKey: "agent:main:subagent:worker",
+      }),
+    ]);
+    expect(items.some((item) => isWorkSurfaceItemExecuting(item))).toBe(true);
   });
 });

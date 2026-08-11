@@ -78,6 +78,8 @@ import {
 import {
   buildWorkSurfaceSnapshot,
   hasActiveWork,
+  hasQueuedWork,
+  isWorkSurfaceItemExecuting,
   type WorkSurfaceItem,
   type WorkSurfaceTaskSummary,
 } from "../chat/work-snapshot.ts";
@@ -2086,31 +2088,31 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
   const hasError = Boolean(props.workTasksError);
   const needsAttention = items.some((item) => item.attention);
   const goalItem = items.find((item) => item.kind === "goal");
-  const hasExecutingWork =
-    tree.activeChildCount > 0 ||
-    items.some(
-      (item) => item.kind !== "goal" || item.status.toLowerCase().includes("worker running"),
-    );
+  const hasExecutingWork = items.some((item) => isWorkSurfaceItemExecuting(item));
+  const hasQueuedItems = hasQueuedWork(items);
   let summaryLabel = "Nothing running";
   if (props.workTasksLoading) {
     summaryLabel = "Checking work…";
   }
-  if (hasError) {
-    summaryLabel = "Work status unavailable";
-  }
-  if (goalItem) {
+  if (goalItem && !hasExecutingWork) {
     summaryLabel = "Goal active";
     if (goalItem.status === "Goal paused") {
       summaryLabel = "Goal paused";
     } else if (goalItem.status === "Goal waiting") {
       summaryLabel = "Goal waiting";
+    } else if (goalItem.status === "Goal queued") {
+      summaryLabel = "Goal queued";
     }
   }
   if (hasExecutingWork) {
-    summaryLabel = "Working";
+    summaryLabel = goalItem?.status === "Stopping" ? "Stopping" : "Working";
   }
   if (needsAttention) {
     summaryLabel = "Needs attention";
+  } else if (hasError && !hasExecutingWork) {
+    summaryLabel = "Work status unavailable";
+  } else if (!goalItem && !hasExecutingWork && hasQueuedItems) {
+    summaryLabel = "Queued";
   }
   return html`
     <details class="chat-work-surface" data-chat-work-surface @keydown=${closeDetailsOnEscape}>
@@ -2120,7 +2122,7 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
         aria-label=${`Working Now: ${summaryLabel}`}
       >
         <span
-          class="chat-work-surface__dot ${hasItems ? "chat-work-surface__dot--active" : ""}"
+          class="chat-work-surface__dot ${hasExecutingWork ? "chat-work-surface__dot--active" : ""}"
           aria-hidden="true"
         ></span>
         <span>${summaryLabel}</span>
@@ -2328,6 +2330,22 @@ function renderControlDirectorDiagnosticsCard(
       class="chat-control-director-diagnostics chat-control-director-diagnostics--${summary.tone}"
       data-control-director-diagnostics
       @keydown=${closeDetailsOnEscape}
+      @toggle=${(event: Event) => {
+        const details = event.currentTarget as HTMLDetailsElement;
+        if (!details.open || typeof details.scrollIntoView !== "function") {
+          return;
+        }
+        const reveal = () => {
+          if (details.open) {
+            details.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }
+        };
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(reveal);
+        } else {
+          reveal();
+        }
+      }}
     >
       <summary class="chat-control-director-diagnostics__summary">
         <span class="chat-control-director-diagnostics__dot" aria-hidden="true"></span>
