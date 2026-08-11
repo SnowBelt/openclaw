@@ -6,6 +6,7 @@ import type {
 } from "../../packages/gateway-protocol/src/schema/types.js";
 import { isPccCompleteStatus } from "./domain/completion-policy.js";
 import type { PccLedger } from "./domain/ledger.js";
+import { isPccExecutionPlanStatus } from "./execution-plan.js";
 import { pccMetadataObject, pccMetadataString } from "./metadata.js";
 import { buildPccLedgerReadIndex, pccIndexedItems } from "./read-model/ledger-index.js";
 import { summarizePccPortfolio, summarizePccProject } from "./read-model/project-summary.js";
@@ -43,8 +44,10 @@ function executionPlans(project: PccProject): ExecutionPlan[] {
   return raw.flatMap((value) => {
     const item = pccMetadataObject(value);
     if (
+      item.schemaVersion !== 1 ||
       typeof item.id !== "string" ||
-      typeof item.status !== "string" ||
+      item.projectId !== project.id ||
+      !isPccExecutionPlanStatus(item.status) ||
       !ACTIVE_PLAN_STATUSES.has(item.status) ||
       typeof item.createdAt !== "string" ||
       typeof item.updatedAt !== "string" ||
@@ -58,7 +61,10 @@ function executionPlans(project: PccProject): ExecutionPlan[] {
         typeof partition.id !== "string" ||
         typeof partition.taskId !== "string" ||
         typeof partition.workerId !== "string" ||
-        typeof partition.status !== "string"
+        typeof partition.status !== "string" ||
+        !["pending", "assigned", "running", "succeeded", "failed", "blocked", "cancelled"].includes(
+          partition.status,
+        )
       ) {
         return [];
       }

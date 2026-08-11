@@ -3,6 +3,7 @@ import type { PccExecutionCapacitySnapshot } from "../../../../../src/pcc/execut
 import {
   findPccExecutionWorkspaceLeaseCollision,
   isPccExecutionPlanActive,
+  isPccExecutionPlanStatus,
   type PccExecutionPlan,
   type PccExecutionTask,
 } from "../../../../../src/pcc/execution-plan.js";
@@ -36,17 +37,6 @@ const PCC_EXECUTION_TEAM_TASK_STATUSES = new Set<PccStatus>([
   "active",
   "in_progress",
   "reopened",
-]);
-
-const PCC_EXECUTION_PLAN_STATUSES = new Set([
-  "prepared",
-  "dispatching",
-  "running",
-  "paused",
-  "blocked",
-  "failed",
-  "completed",
-  "cancelled",
 ]);
 
 function isCodexModelRef(value: string | undefined): boolean {
@@ -104,14 +94,17 @@ export function executionPlansFromProject(project: PccProject): PccExecutionPlan
       typeof record.projectId === "string" &&
       record.projectId === project.id &&
       typeof record.projectRevision === "string" &&
-      typeof record.status === "string" &&
-      PCC_EXECUTION_PLAN_STATUSES.has(record.status) &&
+      isPccExecutionPlanStatus(record.status) &&
       typeof record.createdAt === "string" &&
       typeof record.updatedAt === "string" &&
       Array.isArray(record.partitions) &&
       Array.isArray(record.leases) &&
       Array.isArray(record.proofRequirements) &&
-      Array.isArray(record.auditEvents)
+      Array.isArray(record.auditEvents) &&
+      record.coordinator !== null &&
+      typeof record.coordinator === "object" &&
+      typeof (record.coordinator as Record<string, unknown>).sessionId === "string" &&
+      typeof (record.coordinator as Record<string, unknown>).runId === "string"
     );
   });
 }

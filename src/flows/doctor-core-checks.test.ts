@@ -373,6 +373,77 @@ describe("CORE_HEALTH_CHECKS", () => {
     });
   });
 
+  it("reports and repairs legacy PCC execution metadata without changing progress", async () => {
+    tmp = await fs.mkdtemp(join(tmpdir(), "openclaw-health-pcc-execution-metadata-"));
+    await withEnvAsync({ OPENCLAW_STATE_DIR: tmp }, async () => {
+      replacePccLedgerForTest({
+        version: 1,
+        projects: [
+          {
+            id: "execution-project",
+            title: "Execution project",
+            status: "active",
+            revision: 1,
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+          } as never,
+        ],
+        milestones: [
+          {
+            id: "execution-milestone",
+            projectId: "execution-project",
+            title: "Run locally",
+            status: "not_started",
+            percentComplete: 0,
+            createdAt: "2026-06-30T00:00:00.000Z",
+            updatedAt: "2026-06-30T00:00:00.000Z",
+            metadata: {
+              pccResponsibility: "local_openclaw_agent",
+              pccParallelSafe: true,
+            },
+          } as never,
+        ],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        lastKnownGood: [],
+      });
+      const check = getCheck(
+        createCoreHealthChecks(createDeps()),
+        "core/doctor/pcc-production-truth-bindings",
+      );
+
+      const findings = await check.detect({ mode: "lint", runtime, cfg: {} });
+
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "warning",
+          message: expect.stringContaining("execution-milestone"),
+          fixHint: expect.stringContaining("execution metadata"),
+        }),
+      );
+
+      const repaired = await check.repair?.({ mode: "fix", runtime, cfg: {} }, findings);
+
+      expect(repaired?.changes).toContain(
+        "execution-milestone: PCC_EXECUTION_LEGACY_PARALLEL_SAFE, PCC_EXECUTION_WORKSPACE_LEASE_MISSING",
+      );
+      const milestone = readPccLedger().milestones[0] as unknown as {
+        percentComplete: number;
+        metadata?: Record<string, unknown>;
+      };
+      expect(milestone.percentComplete).toBe(0);
+      expect(milestone.metadata).toMatchObject({
+        pccParallelSafe: true,
+        parallelSafe: true,
+        workspaceLock: "pcc:execution-project:default:milestone:execution-milestone",
+      });
+      await expect(check.detect({ mode: "lint", runtime, cfg: {} })).resolves.toEqual([]);
+    });
+  });
+
   it("threads deep mode into structured extra gateway service detection", async () => {
     const check = getCheck(
       createCoreHealthChecks(createDeps()),

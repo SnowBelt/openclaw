@@ -6,6 +6,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Project Command Center supervised execution:** make project Autopilot disclosure reliable, route Work This Project through durable Gateway-owned execution plans, reconcile terminal agent outcomes into truthful status and actual AI-usage receipts, and repair legacy execution metadata without auto-completing milestones.
 - **Project Command Center receipt resilience:** keep Work Overview available when historical completion receipts have missing or invalid timestamps, preserve affected evidence, and report integrity warnings without inventing completion times.
 - **npm plugin updates:** accept singleton-array metadata from newer npm clients so tracked official plugins can install and update to correction releases. (#108336)
 

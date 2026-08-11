@@ -67,16 +67,34 @@ A task is eligible only when it:
 - has a non-empty `metadata.workspaceLock`;
 - does not collide with another admitted workspace or a live lease from another loaded project.
 
-PCC saves the versioned execution plan before dispatch. The plan records the project revision, profile snapshot, coordinator, deterministic partitions, worker assignments, two-hour workspace leases, proof requirements, transitions, and bounded audit events. One active team is allowed per project.
+PCC saves the versioned execution plan before dispatch. The plan records the project revision, profile snapshot, coordinator, deterministic partitions, worker assignments, two-hour workspace leases, proof requirements, transitions, and bounded audit events. One active plan is allowed per project.
+
+The Dashboard uses the Gateway-owned `pcc.execution.start`, `pcc.execution.get`,
+`pcc.execution.pause`, and `pcc.execution.stop` methods for supervised work. Start
+is revision-checked and idempotent: PCC commits the plan and its idempotency key
+before dispatching the verified local coordinator. If the coordinator cannot be
+admitted, PCC leaves a truthful blocked or failed result rather than showing a
+project as working. Pause and stop attempt to abort the named run before saving
+the durable state; a failed control attempt is recorded as blocked for recovery.
 
 The coordinator receives only admitted assignments and is instructed to use isolated subagents, use each assignment's recorded local model, serialize work that shares a lease, stop on a model mismatch or ambiguity, and return structured fan-in evidence. PCC prefers a configured `program_manager` agent for coordination and falls back to the default local OpenClaw agent when that role is unavailable. It may not infer extra work, silently substitute models, broaden Codex use, perform high-risk actions, or mark milestones complete.
 
 ## Stop, Fan-In, And Proof
 
-`Stop agent team` aborts the coordinator and persists a cancelled plan. Saved history remains available. Failed dispatch persists a failed plan with the exact reason.
+`Stop agent team` aborts the coordinator and persists a cancelled plan. Saved history remains available. Failed dispatch persists a failed plan with the exact reason. A browser reload or closure does not erase a plan because its lifecycle is stored in the Gateway-owned PCC ledger. Terminal lifecycle events reconcile accepted, completed, failed, cancelled, and lost work and create an idempotent model-run receipt from the actual terminal event. Provider usage is recorded when reported; otherwise the receipt explicitly says usage is unavailable. Historical model-run data is never inferred from project progress.
 
 Fan-in distinguishes worker completion from PCC milestone completion. A plan can be complete only after every partition succeeds and every required proof item is satisfied. Even then, PCC never auto-completes milestones; the owning workflow must review evidence and perform the explicit completion transition.
 
 ## Learning Boundary
 
 Execution output may later support an evidence-bound recommendation through the [PCC Learning Loop](/automation/pcc-learning-loop). Learning remains recommendation-only: it cannot edit prompts, skills, workflows, models, source, or runtime settings without a separate reviewed implementation path.
+
+## Legacy Metadata Repair
+
+Older project plans may contain the producer-only `pccParallelSafe` flag or lack a
+logical workspace lease. `openclaw doctor --fix` and the PCC canonical-metadata
+repair surface report exact record IDs with issue codes and may add only the
+canonical `parallelSafe` and deterministic `workspaceLock` values when the
+record is already local, independent, and explicitly marked safe. The repair
+preserves milestone content and progress, does not create proof, and never
+rewrites a historical completion receipt.
