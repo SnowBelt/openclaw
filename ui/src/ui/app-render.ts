@@ -119,6 +119,13 @@ import {
 } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
+import {
+  createPccProject,
+  getPccState,
+  loadPcc,
+  selectPccProject,
+  startPccPlan,
+} from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import {
   branchSessionFromCheckpoint,
@@ -676,6 +683,7 @@ const lazySkillWorkshop = createLazyView(
 const lazySkills = createLazyView(() => import("./views/skills.ts"), notifyLazyViewChanged);
 const lazyUsage = createLazyView(() => import("./views/usage.ts"), notifyLazyViewChanged);
 const lazyWorkboard = createLazyView(() => import("./views/workboard.ts"), notifyLazyViewChanged);
+const lazyPcc = createLazyView(() => import("./views/pcc.ts"), notifyLazyViewChanged);
 
 type ChatWorkspaceFilesState = {
   activeName: string | null;
@@ -2414,8 +2422,9 @@ export function renderApp(state: AppViewState) {
       <main
         class="content ${isChat ? "content--chat" : ""} ${state.tab === "logs"
           ? "content--logs"
-          : ""} ${state.tab === "workboard" ? "content--workboard" : ""} ${state.tab ===
-        "skillWorkshop"
+          : ""} ${state.tab === "workboard" ? "content--workboard" : ""} ${state.tab === "pcc"
+          ? "content--pcc"
+          : ""} ${state.tab === "skillWorkshop"
           ? `content--skill-workshop ${
               state.skillWorkshopMode === "today" ? "content--skill-workshop-today" : ""
             }`
@@ -2791,6 +2800,48 @@ export function renderApp(state: AppViewState) {
                   state.setTab("chat" as import("./navigation.ts").Tab);
                 },
                 onRequestUpdate: requestHostUpdate,
+              });
+            })
+          : nothing}
+        ${state.tab === "pcc"
+          ? renderLazyView(lazyPcc, (m) => {
+              const auth =
+                (state.hello as { auth?: { role?: string; scopes?: string[] } } | null)?.auth ??
+                null;
+              const pccState = getPccState(state);
+              return m.renderPcc({
+                state: pccState,
+                connected: state.connected,
+                canWrite: hasOperatorWriteAccess(auth),
+                onRefresh: () =>
+                  void loadPcc({
+                    host: state,
+                    client: state.client,
+                    force: true,
+                    requestUpdate: requestHostUpdate,
+                  }),
+                onSelectProject: (projectId) =>
+                  void selectPccProject({
+                    host: state,
+                    client: state.client,
+                    projectId,
+                    requestUpdate: requestHostUpdate,
+                  }),
+                onCreateProject: (title, goal) =>
+                  void createPccProject({
+                    host: state,
+                    client: state.client,
+                    title,
+                    goal,
+                    requestUpdate: requestHostUpdate,
+                  }),
+                onStartPlan: (description) =>
+                  void startPccPlan({
+                    host: state,
+                    client: state.client,
+                    description,
+                    requestUpdate: requestHostUpdate,
+                  }),
               });
             })
           : nothing}

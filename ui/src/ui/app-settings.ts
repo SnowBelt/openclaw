@@ -51,6 +51,7 @@ import {
   type ModelAuthStatusState,
 } from "./controllers/model-auth-status.ts";
 import { loadNodes, type NodesState } from "./controllers/nodes.ts";
+import { loadPcc } from "./controllers/pcc.ts";
 import { loadPresence, type PresenceState } from "./controllers/presence.ts";
 import { loadSessions, type SessionsState } from "./controllers/sessions.ts";
 import {
@@ -452,6 +453,14 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
             requestUpdate: host.requestUpdate,
           }),
         ]);
+        break;
+      case "pcc":
+        await loadPcc({
+          host,
+          client: app.client,
+          force: true,
+          requestUpdate: () => host.requestUpdate?.(),
+        });
         break;
       case "channels":
         await loadChannelsTab(host);

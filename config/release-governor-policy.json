@@ -1,0 +1,57 @@
+{
+  "schema": "openclaw.release-governor-policy.v1",
+  "version": 2,
+  "confidenceThreshold": 0.9,
+  "reviewConfidenceThreshold": 0.93,
+  "classificationRules": [
+    { "pattern": "docs/**", "category": "documentation", "risk": "P3" },
+    { "pattern": "test/**", "category": "tests", "risk": "P3" },
+    { "pattern": "src/pcc/**", "category": "pcc", "risk": "P2" },
+    { "pattern": "src/agents/**", "category": "agent-runtime", "risk": "P2" },
+    { "pattern": "src/gateway/**", "category": "gateway", "risk": "P2" },
+    { "pattern": "packages/gateway-protocol/**", "category": "protocol", "risk": "P2" },
+    { "pattern": "ui/**", "category": "control-ui", "risk": "P2" },
+    { "pattern": "apps/shared/OpenClawKit/**", "category": "client-protocol", "risk": "P2" },
+    { "pattern": "config/**", "category": "configuration", "risk": "P1" },
+    { "pattern": "scripts/**", "category": "tooling", "risk": "P2" },
+    { "pattern": "package.json", "category": "dependencies", "risk": "P1" },
+    { "pattern": "pnpm-lock.yaml", "category": "dependencies", "risk": "P1" }
+  ],
+  "protectedPaths": [
+    { "pattern": "src/pcc/release-governance/**", "reason": "Release Governor policy and evidence are protected." },
+    { "pattern": "config/release-governor-policy.json", "reason": "Release policy is protected." },
+    { "pattern": "config/custom-runtime-capabilities.json", "reason": "Runtime capability contract is protected." },
+    { "pattern": "src/pcc/runtime-identity.ts", "reason": "Runtime identity is protected." },
+    { "pattern": "src/gateway/**", "reason": "Gateway lifecycle and protocol surfaces require explicit review." },
+    { "pattern": "packages/gateway-protocol/**", "reason": "Public protocol contracts require explicit review." }
+  ],
+  "requiredChecks": {
+    "stage": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready"],
+    "promotion": ["workflow_sanity", "local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready", "browser_desktop", "browser_mobile"],
+    "restart": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready", "browser_desktop", "browser_mobile", "gateway_health"],
+    "rollback": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "rollback_ready", "rollback_health"],
+    "finalize": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready", "browser_desktop", "browser_mobile", "gateway_health", "ledger_receipt"]
+  },
+  "proofProfiles": {
+    "mac_studio_control_director": {
+      "version": 1,
+      "project": "project-command-center",
+      "destination": "local-only",
+      "externalDisclosure": false,
+      "prohibitedChecks": ["workflow_sanity", "remote_ci", "browser_mobile", "remote_device", "blacksmith", "testbox", "crabbox"],
+      "requiredChecks": {
+        "stage": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready"],
+        "promotion": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready", "authenticated_local_control_director_pcc_browser", "gateway_health", "persistence", "restart_recovery", "owner_acceptance"],
+        "restart": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready", "authenticated_local_control_director_pcc_browser", "gateway_health"],
+        "rollback": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "rollback_ready", "rollback_health"],
+        "finalize": ["local_tests", "source_typecheck", "test_typecheck", "policy_checks", "capability_checks", "immutable_candidate", "rollback_ready", "authenticated_local_control_director_pcc_browser", "gateway_health", "persistence", "restart_recovery", "owner_acceptance", "ledger_receipt"]
+      }
+    }
+  },
+  "healthThresholds": {
+    "maxRouteLatencyMs": 500,
+    "maxErrorRate": 0,
+    "maxStartupFailures": 0,
+    "maxBrowserErrors": 0
+  }
+}

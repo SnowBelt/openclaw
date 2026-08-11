@@ -642,6 +642,9 @@ function fallbackUnconfiguredSessionSelection(host: GatewayHost): boolean {
 }
 
 function canRefreshActiveTabBeforeAgents(host: GatewayHost): boolean {
+  if (host.tab === "pcc") {
+    return true;
+  }
   if (host.tab !== "chat") {
     return false;
   }

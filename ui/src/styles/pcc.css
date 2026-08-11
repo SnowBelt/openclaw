@@ -1,0 +1,249 @@
+.pcc-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px clamp(16px, 3vw, 40px) 56px;
+}
+.pcc-header,
+.pcc-project-card__header,
+.pcc-section__heading,
+.pcc-plan-form,
+.pcc-toolbar,
+.pcc-facts,
+.pcc-milestone__title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.pcc-header,
+.pcc-project-card__header,
+.pcc-section__heading {
+  justify-content: space-between;
+}
+.pcc-header {
+  margin-bottom: 22px;
+}
+.pcc-header h1,
+.pcc-project-card h2,
+.pcc-section h2 {
+  margin: 0;
+}
+.pcc-header h1 {
+  font-size: clamp(24px, 3vw, 34px);
+  letter-spacing: -0.03em;
+}
+.pcc-eyebrow {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin: 0 0 5px;
+  text-transform: uppercase;
+}
+.pcc-muted {
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+.pcc-toolbar {
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.pcc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}
+.pcc-field span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.pcc-field--grow {
+  flex: 1;
+}
+.pcc-field input,
+.pcc-field textarea,
+.pcc-field select {
+  min-height: 38px;
+  width: 100%;
+}
+.pcc-project-card,
+.pcc-section {
+  background: var(--card-background, var(--bg-secondary));
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 20px;
+}
+.pcc-section {
+  margin-top: 18px;
+}
+.pcc-project-card__header {
+  align-items: flex-start;
+}
+.pcc-status {
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 4px 9px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.pcc-status--complete,
+.pcc-status--complete_with_maintenance {
+  color: var(--success-color, #1d8a55);
+}
+.pcc-status--blocked,
+.pcc-status--needs_approval,
+.pcc-status--failed {
+  color: var(--danger-color, #c33);
+}
+.pcc-progress {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+.pcc-progress__track {
+  background: color-mix(in srgb, var(--border-color) 65%, transparent);
+  border-radius: 99px;
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+}
+.pcc-progress__track span {
+  background: var(--accent-color, #6d5dfc);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  transition: width 0.25s ease;
+}
+.pcc-facts {
+  color: var(--text-muted);
+  flex-wrap: wrap;
+  font-size: 12px;
+  margin-top: 14px;
+}
+.pcc-facts span + span::before {
+  content: "•";
+  margin-right: 14px;
+}
+.pcc-milestones {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.pcc-milestone {
+  align-items: flex-start;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  padding: 13px 14px;
+}
+.pcc-milestone__marker {
+  color: var(--text-muted);
+  line-height: 1;
+  padding-top: 2px;
+}
+.pcc-milestone__marker svg,
+.pcc-header button svg {
+  height: 16px;
+  width: 16px;
+}
+.pcc-milestone__body {
+  flex: 1;
+  min-width: 0;
+}
+.pcc-milestone__title {
+  justify-content: space-between;
+}
+.pcc-milestone__blocker {
+  color: var(--danger-color, #c33);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+.pcc-details {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.pcc-details summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.pcc-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  max-width: 620px;
+}
+.pcc-plan-form {
+  align-items: end;
+  margin-top: 14px;
+}
+.pcc-run {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  margin-top: 12px;
+}
+.pcc-run__dot {
+  background: var(--text-muted);
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+.pcc-run__dot--queued,
+.pcc-run__dot--running {
+  animation: pcc-pulse 1.2s ease-in-out infinite;
+  background: var(--accent-color, #6d5dfc);
+}
+.pcc-empty {
+  border: 1px dashed var(--border-color);
+  border-radius: 16px;
+  padding: 46px 20px;
+  text-align: center;
+}
+.pcc-empty h2 {
+  margin: 10px 0 0;
+}
+.pcc-empty p {
+  color: var(--text-muted);
+  margin: 8px auto 0;
+  max-width: 480px;
+}
+.pcc-empty__icon svg {
+  height: 28px;
+  opacity: 0.7;
+  width: 28px;
+}
+@keyframes pcc-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+@media (max-width: 700px) {
+  .pcc-page {
+    padding: 20px 14px 40px;
+  }
+  .pcc-header,
+  .pcc-project-card__header,
+  .pcc-section__heading,
+  .pcc-plan-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .pcc-header .btn,
+  .pcc-plan-form .btn {
+    width: 100%;
+  }
+  .pcc-field {
+    min-width: 0;
+    width: 100%;
+  }
+}
