@@ -1,7 +1,7 @@
 // Control UI tests cover mount fallback behavior.
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const indexHtmlPath = path.resolve(
   process.cwd(),
@@ -98,13 +98,30 @@ describe("Control UI mount fallback", () => {
     expect(fallback.hidden).toBe(false);
   });
 
-  it("keeps the fallback hidden when the app element registers before the timeout", async () => {
+  it("shows the fallback when the app registers but never completes its first render", async () => {
     const frameWindow = createIsolatedWindow();
-    installFallbackShell(frameWindow, await readIndexHtmlWithDelay(25));
+    installFallbackShell(frameWindow, await readIndexHtmlWithDelay(1));
     if (!frameWindow.customElements.get("openclaw-app")) {
       frameWindow.customElements.define("openclaw-app", class extends frameWindow.HTMLElement {});
     }
     await frameWindow.customElements.whenDefined("openclaw-app");
+    await waitForWindowTimeout(frameWindow, 10);
+
+    const fallback = requireElementById(
+      frameWindow,
+      "openclaw-mount-fallback",
+      frameWindow.HTMLElement,
+    );
+    expect(fallback.hidden).toBe(false);
+    expect([...frameWindow.document.body.classList]).toEqual(["openclaw-mount-fallback-active"]);
+  });
+
+  it("keeps the fallback hidden after the app reports its first successful render", async () => {
+    const frameWindow = createIsolatedWindow();
+    installFallbackShell(frameWindow, await readIndexHtmlWithDelay(25));
+    const app = frameWindow.document.querySelector("openclaw-app");
+    app?.setAttribute("data-openclaw-app-ready", "true");
+    frameWindow.dispatchEvent(new frameWindow.Event("openclaw-app-ready"));
     await waitForWindowTimeout(frameWindow, 35);
 
     const fallback = requireElementById(
@@ -114,5 +131,27 @@ describe("Control UI mount fallback", () => {
     );
     expect(fallback.hidden).toBe(true);
     expect([...frameWindow.document.body.classList]).toEqual([]);
+  });
+
+  it("removes only OpenClaw Control UI caches before its recovery probe", async () => {
+    const frameWindow = createIsolatedWindow();
+    const fetch = vi.fn().mockResolvedValue({ ok: false });
+    const cacheKeys = vi
+      .fn()
+      .mockResolvedValue(["openclaw-control-old", "openclaw-control-current", "other-app"]);
+    const cacheDelete = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(frameWindow, "fetch", { configurable: true, value: fetch });
+    Object.defineProperty(frameWindow, "caches", {
+      configurable: true,
+      value: { keys: cacheKeys, delete: cacheDelete },
+    });
+    installFallbackShell(frameWindow, await readIndexHtmlWithDelay(1));
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+    expect(new Set(cacheDelete.mock.calls.map(([key]) => key))).toEqual(
+      new Set(["openclaw-control-old", "openclaw-control-current"]),
+    );
+    expect(cacheDelete).not.toHaveBeenCalledWith("other-app");
   });
 });

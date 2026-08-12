@@ -66,6 +66,47 @@
       })();
     </script>
     <style>
+      /* Paint the persisted theme before the app stylesheet arrives. Mobile
+         WebKit otherwise exposes its white or black document canvas while the
+         PWA restores and makes a healthy launch look like a blank screen. */
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      html {
+        background: #0e1015;
+        color-scheme: dark;
+      }
+
+      html[data-theme-mode="light"] {
+        background: #faf9f7;
+        color-scheme: light;
+      }
+
+      html[data-theme="openknot"] {
+        background: #080808;
+      }
+
+      html[data-theme="openknot-light"] {
+        background: #f9f9fb;
+      }
+
+      html[data-theme="dash"] {
+        background: #1a1210;
+      }
+
+      html[data-theme="dash-light"] {
+        background: #f7f2ec;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: inherit;
+        color-scheme: inherit;
+      }
+
       body.openclaw-mount-fallback-active {
         margin: 0;
         min-width: 320px;
@@ -87,9 +128,12 @@
 
       .mount-fallback {
         box-sizing: border-box;
-        min-height: 100vh;
+        height: 100vh;
+        height: 100dvh;
+        overflow-y: auto;
         padding: 24px;
         place-items: center;
+        place-items: safe center;
       }
 
       .mount-fallback:not([hidden]) {
@@ -274,15 +318,39 @@
 
         function appMounted() {
           try {
-            return Boolean(
-              app.isConnected &&
-              window.customElements &&
-              typeof window.customElements.get === "function" &&
-              window.customElements.get(tagName),
-            );
+            return app.isConnected && app.getAttribute("data-openclaw-app-ready") === "true";
           } catch (e) {
             return false;
           }
+        }
+
+        function clearControlUiCaches() {
+          var cacheStorage;
+          try {
+            cacheStorage = window.caches;
+          } catch (e) {
+            return Promise.resolve();
+          }
+          if (!cacheStorage || typeof cacheStorage.keys !== "function") {
+            return Promise.resolve();
+          }
+          return cacheStorage
+            .keys()
+            .then(function (keys) {
+              return Promise.all(
+                keys
+                  .filter(function (key) {
+                    return key.startsWith("openclaw-control-");
+                  })
+                  .map(function (key) {
+                    return cacheStorage.delete(key);
+                  }),
+              );
+            })
+            .then(
+              function () {},
+              function () {},
+            );
         }
 
         function hideFallback() {
@@ -306,12 +374,12 @@
           if (appMounted()) return;
           if (recoveryAttempt >= maxRecoveryAttempts) {
             setSummary(
-              "The gateway is still unavailable. Try again, then check the troubleshooting guide if the problem persists.",
+              "The Dashboard still could not start. Try again, then check the troubleshooting guide if the problem persists.",
             );
             return;
           }
           setSummary(
-            "The gateway is not reachable yet. OpenClaw will keep retrying while it restarts.",
+            "OpenClaw is refreshing its cached Dashboard files and will keep retrying safely.",
           );
           scheduleRecovery();
         }
@@ -334,10 +402,16 @@
           recoveryInFlight = true;
           recoveryAttempt += 1;
           documentUrl.searchParams.set("openclaw_mount_recovery", String(Date.now()));
-          window
-            .fetch(documentUrl.href, { cache: "no-store", credentials: "same-origin" })
+          clearControlUiCaches()
+            .then(function () {
+              return window.fetch(documentUrl.href, {
+                cache: "no-store",
+                credentials: "same-origin",
+              });
+            })
             .then(function (response) {
               if (!response.ok) throw new Error("gateway unavailable");
+              if (appMounted()) return;
               window.location.replace(documentUrl.href);
             })
             .catch(function () {
@@ -366,12 +440,19 @@
 
         armFallbackTimer();
 
+        function handleAppReady() {
+          if (!appMounted()) return;
+          window.clearTimeout(timer);
+          window.clearTimeout(recoveryTimer);
+          hideFallback();
+        }
+
+        window.addEventListener("openclaw-app-ready", handleAppReady);
+
         if (window.customElements && typeof window.customElements.whenDefined === "function") {
           window.customElements.whenDefined(tagName).then(
             function () {
-              window.clearTimeout(timer);
-              window.clearTimeout(recoveryTimer);
-              hideFallback();
+              handleAppReady();
             },
             function () {},
           );
@@ -379,7 +460,9 @@
 
         if (retry) {
           retry.addEventListener("click", function () {
-            window.location.reload();
+            clearControlUiCaches().then(function () {
+              window.location.reload();
+            });
           });
         }
         if (wait) {

@@ -1214,6 +1214,11 @@ export class OpenClawApp extends LitElement {
 
   protected override firstUpdated() {
     handleFirstUpdated(this as unknown as Parameters<typeof handleFirstUpdated>[0]);
+    // Registration only proves that the bundle evaluated. Signal readiness
+    // after Lit completes its first render so the static boot watchdog does not
+    // hide a real render failure behind a permanent blank page.
+    this.setAttribute("data-openclaw-app-ready", "true");
+    window.dispatchEvent(new Event("openclaw-app-ready"));
   }
 
   protected override willUpdate() {
