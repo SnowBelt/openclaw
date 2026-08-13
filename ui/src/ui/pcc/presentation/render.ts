@@ -7,6 +7,7 @@ import {
   getPccWorkLoopState,
   pccGoalPrimaryAction,
   type PccGoalAction,
+  type PccOwnerAcceptanceState,
   type PccUiState,
 } from "../application/model.ts";
 
@@ -19,6 +20,9 @@ export type PccPresentationProps = {
   onCreateProject: (title: string, goal: string) => void;
   onStartPlan: (description: string) => void;
   onGoalAction: (action: PccGoalAction) => void;
+  onStartOwnerAcceptance: () => void;
+  onFinishOwnerAcceptance: () => void;
+  onCancelOwnerAcceptance: () => void;
 };
 
 function statusLabel(status: string): string {
@@ -333,6 +337,112 @@ function renderProofAndContext(props: PccPresentationProps): TemplateResult {
   `;
 }
 
+function ownerAcceptanceStatusLabel(status: PccOwnerAcceptanceState): string {
+  switch (status) {
+    case "running":
+      return t("pcc.ownerAcceptance.running");
+    case "submitting":
+      return t("pcc.ownerAcceptance.submitting");
+    case "complete":
+      return t("pcc.ownerAcceptance.complete");
+    case "failed":
+      return t("pcc.ownerAcceptance.failed");
+    default:
+      return t("pcc.ownerAcceptance.ready");
+  }
+}
+
+function renderOwnerAcceptance(props: PccPresentationProps): TemplateResult {
+  const acceptance = props.state.ownerAcceptance;
+  const pendingMilestone = props.state.milestones.find(
+    (milestone) =>
+      milestone.status === "needs_approval" &&
+      /owner|acceptance|human|usability/i.test(`${milestone.title} ${milestone.blocker ?? ""}`),
+  );
+  if (!pendingMilestone && acceptance.state === "idle") {
+    return html``;
+  }
+  const durationMs = 60_000;
+  const remainingMs = Math.max(0, durationMs - acceptance.elapsedMs);
+  const readyToFinish = acceptance.elapsedMs >= durationMs;
+  const elapsedSeconds = Math.min(60, Math.floor(acceptance.elapsedMs / 1000));
+  return html`
+    <section class="pcc-section pcc-owner-acceptance" aria-labelledby="pcc-owner-acceptance-title">
+      <div class="pcc-section__heading">
+        <div>
+          <h2 id="pcc-owner-acceptance-title">${t("pcc.ownerAcceptance.title")}</h2>
+          <p class="pcc-muted">${t("pcc.ownerAcceptance.hint")}</p>
+        </div>
+        <span class="pcc-status pcc-status--${acceptance.state}">
+          ${ownerAcceptanceStatusLabel(acceptance.state)}
+        </span>
+      </div>
+      ${acceptance.state === "idle"
+        ? html`<p>${t("pcc.ownerAcceptance.readyDescription")}</p>
+            <button
+              class="btn primary"
+              ?disabled=${props.state.saving || !props.canWrite}
+              @click=${props.onStartOwnerAcceptance}
+            >
+              ${t("pcc.ownerAcceptance.begin")}
+            </button>`
+        : nothing}
+      ${acceptance.state === "running"
+        ? html`<div class="pcc-owner-acceptance__timer" role="timer" aria-live="polite">
+              <strong
+                >${t("pcc.ownerAcceptance.timer", { seconds: String(elapsedSeconds) })}</strong
+              >
+              <span class="pcc-muted"
+                >${t("pcc.ownerAcceptance.remaining", {
+                  seconds: String(Math.ceil(remainingMs / 1000)),
+                })}</span
+              >
+            </div>
+            <div class="pcc-owner-acceptance__actions">
+              <button
+                class="btn primary"
+                ?disabled=${props.state.saving || !readyToFinish}
+                @click=${props.onFinishOwnerAcceptance}
+              >
+                ${t("pcc.ownerAcceptance.finish")}
+              </button>
+              <button
+                class="btn"
+                ?disabled=${props.state.saving}
+                @click=${props.onCancelOwnerAcceptance}
+              >
+                ${t("pcc.ownerAcceptance.cancel")}
+              </button>
+            </div>`
+        : nothing}
+      ${acceptance.state === "submitting"
+        ? html`<p class="callout" role="status">
+            ${t("pcc.ownerAcceptance.submittingDescription")}
+          </p>`
+        : nothing}
+      ${acceptance.state === "complete"
+        ? html`<p class="callout" role="status">
+            ${t("pcc.ownerAcceptance.completeDescription")}
+            ${acceptance.receiptId ? html`<br /><code>${acceptance.receiptId}</code>` : nothing}
+          </p>`
+        : nothing}
+      ${acceptance.state === "failed"
+        ? html`<div class="callout warning" role="alert">
+            <p>${acceptance.error ?? t("pcc.ownerAcceptance.failedDescription")}</p>
+            <button
+              class="btn"
+              ?disabled=${props.state.saving || !props.canWrite}
+              @click=${props.onStartOwnerAcceptance}
+            >
+              ${t("pcc.ownerAcceptance.beginNew")}
+            </button>
+          </div>`
+        : nothing}
+      <p class="pcc-muted">${t("pcc.ownerAcceptance.privacy")}</p>
+    </section>
+  `;
+}
+
 export function renderPccDashboard(props: PccPresentationProps): TemplateResult {
   return html`
     <section class="pcc-page" aria-label=${t("pcc.title")}>
@@ -374,6 +484,7 @@ export function renderPccDashboard(props: PccPresentationProps): TemplateResult 
           </section>`
         : nothing}
       ${props.state.project ? renderProofAndContext(props) : nothing}
+      ${props.state.project ? renderOwnerAcceptance(props) : nothing}
       ${props.state.project ? renderGoalControls(props) : nothing}
       ${props.state.project
         ? html`<section class="pcc-section">

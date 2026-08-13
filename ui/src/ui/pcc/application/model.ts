@@ -23,6 +23,18 @@ export type PccWorkLoopState =
 
 export type PccGoalAction = "start" | "continue" | "pause" | "resume" | "retry" | "stop";
 
+export type PccOwnerAcceptanceState = "idle" | "running" | "submitting" | "complete" | "failed";
+
+export type PccOwnerAcceptance = {
+  state: PccOwnerAcceptanceState;
+  startedAt: number | null;
+  elapsedMs: number;
+  participantHash: string | null;
+  attempt: number;
+  error: string | null;
+  receiptId: string | null;
+};
+
 export type PccUiState = {
   loading: boolean;
   saving: boolean;
@@ -41,6 +53,17 @@ export type PccUiState = {
   summary: PccProjectSummary | null;
   planningRun: PccPlanningRun | null;
   planDescription: string;
+  ownerAcceptance: PccOwnerAcceptance;
+};
+
+export const EMPTY_PCC_OWNER_ACCEPTANCE: PccOwnerAcceptance = {
+  state: "idle",
+  startedAt: null,
+  elapsedMs: 0,
+  participantHash: null,
+  attempt: 0,
+  error: null,
+  receiptId: null,
 };
 
 export const EMPTY_PCC_STATE: PccUiState = {
@@ -61,6 +84,7 @@ export const EMPTY_PCC_STATE: PccUiState = {
   summary: null,
   planningRun: null,
   planDescription: "",
+  ownerAcceptance: { ...EMPTY_PCC_OWNER_ACCEPTANCE },
 };
 
 export type PccProgress = {

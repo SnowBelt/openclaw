@@ -120,12 +120,15 @@ import {
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import {
+  cancelPccOwnerAcceptance,
   createPccProject,
+  finishPccOwnerAcceptance,
   getPccState,
   loadPcc,
   runPccGoalAction,
   selectPccProject,
   startPccPlan,
+  startPccOwnerAcceptance,
 } from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import {
@@ -2848,6 +2851,24 @@ export function renderApp(state: AppViewState) {
                     host: state,
                     client: state.client,
                     action,
+                    requestUpdate: requestHostUpdate,
+                  }),
+                onStartOwnerAcceptance: () =>
+                  void startPccOwnerAcceptance({
+                    host: state,
+                    client: state.client,
+                    requestUpdate: requestHostUpdate,
+                  }),
+                onFinishOwnerAcceptance: () =>
+                  void finishPccOwnerAcceptance({
+                    host: state,
+                    client: state.client,
+                    requestUpdate: requestHostUpdate,
+                  }),
+                onCancelOwnerAcceptance: () =>
+                  void cancelPccOwnerAcceptance({
+                    host: state,
+                    client: state.client,
                     requestUpdate: requestHostUpdate,
                   }),
               });

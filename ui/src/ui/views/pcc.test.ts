@@ -20,6 +20,9 @@ function createProps(overrides: Partial<PccProps> = {}): PccProps {
     onCreateProject: vi.fn(),
     onStartPlan: vi.fn(),
     onGoalAction: vi.fn(),
+    onStartOwnerAcceptance: vi.fn(),
+    onFinishOwnerAcceptance: vi.fn(),
+    onCancelOwnerAcceptance: vi.fn(),
     ...overrides,
   };
 }
@@ -138,5 +141,96 @@ describe("renderPcc", () => {
     expect(container.querySelector(".pcc-goal-controls .btn.primary")?.textContent).toContain(
       "Pause",
     );
+  });
+
+  it("renders an explicit owner-acceptance timer when the final milestone needs the owner", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    render(
+      renderPcc(
+        createProps({
+          state: {
+            ...EMPTY_PCC_STATE,
+            project: {
+              id: "p1",
+              title: "MVP",
+              goal: "Ship it",
+              status: "active",
+              createdAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            },
+            selectedProjectId: "p1",
+            milestones: [
+              {
+                id: "owner",
+                projectId: "p1",
+                title: "Anonymous owner acceptance",
+                status: "needs_approval",
+                blocker: "Owner must complete one zero-hint 60-second protocol.",
+                createdAt: "2026-01-01T00:00:00Z",
+                updatedAt: "2026-01-01T00:00:00Z",
+              },
+            ],
+            ownerAcceptance: { ...EMPTY_PCC_STATE.ownerAcceptance },
+          },
+        }),
+      ),
+      container,
+    );
+
+    const card = container.querySelector(".pcc-owner-acceptance");
+    expect(card?.textContent).toContain("Owner acceptance");
+    expect(card?.textContent).toContain("Begin 60-second acceptance");
+    expect(card?.querySelector("button")?.textContent).toContain("Begin");
+  });
+
+  it("keeps recording disabled until the full owner timer has elapsed", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    render(
+      renderPcc(
+        createProps({
+          state: {
+            ...EMPTY_PCC_STATE,
+            project: {
+              id: "p1",
+              title: "MVP",
+              goal: "Ship it",
+              status: "active",
+              createdAt: "2026-01-01T00:00:00Z",
+              updatedAt: "2026-01-01T00:00:00Z",
+            },
+            milestones: [
+              {
+                id: "owner",
+                projectId: "p1",
+                title: "Owner usability",
+                status: "needs_approval",
+                createdAt: "2026-01-01T00:00:00Z",
+                updatedAt: "2026-01-01T00:00:00Z",
+              },
+            ],
+            ownerAcceptance: {
+              ...EMPTY_PCC_STATE.ownerAcceptance,
+              state: "running",
+              startedAt: Date.now(),
+              elapsedMs: 30_000,
+              participantHash: "a".repeat(64),
+              attempt: 1,
+            },
+          },
+        }),
+      ),
+      container,
+    );
+
+    const buttons = [
+      ...container.querySelectorAll<HTMLButtonElement>(".pcc-owner-acceptance button"),
+    ];
+    expect(buttons.some((button) => button.textContent?.includes("Record acceptance"))).toBe(true);
+    expect(
+      buttons.find((button) => button.textContent?.includes("Record acceptance"))?.disabled,
+    ).toBe(true);
+    expect(container.querySelector('[role="timer"]')?.textContent).toContain("30");
   });
 });

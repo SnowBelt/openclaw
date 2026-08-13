@@ -208,6 +208,25 @@
   gap: 10px;
   margin-top: 14px;
 }
+.pcc-owner-acceptance__timer {
+  align-items: baseline;
+  background: color-mix(in srgb, var(--accent-color, #6d5dfc) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-color, #6d5dfc) 35%, var(--border-color));
+  border-radius: 12px;
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px 16px;
+}
+.pcc-owner-acceptance__timer strong {
+  font-variant-numeric: tabular-nums;
+}
+.pcc-owner-acceptance__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
 .pcc-proof__grid {
   display: grid;
   gap: 14px;
