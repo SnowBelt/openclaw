@@ -20,6 +20,7 @@ import {
 } from "./contracts.js";
 import { decideReleasePolicy, requiredReleaseReviewRoles } from "./decision.js";
 import { evaluateReleaseHealth } from "./health.js";
+import { verifyReleaseLedgerPreflightReceipt } from "./ledger.js";
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -90,6 +91,20 @@ export function verifyReleaseEvidenceBundle(bundle: ReleaseEvidenceBundle): stri
   }
   if (bundle.ledger.projectId !== bundle.facts.project) {
     errors.push("Evidence project does not match candidate facts.");
+  }
+  if (bundle.ledger.ready) {
+    if (!bundle.ledger.preflightReceipt) {
+      errors.push("PCC ledger readiness is missing its exact-SHA preflight receipt.");
+    } else {
+      errors.push(
+        ...verifyReleaseLedgerPreflightReceipt({
+          receipt: bundle.ledger.preflightReceipt,
+          candidateSha: bundle.facts.candidateSha,
+          projectId: bundle.ledger.projectId,
+          milestoneId: bundle.ledger.milestoneId,
+        }),
+      );
+    }
   }
   return errors;
 }

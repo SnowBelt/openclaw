@@ -111,7 +111,21 @@ Governor behavior continues to use `default`.
      --output release-governor-evaluation.json
    ```
 
-3. Create a canonical hash-bound evidence bundle from the evaluation and all
+3. Before claiming `ledger_ready`, verify the canonical PCC Release Governor
+   target and capture its read-only, exact-SHA-bound preflight receipt:
+
+   ```bash
+   node dist/release-governor.js ledger-preflight \
+     --candidate-sha <exact-40-character-sha> \
+     --output ledger-preflight.json
+   ```
+
+   Include that receipt as `ledger.preflightReceipt`, with
+   `ledger.projectId=project-command-center` and
+   `ledger.milestoneId=release-governor`. Preflight does not write completion
+   evidence or replace final ledger recording.
+
+4. Create a canonical hash-bound evidence bundle from the evaluation and all
    release evidence:
 
    ```bash
@@ -120,7 +134,7 @@ Governor behavior continues to use `default`.
      --output release-evidence.json
    ```
 
-4. Store each operation bundle at:
+5. Store each operation bundle at:
 
    ```text
    $OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR/<candidate-sha>/<operation>.json
@@ -128,11 +142,11 @@ Governor behavior continues to use `default`.
 
    Operations are `stage`, `promotion`, `restart`, `rollback`, and `finalize`.
 
-5. The immutable-runtime script verifies the bundle against the trusted active
+6. The immutable-runtime script verifies the bundle against the trusted active
    Release Governor before it mutates the selected runtime or service. The
    candidate Governor is accepted only for first-install bootstrap, which still
    requires policy-authorized exact-SHA evidence.
-6. After deployment and post-deployment health pass, write the final evidence
+7. After deployment and post-deployment health pass, write the final evidence
    and idempotent PCC receipt:
 
    ```bash

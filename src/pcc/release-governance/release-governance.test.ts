@@ -3,27 +3,41 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { closePccLedgerStorageForTest, readPccLedger, withPccLedger } from "../ledger-store.js";
+import {
+  closePccLedgerStorageForTest,
+  pccLedgerRevision,
+  pccLedgerSqlitePath,
+  readPccLedger,
+  withPccLedger,
+} from "../ledger-store.js";
 import { browserProofPhaseForCheckId } from "./browser-proof-contract.js";
-import type {
-  ReleaseApprovalGrant,
-  ReleaseCandidateFacts,
-  ReleaseCheck,
-  ReleaseEvidenceBundleInput,
-  ReleaseExactApproval,
-  ReleaseGovernorEvaluation,
-  ReleaseGovernorInput,
-  ReleaseOperation,
-  ReleaseReview,
+import {
+  RELEASE_LEDGER_PREFLIGHT_SCHEMA,
+  type ReleaseLedgerPreflightReceipt,
+  type ReleaseApprovalGrant,
+  type ReleaseCandidateFacts,
+  type ReleaseCheck,
+  type ReleaseEvidenceBundleInput,
+  type ReleaseExactApproval,
+  type ReleaseGovernorEvaluation,
+  type ReleaseGovernorInput,
+  type ReleaseOperation,
+  type ReleaseReview,
 } from "./contracts.js";
 import {
+  canonicalReleaseJson,
   createReleaseEvidenceBundle,
   verifyReleaseEvidenceAuthorization,
   verifyReleaseEvidenceBundle,
   verifyReleaseRuntimeArtifacts,
 } from "./evidence.js";
 import { evaluateReleaseGovernor } from "./governor.js";
-import { recordReleaseEvidenceInPccLedger } from "./ledger.js";
+import {
+  createReleaseLedgerPreflightReceipt,
+  recordReleaseEvidenceInPccLedger,
+  releaseLedgerPreflightHash,
+  verifyReleaseLedgerPreflightReceipt,
+} from "./ledger.js";
 import { parseReleaseGovernorPolicy, readReleaseGovernorPolicy } from "./policy.js";
 
 const NOW = "2026-07-15T12:00:00.000Z";
@@ -31,6 +45,21 @@ const SHA = "a".repeat(40);
 const PARENT_SHA = "b".repeat(40);
 const policy = readReleaseGovernorPolicy();
 const roots: string[] = [];
+
+function ledgerPreflightReceipt(candidateSha = SHA): ReleaseLedgerPreflightReceipt {
+  const receiptInput = {
+    schema: RELEASE_LEDGER_PREFLIGHT_SCHEMA,
+    candidateSha,
+    projectId: "project-command-center",
+    milestoneId: "release-governor",
+    ledgerRevision: 1,
+    checkedAt: NOW,
+  } as const;
+  return {
+    ...receiptInput,
+    receiptHash: releaseLedgerPreflightHash(receiptInput),
+  };
+}
 
 function capabilityManifest(requiredPaths = ["src/example.ts", "src/example-proof.ts"]): unknown {
   return {
@@ -281,7 +310,12 @@ function finalizedBundleInput(evaluation: ReleaseGovernorEvaluation): ReleaseEvi
       postDeployment: null,
       consoleErrors: 0,
     },
-    ledger: { projectId: "project-command-center", milestoneId: "release-governor", ready: true },
+    ledger: {
+      projectId: "project-command-center",
+      milestoneId: "release-governor",
+      ready: true,
+      preflightReceipt: ledgerPreflightReceipt(),
+    },
     createdAt: NOW,
   };
 }
@@ -360,7 +394,12 @@ function customBundleInput(
       postDeployment: postDeploymentBrowserArtifact,
       consoleErrors: 0,
     },
-    ledger: { projectId: "project-command-center", milestoneId: "release-governor", ready: true },
+    ledger: {
+      projectId: "project-command-center",
+      milestoneId: "release-governor",
+      ready: true,
+      preflightReceipt: ledgerPreflightReceipt(),
+    },
     createdAt: NOW,
   };
 }
@@ -850,6 +889,82 @@ describe("PCC Release Governor", () => {
     expect(authorized.decision.blockers).not.toContain(
       "Rollback is not authorized by the current policy scope.",
     );
+  });
+
+  it("preflights the canonical Release Governor target without writing completion evidence", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-release-preflight-"));
+    roots.push(root);
+    const env = { OPENCLAW_STATE_DIR: root };
+    withPccLedger(
+      (ledger) => {
+        ledger.projects.push({
+          id: "project-command-center",
+          title: "Project Command Center",
+          goal: "PCC",
+          status: "active",
+          priority: 5,
+          owner: "OpenClaw",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+        ledger.milestones.push({
+          id: "release-governor",
+          projectId: "project-command-center",
+          title: "Release Governor",
+          status: "active",
+          order: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      },
+      { write: true },
+      env,
+    );
+    const revision = pccLedgerRevision(env);
+
+    const receipt = createReleaseLedgerPreflightReceipt({ candidateSha: SHA, env, now: NOW });
+
+    expect(receipt).toMatchObject({
+      schema: RELEASE_LEDGER_PREFLIGHT_SCHEMA,
+      candidateSha: SHA,
+      projectId: "project-command-center",
+      milestoneId: "release-governor",
+      ledgerRevision: revision,
+    });
+    expect(
+      verifyReleaseLedgerPreflightReceipt({
+        receipt: JSON.parse(canonicalReleaseJson(receipt)) as ReleaseLedgerPreflightReceipt,
+        candidateSha: SHA,
+        projectId: "project-command-center",
+        milestoneId: "release-governor",
+      }),
+    ).toEqual([]);
+    expect(pccLedgerRevision(env)).toBe(revision);
+    expect(readPccLedger(env).evidence).toEqual([]);
+    expect(readPccLedger(env).receipts).toEqual([]);
+  });
+
+  it("refuses ledger preflight when the canonical target is missing", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-release-preflight-missing-"));
+    roots.push(root);
+    const env = { OPENCLAW_STATE_DIR: root };
+
+    expect(() => createReleaseLedgerPreflightReceipt({ candidateSha: SHA, env, now: NOW })).toThrow(
+      "Release ledger project does not exist: project-command-center.",
+    );
+    expect(fs.existsSync(pccLedgerSqlitePath(env))).toBe(false);
+  });
+
+  it("does not accept a ledger preflight receipt for another candidate SHA", () => {
+    const receipt = ledgerPreflightReceipt();
+    expect(
+      verifyReleaseLedgerPreflightReceipt({
+        receipt,
+        candidateSha: "c".repeat(40),
+        projectId: "project-command-center",
+        milestoneId: "release-governor",
+      }),
+    ).toContain("Release ledger preflight SHA does not match the exact candidate SHA.");
   });
 
   it("detects evidence tampering and records production receipts idempotently", () => {

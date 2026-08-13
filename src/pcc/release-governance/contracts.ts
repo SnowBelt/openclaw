@@ -2,6 +2,7 @@ export const RELEASE_GOVERNOR_POLICY_SCHEMA = "openclaw.release-governor-policy.
 export const RELEASE_EVIDENCE_SCHEMA = "openclaw.release-evidence.v1" as const;
 export const RELEASE_GOVERNANCE_STATUS_SCHEMA = "openclaw.release-governance-status.v1" as const;
 export const RELEASE_LOCAL_PROOF_SCHEMA = "openclaw.release-local-proof.v2" as const;
+export const RELEASE_LEDGER_PREFLIGHT_SCHEMA = "openclaw.release-ledger-preflight.v1" as const;
 
 export type ReleaseRiskLevel = "P0" | "P1" | "P2" | "P3";
 export type ReleaseOperation = "stage" | "promotion" | "restart" | "rollback" | "finalize";
@@ -126,6 +127,16 @@ export type ReleaseLocalProofReceipt = {
   verifierSha256: string;
   browserArtifactSha256: string | null;
   result: "passed";
+};
+
+export type ReleaseLedgerPreflightReceipt = {
+  schema: typeof RELEASE_LEDGER_PREFLIGHT_SCHEMA;
+  candidateSha: string;
+  projectId: string;
+  milestoneId: string;
+  ledgerRevision: number;
+  checkedAt: string;
+  receiptHash: string;
 };
 
 export type ReleaseReview = {
@@ -295,6 +306,7 @@ export type ReleaseEvidenceBundleInput = {
     projectId: string;
     milestoneId: string;
     ready: boolean;
+    preflightReceipt: ReleaseLedgerPreflightReceipt | null;
   };
   createdAt: string;
 };

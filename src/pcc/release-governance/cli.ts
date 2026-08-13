@@ -16,7 +16,7 @@ import {
   verifyReleaseRuntimeArtifacts,
 } from "./evidence.js";
 import { evaluateReleaseGovernor } from "./governor.js";
-import { recordReleaseEvidenceInPccLedger } from "./ledger.js";
+import { createReleaseLedgerPreflightReceipt, recordReleaseEvidenceInPccLedger } from "./ledger.js";
 import { captureReleaseLocalProof } from "./local-proof.js";
 import { readReleaseGovernorPolicy } from "./policy.js";
 import { readReleaseGovernanceStatus, writeReleaseEvidenceBundle } from "./store.js";
@@ -151,6 +151,13 @@ function recordLedger(args: Arguments): void {
   writeJson(null, recordReleaseEvidenceInPccLedger(evidence));
 }
 
+function preflightLedger(args: Arguments): void {
+  writeJson(
+    stringValue(args, "output", false),
+    createReleaseLedgerPreflightReceipt({ candidateSha: stringValue(args, "candidate-sha")! }),
+  );
+}
+
 function captureProof(args: Arguments): void {
   const timeout = stringValue(args, "timeout-ms", false);
   const result = captureReleaseLocalProof({
@@ -185,6 +192,9 @@ function main(): void {
     case "ledger-record":
       recordLedger(args);
       return;
+    case "ledger-preflight":
+      preflightLedger(args);
+      return;
     case "capture-proof":
       captureProof(args);
       return;
@@ -193,7 +203,7 @@ function main(): void {
       return;
     default:
       process.stderr.write(
-        "usage: release-governor <evaluate|bundle|verify|capture-proof|status|ledger-record> [options]\n",
+        "usage: release-governor <evaluate|bundle|verify|capture-proof|status|ledger-preflight|ledger-record> [options]\n",
       );
       process.exitCode = 64;
   }
