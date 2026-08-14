@@ -29,6 +29,7 @@ import {
 } from "./app-render.helpers.ts";
 import { hasOperatorAdminAccess, hasOperatorWriteAccess, warnQueryToken } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
+import { createLazyChatRenderer } from "./chat/lazy-render.ts";
 import { resolveCurrentChatGoal } from "./chat/pursue-goal.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import {
@@ -281,7 +282,6 @@ import {
   resolveModelPrimary,
   sortLocaleStrings,
 } from "./views/agents-utils.ts";
-import { renderChat } from "./views/chat.ts";
 import { renderCommandPalette } from "./views/command-palette.ts";
 import { getPresetById } from "./views/config-presets.ts";
 import { renderQuickSettings, type QuickSettingsChannel } from "./views/config-quick.ts";
@@ -302,6 +302,8 @@ import { renderOverview } from "./views/overview.ts";
 let pendingUpdate: (() => void) | undefined;
 
 const notifyLazyViewChanged = () => pendingUpdate?.();
+
+const renderChat = createLazyChatRenderer(notifyLazyViewChanged);
 
 function runUiTask<Args extends unknown[]>(
   task: (...args: Args) => Promise<unknown>,

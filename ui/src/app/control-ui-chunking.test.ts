@@ -30,4 +30,17 @@ describe("Control UI build chunking", () => {
       "markdown-runtime",
     );
   });
+
+  it("keeps large dashboard controllers out of the initial chunk", () => {
+    expect(controlUiManualChunk("/repo/ui/src/ui/controllers/kalshi-dashboard.ts")).toBe(
+      "kalshi-dashboard-runtime",
+    );
+    expect(controlUiManualChunk("/repo/ui/src/ui/controllers/pcc.ts")).toBe("pcc-runtime");
+    expect(controlUiManualChunk("/repo/ui/src/ui/controllers/workboard.ts")).toBe(
+      "workboard-runtime",
+    );
+    expect(controlUiManualChunk("/repo/ui/src/ui/controllers/book-writer-dashboard.ts")).toBe(
+      "book-writer-runtime",
+    );
+  });
 });

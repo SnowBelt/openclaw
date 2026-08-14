@@ -95,9 +95,17 @@ import { startThemeTransition, type ThemeTransitionContext } from "./theme-trans
 import { resolveTheme, type ResolvedTheme, type ThemeMode, type ThemeName } from "./theme.ts";
 import type { AgentsListResult, AttentionItem } from "./types.ts";
 import { normalizeLocalUserIdentity } from "./user-identity.ts";
-import { resetChatViewState } from "./views/chat.ts";
 
 export { setLastActiveSessionKey } from "./app-last-active-session.ts";
+
+function resetChatViewState() {
+  void import("./views/chat.ts").then(
+    ({ resetChatViewState: reset }) => reset(),
+    () => {
+      // Cleanup is best effort when a stale lazy chunk cannot be loaded.
+    },
+  );
+}
 
 type SettingsHost = {
   settings: UiSettings;
