@@ -7,7 +7,7 @@ export * from "../agents/agent-scope.js";
 export { resolveOpenClawAgentDir } from "./agent-dir-compat.js";
 export * from "../agents/current-time.js";
 export * from "../agents/date-time.js";
-export * from "../agents/defaults.js";
+export { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 export * from "../agents/identity-avatar.js";
 export * from "../agents/identity.js";
 export * from "../agents/model-auth-markers.js";
