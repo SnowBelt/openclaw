@@ -15,6 +15,7 @@ export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 export const CODEX_APP_SERVER_AUTH_MARKER = "codex-app-server";
 
 const DEFAULT_CONTEXT_WINDOW = 272_000;
+const GPT_56_CONTEXT_WINDOW = 372_000;
 const DEFAULT_MAX_TOKENS = 128_000;
 
 /** Current known Codex model capabilities used for explicit dynamic resolution. */
@@ -24,6 +25,7 @@ export const KNOWN_CODEX_MODELS = [
     model: "gpt-5.6-sol",
     displayName: "GPT-5.6 Sol",
     description: "Flagship GPT-5.6 model for the hardest quality-first work.",
+    contextWindow: GPT_56_CONTEXT_WINDOW,
     isDefault: true,
     inputModalities: ["text", "image"],
     supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
@@ -33,6 +35,7 @@ export const KNOWN_CODEX_MODELS = [
     model: "gpt-5.6-terra",
     displayName: "GPT-5.6 Terra",
     description: "Strong GPT-5.6 capability with a balanced cost and latency profile.",
+    contextWindow: GPT_56_CONTEXT_WINDOW,
     inputModalities: ["text", "image"],
     supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
   },
@@ -41,6 +44,7 @@ export const KNOWN_CODEX_MODELS = [
     model: "gpt-5.6-luna",
     displayName: "GPT-5.6 Luna",
     description: "Efficient GPT-5.6 model for high-volume bounded work.",
+    contextWindow: GPT_56_CONTEXT_WINDOW,
     inputModalities: ["text", "image"],
     supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
   },
@@ -54,10 +58,13 @@ export function buildCodexModelDefinition(model: {
   model: string;
   displayName?: string;
   inputModalities: string[];
+  contextWindow?: number;
   supportedReasoningEfforts?: string[];
 }): ModelDefinitionConfig {
   const id = model.id.trim() || model.model.trim();
   const supportedReasoningEfforts = model.supportedReasoningEfforts;
+  const contextWindow =
+    model.contextWindow ?? KNOWN_CODEX_MODELS.find((known) => known.id === id)?.contextWindow;
   return {
     id,
     name: model.displayName?.trim() || id,
@@ -68,7 +75,7 @@ export function buildCodexModelDefinition(model: {
         : shouldDefaultToReasoningModel(id),
     input: model.inputModalities.includes("image") ? ["text", "image"] : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
+    contextWindow: contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTokens: DEFAULT_MAX_TOKENS,
     compat: {
       ...(supportedReasoningEfforts !== undefined

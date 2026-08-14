@@ -797,7 +797,7 @@ describe("gateway session utils", () => {
     expect(row.contextTokens).toBe(64_000);
   });
 
-  test("preserves persisted Ultra while projecting picker levels without a catalog", () => {
+  test("normalizes persisted Ultra for Control Director Luna without a catalog", () => {
     providerArtifactMocks.resolveBundledProviderPolicySurface.mockReturnValue({
       resolveThinkingProfile: ({ modelId, agentRuntime }) => ({
         levels: [
@@ -845,11 +845,11 @@ describe("gateway session utils", () => {
     } as SessionEntry);
 
     expect(defaults.agentRuntime?.id).toBe("codex");
-    expect(codex.thinkingLevel).toBe("ultra");
+    expect(codex.thinkingLevel).toBe("max");
     expect(codex.thinkingLevels?.map((level) => level.id)).not.toContain("ultra");
     expect(openClawOverride.thinkingLevel).toBe("ultra");
     expect(openClawOverride.agentRuntime?.id).toBe("openclaw");
-    expect(legacyObservedOpenClaw.thinkingLevel).toBe("ultra");
+    expect(legacyObservedOpenClaw.thinkingLevel).toBe("max");
     expect(legacyObservedOpenClaw.agentRuntime?.id).toBe("codex");
     expect(legacyObservedOpenClaw.thinkingLevels?.map((level) => level.id)).not.toContain("ultra");
   });

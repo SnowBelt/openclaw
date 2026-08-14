@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ThinkLevel } from "../auto-reply/thinking.shared.js";
 import { judgeTaskCompletion } from "../tasks/task-completion-judge.js";
 import {
   CONTROL_DIRECTOR_DEFAULT_ALIAS,
@@ -19,7 +20,9 @@ export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG =
   CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG;
 export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = CONTROL_DIRECTOR_DEFAULT_DISPLAY_LABEL;
 export const CONTROL_DIRECTOR_FIRST_FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
-export const CONTROL_DIRECTOR_EFFECTIVE_CONTEXT_TOKENS = 64_000;
+export const CONTROL_DIRECTOR_CODEX_LUNA_MODEL_ID = "gpt-5.6-luna";
+export const CONTROL_DIRECTOR_CODEX_LUNA_MAX_LEVEL: ThinkLevel = "max";
+export const CONTROL_DIRECTOR_CODEX_LUNA_MAX_DISPLAY_LABEL = "Maximum";
 
 export type ControlDirectorResponseMode =
   | "conversation"

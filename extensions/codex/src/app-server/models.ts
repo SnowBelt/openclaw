@@ -15,6 +15,8 @@ export type CodexAppServerModel = {
   model: string;
   displayName?: string;
   description?: string;
+  /** Optional local capability metadata; model/list does not currently provide it. */
+  contextWindow?: number;
   hidden?: boolean;
   isDefault?: boolean;
   inputModalities: string[];

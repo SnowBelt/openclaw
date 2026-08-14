@@ -366,8 +366,35 @@ describe("codex provider", () => {
       modelId: "gpt-5.6-sol",
     } as never)?.levels;
 
-    expectRecordFields(model, { id: "gpt-5.6-sol", input: ["text", "image"] });
+    expectRecordFields(model, {
+      id: "gpt-5.6-sol",
+      input: ["text", "image"],
+      contextWindow: 372_000,
+    });
     expect(levels?.map((level) => level.id)).toContain("max");
+  });
+
+  it("reports the known GPT-5.6 context window per model without inventing availability", () => {
+    const provider = buildCodexProvider({ pluginConfig: { discovery: { enabled: false } } });
+    const luna = provider.resolveDynamicModel?.({
+      provider: "codex",
+      modelId: "gpt-5.6-luna",
+      modelRegistry: { find: () => null },
+    } as never);
+    const terra = provider.resolveDynamicModel?.({
+      provider: "codex",
+      modelId: "gpt-5.6-terra",
+      modelRegistry: { find: () => null },
+    } as never);
+    const custom = provider.resolveDynamicModel?.({
+      provider: "codex",
+      modelId: "custom-model",
+      modelRegistry: { find: () => null },
+    } as never);
+
+    expectRecordFields(luna, { contextWindow: 372_000 });
+    expectRecordFields(terra, { contextWindow: 372_000 });
+    expectRecordFields(custom, { contextWindow: 272_000 });
   });
 
   it("treats o4 ids as reasoning-capable Codex models", () => {
