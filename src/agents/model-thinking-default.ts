@@ -10,6 +10,7 @@ import {
 import { resolveThinkingDefaultForModel } from "../auto-reply/thinking.js";
 import type { ThinkLevel } from "../auto-reply/thinking.shared.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "./control-director-contract.js";
 import type { ModelCatalogEntry } from "./model-catalog.types.js";
 import { legacyModelKey, modelKey, normalizeProviderId } from "./model-selection-normalize.js";
 import { normalizeModelSelection } from "./model-selection-resolve.js";
@@ -21,10 +22,20 @@ export function resolveThinkingDefault(params: {
   provider: string;
   model: string;
   catalog?: ModelCatalogEntry[];
+  agentId?: string | null;
   agentRuntime?: string | null;
 }): ThinkLevel {
   const normalizedProvider = normalizeProviderId(params.provider);
   const normalizedModel = normalizeLowercaseStringOrEmpty(params.model).replace(/\./g, "-");
+  const controlDirectorLevel = resolveControlDirectorCodexLunaThinkingLevel({
+    agentId: params.agentId,
+    provider: params.provider,
+    model: params.model,
+    agentRuntime: params.agentRuntime,
+  });
+  if (controlDirectorLevel) {
+    return controlDirectorLevel;
+  }
   const catalog = Array.isArray(params.catalog)
     ? params.catalog
     : buildConfiguredModelCatalog({ cfg: params.cfg });
@@ -112,6 +123,7 @@ export async function resolveThinkingDefaultWithRuntimeCatalog(params: {
   provider: string;
   model: string;
   loadModelCatalog: () => Promise<ModelCatalogEntry[]>;
+  agentId?: string | null;
   agentRuntime?: string | null;
 }): Promise<ThinkLevel> {
   const configuredCatalog = buildConfiguredModelCatalog({ cfg: params.cfg });
@@ -135,6 +147,7 @@ export async function resolveThinkingDefaultWithRuntimeCatalog(params: {
     provider: params.provider,
     model: params.model,
     catalog,
+    agentId: params.agentId,
     agentRuntime: params.agentRuntime,
   });
 }

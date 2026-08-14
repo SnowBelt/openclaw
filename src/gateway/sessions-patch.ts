@@ -12,6 +12,7 @@ import {
 } from "../../packages/gateway-protocol/src/index.js";
 import { readAcpSessionMetaForEntry } from "../acp/runtime/session-meta.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "../agents/control-director-contract.js";
 import {
   normalizeInheritedToolAllowlist,
   normalizeInheritedToolDenylist,
@@ -677,7 +678,15 @@ export async function projectSessionsPatchEntry(params: {
       delete next.thinkingLevel;
     } else {
       const thinkingRuntime = resolveThinkingRuntime(effectiveProvider, effectiveModel, next);
-      if (
+      const controlDirectorLevel = resolveControlDirectorCodexLunaThinkingLevel({
+        agentId: sessionAgentId,
+        provider: effectiveProvider,
+        model: effectiveModel,
+        agentRuntime: thinkingRuntime,
+      });
+      if (controlDirectorLevel) {
+        next.thinkingLevel = controlDirectorLevel;
+      } else if (
         !isThinkingLevelSupported({
           provider: effectiveProvider,
           model: effectiveModel,

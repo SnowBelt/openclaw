@@ -70,6 +70,7 @@ import {
   resolveSessionKeyForRequest,
   resolveStoredSessionKeyForSessionId,
 } from "../command/session.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "../control-director-contract.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
 import {
   classifyAssistantFailoverReason,
@@ -290,10 +291,21 @@ function isNoRealConversationCompactionNoop(params: {
 function resolveInitialThinkLevel(params: {
   requested?: ThinkLevel;
   config?: RunEmbeddedAgentParams["config"];
+  agentId?: string;
+  agentRuntime?: string | null;
   provider: string;
   modelId: string;
   model: { reasoning?: boolean };
 }): ThinkLevel {
+  const controlDirectorLevel = resolveControlDirectorCodexLunaThinkingLevel({
+    agentId: params.agentId,
+    provider: params.provider,
+    model: params.modelId,
+    agentRuntime: params.agentRuntime,
+  });
+  if (controlDirectorLevel) {
+    return controlDirectorLevel;
+  }
   if (params.requested) {
     return params.requested;
   }
@@ -301,6 +313,7 @@ function resolveInitialThinkLevel(params: {
     cfg: params.config ?? {},
     provider: params.provider,
     model: params.modelId,
+    agentId: params.agentId,
     catalog: [
       {
         provider: params.provider,
@@ -1457,6 +1470,8 @@ async function runEmbeddedAgentInternal(
       const requestedThinkLevel = resolveInitialThinkLevel({
         requested: params.thinkLevel,
         config: params.config,
+        agentId: params.agentId,
+        agentRuntime: agentHarness.id,
         provider,
         modelId,
         model: effectiveModel,

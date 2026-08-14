@@ -942,7 +942,8 @@ describe("gateway sessions patch", () => {
       loadGatewayModelCatalog: async () => [],
     });
 
-    expectPatchError(result, 'thinkingLevel "ultra" is not supported');
+    expectPatchOk(result);
+    expect(result.ok && result.entry.thinkingLevel).toBe("max");
     expect(acpSessionMetaMocks.readAcpSessionMetaForEntry).toHaveBeenCalledWith({
       sessionKey: MAIN_SESSION_KEY,
       entry: expect.objectContaining({ sessionId: "sess" }),
@@ -959,10 +960,8 @@ describe("gateway sessions patch", () => {
       loadGatewayModelCatalog: async () => [],
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.message).toContain("not supported");
-    }
+    expectPatchOk(result);
+    expect(result.ok && result.entry.thinkingLevel).toBe("max");
   });
 
   test("preserves an incompatible stored thinkingLevel without loading the catalog for unrelated patches", async () => {

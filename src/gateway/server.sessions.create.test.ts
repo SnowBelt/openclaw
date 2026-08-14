@@ -513,6 +513,32 @@ test("sessions.create inherits parent runtime model selection without stale cont
   expect(rawStore[key]?.parentSessionKey).toBe("agent:main:main");
 });
 
+test("sessions.create pins inherited Control Director Luna thinking to max", async () => {
+  await createSessionStoreDir();
+  await writeSessionStore({
+    entries: {
+      main: sessionStoreEntry("sess-luna-parent", {
+        providerOverride: "openai",
+        modelOverride: "gpt-5.6-luna",
+        agentRuntimeOverride: "codex",
+        modelProvider: "openai",
+        model: "gpt-5.6-luna",
+        thinkingLevel: "low",
+      }),
+    },
+  });
+
+  const created = await directSessionReq<{
+    entry?: { thinkingLevel?: string };
+  }>("sessions.create", {
+    agentId: "main",
+    parentSessionKey: "main",
+  });
+
+  expect(created.ok).toBe(true);
+  expect(created.payload?.entry?.thinkingLevel).toBe("max");
+});
+
 test("sessions.create accepts an explicit key for persistent dashboard sessions", async () => {
   await createSessionStoreDir();
 

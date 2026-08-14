@@ -7,6 +7,7 @@ import {
 /** Resolves the concrete harness runtime that owns the next agent turn. */
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "./control-director-contract.js";
 import { resolveAgentHarnessPolicy } from "./harness/policy.js";
 import { resolveAutoAgentHarnessId } from "./harness/support.js";
 import { resolveSessionRuntimeOverrideForProvider } from "./session-runtime-compat.js";
@@ -66,9 +67,6 @@ export function resolveCandidateThinkingLevel(params: {
   /** Concrete harness already selected by the caller, when selection is pinned. */
   agentRuntime?: string | null;
 }): ThinkLevel | undefined {
-  if (!params.level) {
-    return undefined;
-  }
   const concreteRuntime = params.agentRuntime?.trim().toLowerCase();
   const agentRuntime =
     concreteRuntime && concreteRuntime !== "auto" && concreteRuntime !== "default"
@@ -81,6 +79,18 @@ export function resolveCandidateThinkingLevel(params: {
           sessionKey: params.sessionKey,
           sessionEntry: params.sessionEntry,
         });
+  const controlDirectorLevel = resolveControlDirectorCodexLunaThinkingLevel({
+    agentId: params.agentId,
+    provider: params.provider,
+    model: params.modelId,
+    agentRuntime,
+  });
+  if (controlDirectorLevel) {
+    return controlDirectorLevel;
+  }
+  if (!params.level) {
+    return undefined;
+  }
   const policy = {
     provider: params.provider,
     model: params.modelId,

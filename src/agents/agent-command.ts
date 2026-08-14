@@ -106,6 +106,7 @@ import {
 import { resolveAgentRunContext } from "./command/run-context.js";
 import { clearRotatedSessionMetadata, resolveSession } from "./command/session.js";
 import type { AgentCommandIngressOpts, AgentCommandOpts } from "./command/types.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "./control-director-contract.js";
 import { applyControlDirectorDeliveryGuards } from "./control-director-delivery-guards.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
 import {
@@ -1804,15 +1805,23 @@ async function agentCommandInternal(
       const configuredThinkLevel = normalizeThinkLevel(
         resolveAgentConfig(cfg, sessionAgentId)?.thinkingDefault,
       );
+      const controlDirectorThinkLevel = resolveControlDirectorCodexLunaThinkingLevel({
+        agentId: sessionAgentId,
+        provider,
+        model,
+        agentRuntime: thinkingRuntime,
+      });
       // User/session/config choices remain stable across candidates. A model's
       // own default is resolved again for every fallback or live switch.
-      const immutableThinkLevel = requestedThinkLevel ?? configuredThinkLevel;
+      const immutableThinkLevel =
+        controlDirectorThinkLevel ?? requestedThinkLevel ?? configuredThinkLevel;
       const primaryThinkLevel =
         immutableThinkLevel ??
         resolveThinkingDefault({
           cfg,
           provider,
           model,
+          agentId: sessionAgentId,
           catalog: thinkingCatalog,
           agentRuntime: thinkingRuntime,
         });
@@ -2189,11 +2198,18 @@ async function agentCommandInternal(
                 sessionEntry: attemptSessionEntry,
               });
               const candidateRequestedThinkLevel =
+                resolveControlDirectorCodexLunaThinkingLevel({
+                  agentId: sessionAgentId,
+                  provider: providerOverride,
+                  model: modelOverride,
+                  agentRuntime: candidateRuntime,
+                }) ??
                 immutableThinkLevel ??
                 resolveThinkingDefault({
                   cfg,
                   provider: providerOverride,
                   model: modelOverride,
+                  agentId: sessionAgentId,
                   catalog: thinkingCatalog,
                   agentRuntime: candidateRuntime,
                 });

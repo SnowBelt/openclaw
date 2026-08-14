@@ -13,6 +13,7 @@ import {
   resolveAgentWorkspaceDir,
   resolveDefaultAgentId,
 } from "../agents/agent-scope.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "../agents/control-director-contract.js";
 import { isEmbeddedAgentRunActive } from "../agents/embedded-agent.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.types.js";
 import {
@@ -108,10 +109,17 @@ export function buildDashboardSessionKey(agentId: string): string {
 
 function inheritSessionRuntimeSelection(
   parentEntry: SessionEntry | undefined,
+  agentId: string,
 ): Partial<SessionEntry> {
   if (!parentEntry) {
     return {};
   }
+  const controlDirectorThinkingLevel = resolveControlDirectorCodexLunaThinkingLevel({
+    agentId,
+    provider: parentEntry.modelProvider ?? parentEntry.providerOverride,
+    model: parentEntry.model ?? parentEntry.modelOverride,
+    agentRuntime: parentEntry.agentRuntimeOverride ?? parentEntry.agentHarnessId,
+  });
   return {
     ...(parentEntry.providerOverride ? { providerOverride: parentEntry.providerOverride } : {}),
     ...(parentEntry.modelOverride ? { modelOverride: parentEntry.modelOverride } : {}),
@@ -123,7 +131,11 @@ function inheritSessionRuntimeSelection(
       : {}),
     ...(parentEntry.modelProvider ? { modelProvider: parentEntry.modelProvider } : {}),
     ...(parentEntry.model ? { model: parentEntry.model } : {}),
-    ...(parentEntry.thinkingLevel ? { thinkingLevel: parentEntry.thinkingLevel } : {}),
+    ...(controlDirectorThinkingLevel
+      ? { thinkingLevel: controlDirectorThinkingLevel }
+      : parentEntry.thinkingLevel
+        ? { thinkingLevel: parentEntry.thinkingLevel }
+        : {}),
     ...(parentEntry.fastMode !== undefined ? { fastMode: parentEntry.fastMode } : {}),
     ...(parentEntry.verboseLevel ? { verboseLevel: parentEntry.verboseLevel } : {}),
     ...(parentEntry.traceLevel ? { traceLevel: parentEntry.traceLevel } : {}),
@@ -415,7 +427,10 @@ export async function createGatewaySession(params: {
         }
         const inheritedSelection = normalizeOptionalString(params.model)
           ? {}
-          : inheritSessionRuntimeSelection(currentParentSessionEntry);
+          : inheritSessionRuntimeSelection(
+              currentParentSessionEntry,
+              parentSessionTarget?.agentId ?? agentId,
+            );
         const entry: SessionEntry = {
           ...patched.entry,
           ...inheritedSelection,

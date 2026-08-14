@@ -25,6 +25,10 @@ import {
 } from "../agents/agent-scope.js";
 import { lookupContextTokens, resolveContextTokensForModel } from "../agents/context.js";
 import {
+  resolveControlDirectorCodexLunaThinkingLevel,
+  resolveControlDirectorCodexLunaThinkingOptions,
+} from "../agents/control-director-contract.js";
+import {
   DEFAULT_MODEL,
   DEFAULT_PROVIDER,
   resolveDefaultContextTokens,
@@ -823,12 +827,7 @@ function resolveSessionRowThinkingMetadata(params: {
 } {
   if (!params.rowContext) {
     return {
-      levels: listThinkingLevelOptions(
-        params.provider,
-        params.model,
-        params.modelCatalog,
-        params.agentRuntime,
-      ),
+      levels: resolveSessionThinkingLevels(params),
       defaultLevel: resolveGatewaySessionThinkingDefault({
         cfg: params.cfg,
         provider: params.provider,
@@ -848,12 +847,7 @@ function resolveSessionRowThinkingMetadata(params: {
     return cached;
   }
   const metadata = {
-    levels: listThinkingLevelOptions(
-      params.provider,
-      params.model,
-      params.modelCatalog,
-      params.agentRuntime,
-    ),
+    levels: resolveSessionThinkingLevels(params),
     defaultLevel: resolveGatewaySessionThinkingDefault({
       cfg: params.cfg,
       provider: params.provider,
@@ -865,6 +859,24 @@ function resolveSessionRowThinkingMetadata(params: {
   };
   params.rowContext.thinkingMetadataByModelRef.set(key, metadata);
   return metadata;
+}
+
+function resolveSessionThinkingLevels(params: {
+  agentId: string;
+  provider: string;
+  model: string;
+  modelCatalog?: ModelCatalogEntry[];
+  agentRuntime: string;
+}): ReturnType<typeof listThinkingLevelOptions> {
+  return (
+    resolveControlDirectorCodexLunaThinkingOptions(params) ??
+    listThinkingLevelOptions(
+      params.provider,
+      params.model,
+      params.modelCatalog,
+      params.agentRuntime,
+    )
+  );
 }
 
 function mergeChildSessionKeys(
@@ -1369,12 +1381,13 @@ export function listAgentsForGateway(
       agentId: id,
       sessionKey,
     });
-    const thinkingLevels = listThinkingLevelOptions(
-      resolvedModel.provider,
-      resolvedModel.model,
+    const thinkingLevels = resolveSessionThinkingLevels({
+      agentId: id,
+      provider: resolvedModel.provider,
+      model: resolvedModel.model,
       modelCatalog,
-      thinkingRuntime,
-    );
+      agentRuntime: thinkingRuntime,
+    });
     const workspace = resolveAgentWorkspaceDir(cfg, id);
     // Must mirror the sessions.create worktree preflight: subdirectory workspaces inside a
     // repo are worktree-capable, so the UI toggle and the create path cannot diverge.
@@ -1649,10 +1662,15 @@ export { loadCombinedSessionStoreForGateway } from "../config/sessions/combined-
 function resolveGatewaySessionThinkingLevel(params: {
   provider: string;
   model: string;
+  agentId?: string;
   level: NonNullable<ReturnType<typeof normalizeThinkLevel>>;
   modelCatalog?: ModelCatalogEntry[];
   agentRuntime: string;
 }) {
+  const controlDirectorLevel = resolveControlDirectorCodexLunaThinkingLevel(params);
+  if (controlDirectorLevel) {
+    return controlDirectorLevel;
+  }
   const catalogEntry = params.modelCatalog
     ? findModelCatalogEntry(params.modelCatalog, {
         provider: params.provider,
@@ -1685,18 +1703,22 @@ function resolveGatewaySessionThinkingDefault(params: {
   const agentThinkingDefault = params.agentId
     ? resolveAgentConfig(params.cfg, params.agentId)?.thinkingDefault
     : undefined;
+  const controlDirectorThinkingDefault = resolveControlDirectorCodexLunaThinkingLevel(params);
   const defaultLevel =
+    controlDirectorThinkingDefault ??
     agentThinkingDefault ??
     resolveThinkingDefault({
       cfg: params.cfg,
       provider: params.provider,
       model: params.model,
       catalog: params.modelCatalog,
+      agentId: params.agentId,
       agentRuntime: params.agentRuntime,
     });
   return resolveGatewaySessionThinkingLevel({
     provider: params.provider,
     model: params.model,
+    agentId: params.agentId,
     level: defaultLevel,
     modelCatalog: params.modelCatalog,
     agentRuntime: params.agentRuntime,
@@ -1760,6 +1782,7 @@ function resolveGatewaySessionThinkingProjectionInternal(
     ? resolveGatewaySessionThinkingLevel({
         provider: params.provider,
         model: params.model,
+        agentId: params.agentId,
         level: storedThinkingLevel,
         modelCatalog: params.modelCatalog,
         agentRuntime: thinkingRuntime,
@@ -1799,11 +1822,19 @@ export function getSessionDefaults(
     defaultModel: DEFAULT_MODEL,
     allowPluginNormalization: options?.allowPluginNormalization,
   });
-  const contextTokens =
-    cfg.agents?.defaults?.contextTokens ??
-    lookupContextTokens(resolved.model, { allowAsyncLoad: false }) ??
-    resolveDefaultContextTokens(resolved.provider, resolved.model);
   const agentId = normalizeAgentId(resolveDefaultAgentId(cfg));
+  const resolvedContextTokens = resolveContextTokensForModel({
+    cfg,
+    provider: resolved.provider,
+    model: resolved.model,
+    fallbackContextTokens: resolveDefaultContextTokens(resolved.provider, resolved.model),
+    allowAsyncLoad: false,
+  });
+  const contextTokens = isOpenAiCodexSessionContextModel(resolved.provider, resolved.model)
+    ? (resolvedContextTokens ?? cfg.agents?.defaults?.contextTokens)
+    : (cfg.agents?.defaults?.contextTokens ??
+      resolvedContextTokens ??
+      lookupContextTokens(resolved.model, { allowAsyncLoad: false }));
   const sessionKey = resolveAgentMainSessionKey({ cfg, agentId });
   const agentRuntime = resolveModelAgentRuntimeMetadata({
     cfg,
@@ -1820,12 +1851,13 @@ export function getSessionDefaults(
     agentId,
     sessionKey,
   });
-  const thinkingLevels = listThinkingLevelOptions(
-    resolved.provider,
-    resolved.model,
+  const thinkingLevels = resolveSessionThinkingLevels({
+    agentId,
+    provider: resolved.provider,
+    model: resolved.model,
     modelCatalog,
-    thinkingRuntime,
-  );
+    agentRuntime: thinkingRuntime,
+  });
   return {
     modelProvider: resolved.provider ?? null,
     model: resolved.model ?? null,
@@ -1837,6 +1869,7 @@ export function getSessionDefaults(
       cfg,
       provider: resolved.provider,
       model: resolved.model,
+      agentId,
       modelCatalog,
       agentRuntime: thinkingRuntime,
     }),

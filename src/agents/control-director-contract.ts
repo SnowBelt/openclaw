@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ThinkLevel } from "../auto-reply/thinking.shared.js";
 import { judgeTaskCompletion } from "../tasks/task-completion-judge.js";
 
 export const CONTROL_DIRECTOR_AGENT_IDS = ["main", "control-director"] as const;
@@ -10,7 +11,9 @@ export const CONTROL_DIRECTOR_PRIMARY_MODEL = `${CONTROL_DIRECTOR_PRIMARY_PROVID
 export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
 export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = "OpenClaw Control Qwen3.6 27B Q8_0";
 export const CONTROL_DIRECTOR_FIRST_FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
-export const CONTROL_DIRECTOR_EFFECTIVE_CONTEXT_TOKENS = 64_000;
+export const CONTROL_DIRECTOR_CODEX_LUNA_MODEL_ID = "gpt-5.6-luna";
+export const CONTROL_DIRECTOR_CODEX_LUNA_MAX_LEVEL: ThinkLevel = "max";
+export const CONTROL_DIRECTOR_CODEX_LUNA_MAX_DISPLAY_LABEL = "Maximum";
 
 export type ControlDirectorFinalStatus = "complete" | "blocked" | "needs_user_input" | "continuing";
 export type ControlDirectorThinkingEscalationLevel = "off" | "medium" | "high";
@@ -256,6 +259,60 @@ export function isControlDirectorAgentId(agentId: string | undefined | null): bo
   }
   const normalized = agentId.trim().toLowerCase();
   return CONTROL_DIRECTOR_AGENT_IDS.some((candidate) => candidate === normalized);
+}
+
+/**
+ * Luna is an explicit Control Director policy, not a global thinking policy.
+ * Keep specialist agents and direct OpenClaw runtimes free to use their own
+ * valid levels while preventing stale Control Director state from lowering it.
+ */
+export function isControlDirectorCodexLunaModel(params: {
+  agentId?: string | undefined | null;
+  provider?: string | undefined | null;
+  model?: string | undefined | null;
+  agentRuntime?: string | undefined | null;
+}): boolean {
+  if (!isControlDirectorAgentId(params.agentId)) {
+    return false;
+  }
+  const provider = resolveControlDirectorModelProviderCandidate(params);
+  if (provider !== "openai" && provider !== "codex") {
+    return false;
+  }
+  if (
+    normalizeControlDirectorModelCandidate(params.model) !== CONTROL_DIRECTOR_CODEX_LUNA_MODEL_ID
+  ) {
+    return false;
+  }
+  const runtime = params.agentRuntime?.trim().toLowerCase();
+  return !runtime || runtime === "codex";
+}
+
+export function resolveControlDirectorCodexLunaThinkingLevel(params: {
+  agentId?: string | undefined | null;
+  provider?: string | undefined | null;
+  model?: string | undefined | null;
+  agentRuntime?: string | undefined | null;
+}): ThinkLevel | undefined {
+  return isControlDirectorCodexLunaModel(params)
+    ? CONTROL_DIRECTOR_CODEX_LUNA_MAX_LEVEL
+    : undefined;
+}
+
+export function resolveControlDirectorCodexLunaThinkingOptions(params: {
+  agentId?: string | undefined | null;
+  provider?: string | undefined | null;
+  model?: string | undefined | null;
+  agentRuntime?: string | undefined | null;
+}): Array<{ id: ThinkLevel; label: string }> | undefined {
+  return isControlDirectorCodexLunaModel(params)
+    ? [
+        {
+          id: CONTROL_DIRECTOR_CODEX_LUNA_MAX_LEVEL,
+          label: CONTROL_DIRECTOR_CODEX_LUNA_MAX_DISPLAY_LABEL,
+        },
+      ]
+    : undefined;
 }
 
 function normalizeControlDirectorModelCandidate(value: string | undefined | null): string {

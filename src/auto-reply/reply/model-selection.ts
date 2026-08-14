@@ -6,6 +6,7 @@ import {
 import { isStoredCredentialCompatibleWithAuthProvider } from "../../agents/auth-profiles/order.js";
 import { clearSessionAuthProfileOverride } from "../../agents/auth-profiles/session-override.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "../../agents/control-director-contract.js";
 import { resolveDefaultContextTokens } from "../../agents/defaults.js";
 import { resolveAgentHarnessPolicy } from "../../agents/harness/policy.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.js";
@@ -553,6 +554,16 @@ export async function createModelSelectionState(params: {
     if (cached) {
       return cached;
     }
+    const controlDirectorThinkingDefault = resolveControlDirectorCodexLunaThinkingLevel({
+      agentId: params.agentId,
+      provider: selectedProvider,
+      model: selectedModel,
+      agentRuntime: selection?.agentRuntime,
+    });
+    if (controlDirectorThinkingDefault) {
+      defaultThinkingLevels.set(cacheKey, controlDirectorThinkingDefault);
+      return controlDirectorThinkingDefault;
+    }
     const agentThinkingDefault = agentEntry?.thinkingDefault as ThinkLevel | undefined;
     if (agentThinkingDefault) {
       defaultThinkingLevels.set(cacheKey, agentThinkingDefault);
@@ -581,6 +592,7 @@ export async function createModelSelectionState(params: {
       cfg,
       provider: selectedProvider,
       model: selectedModel,
+      agentId: params.agentId,
       catalog: catalogForThinking,
       agentRuntime: selection?.agentRuntime,
     });

@@ -693,6 +693,32 @@ describe("gateway session utils", () => {
     expect(row.contextTokens).toBe(272_000);
   });
 
+  test("uses the resolved Luna context instead of a stale persisted 64k cap", () => {
+    const cfg = {
+      agents: { defaults: { model: { primary: "openai/gpt-5.6-luna" } } },
+      models: {
+        providers: {
+          openai: { models: [{ id: "gpt-5.6-luna", contextTokens: 372_000 }] },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    const row = buildGatewaySessionRow({
+      cfg,
+      storePath: "",
+      store: {},
+      key: "agent:main:main",
+      entry: {
+        sessionId: "stale-luna-session",
+        modelProvider: "openai",
+        model: "gpt-5.6-luna",
+        contextTokens: 64_000,
+      } as SessionEntry,
+    });
+
+    expect(row.contextTokens).toBe(372_000);
+  });
+
   test("keeps persisted local-model context caps for session rows", () => {
     const cfg = {
       agents: { defaults: { model: { primary: "ollama/qwen" } } },
@@ -767,11 +793,11 @@ describe("gateway session utils", () => {
     } as SessionEntry);
 
     expect(defaults.agentRuntime?.id).toBe("codex");
-    expect(codex.thinkingLevel).toBe("ultra");
+    expect(codex.thinkingLevel).toBe("max");
     expect(codex.thinkingLevels?.map((level) => level.id)).not.toContain("ultra");
     expect(openClawOverride.thinkingLevel).toBe("ultra");
     expect(openClawOverride.agentRuntime?.id).toBe("openclaw");
-    expect(legacyObservedOpenClaw.thinkingLevel).toBe("ultra");
+    expect(legacyObservedOpenClaw.thinkingLevel).toBe("max");
     expect(legacyObservedOpenClaw.agentRuntime?.id).toBe("codex");
     expect(legacyObservedOpenClaw.thinkingLevels?.map((level) => level.id)).not.toContain("ultra");
   });

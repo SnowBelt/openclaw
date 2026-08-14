@@ -1,6 +1,8 @@
 // Control UI module implements thinking behavior.
 import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
 
+export { isControlDirectorCodexLunaSelection } from "../lib/chat/control-director-thinking.ts";
+
 export type ThinkingCatalogEntry = {
   provider: string;
   id: string;
