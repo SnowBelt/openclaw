@@ -104,7 +104,7 @@ overrides:
   hono: 4.12.25
   "@hono/node-server": 1.19.14
   axios: 1.18.1
-  fast-uri: 3.1.4
+  fast-uri: 3.1.5
   follow-redirects: 1.16.0
   defu: 6.1.5
   fast-xml-parser: 5.7.0
@@ -113,8 +113,12 @@ overrides:
   basic-ftp: 6.0.1
   file-type: 22.0.1
   form-data: 2.5.6
-  ip-address: 10.2.0
+  ip-address: 10.3.1
   minimatch: 10.2.5
+  brace-expansion: 5.0.9
+  "nanoid@3": 3.3.18
+  "undici@7": 7.29.0
+  "undici@8": 8.9.0
   path-to-regexp: 8.4.0
   qs: 6.15.2
   node-domexception: "npm:@nolyfill/domexception@1.0.28"

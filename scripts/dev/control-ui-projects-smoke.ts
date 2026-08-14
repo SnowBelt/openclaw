@@ -316,14 +316,23 @@ async function assertNoPccError(page: Page, phase: string) {
     const app = document.querySelector("openclaw-app") as
       | (HTMLElement & { connected?: boolean; tab?: string; pccError?: string | null })
       | null;
+    const fallback = document.getElementById("openclaw-mount-fallback");
     return {
       connected: app?.connected ?? null,
+      appReady: app?.getAttribute("data-openclaw-app-ready") === "true",
       tab: app?.tab ?? null,
       pccError: app?.pccError ?? null,
+      fallbackHidden: fallback?.hidden ?? null,
       bodyText: (document.body.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 1600),
     };
   });
-  if (diagnostics.connected !== true || diagnostics.tab !== "pcc" || diagnostics.pccError) {
+  if (
+    diagnostics.connected !== true ||
+    !diagnostics.appReady ||
+    diagnostics.tab !== "pcc" ||
+    diagnostics.pccError ||
+    diagnostics.fallbackHidden !== true
+  ) {
     throw new Error(
       "Projects alias smoke saw an invalid PCC state during " +
         phase +
@@ -335,7 +344,11 @@ async function assertNoPccError(page: Page, phase: string) {
 
 async function runProjectsAliasFlow(page: Page, artifactDir: string) {
   await waitForProjectsAlias(page);
-  await page.getByRole("heading", { name: "Project Command Center", exact: true }).waitFor({
+  await page.locator('[data-pcc-shell][data-pcc-surface="overview"]').waitFor({
+    state: "visible",
+    timeout: 45_000,
+  });
+  await page.getByRole("heading", { name: "Your work", exact: true }).waitFor({
     timeout: 45_000,
   });
   await assertNoPccError(page, "PCC alias load");
