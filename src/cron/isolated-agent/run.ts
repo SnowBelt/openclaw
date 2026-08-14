@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { retireSessionMcpRuntime } from "../../agents/agent-bundle-mcp-tools.js";
 import { hasAnyAuthProfileStoreSource } from "../../agents/auth-profiles/source-check.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "../../agents/control-director-contract.js";
 import { findModelInCatalog } from "../../agents/model-catalog-lookup.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
 import { listOpenAIAuthProfileProvidersForAgentRuntime } from "../../agents/openai-routing.js";
@@ -788,13 +789,21 @@ async function prepareCronRunContext(params: {
     sessionKey: agentSessionKey,
     sessionEntry: cronSession.sessionEntry,
   });
-  let requestedThinkLevel: ThinkLevel | undefined = jobThink ?? hooksGmailThinking ?? sessionThink;
+  const controlDirectorThinkLevel = resolveControlDirectorCodexLunaThinkingLevel({
+    agentId,
+    provider,
+    model,
+    agentRuntime: effectiveAgentRuntime,
+  });
+  let requestedThinkLevel: ThinkLevel | undefined =
+    controlDirectorThinkLevel ?? jobThink ?? hooksGmailThinking ?? sessionThink;
   if (!requestedThinkLevel) {
     const thinkingCatalog = await loadCatalog();
     requestedThinkLevel = resolveThinkingDefault({
       cfg: cfgWithAgentDefaults,
       provider,
       model,
+      agentId,
       catalog: thinkingCatalog,
       agentRuntime: effectiveAgentRuntime,
     });

@@ -436,6 +436,41 @@ describe("executeSlashCommand directives", () => {
     expect(request).toHaveBeenNthCalledWith(2, "models.list", { view: "configured" });
   });
 
+  it("keeps Control Director Luna pinned to Maximum when session metadata is stale", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return {
+          sessions: [
+            row("agent:main:codex:luna", {
+              modelProvider: "openai",
+              model: "gpt-5.6-luna",
+              thinkingLevel: "low",
+              thinkingLevels: [
+                { id: "off", label: "off" },
+                { id: "low", label: "low" },
+                { id: "high", label: "high" },
+              ],
+              agentRuntime: { id: "codex", source: "session-key" },
+            }),
+          ],
+        };
+      }
+      if (method === "models.list") {
+        return { models: [{ id: "gpt-5.6-luna", provider: "openai", reasoning: true }] };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:codex:luna",
+      "think",
+      "",
+    );
+
+    expect(result.content).toBe("Current thinking level: max.\nOptions: default, Maximum.");
+  });
+
   it("accepts minimal and xhigh thinking levels", async () => {
     const request = vi.fn(async (method: string, payload?: unknown) => {
       if (method === "sessions.list") {

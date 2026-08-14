@@ -523,7 +523,7 @@ describe("session_status tool", () => {
 
   it("returns a status card for the current session", async () => {
     resetSessionStore({
-      main: {
+      "agent:main:main": {
         sessionId: "s1",
         updatedAt: 10,
       },
@@ -1783,6 +1783,41 @@ describe("session_status tool", () => {
       const statusArg = mockCallArg(buildStatusMessageMock) as Record<string, unknown>;
       expect(statusArg.agentId).toBe("kira");
       expectRecordFields(statusArg.agent, { thinkingDefault: "medium" });
+    } finally {
+      mockConfig = savedConfig;
+    }
+  });
+
+  it("reports Luna Max for the Control Director status card", async () => {
+    resetSessionStore({
+      main: {
+        sessionId: "control-director-luna-status",
+        updatedAt: 10,
+      },
+    });
+    const savedConfig = mockConfig;
+    try {
+      mockConfig = {
+        session: { mainKey: "main", scope: "per-sender" },
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.6-luna" },
+            models: {},
+          },
+        },
+        tools: {
+          agentToAgent: { enabled: false },
+        },
+      };
+
+      const tool = getSessionStatusTool("agent:main:main");
+
+      await tool.execute("call-control-director-luna-status", {});
+
+      const statusArg = mockCallArg(buildStatusMessageMock) as Record<string, unknown>;
+      const agent = statusArg.agent as Record<string, unknown>;
+      expect(statusArg.agentId).toBe("main");
+      expectRecordFields(agent, { thinkingDefault: "max" });
     } finally {
       mockConfig = savedConfig;
     }

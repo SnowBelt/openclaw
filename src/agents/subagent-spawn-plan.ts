@@ -5,6 +5,7 @@
  */
 import { formatThinkingLevels } from "../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "./control-director-contract.js";
 import {
   resolveDefaultModelForAgent,
   resolveSubagentConfiguredModelSelection,
@@ -84,6 +85,14 @@ export function resolveSubagentModelAndThinkingPlan(params: {
     };
   }
 
+  const { provider, model } = splitModelRef(resolvedModel);
+  const controlDirectorThinking = resolveControlDirectorCodexLunaThinkingLevel({
+    agentId: params.targetAgentId,
+    provider,
+    model,
+  });
+  const thinkingOverride = controlDirectorThinking ?? thinkingPlan.thinkingOverride;
+
   const modelOverrideSource = params.modelOverride?.trim() ? "user" : "auto";
   const hasConfiguredAutoModel =
     modelOverrideSource === "auto" &&
@@ -110,7 +119,7 @@ export function resolveSubagentModelAndThinkingPlan(params: {
     status: "ok" as const,
     resolvedModel,
     modelApplied: Boolean(resolvedModel),
-    thinkingOverride: thinkingPlan.thinkingOverride,
+    thinkingOverride,
     initialSessionPatch: {
       ...(resolvedModel
         ? {
@@ -127,6 +136,7 @@ export function resolveSubagentModelAndThinkingPlan(params: {
           }
         : {}),
       ...thinkingPlan.initialSessionPatch,
+      ...(controlDirectorThinking ? { thinkingLevel: controlDirectorThinking } : {}),
     },
   };
 }

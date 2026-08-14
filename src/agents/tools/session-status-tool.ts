@@ -836,6 +836,9 @@ export function createSessionStatusTool(opts?: {
             cfg,
             provider: providerForCard,
             model: defaultModelForCard,
+            agentId,
+            agentRuntime:
+              statusSessionEntry.agentRuntimeOverride ?? statusSessionEntry.agentHarnessId,
             loadModelCatalog: () => loadModelCatalog({ config: cfg }),
           }),
         isGroup,

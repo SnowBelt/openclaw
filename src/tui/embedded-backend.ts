@@ -9,6 +9,7 @@ import {
   resolveSessionAgentId,
 } from "../agents/agent-scope.js";
 import { ensureContextWindowCacheLoaded } from "../agents/context.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "../agents/control-director-contract.js";
 import { DEFAULT_PROVIDER } from "../agents/defaults.js";
 import {
   buildAllowedModelSet,
@@ -554,13 +555,20 @@ export class EmbeddedTuiBackend implements TuiBackend {
     const bounded = enforceChatHistoryFinalBudget({ messages: capped, maxBytes: maxHistoryBytes });
     const messages = bounded.messages;
 
-    let thinkingLevel = entry?.thinkingLevel;
+    let thinkingLevel =
+      resolveControlDirectorCodexLunaThinkingLevel({
+        agentId: sessionAgentId,
+        provider: resolvedSessionModel.provider,
+        model: resolvedSessionModel.model,
+        agentRuntime: entry?.agentRuntimeOverride ?? entry?.agentHarnessId,
+      }) ?? entry?.thinkingLevel;
     if (!thinkingLevel) {
       const catalog = await loadEmbeddedTuiModelCatalog(cfg);
       thinkingLevel = resolveThinkingDefault({
         cfg,
         provider: resolvedSessionModel.provider,
         model: resolvedSessionModel.model,
+        agentId: sessionAgentId,
         catalog,
       });
     }

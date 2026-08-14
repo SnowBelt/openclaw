@@ -20,6 +20,7 @@ import {
 } from "../string-coerce.ts";
 import {
   formatThinkingLevels,
+  isControlDirectorCodexLunaSelection,
   normalizeThinkLevel,
   resolveThinkingDefaultForModel,
 } from "../thinking.ts";
@@ -260,8 +261,8 @@ async function executeThink(
       const { session, defaults, models } = await loadThinkingCommandState(client, sessionKey);
       return {
         content: formatDirectiveOptions(
-          `Current thinking level: ${resolveCurrentThinkingLevel(session, defaults, models)}.`,
-          formatThinkingCommandOptionsForSession(session, defaults),
+          `Current thinking level: ${resolveCurrentThinkingLevel(session, defaults, models, sessionKey, context.agentId)}.`,
+          formatThinkingCommandOptionsForSession(session, defaults, sessionKey, context.agentId),
         ),
       };
     } catch (err) {
@@ -287,15 +288,21 @@ async function executeThink(
 
   try {
     const { session, defaults } = await loadCurrentSessionState(client, sessionKey);
-    const level = resolveThinkingLevelInput(rawLevel, session, defaults);
+    const level = resolveThinkingLevelInput(
+      rawLevel,
+      session,
+      defaults,
+      sessionKey,
+      context.agentId,
+    );
     if (!level) {
       return {
-        content: `Unrecognized thinking level "${rawLevel}". Valid levels: ${formatThinkingCommandOptionsForSession(session, defaults)}.`,
+        content: `Unrecognized thinking level "${rawLevel}". Valid levels: ${formatThinkingCommandOptionsForSession(session, defaults, sessionKey, context.agentId)}.`,
       };
     }
-    if (!isThinkingLevelOptionForSession(session, defaults, level)) {
+    if (!isThinkingLevelOptionForSession(session, defaults, level, sessionKey, context.agentId)) {
       return {
-        content: `Unsupported thinking level "${rawLevel}" for this model. Valid levels: ${formatThinkingCommandOptionsForSession(session, defaults)}.`,
+        content: `Unsupported thinking level "${rawLevel}" for this model. Valid levels: ${formatThinkingCommandOptionsForSession(session, defaults, sessionKey, context.agentId)}.`,
       };
     }
     await client.request("sessions.patch", {
@@ -553,8 +560,10 @@ function formatThinkingOptionsForSession(
   session: GatewaySessionRow | undefined,
   defaults?: SessionsListResult["defaults"],
   separator = ", ",
+  sessionKey?: string,
+  agentId?: string,
 ): string {
-  return resolveThinkingLevelOptionsForSession(session, defaults)
+  return resolveThinkingLevelOptionsForSession(session, defaults, sessionKey, agentId)
     .map((level) => level.label)
     .join(separator);
 }
@@ -562,8 +571,10 @@ function formatThinkingOptionsForSession(
 function formatThinkingCommandOptionsForSession(
   session: GatewaySessionRow | undefined,
   defaults?: SessionsListResult["defaults"],
+  sessionKey?: string,
+  agentId?: string,
 ): string {
-  const options = formatThinkingOptionsForSession(session, defaults);
+  const options = formatThinkingOptionsForSession(session, defaults, ", ", sessionKey, agentId);
   return options.split(", ").includes("default") ? options : `default, ${options}`;
 }
 
@@ -571,13 +582,15 @@ function resolveThinkingLevelInput(
   rawLevel: string,
   session: GatewaySessionRow | undefined,
   defaults: SessionsListResult["defaults"] | undefined,
+  sessionKey?: string,
+  agentId?: string,
 ): string | undefined {
   const normalized = normalizeThinkLevel(rawLevel);
   if (normalized) {
     return normalized;
   }
   const rawKey = normalizeLowercaseStringOrEmpty(rawLevel);
-  return resolveThinkingLevelOptionsForSession(session, defaults)
+  return resolveThinkingLevelOptionsForSession(session, defaults, sessionKey, agentId)
     .map((option) => ({
       id: normalizeThinkLevel(option.id) ?? normalizeLowercaseStringOrEmpty(option.id),
       label: normalizeLowercaseStringOrEmpty(option.label),
@@ -589,17 +602,26 @@ function isThinkingLevelOptionForSession(
   session: GatewaySessionRow | undefined,
   defaults: SessionsListResult["defaults"] | undefined,
   level: string,
+  sessionKey?: string,
+  agentId?: string,
 ): boolean {
-  return resolveThinkingLevelOptionsForSession(session, defaults).some((option) => {
-    const id = normalizeThinkLevel(option.id) ?? normalizeLowercaseStringOrEmpty(option.id);
-    return id === level || normalizeThinkLevel(option.label) === level;
-  });
+  return resolveThinkingLevelOptionsForSession(session, defaults, sessionKey, agentId).some(
+    (option) => {
+      const id = normalizeThinkLevel(option.id) ?? normalizeLowercaseStringOrEmpty(option.id);
+      return id === level || normalizeThinkLevel(option.label) === level;
+    },
+  );
 }
 
 function resolveThinkingLevelOptionsForSession(
   session: GatewaySessionRow | undefined,
   defaults: SessionsListResult["defaults"] | undefined,
+  sessionKey?: string,
+  agentId?: string,
 ): GatewayThinkingLevelOption[] {
+  if (isControlDirectorCodexLunaSession(session, defaults, sessionKey, agentId)) {
+    return [{ id: "max", label: "Maximum" }];
+  }
   if (session?.thinkingLevels?.length) {
     return session.thinkingLevels;
   }
@@ -691,11 +713,16 @@ function resolveCurrentThinkingLevel(
   session: GatewaySessionRow | undefined,
   defaults: SessionsListResult["defaults"] | undefined,
   models: ModelCatalogEntry[],
+  sessionKey?: string,
+  agentId?: string,
 ): string {
+  if (isControlDirectorCodexLunaSession(session, defaults, sessionKey, agentId)) {
+    return "max";
+  }
   const persisted = normalizeThinkLevel(session?.thinkingLevel);
   if (persisted) {
     return (
-      resolveThinkingLevelOptionsForSession(session, defaults).find(
+      resolveThinkingLevelOptionsForSession(session, defaults, sessionKey, agentId).find(
         (level) => normalizeThinkLevel(level.id) === persisted,
       )?.label ?? persisted
     );
@@ -715,6 +742,30 @@ function resolveCurrentThinkingLevel(
     provider,
     model,
     catalog: models,
+  });
+}
+
+function isControlDirectorCodexLunaSession(
+  session: GatewaySessionRow | undefined,
+  defaults: SessionsListResult["defaults"] | undefined,
+  sessionKey?: string,
+  agentId?: string,
+): boolean {
+  const normalizedSessionKey = normalizeSessionKey(sessionKey);
+  const rowAgentId = parseAgentSessionKey(normalizeSessionKey(session?.key) ?? "")?.agentId;
+  const requestedAgentId = parseAgentSessionKey(normalizedSessionKey ?? "")?.agentId;
+  const resolvedAgentId =
+    rowAgentId ??
+    requestedAgentId ??
+    normalizeOptionalLowercaseString(agentId) ??
+    (normalizedSessionKey === DEFAULT_MAIN_KEY ? DEFAULT_AGENT_ID : undefined);
+  const matchesDefaults = !session || sessionModelMatchesDefaults(session, defaults);
+  return isControlDirectorCodexLunaSelection({
+    agentId: resolvedAgentId,
+    provider: session?.modelProvider ?? defaults?.modelProvider,
+    model: session?.model ?? defaults?.model,
+    agentRuntime:
+      session?.agentRuntime?.id ?? (matchesDefaults ? defaults?.agentRuntime?.id : undefined),
   });
 }
 

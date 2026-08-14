@@ -693,6 +693,32 @@ describe("gateway session utils", () => {
     expect(row.contextTokens).toBe(272_000);
   });
 
+  test("uses the resolved Luna context instead of a stale persisted 64k cap", () => {
+    const cfg = {
+      agents: { defaults: { model: { primary: "openai/gpt-5.6-luna" } } },
+      models: {
+        providers: {
+          openai: { models: [{ id: "gpt-5.6-luna", contextTokens: 372_000 }] },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    const row = buildGatewaySessionRow({
+      cfg,
+      storePath: "",
+      store: {},
+      key: "agent:main:main",
+      entry: {
+        sessionId: "stale-luna-session",
+        modelProvider: "openai",
+        model: "gpt-5.6-luna",
+        contextTokens: 64_000,
+      } as SessionEntry,
+    });
+
+    expect(row.contextTokens).toBe(372_000);
+  });
+
   test("uses resolved OpenAI GPT context instead of stale oversized persisted session caps", () => {
     const cfg = {
       agents: { defaults: { model: { primary: "openai/gpt-5.5" } } },

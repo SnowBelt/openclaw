@@ -164,6 +164,7 @@ export function formatAgentModelStartupDetails(params: {
         cfg: params.cfg,
         provider: params.provider,
         model: params.model,
+        agentId: defaultAgentId,
         catalog: configuredCatalog,
       });
       thinking = resolvedThinking === "off" ? "medium" : resolvedThinking;

@@ -461,6 +461,7 @@ function readRequesterThinkingLevel(params: {
         cfg: params.cfg,
         provider: persistedModel.provider,
         model: persistedModel.model,
+        agentId: params.requesterAgentId,
       });
     }
   }
@@ -468,6 +469,7 @@ function readRequesterThinkingLevel(params: {
     cfg: params.cfg,
     provider: defaultModel.provider,
     model: defaultModel.model,
+    agentId: params.requesterAgentId,
   });
 }
 

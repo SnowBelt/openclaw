@@ -33,6 +33,7 @@ import {
   validateSessionsSendParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "../../agents/control-director-contract.js";
 import {
   abortEmbeddedAgentRun,
   isEmbeddedAgentRunActive,
@@ -2872,7 +2873,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
               model: resolvedModel.model,
               authProfileId: latestEntry.authProfileOverride,
               agentHarnessId: latestEntry.agentHarnessId,
-              thinkLevel: normalizeThinkLevel(latestEntry.thinkingLevel),
+              thinkLevel:
+                resolveControlDirectorCodexLunaThinkingLevel({
+                  agentId: target.agentId,
+                  provider: resolvedModel.provider,
+                  model: resolvedModel.model,
+                  agentRuntime: latestEntry.agentRuntimeOverride ?? latestEntry.agentHarnessId,
+                }) ?? normalizeThinkLevel(latestEntry.thinkingLevel),
               reasoningLevel: normalizeReasoningLevel(latestEntry.reasoningLevel),
               bashElevated: {
                 enabled: false,

@@ -88,4 +88,75 @@ describe("chat thinking helpers", () => {
 
     expect(state.options.map((option) => option.value)).not.toContain("ultra");
   });
+
+  it("pins Control Director Codex Luna to Maximum", () => {
+    const state = resolveChatThinkingSelectState({
+      catalog: [],
+      sessionKey: "agent:main:main",
+      sessionsResult: {
+        ts: 1,
+        path: "",
+        count: 1,
+        defaults: {
+          modelProvider: "openai",
+          model: "gpt-5.6-luna",
+          contextTokens: null,
+          agentRuntime: { id: "codex", source: "model" },
+          thinkingDefault: "low",
+          thinkingLevels: [
+            { id: "low", label: "Low" },
+            { id: "max", label: "Max" },
+          ],
+        },
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 1,
+            modelProvider: "openai",
+            model: "gpt-5.6-luna",
+            agentRuntime: { id: "codex", source: "session-key" },
+            thinkingLevel: "low",
+          },
+        ],
+      },
+    });
+
+    expect(state.currentOverride).toBe("max");
+    expect(state.options).toEqual([{ value: "max", label: "Maximum" }]);
+  });
+
+  it("does not pin Luna when the Control Director uses the OpenClaw runtime", () => {
+    const state = resolveChatThinkingSelectState({
+      catalog: [],
+      sessionKey: "agent:main:main",
+      sessionsResult: {
+        ts: 1,
+        path: "",
+        count: 1,
+        defaults: {
+          modelProvider: "openai",
+          model: "gpt-5.6-luna",
+          contextTokens: null,
+          agentRuntime: { id: "openclaw", source: "model" },
+          thinkingLevels: [
+            { id: "low", label: "Low" },
+            { id: "ultra", label: "Ultra" },
+          ],
+        },
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 1,
+            modelProvider: "openai",
+            model: "gpt-5.6-luna",
+            agentRuntime: { id: "openclaw", source: "session-key" },
+          },
+        ],
+      },
+    });
+
+    expect(state.options.map((option) => option.value)).toEqual(["low", "ultra"]);
+  });
 });

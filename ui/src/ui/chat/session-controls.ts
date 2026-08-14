@@ -38,6 +38,7 @@ import {
 } from "../thinking-labels.ts";
 import {
   type ThinkingCatalogEntry,
+  isControlDirectorCodexLunaSelection,
   listThinkingLevelLabels,
   normalizeThinkLevel,
   resolveThinkingDefaultForModel,
@@ -1074,34 +1075,50 @@ function resolveThinkingLevelOptions(
 
 export function resolveChatThinkingSelectState(state: AppViewState): ChatThinkingSelectState {
   const activeRow = state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
-  const persisted = activeRow?.thinkingLevel;
+  const defaults = state.sessionsResult?.defaults;
+  const { provider, model } = resolveThinkingTargetModel(state);
+  const agentRuntime =
+    activeRow?.agentRuntime?.id ??
+    (!activeRow || sessionModelMatchesDefaults(activeRow, defaults)
+      ? defaults?.agentRuntime?.id
+      : undefined);
+  const lunaPolicy = isControlDirectorCodexLunaSelection({
+    agentId:
+      parseAgentSessionKey(state.sessionKey)?.agentId ??
+      (state.sessionKey === "main" ? "main" : undefined),
+    provider,
+    model,
+    agentRuntime,
+  });
+  const persisted = lunaPolicy ? "max" : activeRow?.thinkingLevel;
   const currentOverride =
     typeof persisted === "string" && persisted.trim()
       ? (normalizeThinkLevel(persisted) ?? persisted.trim())
       : "";
-  const defaults = state.sessionsResult?.defaults;
-  const { provider, model } = resolveThinkingTargetModel(state);
-  const levels = resolveThinkingLevelOptions(
-    activeRow,
-    defaults,
-    provider,
-    model,
-    state.chatModelCatalog ?? [],
-  );
+  const levels = lunaPolicy
+    ? [{ id: "max", label: "Maximum" }]
+    : resolveThinkingLevelOptions(
+        activeRow,
+        defaults,
+        provider,
+        model,
+        state.chatModelCatalog ?? [],
+      );
   const defaultFromSessionDefaults =
     (!activeRow || sessionModelMatchesDefaults(activeRow, defaults)) && defaults?.thinkingDefault
       ? defaults.thinkingDefault
       : undefined;
-  const defaultLevel =
-    activeRow?.thinkingDefault ??
-    defaultFromSessionDefaults ??
-    (provider && model
-      ? resolveThinkingDefaultForModel({
-          provider,
-          model,
-          catalog: state.chatModelCatalog ?? [],
-        })
-      : "off");
+  const defaultLevel = lunaPolicy
+    ? "max"
+    : (activeRow?.thinkingDefault ??
+      defaultFromSessionDefaults ??
+      (provider && model
+        ? resolveThinkingDefaultForModel({
+            provider,
+            model,
+            catalog: state.chatModelCatalog ?? [],
+          })
+        : "off"));
   const effectiveOverride = levels.length === 0 && currentOverride === "off" ? "" : currentOverride;
   return {
     currentOverride: effectiveOverride,

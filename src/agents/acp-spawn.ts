@@ -80,6 +80,7 @@ import {
   startAcpSpawnParentStreamRelay,
 } from "./acp-spawn-parent-stream.js";
 import { listAgentIds, resolveAgentConfig, resolveDefaultAgentId } from "./agent-scope.js";
+import { resolveControlDirectorCodexLunaThinkingLevel } from "./control-director-contract.js";
 import {
   findAcpUnsupportedInheritedToolAllow,
   findAcpUnsupportedInheritedToolDeny,
@@ -1037,7 +1038,14 @@ function resolveAcpSpawnRuntimeOptions(params: {
     };
   }
 
-  let thinking = thinkingPlan.thinkingOverride;
+  const { provider: resolvedProvider, model: resolvedModelId } = splitModelRef(model);
+  const controlDirectorThinking = resolveControlDirectorCodexLunaThinkingLevel({
+    agentId: policyAgentId,
+    provider: resolvedProvider,
+    model: resolvedModelId,
+    agentRuntime: "codex",
+  });
+  let thinking = controlDirectorThinking ?? thinkingPlan.thinkingOverride;
   if (!thinking && model) {
     const { provider, model: modelId } = splitModelRef(model);
     if (provider && modelId) {
@@ -1045,6 +1053,7 @@ function resolveAcpSpawnRuntimeOptions(params: {
         cfg: params.cfg,
         provider,
         model: modelId,
+        agentId: policyAgentId,
       });
     }
   }

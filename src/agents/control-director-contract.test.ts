@@ -10,13 +10,33 @@ import {
   classifyControlDirectorResponseMode,
   decideControlDirectorContinuation,
   evaluateControlDirectorResponse,
+  isControlDirectorCodexLunaModel,
   parseControlDirectorMissionEnvelope,
+  resolveControlDirectorCodexLunaThinkingLevel,
+  resolveControlDirectorCodexLunaThinkingOptions,
   resolveControlDirectorThinkingEscalation,
   scoreControlDirectorReadiness,
   summarizeControlDirectorMissionFinalText,
 } from "./control-director-contract.ts";
 
 describe("Control Director contract", () => {
+  it("pins Codex Luna to Maximum only for the Control Director", () => {
+    const selection = {
+      agentId: "main",
+      provider: "openai",
+      model: "openai/gpt-5.6-luna:latest",
+      agentRuntime: "codex",
+    };
+
+    expect(isControlDirectorCodexLunaModel(selection)).toBe(true);
+    expect(resolveControlDirectorCodexLunaThinkingLevel(selection)).toBe("max");
+    expect(resolveControlDirectorCodexLunaThinkingOptions(selection)).toEqual([
+      { id: "max", label: "Maximum" },
+    ]);
+    expect(isControlDirectorCodexLunaModel({ ...selection, agentId: "pattern-lab" })).toBe(false);
+    expect(isControlDirectorCodexLunaModel({ ...selection, agentRuntime: "openclaw" })).toBe(false);
+  });
+
   it("injects the operating contract only for the Control Director", () => {
     const section = buildControlDirectorSystemPromptSection("main").join("\n");
     expect(section).toContain("Control Director Operating Contract");

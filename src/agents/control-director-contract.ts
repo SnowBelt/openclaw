@@ -319,6 +319,60 @@ export function isControlDirectorAgentId(agentId: string | undefined | null): bo
   return CONTROL_DIRECTOR_AGENT_IDS.some((candidate) => candidate === normalized);
 }
 
+/**
+ * Luna is an explicit Control Director policy, not a global thinking policy.
+ * Keep specialist agents and direct OpenClaw runtimes free to use their own
+ * valid levels while preventing stale Control Director state from lowering it.
+ */
+export function isControlDirectorCodexLunaModel(params: {
+  agentId?: string | undefined | null;
+  provider?: string | undefined | null;
+  model?: string | undefined | null;
+  agentRuntime?: string | undefined | null;
+}): boolean {
+  if (!isControlDirectorAgentId(params.agentId)) {
+    return false;
+  }
+  const provider = resolveControlDirectorModelProviderCandidate(params);
+  if (provider !== "openai" && provider !== "codex") {
+    return false;
+  }
+  if (
+    normalizeControlDirectorModelCandidate(params.model) !== CONTROL_DIRECTOR_CODEX_LUNA_MODEL_ID
+  ) {
+    return false;
+  }
+  const runtime = params.agentRuntime?.trim().toLowerCase();
+  return !runtime || runtime === "codex";
+}
+
+export function resolveControlDirectorCodexLunaThinkingLevel(params: {
+  agentId?: string | undefined | null;
+  provider?: string | undefined | null;
+  model?: string | undefined | null;
+  agentRuntime?: string | undefined | null;
+}): ThinkLevel | undefined {
+  return isControlDirectorCodexLunaModel(params)
+    ? CONTROL_DIRECTOR_CODEX_LUNA_MAX_LEVEL
+    : undefined;
+}
+
+export function resolveControlDirectorCodexLunaThinkingOptions(params: {
+  agentId?: string | undefined | null;
+  provider?: string | undefined | null;
+  model?: string | undefined | null;
+  agentRuntime?: string | undefined | null;
+}): Array<{ id: ThinkLevel; label: string }> | undefined {
+  return isControlDirectorCodexLunaModel(params)
+    ? [
+        {
+          id: CONTROL_DIRECTOR_CODEX_LUNA_MAX_LEVEL,
+          label: CONTROL_DIRECTOR_CODEX_LUNA_MAX_DISPLAY_LABEL,
+        },
+      ]
+    : undefined;
+}
+
 /** Deterministic first-pass intent contract; explicit protocol mode may override this upstream. */
 export function classifyControlDirectorResponseMode(
   text: string | undefined | null,

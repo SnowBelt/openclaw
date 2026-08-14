@@ -8,6 +8,9 @@ import type {
 import { pushUniqueTrimmedSelectOption } from "../select-options.ts";
 import { sessionModelMatchesDefaults } from "../session-model-defaults.ts";
 import { normalizeLowercaseStringOrEmpty } from "../string-coerce.ts";
+import { isControlDirectorCodexLunaSelection } from "./control-director-thinking.ts";
+
+export { isControlDirectorCodexLunaSelection } from "./control-director-thinking.ts";
 
 export type ThinkingCatalogEntry = {
   provider: string;
@@ -77,6 +80,11 @@ export function resolveThinkingDefaultForModel(params: {
     (entry) => entry.provider === params.provider && entry.id === params.model,
   );
   return candidate?.reasoning ? "low" : "off";
+}
+
+function resolveAgentIdFromSessionKey(sessionKey: string): string | undefined {
+  const match = /^agent:([^:]+):/u.exec(sessionKey);
+  return match?.[1] ?? (sessionKey === "main" ? "main" : undefined);
 }
 
 type ThinkingSessionDefaults = SessionsListResult["defaults"] | undefined;
@@ -259,35 +267,49 @@ export function resolveChatThinkingSelectState(params: {
   sessionsResult: SessionsListResult | null;
 }): ChatThinkingSelectState {
   const session = params.sessionsResult?.sessions?.find((row) => row.key === params.sessionKey);
-  const persisted = session?.thinkingLevel;
+  const defaults = params.sessionsResult?.defaults;
+  const { provider, model } = resolveThinkingTargetModel({ defaults, session });
+  const agentRuntime =
+    session?.agentRuntime?.id ??
+    (!session || sessionModelMatchesDefaults(session, defaults)
+      ? defaults?.agentRuntime?.id
+      : undefined);
+  const lunaPolicy = isControlDirectorCodexLunaSelection({
+    agentId: resolveAgentIdFromSessionKey(params.sessionKey),
+    provider,
+    model,
+    agentRuntime,
+  });
+  const persisted = lunaPolicy ? "max" : session?.thinkingLevel;
   const currentOverride =
     typeof persisted === "string" && persisted.trim()
       ? (normalizeThinkLevel(persisted) ?? persisted.trim())
       : "";
-  const defaults = params.sessionsResult?.defaults;
-  const { provider, model } = resolveThinkingTargetModel({ defaults, session });
-  const levels = resolveThinkingLevelOptions({
-    catalog: params.catalog,
-    defaults,
-    hideUnsupportedOffOnly: true,
-    model,
-    provider,
-    session,
-  });
+  const levels = lunaPolicy
+    ? [{ id: "max", label: "Maximum" }]
+    : resolveThinkingLevelOptions({
+        catalog: params.catalog,
+        defaults,
+        hideUnsupportedOffOnly: true,
+        model,
+        provider,
+        session,
+      });
   const defaultFromSessionDefaults =
     (!session || sessionModelMatchesDefaults(session, defaults)) && defaults?.thinkingDefault
       ? defaults.thinkingDefault
       : undefined;
-  const defaultLevel =
-    session?.thinkingDefault ??
-    defaultFromSessionDefaults ??
-    (provider && model
-      ? resolveThinkingDefaultForModel({
-          provider,
-          model,
-          catalog: params.catalog,
-        })
-      : "off");
+  const defaultLevel = lunaPolicy
+    ? "max"
+    : (session?.thinkingDefault ??
+      defaultFromSessionDefaults ??
+      (provider && model
+        ? resolveThinkingDefaultForModel({
+            provider,
+            model,
+            catalog: params.catalog,
+          })
+        : "off"));
   const effectiveOverride = levels.length === 0 && currentOverride === "off" ? "" : currentOverride;
   return {
     currentOverride: effectiveOverride,
