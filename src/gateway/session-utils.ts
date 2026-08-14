@@ -927,6 +927,7 @@ function resolveSessionRowContextTokens(params: {
   entryContextTokens?: number;
   transcriptContextTokens?: number;
   resolvedContextTokens?: number;
+  resolvedModelContextTokens?: number;
   lightweight: boolean;
 }): number | undefined {
   const entryContextTokens = resolvePositiveNumber(params.entryContextTokens);
@@ -934,17 +935,23 @@ function resolveSessionRowContextTokens(params: {
     ? undefined
     : resolvePositiveNumber(params.transcriptContextTokens);
   const resolvedContextTokens = resolvePositiveNumber(params.resolvedContextTokens);
+  const resolvedModelContextTokens = resolvePositiveNumber(params.resolvedModelContextTokens);
 
   if (isOpenAiCodexSessionContextModel(params.provider, params.model)) {
-    // Session rows are read-only UI projections. Persisted contextTokens can be
-    // stale after switching between local and Codex/OpenAI models, so modern
-    // hosted GPT rows must display the selected model's resolved window instead
-    // of inheriting an old 64k local-session cap. Local models keep persisted
-    // caps below.
-    return resolvedContextTokens ?? entryContextTokens ?? transcriptContextTokens;
+    // A 64k persisted value is the legacy local-session cap. Replace only that
+    // known stale cap; larger explicit values are session contracts and must
+    // continue through live events unchanged.
+    if (
+      entryContextTokens === 64_000 &&
+      resolvedContextTokens !== undefined &&
+      resolvedContextTokens > entryContextTokens
+    ) {
+      return resolvedContextTokens;
+    }
+    return entryContextTokens ?? transcriptContextTokens ?? resolvedContextTokens;
   }
 
-  return entryContextTokens ?? transcriptContextTokens ?? resolvedContextTokens;
+  return entryContextTokens ?? transcriptContextTokens ?? resolvedModelContextTokens;
 }
 
 function resolveTranscriptUsageFallback(params: {
@@ -2352,15 +2359,17 @@ export function buildGatewaySessionRow(params: {
     cfg,
     provider: rowModelProvider,
     model: rowModel,
-    fallbackContextTokens: resolveDefaultContextTokens(rowModelProvider, rowModel),
     allowAsyncLoad: false,
   });
+  const resolvedContextTokens =
+    resolvedModelContextTokens ?? resolveDefaultContextTokens(rowModelProvider, rowModel);
   const contextTokens = resolveSessionRowContextTokens({
     provider: rowModelProvider,
     model: rowModel,
     entryContextTokens: entry?.contextTokens,
     transcriptContextTokens: transcriptUsage?.contextTokens,
-    resolvedContextTokens: resolvedModelContextTokens,
+    resolvedContextTokens,
+    resolvedModelContextTokens,
     lightweight,
   });
 
