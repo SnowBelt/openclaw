@@ -11,7 +11,6 @@ const PRIMARY_MODEL = "ollama/openclaw-control-qwen36-27b:latest";
 const PRIMARY_OLLAMA_NAME = "openclaw-control-qwen36-27b:latest";
 const UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
 const FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
-const EFFECTIVE_CONTEXT = 64_000;
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 const CHAT_SMOKE_TIMEOUT_MS = 180_000;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -74,6 +73,11 @@ function readJson(filePath) {
 function normalizeModelRef(value) {
   const raw = String(value ?? "").trim();
   return raw === PRIMARY_ALIAS ? PRIMARY_MODEL : raw;
+}
+
+function positiveInteger(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function findControlDirectorAgent(config) {
@@ -354,6 +358,15 @@ export function buildControlDirectorReadinessScorecard(params) {
   const fallbacks = Array.isArray(agent?.model?.fallbacks) ? agent.model.fallbacks : [];
   const controlAliasDefaults = defaultsModels[PRIMARY_MODEL];
   const providerAlias = providerModels.find((entry) => entry?.id === PRIMARY_OLLAMA_NAME);
+  const agentContext = positiveInteger(agent?.contextTokens);
+  const aliasContext = positiveInteger(controlAliasDefaults?.params?.num_ctx);
+  const providerContext = positiveInteger(providerAlias?.contextTokens);
+  const providerWindow = positiveInteger(providerAlias?.contextWindow);
+  const effectiveContexts = [agentContext, aliasContext, providerContext];
+  const contextIsConsistent =
+    effectiveContexts.every((value) => value !== undefined) &&
+    new Set(effectiveContexts).size === 1 &&
+    (providerWindow === undefined || providerContext <= providerWindow);
   const facts = [];
 
   facts.push(fact("agent-present", "Control Director agent configured", Boolean(agent), true));
@@ -451,11 +464,10 @@ export function buildControlDirectorReadinessScorecard(params) {
   facts.push(
     fact(
       "context",
-      "Control Director effective context is 64000",
-      agent?.contextTokens === EFFECTIVE_CONTEXT &&
-        controlAliasDefaults?.params?.num_ctx === EFFECTIVE_CONTEXT &&
-        providerAlias?.contextTokens === EFFECTIVE_CONTEXT,
+      "Control Director effective context is positive, consistent, and within the model window",
+      contextIsConsistent,
       true,
+      `agent=${agentContext ?? "missing"} alias=${aliasContext ?? "missing"} provider=${providerContext ?? "missing"} window=${providerWindow ?? "unknown"}`,
     ),
   );
   facts.push(

@@ -10,9 +10,9 @@ function createConfig() {
             {
               id: "openclaw-control-qwen36-27b:latest",
               contextWindow: 262144,
-              contextTokens: 64000,
+              contextTokens: 262144,
               params: {
-                num_ctx: 64000,
+                num_ctx: 262144,
                 temperature: 0.2,
                 top_p: 0.8,
                 top_k: 20,
@@ -29,7 +29,7 @@ function createConfig() {
           "ollama/openclaw-control-qwen36-27b:latest": {
             alias: "openclaw-control-qwen36-27b",
             params: {
-              num_ctx: 64000,
+              num_ctx: 262144,
               temperature: 0.2,
               top_p: 0.8,
               top_k: 20,
@@ -47,7 +47,7 @@ function createConfig() {
             fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
           },
           thinkingDefault: "off",
-          contextTokens: 64000,
+          contextTokens: 262144,
         },
       ],
     },
@@ -111,6 +111,39 @@ describe("control-director-readiness", () => {
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain("Control alias digest matches qwen3.6 tag");
     expect(scorecard.nextBuildGap).toContain("Control alias digest");
+  });
+
+  it("flags inconsistent or over-window context configuration", () => {
+    const config = createConfig();
+    config.agents.list[0].contextTokens = 131072;
+
+    const scorecard = buildControlDirectorReadinessScorecard({
+      config,
+      ollamaModels: new Map([
+        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
+        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
+      ]),
+      ollamaEnv: {
+        OLLAMA_FLASH_ATTENTION: "1",
+        OLLAMA_KV_CACHE_TYPE: "q8_0",
+        OLLAMA_NUM_PARALLEL: "1",
+      },
+      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
+      thinkingEscalationPolicy: true,
+      continueUntilCompletePolicy: true,
+      completionEvidencePolicy: true,
+      explicitStatusPolicy: true,
+      runtimeFinalOutputGuard: true,
+      runtimeJudgeCompletionGate: true,
+      runtimeTruthGate: true,
+      runtimeTruthEvidenceIngestion: true,
+    });
+
+    expect(scorecard.productionReady).toBe(false);
+    expect(scorecard.failedCritical).toContain(
+      "Control Director effective context is positive, consistent, and within the model window",
+    );
   });
 
   it("flags a missing thinking escalation policy as a critical readiness gap", () => {
