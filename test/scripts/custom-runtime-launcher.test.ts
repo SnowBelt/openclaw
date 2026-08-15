@@ -204,6 +204,50 @@ describe("custom runtime launcher", () => {
     expect(result.stdout).toContain("gateway --port 18789");
   });
 
+  it("keeps integrity verification output off machine-readable command stdout", () => {
+    const input = fixture(["pcc"]);
+    const marker = path.join(input.release, ".openclaw-runtime-sealed");
+    const closureHash = "b".repeat(64);
+    writeFile(marker, `${input.sourceSha}\n${closureHash}\n`);
+    const snapshotPath = path.join(input.release, "snapshot.json");
+    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as Record<string, unknown>;
+    snapshot.runtimeClosureVersion = 1;
+    snapshot.runtimeClosureHash = closureHash;
+    writeFile(snapshotPath, `${JSON.stringify(snapshot)}\n`);
+    writeFile(
+      path.join(input.release, "scripts", "custom-runtime", "runtime-package-integrity.mjs"),
+      "",
+    );
+    const integrityNode = path.join(input.home, "integrity-node.sh");
+    writeFile(
+      integrityNode,
+      [
+        "#!/bin/sh",
+        'if [ "${1##*/}" = runtime-package-integrity.mjs ]; then',
+        "  printf '%s\\n' '{\"result\":\"passed\"}'",
+        "  exit 0",
+        "fi",
+        "printf '%s\\n' '{\"scorecard\":{},\"groups\":[]}'",
+        "",
+      ].join("\n"),
+      0o700,
+    );
+
+    const result = spawnSync(launcher, ["self-improvement", "summary"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: input.home,
+        OPENCLAW_CUSTOM_RUNTIME_POINTER: input.pointer,
+        OPENCLAW_NODE_BIN: integrityNode,
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe('{"scorecard":{},"groups":[]}\n');
+  });
+
   it("rejects a release that dropped an active required custom surface", () => {
     const result = verifyLauncher(fixture(["pcc", "kalshi"]));
 

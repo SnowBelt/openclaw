@@ -133,7 +133,6 @@ function writeCandidateContracts(release: string, sourceSha: string) {
       "<key>ProgramArguments</key><array><string>/stale/guard</string></array>",
       "<key>RunAtLoad</key><true/>",
       "<key>StartInterval</key><integer>60</integer>",
-      "<key>WatchPaths</key><array><string>/stale/gateway.plist</string></array>",
       "</dict></plist>",
       "",
     ].join("\n"),
@@ -940,7 +939,7 @@ describe("custom runtime lifecycle", () => {
     expect(readPlistArray(guardPlistPath, "ProgramArguments")).toEqual([
       path.join(runtimeHome, "bin", "custom-runtime-guard.sh"),
     ]);
-    expect(readPlistArray(guardPlistPath, "WatchPaths")).toEqual([plistPath]);
+    expect(readPlistArray(guardPlistPath, "WatchPaths")).toEqual([]);
     expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(
       path.join(home, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist"),
     );

@@ -587,7 +587,8 @@ with open(source, "rb") as f:
     data = plistlib.load(f)
 data["Label"] = label
 data["ProgramArguments"] = [guard]
-data["WatchPaths"] = [gateway_plist]
+# launchd rejects a job that combines WatchPaths with StartInterval. The
+# bounded periodic guard still repairs gateway drift without an invalid plist.
 data["StandardOutPath"] = os.path.join(logs, "custom-runtime-guard.log")
 data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-guard-error.log")
 with open(target, "wb") as f:
