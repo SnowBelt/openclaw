@@ -556,6 +556,7 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
     !props.gatewayAvailable ||
     (thinking.options.length === 0 && thinking.currentOverride === "");
   return renderChatModelReasoningSelect({
+    catalog: props.modelCatalog,
     disabled,
     draftStore,
     fastMode,
@@ -603,11 +604,53 @@ function formatCombinedPickerModelOptionLabel(
   return label;
 }
 
+function formatChatModelRuntimeLabel(runtime: unknown): string | undefined {
+  if (typeof runtime !== "string") {
+    return undefined;
+  }
+  const trimmed = runtime.trim();
+  const normalized = trimmed.toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "openclaw") {
+    return "OpenClaw";
+  }
+  if (normalized === "codex") {
+    return "Codex";
+  }
+  return trimmed;
+}
+
+function formatChatModelContextLabel(contextWindow: number | undefined): string | undefined {
+  if (!Number.isFinite(contextWindow) || !contextWindow || contextWindow <= 0) {
+    return undefined;
+  }
+  if (contextWindow >= 1_000_000) {
+    const millions = contextWindow / 1_000_000;
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M context`;
+  }
+  return `${Math.round(contextWindow / 1_000)}k context`;
+}
+
+function formatChatModelMetadata(entry: ModelCatalogEntry): string {
+  return [
+    formatChatModelProviderLabel(entry.provider),
+    formatChatModelRuntimeLabel(entry.agentRuntime?.id),
+    entry.route,
+    formatChatModelContextLabel(entry.contextWindow),
+    entry.certification,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+}
+
 function formatCombinedPickerThinkingLabel(label: string): string {
   return label.replace(/^Inherited:\s*/u, "");
 }
 
 function renderChatModelReasoningSelect(params: {
+  catalog: ModelCatalogEntry[];
   draftStore: ChatModelPickerDraftStore;
   fastMode: ChatFastModeSelectState;
   disabled: boolean;
@@ -767,9 +810,24 @@ function renderChatModelReasoningSelect(params: {
   const renderModelOption = (entry: ChatModelProviderOption) => {
     const selected = entry.value === selectedModelValue;
     const modelLabel = formatCombinedPickerModelOptionLabel(entry, selected);
+    const catalogEntry = params.catalog.find((candidate) => {
+      const candidateProvider = normalizeChatModelProviderGroupId(candidate.provider);
+      const entryProvider = normalizeChatModelProviderGroupId(entry.provider);
+      const candidateId = candidate.id.trim().toLowerCase();
+      const entryValue = entry.value.trim().toLowerCase();
+      return (
+        candidateProvider === entryProvider &&
+        (candidateId === entryValue || `${candidateProvider}/${candidateId}` === entryValue)
+      );
+    });
+    const modelMetadata = catalogEntry ? formatChatModelMetadata(catalogEntry) : "";
+    const modelTooltip =
+      catalogEntry?.id && catalogEntry.id !== modelLabel
+        ? `${modelLabel} (${catalogEntry.id})`
+        : modelLabel;
     return html`
       <div class="chat-controls__combined-model">
-        <openclaw-tooltip .content=${modelLabel}>
+        <openclaw-tooltip .content=${modelTooltip}>
           <button
             class="chat-controls__inline-select-option chat-controls__combined-model-option ${selected
               ? "chat-controls__inline-select-option--selected"
@@ -798,7 +856,7 @@ function renderChatModelReasoningSelect(params: {
             <span class="chat-controls__model-option-copy">
               <span class="chat-controls__model-option-title">${modelLabel}</span>
               <span class="chat-controls__model-option-provider">
-                ${formatChatModelProviderLabel(entry.provider)}
+                ${modelMetadata || formatChatModelProviderLabel(entry.provider)}
               </span>
             </span>
             <span

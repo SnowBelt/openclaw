@@ -836,6 +836,9 @@ export type ModelCatalogEntry = {
   contextWindow?: number;
   reasoning?: boolean;
   input?: Array<"text" | "image" | "document">;
+  route?: "local" | "subscription" | "metered" | "unknown";
+  certification?: "candidate" | "certified" | "unlisted";
+  agentRuntime?: GatewayAgentRuntime;
 };
 
 export type ToolCatalogProfile =

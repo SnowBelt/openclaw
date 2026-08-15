@@ -3214,6 +3214,33 @@ describe("chat model controls", () => {
     expect(container.querySelector('[data-chat-model-provider-group="codex"]')).toBeNull();
   });
 
+  it("shows runtime, route, certification, and context metadata for catalog models", () => {
+    const { state } = createChatHeaderState({
+      model: "gpt-5.6-luna",
+      modelProvider: "openai",
+      models: [
+        {
+          id: "gpt-5.6-luna",
+          name: "GPT-5.6 Luna",
+          provider: "openai",
+          contextWindow: 372_000,
+          route: "subscription",
+          certification: "certified",
+          agentRuntime: { id: "codex", source: "model" },
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    render(renderChatModelControls(createChatModelControlsProps(state)), container);
+
+    const option = container.querySelector<HTMLButtonElement>(
+      '[data-chat-model-option="openai/gpt-5.6-luna"]',
+    );
+    expect(option?.textContent).toContain(
+      "OpenAI · Codex · subscription · 372k context · certified",
+    );
+  });
+
   it("merges provider aliases into unique visible groups", () => {
     const { state } = createChatHeaderState({
       model: "gemini-2.5-pro",
