@@ -10,7 +10,10 @@ import { inferControlUiPublicAssetPath } from "../../../app/public-assets.ts";
 import { icons } from "../../../components/icons.ts";
 import "../../../components/tooltip.ts";
 import { t } from "../../../i18n/index.ts";
-import { normalizeChatModelProviderId } from "../../../lib/chat/model-ref.ts";
+import {
+  normalizeChatModelProviderId,
+  resolvePreferredServerChatModelValue,
+} from "../../../lib/chat/model-ref.ts";
 import {
   resolveChatFastModeSelectState,
   resolveChatModelSelectState,
@@ -22,10 +25,12 @@ import {
   formatThinkingOverrideLabel,
   resolveChatThinkingSelectState,
 } from "../../../lib/chat/thinking.ts";
+import { isSessionRunActive } from "../../../lib/session-run-state.ts";
 
 export type ChatModelControlsProps = {
   activeRunId: string | null;
   agentDefaultModel?: string;
+  controlDirector?: boolean;
   connected: boolean;
   draftScope: object;
   gatewayAvailable: boolean;
@@ -37,15 +42,18 @@ export type ChatModelControlsProps = {
   sending: boolean;
   sessionKey: string;
   sessionsResult: SessionsListResult | null;
+  allAgentSessionsResult?: SessionsListResult | null;
   stream: string | null;
   onFastModeSelect?: (value: ChatFastModeSelectValue, sessionKey: string) => unknown;
   onModelSelect?: (value: string, sessionKey: string) => unknown;
+  onSetControlDirectorDefault?: (value: string) => unknown;
   onRequestUpdate?: () => void;
   onThinkingSelect?: (value: string, sessionKey: string) => unknown;
 };
 
 type ChatModelProviderOption = ChatModelSelectOption & {
   provider: string;
+  unavailable?: boolean;
 };
 
 type ChatModelPickerDraft = {
@@ -429,6 +437,7 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
   const draftStore = resolveChatModelPickerDraftStore(props.draftScope, props.sessionKey);
   const {
     currentOverride,
+    currentModelAvailable,
     defaultSelectable,
     defaultModel,
     defaultLabel,
@@ -460,6 +469,8 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
   const activeSession = props.sessionsResult?.sessions.find((row) => row.key === props.sessionKey);
   const currentProviderHint = activeSession?.modelProvider ?? "";
   const defaultProviderHint = props.sessionsResult?.defaults?.modelProvider ?? "";
+  const unavailableCurrentModel = currentModelAvailable ? "" : currentOverride || defaultModel;
+  const committedModelValue = unavailableCurrentModel || currentOverride;
   const canonicalDefaultLabel = resolveChatModelPickerLabel(
     defaultModel,
     defaultLabel,
@@ -494,12 +505,31 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
         option.value === currentOverride ? currentProviderHint : "",
       ),
     })),
+    ...(unavailableCurrentModel
+      ? [
+          {
+            value: unavailableCurrentModel,
+            label: `Unavailable (${resolveChatModelPickerLabel(
+              unavailableCurrentModel,
+              unavailableCurrentModel,
+              props.modelCatalog,
+            )})`,
+            provider: resolveChatModelProvider(
+              unavailableCurrentModel,
+              props.modelCatalog,
+              "",
+              currentOverride ? currentProviderHint : defaultProviderHint,
+            ),
+            unavailable: true,
+          },
+        ]
+      : []),
   ];
   const committedModelLabel =
-    modelOptions.find((entry) => entry.value === currentOverride)?.label ??
+    modelOptions.find((entry) => entry.value === committedModelValue)?.label ??
     resolveChatModelPickerLabel(
-      currentOverride,
-      currentOverride || pickerDefaultLabel,
+      committedModelValue,
+      committedModelValue || pickerDefaultLabel,
       props.modelCatalog,
     );
   const committedThinkingLabel =
@@ -509,7 +539,7 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
           (entry) => entry.value === committedThinking.currentOverride,
         )?.label ?? committedThinking.currentOverride);
   const draft = draftStore.get();
-  const selectedModelValue = draft?.modelValue ?? currentOverride;
+  const selectedModelValue = draft?.modelValue ?? committedModelValue;
   const draftSessionsResult = applyChatModelPickerDraft({
     catalog: props.modelCatalog,
     defaultModel,
@@ -556,18 +586,22 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
     !props.gatewayAvailable ||
     (thinking.options.length === 0 && thinking.currentOverride === "");
   return renderChatModelReasoningSelect({
+    allAgentSessionsResult: props.allAgentSessionsResult ?? null,
     catalog: props.modelCatalog,
+    controlDirector: props.controlDirector === true && Boolean(props.onSetControlDirectorDefault),
+    controlDirectorDefaultModel: defaultModel,
     disabled,
     draftStore,
     fastMode,
     modelOptions,
     initialFastModeValue: committedFastMode.currentOverride,
-    initialModelValue: currentOverride,
+    initialModelValue: committedModelValue,
     initialThinkingValue: committedThinking.currentOverride,
     onRequestUpdate: props.onRequestUpdate,
     selectedModelValue,
     selectedThinkingValue: thinking.currentOverride,
     sessionKey: props.sessionKey,
+    sessionsResult: props.sessionsResult,
     thinkingDefaultValue: thinking.defaultValue,
     thinkingDisabled,
     thinkingOptions: [{ value: "", label: thinking.defaultLabel }, ...thinking.options],
@@ -576,6 +610,7 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
     onFastModeSelect: async (next, targetSessionKey) =>
       props.onFastModeSelect?.(next, targetSessionKey),
     onModelSelect: async (next, targetSessionKey) => props.onModelSelect?.(next, targetSessionKey),
+    onSetControlDirectorDefault: async (next) => props.onSetControlDirectorDefault?.(next),
     onThinkingSelect: async (next, targetSessionKey) =>
       props.onThinkingSelect?.(next, targetSessionKey),
   });
@@ -645,12 +680,48 @@ function formatChatModelMetadata(entry: ModelCatalogEntry): string {
     .join(" · ");
 }
 
+function hasActiveLocalModelContention(params: {
+  allAgentSessionsResult: SessionsListResult | null;
+  entry: ModelCatalogEntry;
+  catalog: ModelCatalogEntry[];
+  sessionKey: string;
+}): boolean {
+  if (params.entry.route !== "local") {
+    return false;
+  }
+  const selectedModel = resolvePreferredServerChatModelValue(
+    params.entry.id,
+    params.entry.provider,
+    params.catalog,
+  ).toLowerCase();
+  if (!selectedModel) {
+    return false;
+  }
+  return Boolean(
+    params.allAgentSessionsResult?.sessions.some((row) => {
+      if (row.key === params.sessionKey || !isSessionRunActive(row)) {
+        return false;
+      }
+      return (
+        resolvePreferredServerChatModelValue(
+          row.model,
+          row.modelProvider,
+          params.catalog,
+        ).toLowerCase() === selectedModel
+      );
+    }),
+  );
+}
+
 function formatCombinedPickerThinkingLabel(label: string): string {
   return label.replace(/^Inherited:\s*/u, "");
 }
 
 function renderChatModelReasoningSelect(params: {
+  allAgentSessionsResult: SessionsListResult | null;
   catalog: ModelCatalogEntry[];
+  controlDirector: boolean;
+  controlDirectorDefaultModel: string;
   draftStore: ChatModelPickerDraftStore;
   fastMode: ChatFastModeSelectState;
   disabled: boolean;
@@ -661,6 +732,7 @@ function renderChatModelReasoningSelect(params: {
   selectedModelValue: string;
   selectedThinkingValue: string;
   sessionKey: string;
+  sessionsResult: SessionsListResult | null;
   thinkingDefaultValue: string;
   thinkingDisabled: boolean;
   thinkingOptions: ChatModelSelectOption[];
@@ -668,10 +740,13 @@ function renderChatModelReasoningSelect(params: {
   triggerThinkingLabel: string;
   onFastModeSelect: (value: ChatFastModeSelectValue, sessionKey: string) => Promise<unknown>;
   onModelSelect: (value: string, sessionKey: string) => Promise<unknown>;
+  onSetControlDirectorDefault: (value: string) => Promise<unknown>;
   onRequestUpdate?: () => void;
   onThinkingSelect: (value: string, sessionKey: string) => Promise<unknown>;
 }) {
   const {
+    controlDirector,
+    controlDirectorDefaultModel,
     disabled,
     draftStore,
     fastMode,
@@ -690,6 +765,7 @@ function renderChatModelReasoningSelect(params: {
     onFastModeSelect,
     onModelSelect,
     onRequestUpdate,
+    onSetControlDirectorDefault,
     onThinkingSelect,
   } = params;
   const triggerModel = formatCombinedPickerModelLabel(triggerModelLabel);
@@ -807,6 +883,11 @@ function renderChatModelReasoningSelect(params: {
     selectedModelValue === ""
       ? (orderedProviderGroups[0]?.[0] ?? selectedModelProvider)
       : selectedModelProvider;
+  const normalizedControlDirectorDefault = resolvePreferredServerChatModelValue(
+    controlDirectorDefaultModel,
+    undefined,
+    params.catalog,
+  ).toLowerCase();
   const renderModelOption = (entry: ChatModelProviderOption) => {
     const selected = entry.value === selectedModelValue;
     const modelLabel = formatCombinedPickerModelOptionLabel(entry, selected);
@@ -821,6 +902,20 @@ function renderChatModelReasoningSelect(params: {
       );
     });
     const modelMetadata = catalogEntry ? formatChatModelMetadata(catalogEntry) : "";
+    const contention = catalogEntry
+      ? hasActiveLocalModelContention({
+          allAgentSessionsResult: params.allAgentSessionsResult,
+          catalog: params.catalog,
+          entry: catalogEntry,
+          sessionKey,
+        })
+      : false;
+    const isControlDirectorDefault =
+      controlDirector &&
+      !entry.unavailable &&
+      entry.value !== "" &&
+      resolvePreferredServerChatModelValue(entry.value, undefined, params.catalog).toLowerCase() ===
+        normalizedControlDirectorDefault;
     const modelTooltip =
       catalogEntry?.id && catalogEntry.id !== modelLabel
         ? `${modelLabel} (${catalogEntry.id})`
@@ -836,7 +931,7 @@ function renderChatModelReasoningSelect(params: {
             role="option"
             aria-selected=${selected ? "true" : "false"}
             type="button"
-            ?disabled=${disabled}
+            ?disabled=${disabled || entry.unavailable === true}
             @click=${(event: MouseEvent) => {
               event.stopPropagation();
               if (disabled || selected) {
@@ -858,6 +953,25 @@ function renderChatModelReasoningSelect(params: {
               <span class="chat-controls__model-option-provider">
                 ${modelMetadata || formatChatModelProviderLabel(entry.provider)}
               </span>
+              ${entry.unavailable
+                ? html`
+                    <span
+                      class="chat-controls__model-option-warning chat-controls__model-unavailable"
+                    >
+                      Unavailable — choose another model
+                    </span>
+                  `
+                : ""}
+              ${contention
+                ? html`
+                    <span
+                      class="chat-controls__model-option-warning"
+                      data-chat-model-contention="true"
+                    >
+                      Used by another active agent — may be slower
+                    </span>
+                  `
+                : ""}
             </span>
             <span
               class="chat-controls__inline-select-check"
@@ -868,6 +982,48 @@ function renderChatModelReasoningSelect(params: {
             </span>
           </button>
         </openclaw-tooltip>
+        ${controlDirector && catalogEntry && !entry.unavailable
+          ? html`
+              <button
+                class="btn btn--sm chat-controls__set-control-director-default"
+                data-chat-model-set-default=${entry.value}
+                type="button"
+                ?disabled=${disabled || isControlDirectorDefault}
+                aria-label=${isControlDirectorDefault
+                  ? "Control Director default model"
+                  : "Set as Control Director default"}
+                @click=${async (event: MouseEvent) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (disabled || isControlDirectorDefault) {
+                    return;
+                  }
+                  const draft = ensureChatModelPickerDraft(draftStore, {
+                    fastModeValue: initialFastModeValue,
+                    modelValue: initialModelValue,
+                    sessionKey,
+                    thinkingValue: initialThinkingValue,
+                  });
+                  if (draft.saving) {
+                    return;
+                  }
+                  draft.saving = true;
+                  onRequestUpdate?.();
+                  try {
+                    await onSetControlDirectorDefault(entry.value);
+                  } finally {
+                    const current = draftStore.get();
+                    if (current === draft) {
+                      current.saving = false;
+                    }
+                    onRequestUpdate?.();
+                  }
+                }}
+              >
+                ${isControlDirectorDefault ? "Default" : "Set default"}
+              </button>
+            `
+          : ""}
       </div>
     `;
   };
@@ -1150,6 +1306,7 @@ function renderChatModelReasoningSelect(params: {
             ? html`
                 <button
                   class="btn btn--sm chat-controls__use-default-model"
+                  data-chat-control-director-reset=${controlDirector ? "true" : "false"}
                   type="button"
                   ?disabled=${disabled || draftStore.get()?.saving || selectedModelValue === ""}
                   @click=${(event: MouseEvent) => {
@@ -1168,7 +1325,9 @@ function renderChatModelReasoningSelect(params: {
                     onRequestUpdate?.();
                   }}
                 >
-                  ${t("chat.modelPicker.useDefaultModel")}
+                  ${controlDirector
+                    ? "Reset to Control Director default"
+                    : t("chat.modelPicker.useDefaultModel")}
                 </button>
               `
             : ""}

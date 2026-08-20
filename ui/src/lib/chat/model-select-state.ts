@@ -33,6 +33,7 @@ export type ChatModelSelectOption = {
 
 type ChatModelSelectState = {
   currentOverride: string;
+  currentModelAvailable: boolean;
   defaultSelectable: boolean;
   defaultModel: string;
   defaultDisplay: string;
@@ -87,7 +88,19 @@ export function resolveChatModelOverrideValue(state: ChatModelSelectStateInput):
   }
 
   const activeRow = resolveActiveSessionRow(state);
-  return resolvePreferredServerChatModelValue(activeRow?.model, activeRow?.modelProvider, catalog);
+  const persistedOverride = activeRow?.modelOverride?.trim();
+  const persistedOverrideIsUserSelected =
+    Boolean(persistedOverride) && activeRow?.modelOverrideSource !== "auto";
+  if (persistedOverrideIsUserSelected) {
+    // The row's model is runtime identity; persisted provenance is what proves
+    // that it represents a user-selected session override after reload.
+    return resolvePreferredServerChatModelValue(
+      activeRow?.model,
+      activeRow?.modelProvider,
+      catalog,
+    );
+  }
+  return "";
 }
 
 function resolveDefaultModelValue(state: ChatModelSelectStateInput): string {
@@ -139,6 +152,18 @@ function buildUnavailableChatModelValues(
         ),
       )
       .filter((value) => !availableValues.has(value)),
+  );
+}
+
+export function isChatModelValueUnavailable(value: string, catalog: ModelCatalogEntry[]): boolean {
+  if (!value.trim()) {
+    return false;
+  }
+  const displayLookup = buildCatalogDisplayLookup(
+    catalog.filter((entry) => entry.available !== false),
+  );
+  return buildUnavailableChatModelValues(catalog, displayLookup).has(
+    normalizeChatModelAvailabilityKey(value),
   );
 }
 
@@ -236,9 +261,14 @@ export function resolveChatModelSelectState(
   const unavailableValues = buildUnavailableChatModelValues(catalog, displayLookup);
   const defaultSelectable =
     !defaultModel || !unavailableValues.has(normalizeChatModelAvailabilityKey(defaultModel));
+  const effectiveCurrentModel = currentOverride || defaultModel;
+  const currentModelAvailable =
+    !effectiveCurrentModel ||
+    !unavailableValues.has(normalizeChatModelAvailabilityKey(effectiveCurrentModel));
 
   return {
     currentOverride,
+    currentModelAvailable,
     defaultSelectable,
     defaultModel,
     defaultDisplay,

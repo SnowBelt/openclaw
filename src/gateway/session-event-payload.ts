@@ -5,8 +5,13 @@ import type { GatewaySessionRow } from "./session-utils.js";
  * Picker metadata comes from catalog-backed list/patch responses; emitting a
  * locally reconstructed subset here would replace richer client state.
  */
-export function buildGatewaySessionEventRow(sessionRow: GatewaySessionRow): GatewaySessionRow {
-  const session = { ...sessionRow };
+export function buildGatewaySessionEventRow(
+  sessionRow: GatewaySessionRow,
+): Record<string, unknown> {
+  const session: Record<string, unknown> = { ...sessionRow };
+  // Explicit nulls let clients clear provenance when a model override is reset.
+  session.modelOverride = sessionRow.modelOverride ?? null;
+  session.modelOverrideSource = sessionRow.modelOverrideSource ?? null;
   delete session.thinkingLevels;
   delete session.thinkingOptions;
   delete session.thinkingDefault;
@@ -77,6 +82,9 @@ export function buildGatewaySessionEventFields(params: {
     estimatedCostUsd: sessionRow.estimatedCostUsd,
     responseUsage: sessionRow.responseUsage,
     effectiveResponseUsage: sessionRow.effectiveResponseUsage,
+    // Explicit nulls let subscribed clients replace stale persisted provenance.
+    modelOverride: sessionRow.modelOverride ?? null,
+    modelOverrideSource: sessionRow.modelOverrideSource ?? null,
     modelProvider: sessionRow.modelProvider,
     model: sessionRow.model,
     agentRuntime: sessionRow.agentRuntime,

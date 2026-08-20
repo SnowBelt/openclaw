@@ -3299,6 +3299,8 @@ describe("chat model controls", () => {
         },
       ],
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
     const container = document.createElement("div");
     render(renderChatModelControls(createChatModelControlsProps(state)), container);
 
@@ -3715,6 +3717,8 @@ describe("chat model controls", () => {
         { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
       ],
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
     const container = document.createElement("div");
     render(renderChatModelControls(createChatModelControlsProps(state)), container);
 

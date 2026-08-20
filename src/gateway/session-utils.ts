@@ -90,6 +90,7 @@ import {
   type SessionStoreTarget,
   type SessionScope,
 } from "../config/sessions.js";
+import { hasSessionActiveAutoModelFallback } from "../config/sessions/model-override-provenance.js";
 import { listSessionEntries as listAccessorSessionEntries } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { openRootFileSync } from "../infra/boundary-file-read.js";
@@ -2484,6 +2485,10 @@ export function buildGatewaySessionRow(params: {
       cfg.messages?.responseUsage,
       channel,
     ),
+    modelOverride: entry?.modelOverride,
+    modelOverrideSource: hasSessionActiveAutoModelFallback(entry)
+      ? "auto"
+      : entry?.modelOverrideSource,
     modelProvider: rowModelProvider,
     model: rowModel,
     agentRuntime: thinkingProjection.agentRuntime,

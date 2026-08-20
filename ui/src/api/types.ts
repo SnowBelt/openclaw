@@ -517,6 +517,9 @@ export type GatewaySessionRow = {
   childSessions?: string[];
   model?: string;
   modelProvider?: string;
+  /** Persisted model override provenance, distinct from the last runtime model identity. */
+  modelOverride?: string;
+  modelOverrideSource?: "auto" | "user";
   effectiveResponseUsage?: "on" | "off" | "tokens" | "full";
   agentRuntime?: GatewayAgentRuntime;
   contextTokens?: number;

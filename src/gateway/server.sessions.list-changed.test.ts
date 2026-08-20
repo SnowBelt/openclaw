@@ -413,6 +413,49 @@ test("sessions.list keeps bulk rows lightweight and uses persisted model fields"
   ws.close();
 });
 
+test("sessions.list exposes persisted model override provenance separately from runtime identity", async () => {
+  await writeMainSessionStore({
+    modelProvider: "openai",
+    model: "gpt-5.5",
+    modelOverride: "gpt-5.5",
+    modelOverrideSource: "user",
+  });
+
+  const { respond } = await invokeSessionsList({
+    requestId: "req-sessions-list-model-override-provenance",
+  });
+  const payload = expectRespondPayload(respond);
+  const session = findSession(payload, "agent:main:main");
+
+  expectFields(session, {
+    model: "gpt-5.5",
+    modelProvider: "openai",
+    modelOverride: "gpt-5.5",
+    modelOverrideSource: "user",
+  });
+});
+
+test("sessions.list derives automatic fallback provenance for legacy session entries", async () => {
+  await writeMainSessionStore({
+    modelProvider: "anthropic",
+    model: "claude-sonnet-4-6",
+    providerOverride: "anthropic",
+    modelOverride: "claude-sonnet-4-6",
+    modelOverrideFallbackOriginProvider: "openai",
+    modelOverrideFallbackOriginModel: "gpt-5.5",
+  });
+
+  const { respond } = await invokeSessionsList({ requestId: "legacy-auto-fallback" });
+  const session = findSession(expectRespondPayload(respond), "agent:main:main");
+
+  expectFields(session, {
+    model: "claude-sonnet-4-6",
+    modelProvider: "anthropic",
+    modelOverride: "claude-sonnet-4-6",
+    modelOverrideSource: "auto",
+  });
+});
+
 test("sessions.list uses the gateway model catalog for effective thinking defaults", async () => {
   testState.agentConfig = {
     model: { primary: "test-provider/reasoner" },
@@ -802,6 +845,10 @@ test("sessions.changed mutation events include live session setting metadata", a
     verboseLevel: "on",
     responseUsage: "full",
     fastMode: true,
+    modelProvider: "openai",
+    model: "gpt-5.5",
+    modelOverride: "gpt-5.5",
+    modelOverrideSource: "user",
     lastChannel: "telegram",
     lastTo: "-100123",
     lastAccountId: "acct-1",
@@ -819,6 +866,26 @@ test("sessions.changed mutation events include live session setting metadata", a
     // An explicit session override resolves to the same effective mode and the
     // sessions.changed builder carries the row-built channel-aware value.
     effectiveResponseUsage: "full",
+  });
+});
+
+test("sessions.changed mutation events clear model override provenance on reset", async () => {
+  await writeMainSessionStore({
+    modelProvider: "openai",
+    model: "gpt-5.5",
+    providerOverride: "openai",
+    modelOverride: "gpt-5.5",
+    modelOverrideSource: "user",
+  });
+
+  const result = await invokeSessionsPatch({
+    key: "main",
+    model: null,
+  });
+
+  expectMainPatchBroadcast(result, {
+    modelOverride: null,
+    modelOverrideSource: null,
   });
 });
 

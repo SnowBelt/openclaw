@@ -1,6 +1,11 @@
 const CONTROL_DIRECTOR_AGENT_IDS = new Set(["main", "control-director"]);
 const CONTROL_DIRECTOR_CODEX_LUNA_MODEL = "gpt-5.6-luna";
 
+export function isControlDirectorAgentId(agentId: string | null | undefined): boolean {
+  const normalized = agentId?.trim().toLowerCase();
+  return normalized ? CONTROL_DIRECTOR_AGENT_IDS.has(normalized) : false;
+}
+
 export function isControlDirectorCodexLunaSelection(params: {
   agentId?: string | null;
   provider?: string | null;
@@ -8,7 +13,7 @@ export function isControlDirectorCodexLunaSelection(params: {
   agentRuntime?: string | null;
 }): boolean {
   const agentId = params.agentId?.trim().toLowerCase();
-  if (!agentId || !CONTROL_DIRECTOR_AGENT_IDS.has(agentId)) {
+  if (!isControlDirectorAgentId(agentId)) {
     return false;
   }
   const provider = params.provider?.trim().toLowerCase();

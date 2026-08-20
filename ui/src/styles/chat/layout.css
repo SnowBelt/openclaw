@@ -2949,6 +2949,30 @@ openclaw-chat-page {
   font-weight: 450;
 }
 
+.chat-controls__model-option-warning {
+  color: var(--warning, #b7791f);
+  font-size: 10px;
+  font-weight: 550;
+  line-height: 1.25;
+}
+
+.chat-controls__model-unavailable {
+  color: var(--danger, #c53030);
+}
+
+.chat-controls__set-control-director-default {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-height: 24px;
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+.chat-controls__combined-model-option {
+  padding-right: 88px;
+}
+
 .chat-controls__reasoning-panel {
   position: static;
   display: grid;
