@@ -183,6 +183,53 @@ describe("custom runtime launcher", () => {
     expect(result.stdout).toContain("CUSTOM_RUNTIME_OK");
   });
 
+  it("keeps runtime integrity diagnostics off Gateway JSON stdout", () => {
+    const input = fixture(["pcc"]);
+    const closureHash = "b".repeat(64);
+    const snapshotPath = path.join(input.release, "snapshot.json");
+    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as Record<string, unknown>;
+    snapshot.runtimeClosureVersion = 1;
+    snapshot.runtimeClosureHash = closureHash;
+    writeFile(snapshotPath, `${JSON.stringify(snapshot)}\n`);
+    writeFile(
+      path.join(input.release, ".openclaw-runtime-sealed"),
+      `${input.sourceSha} ${closureHash}\n`,
+    );
+    writeFile(
+      path.join(input.release, "scripts", "custom-runtime", "runtime-package-integrity.mjs"),
+      "// fixture verifier\n",
+    );
+    const node = path.join(input.home, "integrity-node.sh");
+    writeFile(
+      node,
+      [
+        "#!/bin/sh",
+        'case "$1" in',
+        `  *runtime-package-integrity.mjs) printf '%s\n' '{"result":"passed","releaseRoot":"fixture"}' ;;`,
+        `  *) printf 'runtime=%s\n' "$OPENCLAW_RUNTIME_SNAPSHOT_ROOT"; printf 'plugins=%s\n' "$OPENCLAW_BUNDLED_PLUGINS_DIR"; printf 'args=%s\n' "$*" ;;`,
+        "esac",
+        "",
+      ].join("\n"),
+      0o700,
+    );
+
+    const result = spawnSync(launcher, ["gateway", "--port", "18789"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: input.home,
+        OPENCLAW_CUSTOM_RUNTIME_POINTER: input.pointer,
+        OPENCLAW_NODE_BIN: node,
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).not.toContain('"releaseRoot"');
+    expect(result.stdout).toContain(`runtime=${input.release}`);
+    expect(result.stderr).toContain('"releaseRoot":"fixture"');
+  });
+
   it("exports the verified candidate identity instead of inherited snapshot state", () => {
     const input = fixture(["pcc"]);
     const result = spawnSync(launcher, ["gateway", "--port", "18789"], {
