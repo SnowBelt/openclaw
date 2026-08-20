@@ -1,5 +1,6 @@
 // Project Command Center gateway methods persist project/milestone plans and proof receipts.
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import {
   ErrorCodes,
   errorShape,
@@ -40,6 +41,7 @@ import {
   validatePccExecutionStartParams,
   validatePccExecutionGetParams,
   validatePccExecutionControlParams,
+  validatePccExecutionReviewParams,
   validatePccPlanningPolicyGetParams,
   validatePccPlanningPolicyUpsertParams,
   validatePccReceiptsAddParams,
@@ -660,11 +662,24 @@ function executionPlanPrompt(params: {
     `Project goal: ${params.project.goal ?? "No goal recorded."}`,
     `Execution plan: ${params.plan.id}`,
     `Local model: ${params.model}`,
+    `Workspace: ${params.plan.workspacePath ?? "Use only the Gateway-assigned agent workspace; no project path was configured."}`,
+    `Workspace lease: ${params.plan.leases[0]?.workspaceId ?? "none"}`,
     `Task: ${params.taskTitle}`,
     "Execute only this task in the assigned local workspace. Do not deploy, publish, change credentials, trade, purchase, reboot, modify unrelated projects, or perform external writes.",
     "Do not mark a PCC milestone or sub-milestone complete. Return proof candidates, changed files, checks, blockers, and remaining risks for later review.",
     "If the task is unsafe, gated, unavailable, or ambiguous, stop and report that exact blocker instead of substituting work.",
   ].join("\n\n");
+}
+
+function configuredPccWorkspacePath(project: PccProject): string | undefined {
+  const metadata = pccMetadataObject(project.metadata);
+  for (const key of ["pccWorkspacePath", "pccProjectWorkspacePath", "workspacePath"]) {
+    const value = metadata[key];
+    if (typeof value === "string" && path.isAbsolute(value) && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
 }
 
 async function resolvePccExecutionCoordinator(context: GatewayRequestContext): Promise<{
@@ -708,15 +723,17 @@ async function dispatchPccExecutionPlan(params: {
   plan: PccExecutionPlan;
   project: PccProject;
   taskTitle: string;
+  dispatchKey?: string;
 }): Promise<{ runId: string; status: string }> {
   const { chatHandlers } = await import("./chat.js");
+  const dispatchKey = params.dispatchKey?.trim() || params.plan.id;
   const acknowledgement = await new Promise<{ runId?: string; status?: string }>(
     (resolve, reject) => {
       let acknowledged = false;
       const request = chatHandlers["chat.send"]({
         req: {
           type: "req",
-          id: `pcc-execution:${params.plan.id}`,
+          id: `pcc-execution:${dispatchKey}`,
           method: "chat.send",
         },
         client: params.client,
@@ -733,7 +750,7 @@ async function dispatchPccExecutionPlan(params: {
           }),
           deliver: false,
           suppressCommandInterpretation: true,
-          idempotencyKey: params.plan.id,
+          idempotencyKey: dispatchKey,
         },
         respond: (ok: boolean, result?: unknown, error?: { message?: string }) => {
           acknowledged = true;
@@ -981,6 +998,7 @@ function preparePccExecutionStart(params: {
   if (!lease) {
     return { error: "The admitted task did not have a canonical workspace lease." };
   }
+  const workspacePath = configuredPccWorkspacePath(project);
   let plan: PccExecutionPlan;
   try {
     plan = createPccExecutionPlan({
@@ -989,9 +1007,12 @@ function preparePccExecutionStart(params: {
       projectRevision: String(currentRevision),
       profile,
       coordinator: {
-        sessionId: `agent:${params.coordinator.agentId}:pcc-execution-${project.id}`,
+        // A project may be retried after a terminal run. Never reuse the
+        // transcript/session of an older attempt.
+        sessionId: `agent:${params.coordinator.agentId}:pcc-execution-${planId}`,
         runId: planId,
       },
+      ...(workspacePath ? { workspacePath } : {}),
       admittedWorkerCount: 1,
       partitions: [partition],
       leases: [lease],
@@ -1052,6 +1073,29 @@ function executionPlanForProject(
     }
   }
   return plans.at(-1);
+}
+
+function existingPccExecutionPlanForIdempotency(params: {
+  projectId: string;
+  expectedRevision: number;
+  idempotencyKey: string;
+}): { plan?: PccExecutionPlan; error?: string } {
+  const project = projectOrError(readLedger(), params.projectId);
+  if (!project) {
+    return { error: `project not found: ${params.projectId}` };
+  }
+  const currentRevision = recordRevision(project);
+  if (currentRevision !== params.expectedRevision) {
+    return {
+      error: `Review latest changes before starting work on ${project.id}. Expected revision ${params.expectedRevision}, but the current revision is ${currentRevision}.`,
+    };
+  }
+  const planId = pccExecutionIdempotencyKeys(project)[params.idempotencyKey];
+  return {
+    plan: planId
+      ? pccExecutionPlansFromProject(project).find((candidate) => candidate.id === planId)
+      : undefined,
+  };
 }
 
 function upsertProject(
@@ -2287,6 +2331,18 @@ export const pccHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
+      // Idempotent retries must return the persisted plan before resolving the
+      // model catalog. A transient catalog outage must not turn a previously
+      // accepted execution into a second or apparently missing run.
+      const existing = existingPccExecutionPlanForIdempotency(params);
+      if (existing.error) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, existing.error));
+        return;
+      }
+      if (existing.plan) {
+        respond(true, { plan: existing.plan });
+        return;
+      }
       const coordinator = await resolvePccExecutionCoordinator(context);
       const prepared = withLedger(
         (ledger) =>
@@ -2554,6 +2610,167 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
+  "pcc.execution.resume": async ({ params, respond, context, client }) => {
+    if (!validatePccExecutionControlParams(params)) {
+      respondInvalid(respond, "pcc.execution.resume", validatePccExecutionControlParams.errors);
+      return;
+    }
+    try {
+      const target = readPccExecutionControlTarget(params);
+      if ("error" in target) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, target.error));
+        return;
+      }
+      if (target.plan.status !== "paused") {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            `execution plan ${target.plan.id} can only be resumed from paused, not ${target.plan.status}`,
+          ),
+        );
+        return;
+      }
+      const dispatching = withLedger(
+        (ledger) => {
+          const project = projectOrError(ledger, params.projectId);
+          if (!project) {
+            return { error: `project not found: ${params.projectId}` };
+          }
+          if (
+            params.expectedRevision !== undefined &&
+            recordRevision(project) !== params.expectedRevision
+          ) {
+            return {
+              error: `Review latest changes before resuming ${project.id}. Expected revision ${params.expectedRevision}, but the current revision is ${recordRevision(project)}.`,
+            };
+          }
+          const plan = executionPlanForProject(project, params.planId);
+          if (!plan) {
+            return { error: `execution plan not found: ${params.planId}` };
+          }
+          if (plan.status !== "paused") {
+            return {
+              error: `execution plan ${plan.id} changed before resume. Review the latest project state.`,
+            };
+          }
+          const nextPlan = transitionPccExecutionPlan(plan, "dispatching", {
+            at: nowIso(),
+            reason: "Resumed by the PCC operator after a saved pause.",
+          });
+          return persistStoredPccExecutionPlan(ledger, nextPlan, nextPlan.updatedAt);
+        },
+        { write: true, auditKind: "pcc.execution.resume" },
+      );
+      if ("error" in dispatching) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, dispatching.error));
+        return;
+      }
+      const partition = dispatching.plan.partitions[0];
+      const taskId = partition?.taskId ?? "";
+      const registerRun = (runId: string) => {
+        registerPccExecutionRun({
+          projectId: dispatching.project.id,
+          planId: dispatching.plan.id,
+          runId,
+          ...(taskId.startsWith("milestone:")
+            ? { milestoneId: taskId.slice("milestone:".length) }
+            : taskId.startsWith("submilestone:")
+              ? { subMilestoneId: taskId.slice("submilestone:".length) }
+              : {}),
+          model: partition?.modelId ?? "unknown-local-model",
+          provider: "local",
+          startedAt: dispatching.plan.createdAt,
+          broadcast: (projectId, planId) =>
+            broadcastPccChanged(context, "pcc.execution.reconcile", projectId, planId),
+        });
+      };
+      registerRun(dispatching.plan.id);
+      let acknowledgement: { runId: string; status: string };
+      try {
+        acknowledgement = await dispatchPccExecutionPlan({
+          context,
+          client,
+          plan: dispatching.plan,
+          project: dispatching.project,
+          taskTitle: partition?.taskId ?? "the next safe task",
+          dispatchKey: `${dispatching.plan.id}:resume:${dispatching.plan.updatedAt}`,
+        });
+      } catch (error) {
+        unregisterPccExecutionRun(dispatching.plan.id);
+        const failed = withLedger(
+          (ledger) => {
+            const project = projectOrError(ledger, params.projectId);
+            const plan = project
+              ? executionPlanForProject(project, dispatching.plan.id)
+              : undefined;
+            if (!project || !plan) {
+              return { error: "The resumed PCC execution plan was not found." };
+            }
+            const nextPlan = transitionPccExecutionPlan(plan, "failed", {
+              at: nowIso(),
+              reason: error instanceof Error ? error.message : String(error),
+            });
+            return persistStoredPccExecutionPlan(ledger, nextPlan, nextPlan.updatedAt);
+          },
+          { write: true, auditKind: "pcc.execution.resumeFailed" },
+        );
+        if ("error" in failed) {
+          respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, failed.error));
+        } else {
+          broadcastPccChanged(context, "pcc.execution.failed", failed.project.id, failed.plan.id);
+          respond(
+            false,
+            undefined,
+            errorShape(
+              ErrorCodes.UNAVAILABLE,
+              error instanceof Error ? error.message : String(error),
+              { retryable: true },
+            ),
+          );
+        }
+        return;
+      }
+      if (acknowledgement.runId !== dispatching.plan.id) {
+        unregisterPccExecutionRun(dispatching.plan.id);
+      }
+      registerRun(acknowledgement.runId);
+      const running = withLedger(
+        (ledger) => {
+          const project = projectOrError(ledger, params.projectId);
+          const plan = project ? executionPlanForProject(project, dispatching.plan.id) : undefined;
+          if (!project || !plan) {
+            return { error: "The resumed PCC execution plan was not found." };
+          }
+          if (pccExecutionStatusIsTerminal(plan.status)) {
+            return { project, plan };
+          }
+          const nextPlan = {
+            ...transitionPccExecutionPlan(plan, "running", {
+              at: nowIso(),
+              reason: "Verified local coordinator accepted the resumed execution plan.",
+            }),
+            coordinator: { ...plan.coordinator, runId: acknowledgement.runId },
+          };
+          return persistStoredPccExecutionPlan(ledger, nextPlan, nextPlan.updatedAt);
+        },
+        { write: true, auditKind: "pcc.execution.resumed" },
+      );
+      if ("error" in running) {
+        unregisterPccExecutionRun(acknowledgement.runId);
+        respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, running.error));
+        return;
+      }
+      if (pccExecutionStatusIsTerminal(running.plan.status)) {
+        unregisterPccExecutionRun(acknowledgement.runId);
+      }
+      respond(true, { plan: running.plan });
+      broadcastPccChanged(context, "pcc.execution.resume", running.project.id, running.plan.id);
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
   "pcc.execution.stop": async ({ params, respond, context, client }) => {
     if (!validatePccExecutionControlParams(params)) {
       respondInvalid(respond, "pcc.execution.stop", validatePccExecutionControlParams.errors);
@@ -2637,6 +2854,83 @@ export const pccHandlers: GatewayRequestHandlers = {
       }
       respond(true, { plan: result.plan });
       broadcastPccChanged(context, "pcc.execution.stop", result.project.id, result.plan.id);
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.execution.review": ({ params, respond, context, client }) => {
+    if (!validatePccExecutionReviewParams(params)) {
+      respondInvalid(respond, "pcc.execution.review", validatePccExecutionReviewParams.errors);
+      return;
+    }
+    try {
+      const result = withLedger(
+        (ledger) => {
+          const project = projectOrError(ledger, params.projectId);
+          if (!project) {
+            return { error: `project not found: ${params.projectId}` };
+          }
+          if (
+            params.expectedRevision !== undefined &&
+            recordRevision(project) !== params.expectedRevision
+          ) {
+            return {
+              error: `Review latest changes before reviewing ${project.id}. Expected revision ${params.expectedRevision}, but the current revision is ${recordRevision(project)}.`,
+            };
+          }
+          const plan = executionPlanForProject(project, params.planId);
+          if (!plan) {
+            return { error: `execution plan not found: ${params.planId}` };
+          }
+          const candidate = plan.proofCandidates.find(
+            (proofCandidate) => proofCandidate.id === params.proofCandidateId,
+          );
+          if (!candidate) {
+            return { error: `proof candidate not found: ${params.proofCandidateId}` };
+          }
+          if (candidate.status !== "pending_review") {
+            return {
+              error: `proof candidate ${candidate.id} was already ${candidate.status}. Review the latest project state.`,
+            };
+          }
+          const reviewedAt = nowIso();
+          const reviewer = params.reviewer?.trim() || pccActor(client);
+          const nextPlan: PccExecutionPlan = {
+            ...plan,
+            proofCandidates: plan.proofCandidates.map((proofCandidate) =>
+              proofCandidate.id === candidate.id
+                ? {
+                    ...proofCandidate,
+                    status: params.decision === "accept" ? "accepted" : "rejected",
+                    reviewedAt,
+                    reviewedBy: reviewer,
+                    reviewNote:
+                      params.decision === "accept"
+                        ? "Accepted as a proof candidate; milestone completion remains a separate reviewed action."
+                        : "Rejected by PCC operator; milestone completion remains unchanged.",
+                  }
+                : proofCandidate,
+            ),
+            updatedAt: reviewedAt,
+            auditEvents: [
+              ...plan.auditEvents,
+              {
+                at: reviewedAt,
+                status: plan.status,
+                reason: `Proof candidate ${params.decision}ed by ${reviewer}.`,
+              },
+            ].slice(-128),
+          };
+          return persistStoredPccExecutionPlan(ledger, nextPlan, reviewedAt);
+        },
+        { write: true, auditKind: "pcc.execution.review" },
+      );
+      if ("error" in result) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, result.error));
+        return;
+      }
+      respond(true, { plan: result.plan });
+      broadcastPccChanged(context, "pcc.execution.review", result.project.id, result.plan.id);
     } catch (error) {
       respondUnhandled(respond, error);
     }

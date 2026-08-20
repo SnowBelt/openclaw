@@ -65,6 +65,10 @@ describe("PCC AI usage receipts", () => {
     expect(state.modelRunReceipts).toHaveLength(2);
     expect(first.id).toBe(pccModelRunReceiptId("project-1", "planning-run-1"));
     expect(summarizePccProjectAiUsage(state, "project-1")).toEqual({
+      attemptedRuns: 2,
+      succeededRuns: 2,
+      failedRuns: 0,
+      cancelledRuns: 0,
       completedRuns: 2,
       codexRuns: 1,
       localRuns: 1,
@@ -82,6 +86,35 @@ describe("PCC AI usage receipts", () => {
           reportedTokens: 0,
         },
       ],
+    });
+  });
+
+  it("keeps failed and cancelled attempts visible without calling them completed", () => {
+    const state = ledger();
+    for (const [sourceRunId, status] of [
+      ["failed-run", "failed"],
+      ["cancelled-run", "cancelled"],
+    ] as const) {
+      recordPccModelRunReceipt(state, {
+        projectId: "project-1",
+        sourceRunId,
+        executor: "local",
+        purpose: "implementation",
+        provider: "ollama",
+        model: "qwen",
+        status,
+        startedAt: "2026-08-01T00:00:00.000Z",
+        completedAt: "2026-08-01T00:00:01.000Z",
+        usageSource: "unavailable",
+      });
+    }
+    expect(summarizePccProjectAiUsage(state, "project-1")).toMatchObject({
+      attemptedRuns: 2,
+      succeededRuns: 0,
+      failedRuns: 1,
+      cancelledRuns: 1,
+      completedRuns: 0,
+      localRuns: 2,
     });
   });
 

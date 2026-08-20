@@ -156,6 +156,8 @@ import {
   loadPccAttachments,
   loadPccDashboard,
   preparePccNextWorkItem,
+  reviewPccExecutionProofCandidate,
+  resumePccProjectExecution,
   previewPccSectionAutofill,
   previewPccSetupAutofill,
   previewPccChatSync,
@@ -3165,7 +3167,10 @@ export function renderApp(state: AppViewState) {
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
                 onStartExecution: () => void startPccProjectExecution(state),
                 onPauseExecution: () => void pausePccProjectExecution(state),
+                onResumeExecution: () => void resumePccProjectExecution(state),
                 onStopExecution: () => void stopPccProjectExecution(state),
+                onReviewExecutionProofCandidate: (candidateId, decision) =>
+                  void reviewPccExecutionProofCandidate(state, candidateId, decision),
                 onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
                 onResumeProject: () => void resumePccProjectForWork(state),
                 onStartIssueChat: (descriptor) => {

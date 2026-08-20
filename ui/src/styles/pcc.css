@@ -6103,6 +6103,44 @@
   font-size: 0.8rem;
 }
 
+.pcc-execution-team__proof {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.pcc-execution-team__proof > p,
+.pcc-execution-team__proof > ul {
+  margin: 0;
+}
+
+.pcc-execution-team__proof > ul {
+  display: grid;
+  gap: 10px;
+  padding-left: 1.2rem;
+}
+
+.pcc-execution-team__proof li {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pcc-execution-team__proof li small {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.pcc-execution-team__proof-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 680px) {
   .pcc-execution-team,
   .pcc-learning-loop,
@@ -6119,7 +6157,8 @@
   }
 
   .pcc-execution-team__actions > .btn,
-  .pcc-execution-team__actions details {
+  .pcc-execution-team__actions details,
+  .pcc-execution-team__proof-actions > .btn {
     width: 100%;
   }
 }

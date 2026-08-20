@@ -599,10 +599,16 @@ import {
   PccExecutionGetResultSchema,
   type PccExecutionControlParams,
   PccExecutionControlParamsSchema,
+  type PccExecutionReviewParams,
+  PccExecutionReviewParamsSchema,
   type PccExecutionPauseResult,
   PccExecutionPauseResultSchema,
+  type PccExecutionResumeResult,
+  PccExecutionResumeResultSchema,
   type PccExecutionStopResult,
   PccExecutionStopResultSchema,
+  type PccExecutionReviewResult,
+  PccExecutionReviewResultSchema,
   type PccAttachment,
   PccAttachmentSchema,
   type PccAttachmentUsageReceipt,
@@ -1331,6 +1337,9 @@ export const validatePccExecutionGetParams = lazyCompile<PccExecutionGetParams>(
 export const validatePccExecutionControlParams = lazyCompile<PccExecutionControlParams>(
   PccExecutionControlParamsSchema,
 );
+export const validatePccExecutionReviewParams = lazyCompile<PccExecutionReviewParams>(
+  PccExecutionReviewParamsSchema,
+);
 export const validatePccAttachmentsUploadBeginParams = lazyCompile<PccAttachmentsUploadBeginParams>(
   PccAttachmentsUploadBeginParamsSchema,
 );
@@ -1893,8 +1902,11 @@ export {
   PccExecutionGetParamsSchema,
   PccExecutionGetResultSchema,
   PccExecutionControlParamsSchema,
+  PccExecutionReviewParamsSchema,
   PccExecutionPauseResultSchema,
+  PccExecutionResumeResultSchema,
   PccExecutionStopResultSchema,
+  PccExecutionReviewResultSchema,
   PccAttachmentSchema,
   PccAttachmentUsageReceiptSchema,
   PccAttachmentsUploadBeginParamsSchema,
@@ -2373,8 +2385,11 @@ export type {
   PccExecutionGetParams,
   PccExecutionGetResult,
   PccExecutionControlParams,
+  PccExecutionReviewParams,
   PccExecutionPauseResult,
+  PccExecutionResumeResult,
   PccExecutionStopResult,
+  PccExecutionReviewResult,
   PccAttachment,
   PccAttachmentUsageReceipt,
   PccAttachmentsUploadBeginParams,

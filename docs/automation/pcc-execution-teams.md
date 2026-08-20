@@ -83,6 +83,13 @@ The coordinator receives only admitted assignments and is instructed to use isol
 
 `Stop agent team` aborts the coordinator and persists a cancelled plan. Saved history remains available. Failed dispatch persists a failed plan with the exact reason. A browser reload or closure does not erase a plan because its lifecycle is stored in the Gateway-owned PCC ledger. Terminal lifecycle events reconcile accepted, completed, failed, cancelled, and lost work and create an idempotent model-run receipt from the actual terminal event. Provider usage is recorded when reported; otherwise the receipt explicitly says usage is unavailable. Historical model-run data is never inferred from project progress.
 
+Each terminal run also produces a `pending_review` proof candidate containing only the
+worker's reported summary, changed files, checks, blockers, and risks. Operators can
+accept or reject that candidate through `pcc.execution.review`; acceptance only makes
+the result available for a later milestone review and never completes a milestone or
+creates a completion receipt. The project AI-use card reports attempted, succeeded,
+failed, and cancelled terminal runs separately from milestone percentage.
+
 Fan-in distinguishes worker completion from PCC milestone completion. A plan can be complete only after every partition succeeds and every required proof item is satisfied. Even then, PCC never auto-completes milestones; the owning workflow must review evidence and perform the explicit completion transition.
 
 ## Learning Boundary

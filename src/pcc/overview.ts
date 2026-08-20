@@ -6,7 +6,7 @@ import type {
 } from "../../packages/gateway-protocol/src/schema/types.js";
 import { isPccCompleteStatus } from "./domain/completion-policy.js";
 import type { PccLedger } from "./domain/ledger.js";
-import { isPccExecutionPlanStatus } from "./execution-plan.js";
+import { isPccExecutionPlanStatus, type PccExecutionPlanStatus } from "./execution-plan.js";
 import { pccMetadataObject, pccMetadataString } from "./metadata.js";
 import { buildPccLedgerReadIndex, pccIndexedItems } from "./read-model/ledger-index.js";
 import { summarizePccPortfolio, summarizePccProject } from "./read-model/project-summary.js";
@@ -27,14 +27,19 @@ type ExecutionPartition = {
 
 type ExecutionPlan = {
   id: string;
-  status: "prepared" | "dispatching" | "running" | "paused" | "blocked" | "failed";
+  status: PccExecutionPlanStatus;
   coordinator?: { sessionId?: string };
   partitions: ExecutionPartition[];
   createdAt: string;
   updatedAt: string;
 };
 
-const ACTIVE_PLAN_STATUSES = new Set(["prepared", "dispatching", "running", "paused", "blocked"]);
+const LIVE_PLAN_STATUSES = new Set(["prepared", "dispatching", "running"]);
+
+function timestampSortValue(value: unknown): number {
+  const normalized = normalizePccTimestamp(value);
+  return normalized ? Date.parse(normalized) : Number.NEGATIVE_INFINITY;
+}
 
 function executionPlans(project: PccProject): ExecutionPlan[] {
   const raw = pccMetadataObject(project.metadata).pccExecutionPlans;
@@ -48,7 +53,6 @@ function executionPlans(project: PccProject): ExecutionPlan[] {
       typeof item.id !== "string" ||
       item.projectId !== project.id ||
       !isPccExecutionPlanStatus(item.status) ||
-      !ACTIVE_PLAN_STATUSES.has(item.status) ||
       typeof item.createdAt !== "string" ||
       typeof item.updatedAt !== "string" ||
       !Array.isArray(item.partitions)
@@ -133,7 +137,7 @@ function workState(
   if (plan?.status === "paused") {
     return "paused";
   }
-  if (plan?.status === "failed" || project.status === "failed") {
+  if (plan?.status === "failed" || plan?.status === "lost" || project.status === "failed") {
     return "failed";
   }
   if (isPccCompleteStatus(project.status)) {
@@ -169,15 +173,17 @@ export function buildPccOverview(
   const activeAgents: PccOverviewAgentAssignment[] = [];
   const projects = userProjects.map((project) => {
     const summary = summarizePccProject(ledger, project, index);
-    const plans = executionPlans(project).toSorted((a, b) =>
-      b.updatedAt.localeCompare(a.updatedAt),
+    const plans = executionPlans(project).toSorted(
+      (a, b) =>
+        timestampSortValue(b.updatedAt) - timestampSortValue(a.updatedAt) ||
+        a.id.localeCompare(b.id),
     );
     const plan = plans[0];
     const milestone = currentMilestone(ledger, project.id);
     const permissionNeeded = pccIndexedItems(index.permissionsByProjectId, project.id).some(
       (permission) => permission.status === "needed" || permission.status === "blocked",
     );
-    if (plan) {
+    if (plan && LIVE_PLAN_STATUSES.has(plan.status)) {
       const partitions = plan.partitions.filter((partition) =>
         ["pending", "assigned", "running", "failed", "blocked"].includes(partition.status),
       );
@@ -283,10 +289,19 @@ export function buildPccOverview(
   };
   projects.sort(
     (a, b) =>
-      priority[a.workState] - priority[b.workState] || b.updatedAt.localeCompare(a.updatedAt),
+      priority[a.workState] - priority[b.workState] ||
+      timestampSortValue(b.updatedAt) - timestampSortValue(a.updatedAt) ||
+      a.id.localeCompare(b.id),
   );
-  attention.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  activeAgents.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+  attention.sort(
+    (a, b) =>
+      timestampSortValue(b.updatedAt) - timestampSortValue(a.updatedAt) || a.id.localeCompare(b.id),
+  );
+  activeAgents.sort(
+    (a, b) =>
+      timestampSortValue(b.lastActivityAt) - timestampSortValue(a.lastActivityAt) ||
+      a.id.localeCompare(b.id),
+  );
 
   const overviewByProjectId = new Map(projects.map((project) => [project.id, project]));
   const recentActivity: PccOverviewActivity[] = [];
@@ -375,7 +390,9 @@ export function buildPccOverview(
       at: run.completedAt,
     });
   }
-  recentActivity.sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
+  recentActivity.sort(
+    (a, b) => timestampSortValue(b.at) - timestampSortValue(a.at) || a.id.localeCompare(b.id),
+  );
   recentActivity.splice(20);
 
   return {

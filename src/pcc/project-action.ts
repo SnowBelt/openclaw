@@ -4,6 +4,7 @@ import type {
   PccProject,
   PccStatus,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import type { PccExecutionPlanStatus } from "./execution-plan.js";
 
 export type PccPrimaryActionId =
   | "pause"
@@ -36,6 +37,8 @@ export type PccProjectActionInput = {
     enabled: boolean;
     state: string;
   };
+  /** Live state comes only from a durable Gateway execution plan. */
+  executionPlanStatus?: PccExecutionPlanStatus | null;
 };
 
 const TERMINAL_STATUSES = new Set<PccStatus>([
@@ -142,13 +145,52 @@ export function resolvePccProjectAction(input: PccProjectActionInput): PccProjec
       hideWorkControls: false,
     };
   }
-  if (input.workLoop?.enabled && input.workLoop.state === "working") {
+  if (
+    input.executionPlanStatus === "prepared" ||
+    input.executionPlanStatus === "dispatching" ||
+    input.executionPlanStatus === "running"
+  ) {
     return {
       primaryActionId: "pause",
       primaryLabel: "Pause",
       explanation: "Pause the active guided work loop after the current safe checkpoint.",
       statusLabel: "Working",
       blockerLines: [],
+      hideWorkControls: false,
+    };
+  }
+  if (input.executionPlanStatus === "paused") {
+    return {
+      primaryActionId: "resume",
+      primaryLabel: "Resume",
+      explanation: "Resume the saved supervised execution plan at its next safe checkpoint.",
+      statusLabel: "Paused",
+      blockerLines: [],
+      hideWorkControls: false,
+    };
+  }
+  if (input.executionPlanStatus === "blocked") {
+    const topBlocker = blockers[0] ?? "The supervised execution plan is blocked and needs review.";
+    return {
+      primaryActionId: "review_blocker",
+      primaryLabel: "Review Blocker",
+      explanation: "Review the execution blocker before starting another run.",
+      statusLabel: "Blocked",
+      blockerLines: blockers.length ? blockers : [topBlocker],
+      topBlocker,
+      hideWorkControls: false,
+    };
+  }
+  if (input.executionPlanStatus === "failed" || input.executionPlanStatus === "lost") {
+    const topBlocker = blockers[0] ?? "The previous supervised execution attempt failed.";
+    return {
+      primaryActionId: "work",
+      primaryLabel: "Retry Work",
+      explanation:
+        "Retry creates a new durable execution plan after the failed attempt is reviewed.",
+      statusLabel: "Failed",
+      blockerLines: blockers.length ? blockers : [topBlocker],
+      topBlocker,
       hideWorkControls: false,
     };
   }

@@ -409,7 +409,7 @@ describe("renderPccDashboard", () => {
         },
         proofGaps: [],
         health: "On track",
-        updatedAt: "2026-08-02T14:00:00.000Z",
+        updatedAt: "2099-08-02T14:00:00.000Z",
       },
       {
         ...workOverview.projects[0],
@@ -878,6 +878,26 @@ describe("renderPccDashboard", () => {
     ).toBe("true");
   });
 
+  it("opens Autopilot from the project snapshot action", () => {
+    const container = renderView(createProps({ viewMode: "detailed" }));
+    const automation = container.querySelector<HTMLElement>(
+      '[data-pcc-detail-tab-panel="automation"]',
+    );
+    const openButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Open Autopilot",
+    );
+
+    expect(automation?.hidden).toBe(true);
+    expect(openButton).not.toBeUndefined();
+    openButton?.click();
+    expect(automation?.hidden).toBe(false);
+    expect(
+      container
+        .querySelector<HTMLButtonElement>('[data-pcc-detail-tab="automation"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
   it("uses one resolved primary action across hero and mobile rail", () => {
     const onSetViewMode = vi.fn();
     const onSetPermissionStatus = vi.fn();
@@ -926,6 +946,10 @@ describe("renderPccDashboard", () => {
         projectDetail: {
           ...createProps().projectDetail!,
           aiUsage: {
+            attemptedRuns: 18,
+            succeededRuns: 18,
+            failedRuns: 0,
+            cancelledRuns: 0,
             completedRuns: 18,
             codexRuns: 2,
             localRuns: 16,
@@ -3019,6 +3043,44 @@ describe("renderPccDashboard", () => {
     );
     prepare?.click();
     expect(onPrepareNextWorkItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes the prominent Work This Project action to durable execution", () => {
+    const onStartExecution = vi.fn();
+    const onPrepareNextWorkItem = vi.fn();
+    const runnableSummary = {
+      ...summary,
+      id: "family-fighters",
+      title: "Family Fighters SNES MVP",
+      status: "active" as const,
+      milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
+      proofGaps: [],
+      health: "Healthy",
+    };
+    const container = renderView(
+      createProps({
+        onStartExecution,
+        onPrepareNextWorkItem,
+        projectDetail: {
+          project: { ...project, id: "family-fighters", title: "Family Fighters SNES MVP" },
+          milestones: [{ ...milestone, projectId: "family-fighters" }],
+          subMilestones: [{ ...subMilestone, projectId: "family-fighters" }],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: runnableSummary,
+        },
+      }),
+    );
+
+    const primary = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-primary-action-id="work"]',
+    );
+    expect(primary).not.toBeNull();
+    primary?.click();
+
+    expect(onStartExecution).toHaveBeenCalledTimes(1);
+    expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
   });
 
   it("does not present a legacy enabled toggle as Working without a durable execution plan", () => {

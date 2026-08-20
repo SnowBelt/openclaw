@@ -16,6 +16,7 @@ import {
 } from "./capability-contract.js";
 import { evaluatePccProjectSetup } from "./intake-quality.js";
 import { pccMetadataObject, pccResponsibilityForItem } from "./metadata.js";
+import { normalizePccTimestamp } from "./timestamps.js";
 
 export type PccWorkLoopState =
   | "idle"
@@ -250,7 +251,17 @@ export function withPccWorkLoopSettings(
 function orderedMilestones(input: PccWorkLoopProject): PccMilestone[] {
   return input.milestones
     .filter((milestone) => milestone.projectId === input.project.id)
-    .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.updatedAt.localeCompare(b.updatedAt));
+    .toSorted(
+      (a, b) =>
+        (a.order ?? 0) - (b.order ?? 0) ||
+        timestampValue(a.updatedAt) - timestampValue(b.updatedAt) ||
+        a.id.localeCompare(b.id),
+    );
+}
+
+function timestampValue(value: unknown): number {
+  const normalized = normalizePccTimestamp(value);
+  return normalized ? Date.parse(normalized) : Number.NEGATIVE_INFINITY;
 }
 
 export function milestoneStopsHere(milestone: PccMilestone): boolean {
@@ -282,7 +293,12 @@ function selectNextEligibleSubMilestone(
     (input.subMilestones ?? [])
       .filter((subMilestone) => subMilestone.milestoneId === milestone.id)
       .filter((subMilestone) => !TERMINAL_STATUSES.has(subMilestone.status))
-      .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.updatedAt.localeCompare(b.updatedAt))
+      .toSorted(
+        (a, b) =>
+          (a.order ?? 0) - (b.order ?? 0) ||
+          timestampValue(a.updatedAt) - timestampValue(b.updatedAt) ||
+          a.id.localeCompare(b.id),
+      )
       .at(0) ?? null
   );
 }

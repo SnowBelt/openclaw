@@ -246,7 +246,9 @@ export type PccDashboardProps = {
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
   onStartExecution?: () => void;
   onPauseExecution?: () => void;
+  onResumeExecution?: () => void;
   onStopExecution?: () => void;
+  onReviewExecutionProofCandidate?: (candidateId: string, decision: "accept" | "reject") => void;
   onPrepareNextWorkItem: () => void;
   onResumeProject?: () => void;
   onStartIssueChat?: (descriptor: IssueChatDescriptor) => void;
@@ -1182,6 +1184,7 @@ function nextSubMilestoneForMilestone(
 function resolvePccProjectAction(detail: PccProjectDetail): PccProjectActionResolution {
   const setup = setupEvaluationForDetail(detail);
   const blockers = blockerLinesForDetail(detail);
+  const latestExecutionPlan = executionPlansFromProject(detail.project).at(-1);
   return resolveCanonicalPccProjectAction({
     project: detail.project,
     setupReady: setup.runnable,
@@ -1191,7 +1194,9 @@ function resolvePccProjectAction(detail: PccProjectDetail): PccProjectActionReso
     hasIncompleteMilestone: detail.milestones.some(
       (milestone) => !PROJECT_TERMINAL_STATUSES.has(milestone.status),
     ),
-    workLoop: getPccWorkLoopSettings(detail.project),
+    // The legacy work-loop flag is a policy setting, not proof that an agent
+    // is alive. Only a persisted Gateway plan may claim live work.
+    executionPlanStatus: latestExecutionPlan?.status ?? null,
   });
 }
 
@@ -1202,6 +1207,11 @@ function runResolvedProjectPrimaryAction(
   trigger?: HTMLElement,
 ): void {
   if (resolved.primaryActionId === "resume") {
+    const latestPlan = executionPlansFromProject(detail.project).at(-1);
+    if (latestPlan?.status === "paused" && props.onResumeExecution) {
+      props.onResumeExecution();
+      return;
+    }
     if (props.onResumeProject) {
       props.onResumeProject();
       return;
@@ -1214,7 +1224,11 @@ function runResolvedProjectPrimaryAction(
     return;
   }
   if (resolved.primaryActionId === "pause") {
-    props.onUpdateWorkLoop({ state: "paused", enabled: true });
+    if (props.onPauseExecution) {
+      props.onPauseExecution();
+    } else {
+      props.onUpdateWorkLoop({ state: "paused", enabled: true });
+    }
     return;
   }
   if (resolved.primaryActionId === "review_permission") {
@@ -1229,7 +1243,14 @@ function runResolvedProjectPrimaryAction(
     return;
   }
   if (resolved.primaryActionId === "work") {
-    props.onPrepareNextWorkItem();
+    // The prominent project action is the real supervised-work entrypoint.
+    // Keep preparation available as the explicit secondary action below, but
+    // never make the user infer that a legacy work-loop toggle started a run.
+    if (props.onStartExecution) {
+      props.onStartExecution();
+    } else {
+      props.onPrepareNextWorkItem();
+    }
   }
 }
 
@@ -1635,9 +1656,20 @@ function revealPccAutopilot(props: PccDashboardProps, source?: HTMLElement): voi
     scrollPccAutopilotIntoView(root);
     root?.querySelector<HTMLButtonElement>('[data-pcc-detail-tab="automation"]')?.focus();
   };
-  reveal();
+  // Change the render mode first. The mode update can replace the detail drawer;
+  // revealing the old DOM before that update made the tab appear not to open.
   props.onSetViewMode?.("detailed");
-  globalThis.requestAnimationFrame?.(reveal);
+  reveal();
+  const revealAfterRender = () => {
+    reveal();
+    // Lit may need a second frame when the view-mode change mounts the drawer.
+    globalThis.requestAnimationFrame?.(reveal);
+  };
+  if (globalThis.requestAnimationFrame) {
+    globalThis.requestAnimationFrame(revealAfterRender);
+  } else {
+    revealAfterRender();
+  }
 }
 
 function openPccAutopilot(event: Event, props: PccDashboardProps): void {
@@ -5976,6 +6008,10 @@ function renderPccExecutionTeamCard(props: PccDashboardProps, detail: PccProject
   const partitionByTaskId = new Map(
     (readiness.activePlan?.partitions ?? []).map((partition) => [partition.taskId, partition]),
   );
+  const latestPlan = executionPlansFromProject(detail.project).at(-1);
+  const pendingProofCandidates = (latestPlan?.proofCandidates ?? []).filter(
+    (candidate) => candidate.status === "pending_review",
+  );
   const buttonLabel = running
     ? "Stop agent team"
     : ready
@@ -6061,6 +6097,51 @@ function renderPccExecutionTeamCard(props: PccDashboardProps, detail: PccProject
               })}
             </ol>
           </details>`
+        : nothing}
+      ${pendingProofCandidates.length && props.onReviewExecutionProofCandidate
+        ? html`<section
+            class="pcc-execution-team__proof"
+            data-pcc-execution-proof-review
+            aria-label="Proof candidates awaiting review"
+          >
+            <strong>Review worker results</strong>
+            <p>These are proof candidates only. Accepting one does not complete a milestone.</p>
+            <ul>
+              ${pendingProofCandidates.map(
+                (candidate) => html`<li data-pcc-proof-candidate=${candidate.id}>
+                  <div>
+                    <strong>${candidate.summary}</strong>
+                    <small>
+                      ${candidate.checks.length} checks · ${candidate.changedFiles.length} changed
+                      file${candidate.changedFiles.length === 1 ? "" : "s"}
+                    </small>
+                  </div>
+                  <div class="pcc-execution-team__proof-actions">
+                    <button
+                      class="btn"
+                      type="button"
+                      data-pcc-proof-review="accept"
+                      ?disabled=${props.actionBusy}
+                      @click=${() =>
+                        props.onReviewExecutionProofCandidate?.(candidate.id, "accept")}
+                    >
+                      Accept for milestone review
+                    </button>
+                    <button
+                      class="btn btn--subtle"
+                      type="button"
+                      data-pcc-proof-review="reject"
+                      ?disabled=${props.actionBusy}
+                      @click=${() =>
+                        props.onReviewExecutionProofCandidate?.(candidate.id, "reject")}
+                    >
+                      Reject result
+                    </button>
+                  </div>
+                </li>`,
+              )}
+            </ul>
+          </section>`
         : nothing}
     </div>
     <small>
@@ -6192,7 +6273,8 @@ function renderWorkLoopCard(props: PccDashboardProps) {
     projectIsTerminal(detail.project) ||
     projectOnHold ||
     !setupEvaluation.runnable ||
-    Boolean(activePlan);
+    (Boolean(activePlan) && !(activePlan?.status === "paused" && Boolean(props.onResumeExecution)));
+  const resumeWithGateway = activePlan?.status === "paused" && Boolean(props.onResumeExecution);
   const startWithGateway = Boolean(props.onStartExecution) && !activePlan;
   return html`
     <section class="pcc-work-loop" data-pcc-work-loop aria-label="Guided work loop">
@@ -6218,20 +6300,24 @@ function renderWorkLoopCard(props: PccDashboardProps) {
           type="button"
           ?disabled=${workStartDisabled}
           @click=${() =>
-            startWithGateway
-              ? props.onStartExecution?.()
-              : props.onUpdateWorkLoop({
-                  enabled: !settings.enabled,
-                  state: settings.enabled ? "idle" : "working",
-                })}
+            resumeWithGateway
+              ? props.onResumeExecution?.()
+              : startWithGateway
+                ? props.onStartExecution?.()
+                : props.onUpdateWorkLoop({
+                    enabled: !settings.enabled,
+                    state: settings.enabled ? "idle" : "working",
+                  })}
         >
-          ${activePlan
-            ? "Working"
-            : startWithGateway
-              ? "Work This Project"
-              : settings.enabled
-                ? "Turn off"
-                : "Work This Project"}
+          ${activePlan?.status === "paused"
+            ? "Resume"
+            : activePlan
+              ? "Working"
+              : startWithGateway
+                ? "Work This Project"
+                : settings.enabled
+                  ? "Turn off"
+                  : "Work This Project"}
         </button>
         ${projectOnHold
           ? html`<button
@@ -6247,7 +6333,9 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <button
           class="btn btn--subtle"
           type="button"
-          ?disabled=${props.actionBusy || (Boolean(activePlan) && !props.onPauseExecution)}
+          ?disabled=${props.actionBusy ||
+          activePlan?.status === "paused" ||
+          (Boolean(activePlan) && !props.onPauseExecution)}
           @click=${() =>
             activePlan
               ? props.onPauseExecution?.()
@@ -6876,7 +6964,7 @@ function compactTokenCount(value: number): string {
 
 function renderProjectAiUsage(detail: PccProjectDetail) {
   const usage = detail.aiUsage;
-  if (!usage || usage.completedRuns === 0) {
+  if (!usage || usage.attemptedRuns === 0) {
     return html`<section class="pcc-ai-usage" data-pcc-ai-usage>
       <div>
         <span>AI use</span>
@@ -6896,9 +6984,13 @@ function renderProjectAiUsage(detail: PccProjectDetail) {
     <div>
       <span>AI use</span>
       <strong
-        >Codex: ${usage.codexRuns} of ${usage.completedRuns} recorded AI runs (${share}%)</strong
+        >Codex: ${usage.codexRuns} of ${usage.attemptedRuns} recorded AI runs (${share}%)</strong
       >
     </div>
+    <small>
+      ${usage.succeededRuns} succeeded · ${usage.failedRuns} failed · ${usage.cancelledRuns}
+      cancelled
+    </small>
     <div class="pcc-ai-usage__tokens">
       <strong>${compactTokenCount(usage.reportedTokens.codex)}</strong>
       <span>reported Codex tokens</span>

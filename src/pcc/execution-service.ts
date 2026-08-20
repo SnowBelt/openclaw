@@ -135,6 +135,7 @@ export function pccExecutionPlansFromProject(project: PccProject): PccExecutionP
     const partitions = Array.isArray(plan.partitions) ? plan.partitions : [];
     const leases = Array.isArray(plan.leases) ? plan.leases : [];
     const proofRequirements = Array.isArray(plan.proofRequirements) ? plan.proofRequirements : [];
+    const proofCandidates = Array.isArray(plan.proofCandidates) ? plan.proofCandidates : [];
     const auditEvents = Array.isArray(plan.auditEvents) ? plan.auditEvents : [];
     if (
       plan.schemaVersion !== 1 ||
@@ -192,6 +193,27 @@ export function pccExecutionPlansFromProject(project: PccProject): PccExecutionP
           !nonEmptyString(requirement.description)
         );
       }) ||
+      proofCandidates.some((value) => {
+        const proofCandidate = recordValue(value);
+        return (
+          !proofCandidate ||
+          !nonEmptyString(proofCandidate.id) ||
+          proofCandidate.planId !== plan.id ||
+          proofCandidate.projectId !== project.id ||
+          !nonEmptyString(proofCandidate.runId) ||
+          !nonEmptyString(proofCandidate.summary) ||
+          !Array.isArray(proofCandidate.changedFiles) ||
+          proofCandidate.changedFiles.some((file) => !nonEmptyString(file)) ||
+          !Array.isArray(proofCandidate.checks) ||
+          proofCandidate.checks.some((check) => !nonEmptyString(check)) ||
+          !Array.isArray(proofCandidate.blockers) ||
+          proofCandidate.blockers.some((blocker) => !nonEmptyString(blocker)) ||
+          !Array.isArray(proofCandidate.risks) ||
+          proofCandidate.risks.some((risk) => !nonEmptyString(risk)) ||
+          !["pending_review", "accepted", "rejected"].includes(String(proofCandidate.status)) ||
+          !nonEmptyString(proofCandidate.createdAt)
+        );
+      }) ||
       auditEvents.some((value) => {
         const event = recordValue(value);
         return !event || !nonEmptyString(event.at) || !isPccExecutionPlanStatus(event.status);
@@ -199,7 +221,12 @@ export function pccExecutionPlansFromProject(project: PccProject): PccExecutionP
     ) {
       return [];
     }
-    return [plan as unknown as PccExecutionPlan];
+    return [
+      {
+        ...(plan as unknown as PccExecutionPlan),
+        proofCandidates: proofCandidates as PccExecutionPlan["proofCandidates"],
+      },
+    ];
   });
 }
 

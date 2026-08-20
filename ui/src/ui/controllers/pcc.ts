@@ -94,6 +94,7 @@ import {
 } from "../../../../src/pcc/project-workflows.js";
 import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
+import { normalizePccTimestamp } from "../../../../src/pcc/timestamps.js";
 import type { PccUpdateSafety } from "../../../../src/pcc/update-safety.js";
 // Control UI controller loads and edits Project Command Center ledger entries.
 import {
@@ -2010,6 +2011,10 @@ function projectFormFromProject(
 }
 
 function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDetail {
+  const timestampValue = (value: unknown): number => {
+    const normalized = normalizePccTimestamp(value);
+    return normalized ? Date.parse(normalized) : Number.NEGATIVE_INFINITY;
+  };
   return {
     project: detail.project,
     milestones: detail.milestones.toSorted(
@@ -2021,7 +2026,10 @@ function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDeta
     permissions: detail.permissions ?? [],
     evidence: detail.evidence ?? [],
     receipts: detail.receipts ?? [],
-    decisions: (detail.decisions ?? []).toSorted((a, b) => b.decidedAt.localeCompare(a.decidedAt)),
+    decisions: (detail.decisions ?? []).toSorted(
+      (a, b) =>
+        timestampValue(b.decidedAt) - timestampValue(a.decidedAt) || a.id.localeCompare(b.id),
+    ),
     lastKnownGood: (detail.lastKnownGood ?? []).toSorted(
       (a, b) => Date.parse(b.verifiedAt) - Date.parse(a.verifiedAt),
     ),
@@ -5442,7 +5450,8 @@ export async function runPccExecutionTeamAction(
         modelRationale: route.rationale,
       });
     });
-    const sessionKey = `agent:${readiness.coordinatorAgentId}:pcc-execution-${detail.project.id}`;
+    // Keep fallback UI dispatch attempts isolated from prior terminal runs.
+    const sessionKey = `agent:${readiness.coordinatorAgentId}:pcc-execution-${planId}`;
     let plan = createPccExecutionPlan({
       id: planId,
       projectId: detail.project.id,
@@ -5939,6 +5948,37 @@ export async function startPccProjectExecution(state: PccDashboardState): Promis
   });
 }
 
+export async function resumePccProjectExecution(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Open a project before resuming supervised work.";
+    state.requestUpdate?.();
+    return;
+  }
+  const plan = executionPlansFromProject(detail.project).at(-1);
+  if (!plan || plan.status !== "paused") {
+    state.pccActionError = "No paused supervised execution plan exists for this project.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    await state.client.request<{ plan: unknown }>("pcc.execution.resume", {
+      projectId: detail.project.id,
+      planId: plan.id,
+      expectedRevision: detail.project.revision ?? 1,
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+    setActionNotice(
+      state,
+      "Work resumed. PCC preserved the existing supervised execution plan and will still stop before gated work.",
+    );
+  });
+}
+
 async function controlPccProjectExecution(
   state: PccDashboardState,
   action: "pause" | "stop",
@@ -5984,6 +6024,46 @@ export function pausePccProjectExecution(state: PccDashboardState): Promise<void
 
 export function stopPccProjectExecution(state: PccDashboardState): Promise<void> {
   return controlPccProjectExecution(state, "stop");
+}
+
+/** Reviews a worker proof candidate without changing milestone completion state. */
+export async function reviewPccExecutionProofCandidate(
+  state: PccDashboardState,
+  proofCandidateId: string,
+  decision: "accept" | "reject",
+): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Open a project before reviewing worker results.";
+    state.requestUpdate?.();
+    return;
+  }
+  const plan = executionPlansFromProject(detail.project).at(-1);
+  if (!plan) {
+    state.pccActionError = "No supervised execution plan is available for review.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    await state.client.request<{ plan: unknown }>("pcc.execution.review", {
+      projectId: detail.project.id,
+      planId: plan.id,
+      proofCandidateId,
+      decision,
+      expectedRevision: detail.project.revision ?? 1,
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+    setActionNotice(
+      state,
+      decision === "accept"
+        ? "Proof candidate accepted for milestone review. PCC did not complete the milestone."
+        : "Proof candidate rejected. PCC did not change milestone completion.",
+    );
+  });
 }
 
 export async function preparePccNextWorkItem(state: PccDashboardState): Promise<void> {
@@ -6045,7 +6125,7 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       hasIncompleteMilestone: detail.milestones.some(
         (milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status),
       ),
-      workLoop: getPccWorkLoopSettings(detail.project),
+      executionPlanStatus: executionPlansFromProject(detail.project).at(-1)?.status ?? null,
     });
     if (resolvedAction.primaryActionId === "fix_setup") {
       await persistBlockedPreflight();

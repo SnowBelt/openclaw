@@ -61,11 +61,14 @@ export function summarizePccProjectAiUsage(
   ledger: PccLedger,
   projectId: string,
 ): PccProjectAiUsageSummary {
-  const completed = (ledger.modelRunReceipts ?? []).filter(
+  const receipts = (ledger.modelRunReceipts ?? []).filter(
     (receipt) => receipt.projectId === projectId,
   );
-  const codexRuns = completed.filter((receipt) => receipt.executor === "codex").length;
-  const localRuns = completed.length - codexRuns;
+  const succeededRuns = receipts.filter((receipt) => receipt.status === "succeeded").length;
+  const failedRuns = receipts.filter((receipt) => receipt.status === "failed").length;
+  const cancelledRuns = receipts.filter((receipt) => receipt.status === "cancelled").length;
+  const codexRuns = receipts.filter((receipt) => receipt.executor === "codex").length;
+  const localRuns = receipts.length - codexRuns;
   let totalTokens = 0;
   let codexTokens = 0;
   let localTokens = 0;
@@ -74,7 +77,7 @@ export function summarizePccProjectAiUsage(
     PccModelRunReceipt["purpose"],
     { runs: number; codexRuns: number; reportedTokens: number }
   >();
-  for (const receipt of completed) {
+  for (const receipt of receipts) {
     const tokens = receiptTokens(receipt);
     if (tokens === null) {
       missingUsageRuns += 1;
@@ -96,18 +99,23 @@ export function summarizePccProjectAiUsage(
     current.reportedTokens += tokens ?? 0;
     purposeTotals.set(receipt.purpose, current);
   }
-  const recordingStartedAt = completed.map((receipt) => receipt.startedAt).toSorted()[0];
+  const recordingStartedAt = receipts.map((receipt) => receipt.startedAt).toSorted()[0];
   return {
-    completedRuns: completed.length,
+    attemptedRuns: receipts.length,
+    succeededRuns,
+    failedRuns,
+    cancelledRuns,
+    // Retain the legacy field as the successful-run count for older consumers.
+    completedRuns: succeededRuns,
     codexRuns,
     localRuns,
-    ...(completed.length > 0
-      ? { codexSharePercent: Math.round((codexRuns / completed.length) * 1000) / 10 }
+    ...(receipts.length > 0
+      ? { codexSharePercent: Math.round((codexRuns / receipts.length) * 1000) / 10 }
       : {}),
     reportedTokens: { total: totalTokens, codex: codexTokens, local: localTokens },
     missingUsageRuns,
     tokenCoverage:
-      completed.length === 0 || missingUsageRuns === completed.length
+      receipts.length === 0 || missingUsageRuns === receipts.length
         ? "none"
         : missingUsageRuns > 0
           ? "partial"

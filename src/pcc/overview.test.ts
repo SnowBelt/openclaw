@@ -2,6 +2,9 @@ import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 import type { PccProject } from "../../packages/gateway-protocol/src/schema/types.js";
 import type { PccLedger } from "./domain/ledger.js";
+import { createPccExecutionPlan, transitionPccExecutionPlan } from "./execution-plan.js";
+import { resolvePccExecutionProfilePreset } from "./execution-profile.js";
+import { withPccExecutionPlanMetadata } from "./execution-service.js";
 import { assertPccLedger } from "./ledger-store.js";
 import { buildPccOverview } from "./overview.js";
 
@@ -62,6 +65,58 @@ describe("PCC overview read model", () => {
       workState: "complete",
     });
     expect(overview.projects.some((item) => item.id === "project-command-center")).toBe(false);
+  });
+
+  it("does not report legacy work-loop flags as live work without a durable execution plan", () => {
+    const ledger = ledgerWithProjects(1);
+    ledger.projects[1] = {
+      ...ledger.projects[1]!,
+      metadata: {
+        pccWorkLoop: {
+          enabled: true,
+          state: "working",
+        },
+      },
+    };
+
+    const overview = buildPccOverview(ledger, 44);
+
+    expect(overview.projects[0]).toMatchObject({
+      id: "user-1",
+      workState: "ready",
+      activeAgentCount: 0,
+    });
+  });
+
+  it("surfaces a failed durable plan instead of falling back to a ready state", () => {
+    const ledger = ledgerWithProjects(1);
+    const projectRecord = ledger.projects[1]!;
+    const prepared = createPccExecutionPlan({
+      id: "failed-plan",
+      projectId: projectRecord.id,
+      projectRevision: "1",
+      profile: resolvePccExecutionProfilePreset("local_parallel"),
+      coordinator: { sessionId: "session", runId: "run" },
+      admittedWorkerCount: 1,
+      createdAt: "2026-08-02T04:00:00.000Z",
+    });
+    const failed = transitionPccExecutionPlan(
+      transitionPccExecutionPlan(prepared, "dispatching", {
+        at: "2026-08-02T04:00:01.000Z",
+      }),
+      "failed",
+      { at: "2026-08-02T04:00:02.000Z", reason: "worker exited" },
+    );
+    projectRecord.metadata = withPccExecutionPlanMetadata(
+      projectRecord,
+      failed,
+      "ui:failed-plan",
+      failed.updatedAt,
+    );
+
+    const overview = buildPccOverview(ledger, 45);
+
+    expect(overview.projects[0]).toMatchObject({ id: "user-1", workState: "failed" });
   });
 
   it("builds the 100-project overview with a local p95 below 250ms", () => {

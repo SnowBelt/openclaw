@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   consumeExecutionApprovalEnvelope,
   evaluateExecutionApprovalEnvelope,
@@ -67,6 +68,38 @@ export type PccExecutionProofRequirement = {
   description: string;
 };
 
+export type PccExecutionProofCandidateStatus = "pending_review" | "accepted" | "rejected";
+
+/**
+ * A worker result is deliberately a candidate, never a completion receipt.
+ * The Gateway records only facts supplied by the terminal run and a human
+ * operator must review it before any separate PCC completion mutation.
+ */
+export type PccExecutionProofCandidate = {
+  id: string;
+  planId: string;
+  runId: string;
+  projectId: string;
+  milestoneId?: string;
+  summary: string;
+  changedFiles: readonly string[];
+  checks: readonly string[];
+  blockers: readonly string[];
+  risks: readonly string[];
+  status: PccExecutionProofCandidateStatus;
+  createdAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewNote?: string;
+};
+
+export function pccExecutionProofCandidateId(planId: string, runId: string): string {
+  return `proof-candidate-${createHash("sha256")
+    .update(`${planId}:${runId}`)
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
 export type PccExecutionPlanAuditEvent = {
   at: string;
   status: PccExecutionPlanStatus;
@@ -81,11 +114,14 @@ export type PccExecutionPlan = {
   profile: PccExecutionProfile;
   mode: PccExecutionPlanMode;
   coordinator: PccExecutionCoordinator;
+  /** Exact local workspace supplied to the coordinator, when configured. */
+  workspacePath?: string;
   admittedWorkerCount: number;
   status: PccExecutionPlanStatus;
   partitions: readonly PccExecutionTaskPartition[];
   leases: readonly PccExecutionWorkspaceLease[];
   proofRequirements: readonly PccExecutionProofRequirement[];
+  proofCandidates: readonly PccExecutionProofCandidate[];
   approvals: readonly ExecutionApprovalEnvelope[];
   createdAt: string;
   updatedAt: string;
@@ -188,6 +224,8 @@ export function createPccExecutionPlan(input: {
   partitions?: readonly PccExecutionTaskPartition[];
   leases?: readonly PccExecutionWorkspaceLease[];
   proofRequirements?: readonly PccExecutionProofRequirement[];
+  proofCandidates?: readonly PccExecutionProofCandidate[];
+  workspacePath?: string;
   approvals?: readonly ExecutionApprovalEnvelope[];
   createdAt?: string;
   statusReason?: string;
@@ -228,11 +266,13 @@ export function createPccExecutionPlan(input: {
       sessionId: nonEmpty(input.coordinator.sessionId, "coordinator.sessionId"),
       runId: nonEmpty(input.coordinator.runId, "coordinator.runId"),
     },
+    ...(input.workspacePath?.trim() ? { workspacePath: input.workspacePath.trim() } : {}),
     admittedWorkerCount,
     status: "prepared",
     partitions: [...(input.partitions ?? [])],
     leases: [...(input.leases ?? [])],
     proofRequirements: [...(input.proofRequirements ?? [])],
+    proofCandidates: [...(input.proofCandidates ?? [])],
     approvals,
     createdAt,
     updatedAt: createdAt,

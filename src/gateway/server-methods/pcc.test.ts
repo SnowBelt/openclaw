@@ -3,6 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PCC_OPERATIONAL_QUALITY_DIMENSIONS } from "../../pcc/capability-contract.js";
+import {
+  createPccExecutionPlan,
+  pccExecutionProofCandidateId,
+  transitionPccExecutionPlan,
+} from "../../pcc/execution-plan.js";
+import { resolvePccExecutionProfilePreset } from "../../pcc/execution-profile.js";
 import type { PccLedger } from "../../pcc/ledger-store.js";
 import { releaseGovernanceStatusPath } from "../../pcc/release-governance/store.js";
 import { pccHandlers, pccTesting } from "./pcc.js";
@@ -2732,6 +2738,116 @@ describe("Project Command Center gateway methods", () => {
       before.milestones.find((item) => item.id === milestone.milestone.id),
     );
     expect(after).toEqual(before);
+  });
+
+  it("reviews a terminal proof candidate without completing milestone work", async () => {
+    const { project: createdProject } = okPayload<{ project: { id: string; revision?: number } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Proof review project" } }),
+    );
+    const ledger = pccTesting.readLedger();
+    const project = ledger.projects.find((item) => item.id === createdProject.id);
+    expect(project).toBeTruthy();
+    const createdAt = "2026-08-20T12:00:00.000Z";
+    const planId = "proof-review-plan";
+    const runId = "proof-review-run";
+    const candidate = {
+      id: pccExecutionProofCandidateId(planId, runId),
+      planId,
+      runId,
+      projectId: createdProject.id,
+      summary: "The local worker produced a reviewable result.",
+      changedFiles: ["src/example.ts"],
+      checks: ["focused test"],
+      blockers: [],
+      risks: ["Human review remains required."],
+      status: "pending_review" as const,
+      createdAt,
+    };
+    const prepared = createPccExecutionPlan({
+      id: planId,
+      projectId: createdProject.id,
+      projectRevision: String(createdProject.revision ?? 1),
+      profile: resolvePccExecutionProfilePreset("local_parallel"),
+      coordinator: { sessionId: "agent:main:pcc-proof-review", runId },
+      admittedWorkerCount: 1,
+      proofCandidates: [candidate],
+      createdAt,
+    });
+    const running = transitionPccExecutionPlan(
+      transitionPccExecutionPlan(prepared, "dispatching", { at: createdAt }),
+      "running",
+      { at: "2026-08-20T12:00:01.000Z" },
+    );
+    if (!project) {
+      throw new Error("proof review project was not persisted");
+    }
+    project.metadata = {
+      ...project.metadata,
+      pccExecutionPlans: [running],
+      pccExecutionIdempotencyKeys: { "proof-review-key": planId },
+      pccActiveExecutionPlanId: planId,
+    };
+    pccTesting.replaceLedger(ledger);
+    const beforeMilestones = structuredClone(pccTesting.readLedger().milestones);
+
+    const retryRespond = vi.fn();
+    await pccHandlers["pcc.execution.start"](
+      makeOptions(
+        "pcc.execution.start",
+        {
+          projectId: createdProject.id,
+          expectedRevision: createdProject.revision ?? 1,
+          idempotencyKey: "proof-review-key",
+        },
+        retryRespond,
+        null,
+        {
+          loadGatewayModelCatalog: async () => {
+            throw new Error("transient model catalog outage");
+          },
+        },
+      ),
+    );
+    expect(retryRespond.mock.calls[0]?.[0]).toBe(true);
+    expect(retryRespond.mock.calls[0]?.[1]).toMatchObject({
+      plan: { id: planId, status: "running" },
+    });
+
+    const { response, broadcast } = await invokeWithBroadcast("pcc.execution.review", {
+      projectId: createdProject.id,
+      planId,
+      proofCandidateId: candidate.id,
+      decision: "accept",
+      expectedRevision: createdProject.revision ?? 1,
+      reviewer: "Matthew",
+    });
+    const reviewed = okPayload<{ plan: { proofCandidates: Array<Record<string, unknown>> } }>(
+      response,
+    );
+    expect(reviewed.plan.proofCandidates).toContainEqual(
+      expect.objectContaining({
+        id: candidate.id,
+        status: "accepted",
+        reviewedBy: "Matthew",
+      }),
+    );
+    expect(pccTesting.readLedger().milestones).toEqual(beforeMilestones);
+    expect(broadcast).toHaveBeenCalledWith(
+      "pcc.changed",
+      expect.objectContaining({ mutation: "pcc.execution.review" }),
+      { dropIfSlow: true },
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.execution.review", {
+          projectId: createdProject.id,
+          planId,
+          proofCandidateId: candidate.id,
+          decision: "reject",
+        }),
+      ),
+    ).toContain("already accepted");
   });
 
   it("returns a durable execution plan read without mutating the ledger", async () => {

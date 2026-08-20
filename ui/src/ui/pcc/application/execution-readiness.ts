@@ -86,26 +86,36 @@ export function executionPlansFromProject(project: PccProject): PccExecutionPlan
   if (!Array.isArray(raw)) {
     return [];
   }
-  return raw.filter((value): value is PccExecutionPlan => {
+  return raw.flatMap((value) => {
     const record = pccMetadataObject(value);
-    return (
-      record.schemaVersion === 1 &&
-      typeof record.id === "string" &&
-      typeof record.projectId === "string" &&
-      record.projectId === project.id &&
-      typeof record.projectRevision === "string" &&
-      isPccExecutionPlanStatus(record.status) &&
-      typeof record.createdAt === "string" &&
-      typeof record.updatedAt === "string" &&
-      Array.isArray(record.partitions) &&
-      Array.isArray(record.leases) &&
-      Array.isArray(record.proofRequirements) &&
-      Array.isArray(record.auditEvents) &&
-      record.coordinator !== null &&
-      typeof record.coordinator === "object" &&
-      typeof (record.coordinator as Record<string, unknown>).sessionId === "string" &&
-      typeof (record.coordinator as Record<string, unknown>).runId === "string"
-    );
+    if (
+      !(
+        record.schemaVersion === 1 &&
+        typeof record.id === "string" &&
+        typeof record.projectId === "string" &&
+        record.projectId === project.id &&
+        typeof record.projectRevision === "string" &&
+        isPccExecutionPlanStatus(record.status) &&
+        typeof record.createdAt === "string" &&
+        typeof record.updatedAt === "string" &&
+        Array.isArray(record.partitions) &&
+        Array.isArray(record.leases) &&
+        Array.isArray(record.proofRequirements) &&
+        Array.isArray(record.auditEvents) &&
+        record.coordinator !== null &&
+        typeof record.coordinator === "object" &&
+        typeof (record.coordinator as Record<string, unknown>).sessionId === "string" &&
+        typeof (record.coordinator as Record<string, unknown>).runId === "string"
+      )
+    ) {
+      return [];
+    }
+    return [
+      {
+        ...record,
+        proofCandidates: Array.isArray(record.proofCandidates) ? record.proofCandidates : [],
+      } as unknown as PccExecutionPlan,
+    ];
   });
 }
 

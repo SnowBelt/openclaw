@@ -65,9 +65,19 @@ describe("resolvePccProjectAction", () => {
       resolvePccProjectAction({
         project: project(),
         setupReady: true,
-        workLoop: { enabled: true, state: "working" },
+        executionPlanStatus: "running",
       }).primaryActionId,
     ).toBe("pause");
+  });
+
+  it("does not report stale work-loop flags as active execution", () => {
+    expect(
+      resolvePccProjectAction({
+        project: project(),
+        setupReady: true,
+        workLoop: { enabled: true, state: "working" },
+      }).primaryActionId,
+    ).toBe("work");
   });
 
   it("does not hide unfinished work behind a terminal project status", () => {

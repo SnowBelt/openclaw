@@ -413,6 +413,11 @@ export const PccModelRunReceiptSchema = Type.Object(
 
 export const PccProjectAiUsageSummarySchema = Type.Object(
   {
+    /** All terminal execution/model receipts recorded for this project. */
+    attemptedRuns: Type.Integer({ minimum: 0 }),
+    succeededRuns: Type.Integer({ minimum: 0 }),
+    failedRuns: Type.Integer({ minimum: 0 }),
+    cancelledRuns: Type.Integer({ minimum: 0 }),
     completedRuns: Type.Integer({ minimum: 0 }),
     codexRuns: Type.Integer({ minimum: 0 }),
     localRuns: Type.Integer({ minimum: 0 }),
@@ -833,6 +838,18 @@ export const PccExecutionControlParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const PccExecutionReviewParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    planId: NonEmptyString,
+    proofCandidateId: NonEmptyString,
+    decision: Type.Union([Type.Literal("accept"), Type.Literal("reject")]),
+    expectedRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+    reviewer: Type.Optional(Type.String({ maxLength: 512 })),
+  },
+  { additionalProperties: false },
+);
+
 const PccExecutionPlanResultSchema = Type.Object(
   { plan: Type.Unknown() },
   { additionalProperties: false },
@@ -841,7 +858,9 @@ const PccExecutionPlanResultSchema = Type.Object(
 export const PccExecutionStartResultSchema = PccExecutionPlanResultSchema;
 export const PccExecutionGetResultSchema = PccExecutionPlanResultSchema;
 export const PccExecutionPauseResultSchema = PccExecutionPlanResultSchema;
+export const PccExecutionResumeResultSchema = PccExecutionPlanResultSchema;
 export const PccExecutionStopResultSchema = PccExecutionPlanResultSchema;
+export const PccExecutionReviewResultSchema = PccExecutionPlanResultSchema;
 
 const PccAttachmentRoleSchema = Type.Union([
   Type.Literal("requirement"),
