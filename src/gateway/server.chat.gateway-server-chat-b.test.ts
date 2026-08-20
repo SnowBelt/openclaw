@@ -466,7 +466,7 @@ describe("gateway server chat", () => {
         updatedAt,
         modelProvider: "openai",
         model: "gpt-5",
-        contextTokens: 272_000,
+        contextTokens: 128_000,
       });
 
       await writeSessionStore({ entries: {} });
