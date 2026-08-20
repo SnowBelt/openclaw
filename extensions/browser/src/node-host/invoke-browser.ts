@@ -10,6 +10,7 @@ import {
   resolveBrowserStewardProxyAction,
   shouldApplyBrowserStewardRuntimeGuard,
 } from "../browser/browser-steward-runtime-guard.js";
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "../browser/browser-steward-transport.js";
 import { redactCdpUrl } from "../browser/cdp.helpers.js";
 import { loadBrowserConfigForRuntimeRefresh } from "../browser/config-refresh-source.js";
 import { resolveBrowserConfig } from "../browser/config.js";
@@ -33,6 +34,7 @@ type BrowserProxyParams = {
   body?: unknown;
   timeoutMs?: number;
   profile?: string;
+  approvedOrigin?: string;
   agentSessionKey?: string;
   agentId?: string;
 };
@@ -314,6 +316,9 @@ export async function runBrowserProxyCommand(paramsJSON?: string | null): Promis
           path,
           query,
           body,
+          ...(params.approvedOrigin
+            ? { headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: params.approvedOrigin } }
+            : {}),
           signal,
         }),
       timeoutMs,

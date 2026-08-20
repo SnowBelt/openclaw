@@ -1,6 +1,7 @@
 // Browser tests cover tabs plugin behavior.
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "../browser-steward-transport.js";
 import { createBrowserRouteApp, createBrowserRouteResponse } from "./test-helpers.js";
 
 const navigationGuardMocks = vi.hoisted(() => ({
@@ -150,8 +151,9 @@ function createRouteContext(
 
 async function callTabsRoute(params: {
   method: "get" | "post";
-  path: "/tabs" | "/tabs/action" | "/tabs/focus";
+  path: "/tabs" | "/tabs/action" | "/tabs/focus" | "/tabs/open";
   body?: Record<string, unknown>;
+  headers?: Record<string, string>;
   profileCtx: ProfileContext;
   actionTimeoutMs?: number;
   signal?: AbortSignal;
@@ -175,6 +177,7 @@ async function callTabsRoute(params: {
       params: {},
       query: {},
       body: params.body ?? {},
+      ...(params.headers ? { headers: params.headers } : {}),
       ...(params.signal ? { signal: params.signal } : {}),
     },
     response.res,
@@ -204,9 +207,18 @@ async function callTabsList(params: {
 async function callTabsFocus(params: {
   profileCtx: ProfileContext;
   body: Record<string, unknown>;
+  headers?: Record<string, string>;
   ssrfPolicy?: unknown;
 }) {
   return await callTabsRoute({ ...params, method: "post", path: "/tabs/focus" });
+}
+
+async function callTabsOpen(params: {
+  profileCtx: ProfileContext;
+  body: Record<string, unknown>;
+  headers?: Record<string, string>;
+}) {
+  return await callTabsRoute({ ...params, method: "post", path: "/tabs/open" });
 }
 
 describe("browser tab routes", () => {
@@ -329,6 +341,40 @@ describe("browser tab routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(profileCtx.focusTab).not.toHaveBeenCalled();
+  });
+
+  it("blocks approved /tabs/focus when the current tab origin changed", async () => {
+    const profileCtx = createProfileWithTabs([publicTab({ url: "https://evil.example/account" })]);
+
+    const response = await callTabsFocus({
+      profileCtx,
+      body: { targetId: "T1" },
+      headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({
+      error: "Browser Steward approved origin changed before execution",
+    });
+    expect(profileCtx.focusTab).not.toHaveBeenCalled();
+  });
+
+  it("closes a newly opened tab when approved origin validation fails", async () => {
+    const profileCtx = createProfileContext({
+      openTab: vi.fn(async () => publicTab({ url: "https://evil.example/redirect" })),
+    });
+
+    const response = await callTabsOpen({
+      profileCtx,
+      body: { url: "https://example.com/start" },
+      headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({
+      error: "Browser Steward approved origin changed before execution",
+    });
+    expect(profileCtx.closeTab).toHaveBeenCalledWith("T1");
   });
 
   it("does not create a tab for /tabs/focus when target is missing", async () => {

@@ -4,6 +4,7 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
+import { listAgentIds } from "../agents/agent-scope.js";
 import { runBeforeToolCallHook } from "../agents/agent-tools.before-tool-call.js";
 import { resolveToolLoopDetectionConfig } from "../agents/agent-tools.js";
 import { getChannelAgentToolMeta } from "../agents/channel-tools.js";
@@ -14,7 +15,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { logWarn } from "../logger.js";
 import { isTestDefaultMemorySlotDisabled } from "../plugins/config-state.js";
 import { defaultSlotIdForKey } from "../plugins/slots.js";
-import { getPluginToolMeta } from "../plugins/tools.js";
+import { getPluginToolMeta, getTrustedPolicyRegistryForTool } from "../plugins/tools.js";
 import { assertGatewaySessionStewardBoundary } from "./session-steward-boundary.js";
 import { canonicalizeSessionKeyForAgent } from "./session-store-key.js";
 import { resolveGatewayScopedTools } from "./tool-resolution.js";
@@ -201,6 +202,7 @@ export async function invokeGatewayTool(params: {
   const boundaryCheck = assertGatewaySessionStewardBoundary({
     sessionKey,
     requestedAgentId,
+    config: params.cfg,
     surface: "tools.invoke",
     action: "invoke",
   });
@@ -215,10 +217,25 @@ export async function invokeGatewayTool(params: {
       },
     };
   }
+  const canonicalRequestedAgentId = requestedAgentId
+    ? boundaryCheck.boundary.requestedAgentId
+    : undefined;
+  if (canonicalRequestedAgentId && !listAgentIds(params.cfg).includes(canonicalRequestedAgentId)) {
+    return {
+      ok: false,
+      status: 400,
+      toolName,
+      error: {
+        type: "invalid_request",
+        message: `unknown agent id "${canonicalRequestedAgentId}"`,
+      },
+    };
+  }
   const resolveTools = (disablePluginTools: boolean) =>
     resolveGatewayScopedTools({
       cfg: params.cfg,
       sessionKey,
+      agentId: canonicalRequestedAgentId,
       messageProvider: params.messageChannel,
       accountId: params.accountId,
       agentTo: params.agentTo,
@@ -235,7 +252,7 @@ export async function invokeGatewayTool(params: {
   if (knownCoreTool && !tools.some((candidate) => candidate.name === toolName)) {
     ({ agentId, tools } = resolveTools(false));
   }
-  if (requestedAgentId && agentId && requestedAgentId !== agentId) {
+  if (canonicalRequestedAgentId && agentId && canonicalRequestedAgentId !== agentId) {
     return {
       ok: false,
       status: 400,
@@ -258,6 +275,7 @@ export async function invokeGatewayTool(params: {
 
   try {
     const gatewayTool: AnyAgentTool = tool;
+    const trustedPolicyRegistry = getTrustedPolicyRegistryForTool(gatewayTool);
     const idempotencyKey = normalizeOptionalString(params.input.idempotencyKey);
     const toolCallId = idempotencyKey
       ? `${params.toolCallIdPrefix}-${idempotencyKey}`
@@ -278,6 +296,7 @@ export async function invokeGatewayTool(params: {
         loopDetection: resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId }),
       },
       approvalMode: params.approvalMode,
+      ...(trustedPolicyRegistry ? { trustedPolicyRegistry } : {}),
     });
     if (hookResult.blocked) {
       return {

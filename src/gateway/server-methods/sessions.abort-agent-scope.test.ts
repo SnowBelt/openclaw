@@ -1,7 +1,12 @@
 /**
  * Tests that session abort requests stay scoped to the targeted agent.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  onTrustedInternalDiagnosticEvent,
+  resetDiagnosticEventsForTest,
+  type DiagnosticEventPayload,
+} from "../../infra/diagnostic-events.js";
 import type { GatewayClient, GatewayRequestContext, RespondFn } from "./types.js";
 
 const chatAbortMock = vi.fn();
@@ -11,6 +16,21 @@ const loadCombinedSessionStoreForGatewayMock = vi.fn();
 const loadSessionEntryMock = vi.fn((sessionKey: string, _opts?: { agentId?: string }) => ({
   canonicalKey: sessionKey,
 }));
+const patchPluginSessionExtensionMock = vi.fn(async () => ({
+  ok: true as const,
+  key: "agent:main:main",
+  value: {},
+}));
+
+vi.mock("../../plugins/host-hook-state.js", async () => {
+  const actual = await vi.importActual<typeof import("../../plugins/host-hook-state.js")>(
+    "../../plugins/host-hook-state.js",
+  );
+  return {
+    ...actual,
+    patchPluginSessionExtension: (...args: unknown[]) => patchPluginSessionExtensionMock(...args),
+  };
+});
 
 vi.mock("../server-session-key.js", () => ({
   resolveSessionKeyForRun: (...args: unknown[]) => resolveSessionKeyForRunMock(...args),
@@ -160,6 +180,7 @@ async function expectListedGlobalSessionActiveRun(params: {
 
 describe("sessions.abort agent scope", () => {
   beforeEach(() => {
+    resetDiagnosticEventsForTest();
     chatAbortMock.mockReset();
     resolveSessionKeyForRunMock.mockReset();
     listSessionsFromStoreAsyncMock.mockReset();
@@ -170,6 +191,90 @@ describe("sessions.abort agent scope", () => {
       store: {},
     });
     loadSessionEntryMock.mockClear();
+    patchPluginSessionExtensionMock.mockClear();
+  });
+
+  afterEach(() => {
+    resetDiagnosticEventsForTest();
+  });
+
+  it("attributes rejected patch diagnostics to the actual gateway surface", async () => {
+    const events: DiagnosticEventPayload[] = [];
+    const stop = onTrustedInternalDiagnosticEvent((event) => {
+      if (event.type.startsWith("session_steward.")) {
+        events.push(event);
+      }
+    });
+    const rawTail = "raw-patch-peer-123456";
+    const respond = await callSessions(
+      "sessions.patch",
+      {
+        key: `agent:main:direct:${rawTail}`,
+        agentId: "work",
+        label: "must-not-mutate",
+      },
+      { context: createContext() },
+    );
+    stop();
+
+    expectRespondErrorMessage(respond, "session key agent does not match agentId");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_steward.boundary_decision",
+          surface: "sessions.patch",
+          action: "patch",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+        expect.objectContaining({
+          type: "session_steward.boundary_rejected",
+          surface: "sessions.patch",
+          action: "patch",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(events)).not.toContain(rawTail);
+  });
+
+  it("rejects malformed plugin session patches before mutation without leaking the key", async () => {
+    const rawTail = "raw-plugin-patch-tail-123456";
+    const respond = await callSessions(
+      "sessions.pluginPatch",
+      {
+        key: `agent:secret=${rawTail}:main`,
+        pluginId: "fixture-plugin",
+        namespace: "state",
+        value: { enabled: true },
+      },
+      {
+        context: createContext(),
+        client: {
+          connect: { scopes: ["operator.admin"] },
+        } as unknown as GatewayClient,
+      },
+    );
+
+    expect(patchPluginSessionExtensionMock).not.toHaveBeenCalled();
+    const serialized = JSON.stringify(vi.mocked(respond).mock.calls);
+    expect(serialized).toContain("malformed session boundary");
+    expect(serialized).not.toContain(rawTail);
+  });
+
+  it("rejects malformed keyless session creation agent ids without leaking them", async () => {
+    const rawAgentId = "secret=raw-create-agent-value-123456";
+    const respond = await callSessions(
+      "sessions.create",
+      { agentId: rawAgentId, label: "Dashboard Chat" },
+      { context: createContext(), reqId: "req-malformed-create-agent" },
+    );
+
+    const serialized = JSON.stringify(vi.mocked(respond).mock.calls);
+    expect(serialized).toContain("malformed session boundary");
+    expect(serialized).not.toContain(rawAgentId);
+    expect(serialized).not.toContain("raw-create-agent-value-123456");
   });
 
   it("does not abort an active run whose session key belongs to another requested agent", async () => {

@@ -17,6 +17,7 @@ import type {
   BrowserContext,
   ConsoleMessage,
   Dialog,
+  Frame,
   Page,
   Request,
   Response,
@@ -123,12 +124,14 @@ export function isBrowserObservedDialogBlockedError(
 }
 
 type PendingObservedDialog = BrowserObservedDialogRecord & {
+  observedOrigin?: string;
   dialog: Dialog;
 };
 
 type ArmedDialogResponse = {
   accept: boolean;
   promptText?: string;
+  approvedOrigin?: string;
   expiresAt: number;
   timer?: ReturnType<typeof setTimeout>;
 };
@@ -146,9 +149,10 @@ type ConnectedBrowser = {
 };
 
 type PageState = {
-  console: BrowserConsoleMessage[];
-  errors: BrowserPageError[];
-  requests: BrowserNetworkRequest[];
+  console: Array<BrowserConsoleMessage & { observedOrigin?: string }>;
+  pendingConsoleOrigins: Set<Promise<void>>;
+  errors: Array<BrowserPageError & { observedOrigin?: string }>;
+  requests: Array<BrowserNetworkRequest & { observedOrigin?: string }>;
   requestIds: WeakMap<Request, string>;
   nextRequestId: number;
   armIdUpload: number;
@@ -156,9 +160,12 @@ type PageState = {
   downloadWaiterDepth: number;
   nextObservedDialogId: number;
   pendingDialogs: PendingObservedDialog[];
-  recentDialogs: BrowserObservedDialogRecord[];
+  recentDialogs: Array<BrowserObservedDialogRecord & { observedOrigin?: string }>;
   armedDialogResponse?: ArmedDialogResponse;
-  dialogAbortControllers: Set<AbortController>;
+  dialogAbortControllers: Set<{
+    controller: AbortController;
+    approvedOrigin?: string;
+  }>;
   /**
    * Role-based refs from the last role snapshot (e.g. e1/e2).
    * Mode "role" refs are generated from ariaSnapshot and resolved via getByRole.
@@ -270,14 +277,19 @@ function findNetworkRequestById(state: PageState, id: string): BrowserNetworkReq
   return undefined;
 }
 
-function appendRecentDialog(state: PageState, record: BrowserObservedDialogRecord): void {
+function appendRecentDialog(
+  state: PageState,
+  record: BrowserObservedDialogRecord & { observedOrigin?: string },
+): void {
   state.recentDialogs.push(record);
   while (state.recentDialogs.length > MAX_RECENT_DIALOGS) {
     state.recentDialogs.shift();
   }
 }
 
-function serializeDialogRecord(dialog: BrowserObservedDialogRecord): BrowserObservedDialogRecord {
+function serializeDialogRecord(
+  dialog: BrowserObservedDialogRecord & { observedOrigin?: string },
+): BrowserObservedDialogRecord {
   return {
     id: dialog.id,
     type: dialog.type,
@@ -293,11 +305,16 @@ function serializePendingDialog(dialog: PendingObservedDialog): BrowserObservedD
   return serializeDialogRecord(dialog);
 }
 
-function serializeObservedBrowserState(state: PageState): BrowserObservedState {
+function serializeObservedBrowserState(
+  state: PageState,
+  approvedOrigin?: string,
+): BrowserObservedState {
+  const matchesApprovedOrigin = (record: { observedOrigin?: string }) =>
+    !approvedOrigin || record.observedOrigin === approvedOrigin;
   return {
     dialogs: {
-      pending: state.pendingDialogs.map(serializePendingDialog),
-      recent: state.recentDialogs.map(serializeDialogRecord),
+      pending: state.pendingDialogs.filter(matchesApprovedOrigin).map(serializePendingDialog),
+      recent: state.recentDialogs.filter(matchesApprovedOrigin).map(serializeDialogRecord),
     },
   };
 }
@@ -309,14 +326,143 @@ function clearArmedDialogResponse(state: PageState): void {
   state.armedDialogResponse = undefined;
 }
 
+/** Rejects an approved operation when the page has crossed its bound origin. */
+export function assertBrowserPageOrigin(page: Pick<Page, "url">, approvedOrigin?: string): void {
+  if (!approvedOrigin) {
+    return;
+  }
+  const currentOrigin = resolveBrowserPageOrigin(page);
+  if (!currentOrigin) {
+    throw new Error("Browser Steward approved origin could not be verified");
+  }
+  if (currentOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved origin changed before execution");
+  }
+}
+
+function resolveBrowserPageOrigin(page: Pick<Page, "url">): string | undefined {
+  try {
+    const origin = new URL(page.url()).origin;
+    return origin && origin !== "null" ? origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveBrowserFrameUrlOrigin(frame: Frame): string | undefined {
+  const frameUrl = frame.url();
+  if (frameUrl === "about:blank" || frameUrl === "about:srcdoc") {
+    const parent = frame.parentFrame();
+    return parent ? resolveBrowserFrameUrlOrigin(parent) : undefined;
+  }
+  try {
+    const origin = new URL(frameUrl).origin;
+    return origin && origin !== "null" ? origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveBrowserFrameEffectiveOrigin(frame: Frame): Promise<string | undefined> {
+  try {
+    const origin = await frame.evaluate(() => globalThis.location.origin);
+    return typeof origin === "string" && origin !== "null" ? origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveBrowserConsoleExecutionOrigin(
+  msg: ConsoleMessage,
+): Promise<string | undefined> {
+  try {
+    for (const arg of msg.args()) {
+      try {
+        const origin = await arg.evaluate(() => globalThis.location.origin);
+        if (typeof origin === "string" && origin !== "null") {
+          return origin;
+        }
+      } catch {
+        // Continue through other handles; a console argument may be disposed.
+      }
+    }
+  } catch {
+    // Treat an unavailable execution context as untrusted.
+  }
+  return undefined;
+}
+
+/** Wait for execution-frame origins on captured console messages before filtering them. */
+export async function waitForPendingConsoleOrigins(page: Page): Promise<void> {
+  const state = ensurePageState(page);
+  await Promise.all([...state.pendingConsoleOrigins]);
+}
+
+/** Rejects an approved operation when a concrete element frame is not approved. */
+export async function assertBrowserFrameOrigin(
+  frame: Frame | null | undefined,
+  approvedOrigin?: string,
+): Promise<void> {
+  if (!approvedOrigin) {
+    return;
+  }
+  if (!frame || (await resolveBrowserFrameEffectiveOrigin(frame)) !== approvedOrigin) {
+    throw new Error("Browser Steward approved destination frame origin could not be verified");
+  }
+}
+
+/** Rejects approved dialog responses when any live frame has an unknown or different origin. */
+export async function assertBrowserPageFramesOrigin(
+  page: Pick<Page, "url" | "frames">,
+  approvedOrigin?: string,
+): Promise<void> {
+  assertBrowserPageOrigin(page, approvedOrigin);
+  if (!approvedOrigin) {
+    return;
+  }
+  const origins = await Promise.all(page.frames().map(resolveBrowserFrameEffectiveOrigin));
+  if (origins.some((origin) => origin !== approvedOrigin)) {
+    throw new Error("Browser Steward approved dialog origin could not be verified");
+  }
+}
+
+/** Rejects an approved operation when its snapshot-scoped frame is not approved. */
+export async function assertBrowserTargetOrigin(
+  page: Page,
+  approvedOrigin?: string,
+): Promise<void> {
+  assertBrowserPageOrigin(page, approvedOrigin);
+  if (!approvedOrigin) {
+    return;
+  }
+  const frameSelector = pageStates.get(page)?.roleRefsFrameSelector?.trim();
+  if (!frameSelector) {
+    return;
+  }
+  let frameOrigin: string | undefined;
+  try {
+    const frameElement = await page.locator(frameSelector).first().elementHandle({ timeout: 1000 });
+    const frame = await frameElement?.contentFrame();
+    frameOrigin = frame ? await resolveBrowserFrameEffectiveOrigin(frame) : undefined;
+  } catch {
+    frameOrigin = undefined;
+  }
+  if (frameOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved destination frame origin could not be verified");
+  }
+}
+
 function abortActionsBlockedByDialog(state: PageState): void {
   if (state.dialogAbortControllers.size === 0) {
     return;
   }
-  const err = new BrowserObservedDialogBlockedError(serializeObservedBrowserState(state));
-  for (const controller of state.dialogAbortControllers) {
-    if (!controller.signal.aborted) {
-      controller.abort(err);
+  for (const entry of state.dialogAbortControllers) {
+    if (!entry.controller.signal.aborted) {
+      entry.controller.abort(
+        new BrowserObservedDialogBlockedError(
+          serializeObservedBrowserState(state, entry.approvedOrigin),
+        ),
+      );
     }
   }
   state.dialogAbortControllers.clear();
@@ -328,13 +474,43 @@ function isNoDialogShowingError(err: unknown): boolean {
 }
 
 async function settleObservedDialog(params: {
+  page: Page;
   state: PageState;
   pending: PendingObservedDialog;
   accept: boolean;
   promptText?: string;
   closedBy: NonNullable<BrowserObservedDialogRecord["closedBy"]>;
+  approvedOrigin?: string;
+  originMismatch?: "throw" | "dismiss";
 }): Promise<BrowserObservedDialogRecord> {
   const { state, pending } = params;
+  if (params.approvedOrigin) {
+    try {
+      await assertBrowserPageFramesOrigin(params.page, params.approvedOrigin);
+    } catch (error) {
+      if ((params.originMismatch ?? "throw") === "throw") {
+        throw error;
+      }
+      state.pendingDialogs = state.pendingDialogs.filter((dialog) => dialog.id !== pending.id);
+      try {
+        await pending.dialog.dismiss();
+      } catch {
+        // Best-effort dismissal protects against delivering approved prompt text.
+      }
+      const record: BrowserObservedDialogRecord = {
+        id: pending.id,
+        type: pending.type,
+        message: pending.message,
+        ...(pending.defaultValue !== undefined ? { defaultValue: pending.defaultValue } : {}),
+        openedAt: pending.openedAt,
+        closedAt: new Date().toISOString(),
+        closedBy: "armed",
+        ...(pending.observedOrigin ? { observedOrigin: pending.observedOrigin } : {}),
+      };
+      appendRecentDialog(state, record);
+      return record;
+    }
+  }
   state.pendingDialogs = state.pendingDialogs.filter((dialog) => dialog.id !== pending.id);
 
   let closedBy = params.closedBy;
@@ -362,12 +538,13 @@ async function settleObservedDialog(params: {
     openedAt: pending.openedAt,
     closedAt: new Date().toISOString(),
     closedBy,
+    ...(pending.observedOrigin ? { observedOrigin: pending.observedOrigin } : {}),
   };
   appendRecentDialog(state, record);
   return record;
 }
 
-function observeDialog(pageState: PageState, dialog: Dialog): void {
+function observeDialog(page: Page, pageState: PageState, dialog: Dialog): void {
   pageState.nextObservedDialogId += 1;
   const type = dialog.type();
   const defaultValue = dialog.defaultValue();
@@ -377,6 +554,7 @@ function observeDialog(pageState: PageState, dialog: Dialog): void {
     message: dialog.message(),
     openedAt: new Date().toISOString(),
     dialog,
+    ...(resolveBrowserPageOrigin(page) ? { observedOrigin: resolveBrowserPageOrigin(page) } : {}),
     ...(type === "prompt" ? { defaultValue } : {}),
   };
   pageState.pendingDialogs.push(pending);
@@ -390,6 +568,9 @@ function observeDialog(pageState: PageState, dialog: Dialog): void {
       accept: armed.accept,
       ...(armed.promptText !== undefined ? { promptText: armed.promptText } : {}),
       closedBy: "armed",
+      originMismatch: "dismiss",
+      page,
+      ...(armed.approvedOrigin ? { approvedOrigin: armed.approvedOrigin } : {}),
     }).catch(() => {});
     return;
   }
@@ -596,6 +777,7 @@ export function ensurePageState(page: Page): PageState {
 
   const state: PageState = {
     console: [],
+    pendingConsoleOrigins: new Set(),
     errors: [],
     requests: [],
     requestIds: new WeakMap(),
@@ -613,16 +795,27 @@ export function ensurePageState(page: Page): PageState {
   if (!observedPages.has(page)) {
     observedPages.add(page);
     page.on("console", (msg: ConsoleMessage) => {
-      const entry: BrowserConsoleMessage = {
+      const location = msg.location();
+      const entry: BrowserConsoleMessage & { observedOrigin?: string } = {
         type: msg.type(),
         text: msg.text(),
         timestamp: new Date().toISOString(),
-        location: msg.location(),
+        location,
       };
       state.console.push(entry);
       if (state.console.length > MAX_CONSOLE_MESSAGES) {
         state.console.shift();
       }
+      let pending: Promise<void>;
+      pending = resolveBrowserConsoleExecutionOrigin(msg)
+        .then((observedOrigin) => {
+          if (observedOrigin) {
+            entry.observedOrigin = observedOrigin;
+          }
+        })
+        .catch(() => {})
+        .finally(() => state.pendingConsoleOrigins.delete(pending));
+      state.pendingConsoleOrigins.add(pending);
     });
     page.on("pageerror", (err: Error) => {
       state.errors.push({
@@ -645,6 +838,14 @@ export function ensurePageState(page: Page): PageState {
         method: req.method(),
         url: req.url(),
         resourceType: req.resourceType(),
+        ...(() => {
+          try {
+            const observedOrigin = resolveBrowserFrameUrlOrigin(req.frame());
+            return observedOrigin ? { observedOrigin } : {};
+          } catch {
+            return {};
+          }
+        })(),
       });
       if (state.requests.length > MAX_NETWORK_REQUESTS) {
         state.requests.shift();
@@ -676,7 +877,7 @@ export function ensurePageState(page: Page): PageState {
       rec.ok = false;
     });
     page.on("dialog", (dialog: Dialog) => {
-      observeDialog(state, dialog);
+      observeDialog(page, state, dialog);
     });
     page.on(
       "download",
@@ -709,9 +910,9 @@ export function ensurePageState(page: Page): PageState {
     );
     page.on("close", () => {
       clearArmedDialogResponse(state);
-      for (const controller of state.dialogAbortControllers) {
-        if (!controller.signal.aborted) {
-          controller.abort(new Error("Page closed before browser action completed."));
+      for (const entry of state.dialogAbortControllers) {
+        if (!entry.controller.signal.aborted) {
+          entry.controller.abort(new Error("Page closed before browser action completed."));
         }
       }
       state.dialogAbortControllers.clear();
@@ -725,9 +926,13 @@ export function ensurePageState(page: Page): PageState {
 }
 
 /** Read observed dialog state from a Playwright page. */
-export function getObservedBrowserStateForPage(page: Page): BrowserObservedState {
+export async function getObservedBrowserStateForPage(
+  page: Page,
+  approvedOrigin?: string,
+): Promise<BrowserObservedState> {
   const state = ensurePageState(page);
-  return serializeObservedBrowserState(state);
+  await assertBrowserPageFramesOrigin(page, approvedOrigin);
+  return serializeObservedBrowserState(state, approvedOrigin);
 }
 
 /** Resolve a page and read its observed browser state. */
@@ -735,9 +940,10 @@ export async function getObservedBrowserStateViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
 }): Promise<BrowserObservedState> {
   const page = await getPageForTargetId(opts);
-  return getObservedBrowserStateForPage(page);
+  return await getObservedBrowserStateForPage(page, opts.approvedOrigin);
 }
 
 function resolvePendingDialogForResponse(params: {
@@ -768,6 +974,7 @@ export async function respondToObservedDialogOnPage(opts: {
   accept: boolean;
   promptText?: string;
   closedBy?: "agent" | "armed";
+  approvedOrigin?: string;
 }): Promise<BrowserObservedDialogRecord> {
   const state = ensurePageState(opts.page);
   const pending = resolvePendingDialogForResponse({
@@ -775,11 +982,13 @@ export async function respondToObservedDialogOnPage(opts: {
     ...(opts.dialogId !== undefined ? { dialogId: opts.dialogId } : {}),
   });
   return await settleObservedDialog({
+    page: opts.page,
     state,
     pending,
     accept: opts.accept,
     ...(opts.promptText !== undefined ? { promptText: opts.promptText } : {}),
     closedBy: opts.closedBy ?? "agent",
+    ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
   });
 }
 
@@ -791,6 +1000,7 @@ export async function respondToObservedDialogViaPlaywright(opts: {
   accept: boolean;
   promptText?: string;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
 }): Promise<BrowserObservedDialogRecord> {
   const page = await getPageForTargetId(opts);
   return await respondToObservedDialogOnPage({
@@ -798,6 +1008,7 @@ export async function respondToObservedDialogViaPlaywright(opts: {
     accept: opts.accept,
     ...(opts.dialogId !== undefined ? { dialogId: opts.dialogId } : {}),
     ...(opts.promptText !== undefined ? { promptText: opts.promptText } : {}),
+    ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
   });
 }
 
@@ -815,6 +1026,7 @@ export function markObservedDialogsHandledRemotelyForPage(page: Page): BrowserOb
       openedAt: dialog.openedAt,
       closedAt,
       closedBy: "remote",
+      ...(dialog.observedOrigin ? { observedOrigin: dialog.observedOrigin } : {}),
     });
   }
   return serializeObservedBrowserState(state);
@@ -826,6 +1038,7 @@ export function armObservedDialogResponseOnPage(opts: {
   accept: boolean;
   promptText?: string;
   timeoutMs?: number;
+  approvedOrigin?: string;
 }): void {
   const state = ensurePageState(opts.page);
   clearArmedDialogResponse(state);
@@ -837,6 +1050,7 @@ export function armObservedDialogResponseOnPage(opts: {
   const response: ArmedDialogResponse = {
     accept: opts.accept,
     expiresAt,
+    ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
     ...(opts.promptText !== undefined ? { promptText: opts.promptText } : {}),
   };
   response.timer = setTimeout(() => {
@@ -851,12 +1065,21 @@ export function armObservedDialogResponseOnPage(opts: {
 export function createObservedDialogAbortSignalForPage(opts: {
   page: Page;
   parentSignal?: AbortSignal;
+  approvedOrigin?: string;
 }): { signal: AbortSignal; cleanup: () => void } {
   const state = ensurePageState(opts.page);
   const controller = new AbortController();
+  const entry = {
+    controller,
+    ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
+  };
   const abortForCurrentDialog = () => {
     if (!controller.signal.aborted) {
-      controller.abort(new BrowserObservedDialogBlockedError(serializeObservedBrowserState(state)));
+      controller.abort(
+        new BrowserObservedDialogBlockedError(
+          serializeObservedBrowserState(state, opts.approvedOrigin),
+        ),
+      );
     }
   };
   const abortForParent = () => {
@@ -868,7 +1091,7 @@ export function createObservedDialogAbortSignalForPage(opts: {
   if (state.pendingDialogs.length > 0) {
     abortForCurrentDialog();
   } else {
-    state.dialogAbortControllers.add(controller);
+    state.dialogAbortControllers.add(entry);
   }
   if (opts.parentSignal) {
     if (opts.parentSignal.aborted) {
@@ -881,7 +1104,7 @@ export function createObservedDialogAbortSignalForPage(opts: {
   return {
     signal: controller.signal,
     cleanup: () => {
-      state.dialogAbortControllers.delete(controller);
+      state.dialogAbortControllers.delete(entry);
       opts.parentSignal?.removeEventListener("abort", abortForParent);
     },
   };

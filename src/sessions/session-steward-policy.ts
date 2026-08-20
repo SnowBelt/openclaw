@@ -1,3 +1,5 @@
+import { isValidAgentId, normalizeAgentId } from "../routing/session-key.js";
+
 export type SessionStewardBoundaryKind = "agent" | "global" | "unscoped" | "unknown" | "malformed";
 
 export type SessionStewardAgentRelation = "same_agent" | "cross_agent" | "unbound";
@@ -13,12 +15,27 @@ export type SessionStewardBoundaryDecision = {
 export type ResolveSessionStewardBoundaryParams = {
   sessionKey?: string | null;
   requestedAgentId?: string | null;
+  configuredAgentIds?: readonly string[];
 };
 
 const UNKNOWN = "UNKNOWN";
 
 function normalizeBoundarySegment(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function normalizeBoundaryAgentId(
+  value: string | null | undefined,
+  configuredAgentIds: readonly string[] | undefined,
+): string {
+  const normalized = normalizeBoundarySegment(value);
+  if (!normalized || isValidAgentId(normalized)) {
+    return normalized;
+  }
+  const configured = configuredAgentIds?.find(
+    (agentId) => normalizeBoundarySegment(agentId) === normalized,
+  );
+  return configured ? normalizeAgentId(configured) : "";
 }
 
 function unknownDecision(requestedAgentId: string): SessionStewardBoundaryDecision {
@@ -56,7 +73,15 @@ function resolveAgentRelation(
 export function resolveSessionStewardBoundary(
   params: ResolveSessionStewardBoundaryParams,
 ): SessionStewardBoundaryDecision {
-  const requestedAgentId = normalizeBoundarySegment(params.requestedAgentId) || UNKNOWN;
+  const rawRequestedAgentId = normalizeBoundarySegment(params.requestedAgentId);
+  const normalizedRequestedAgentId = normalizeBoundaryAgentId(
+    params.requestedAgentId,
+    params.configuredAgentIds,
+  );
+  if (rawRequestedAgentId && !normalizedRequestedAgentId) {
+    return malformedDecision(UNKNOWN);
+  }
+  const requestedAgentId = normalizedRequestedAgentId || UNKNOWN;
   const normalizedSessionKey = normalizeBoundarySegment(params.sessionKey);
   if (!normalizedSessionKey) {
     return unknownDecision(requestedAgentId);
@@ -82,10 +107,11 @@ export function resolveSessionStewardBoundary(
     };
   }
 
-  const ownerAgentId = parts[1]?.trim() ?? "";
+  const rawOwnerAgentId = parts[1]?.trim() ?? "";
+  const ownerAgentId = normalizeBoundaryAgentId(rawOwnerAgentId, params.configuredAgentIds);
   const hasMalformedEmptyTail =
     parts.length > 2 && !parts.slice(2).some((part) => part.trim().length > 0);
-  if (!ownerAgentId || hasMalformedEmptyTail) {
+  if (!rawOwnerAgentId || !ownerAgentId || hasMalformedEmptyTail) {
     return malformedDecision(requestedAgentId);
   }
 

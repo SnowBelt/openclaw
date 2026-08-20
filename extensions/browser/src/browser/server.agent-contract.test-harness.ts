@@ -65,11 +65,15 @@ export async function startServerAndBase(): Promise<string> {
 }
 
 /** Posts JSON to a Browser control-server route and parses the JSON response. */
-export async function postJson<T>(url: string, body?: unknown): Promise<T> {
+export async function postJson<T>(
+  url: string,
+  body?: unknown,
+  options?: { headers?: Record<string, string> },
+): Promise<T> {
   const realFetch = getBrowserTestFetch();
   const res = await realFetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...options?.headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return (await res.json()) as T;

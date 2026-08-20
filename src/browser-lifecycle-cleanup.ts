@@ -21,6 +21,7 @@ function isBrowserCleanupDisabled(cfg: OpenClawConfig | undefined): boolean {
 export async function cleanupBrowserSessionsForLifecycleEnd(params: {
   cfg?: OpenClawConfig;
   sessionKeys: string[];
+  agentId?: string;
   onWarn?: (message: string) => void;
   onError?: (error: unknown) => void;
 }): Promise<void> {
@@ -35,6 +36,7 @@ export async function cleanupBrowserSessionsForLifecycleEnd(params: {
     cleanup: async () => {
       await closeTrackedBrowserTabsForSessions({
         sessionKeys,
+        ...(params.agentId ? { agentId: params.agentId } : {}),
         onWarn: params.onWarn,
       });
     },

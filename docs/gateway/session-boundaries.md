@@ -61,9 +61,22 @@ Session Steward enforcement currently covers these Gateway surfaces:
 - `sessions.files.list`
 - `sessions.files.get`
 - `sessions.create`
+- `sessions.send`
+- `sessions.steer`
+- `sessions.messages.subscribe`
+- `sessions.messages.unsubscribe`
+- `sessions.compaction.list`
+- `sessions.compaction.get`
+- `sessions.compaction.branch`
+- `sessions.compaction.restore`
 - `sessions.abort`
+- `sessions.patch`
+- `sessions.pluginPatch`
 - `sessions.usage`
 - `sessions.reset`
+- `sessions.delete`
+- `sessions.get`
+- `sessions.compact`
 
 The policy is intentionally strict for malformed `agent:*` selectors and
 cross-agent mismatches. It is intentionally compatible for `global` selectors
@@ -115,14 +128,18 @@ and [Prometheus label policy](/gateway/prometheus#label-policy).
 
 The combined Browser / Session / Credential Steward remains active for browser
 runtime compatibility. Browser-side checks use exact owner classification and
-redacted session metadata for Browser Steward decisions. Credential-side checks
-classify credential-like request data, block raw credential exposure before
-approval, and keep Browser Steward diagnostics limited to redacted credential
-classes and reason codes.
+the same `global`, unscoped, malformed, and redacted agent-boundary semantics as
+the core policy. Credential-side checks classify credential-like request data,
+block raw credential exposure from generic diagnostics, and keep Browser
+Steward decisions and tracked metadata limited to redacted credential classes
+and reason codes. A trusted operator approval may authorize the browser action,
+but it does not authorize exposing the credential value in decisions,
+diagnostics, or tracked metadata.
 
 Credential Steward redaction policy does not resolve credentials, migrate auth
-profiles, or change credential storage. It is a safety boundary for deciding
-whether credential material may be handled or reported.
+profiles, or change credential storage. It is a safety boundary that always
+blocks reporting raw credential material; browser execution authorization is a
+separate trusted approval decision.
 
 ## Troubleshooting
 

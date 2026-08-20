@@ -1,3 +1,4 @@
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "./browser-steward-transport.js";
 /**
  * Browser client observation helpers.
  *
@@ -27,7 +28,7 @@ function buildQuerySuffix(params: Array<[string, string | boolean | undefined]>)
 /** Read browser console messages for a tab. */
 export async function browserConsoleMessages(
   baseUrl: string | undefined,
-  opts: { level?: string; targetId?: string; profile?: string } = {},
+  opts: { level?: string; targetId?: string; profile?: string; approvedOrigin?: string } = {},
 ): Promise<{ ok: true; messages: BrowserConsoleMessage[]; targetId: string; url?: string }> {
   const suffix = buildQuerySuffix([
     ["level", opts.level],
@@ -39,18 +40,28 @@ export async function browserConsoleMessages(
     messages: BrowserConsoleMessage[];
     targetId: string;
     url?: string;
-  }>(withBaseUrl(baseUrl, `/console${suffix}`), { timeoutMs: 20000 });
+  }>(withBaseUrl(baseUrl, `/console${suffix}`), {
+    ...(opts.approvedOrigin
+      ? { headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin } }
+      : {}),
+    timeoutMs: 20000,
+  });
 }
 
 /** Save the current page as PDF through browser control. */
 export async function browserPdfSave(
   baseUrl: string | undefined,
-  opts: { targetId?: string; profile?: string } = {},
+  opts: { targetId?: string; profile?: string; approvedOrigin?: string } = {},
 ): Promise<BrowserActionPathResult> {
   const q = buildProfileQuery(opts.profile);
   return await fetchBrowserJson<BrowserActionPathResult>(withBaseUrl(baseUrl, `/pdf${q}`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(opts.approvedOrigin
+        ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin }
+        : {}),
+    },
     body: JSON.stringify({ targetId: opts.targetId }),
     timeoutMs: 20000,
   });

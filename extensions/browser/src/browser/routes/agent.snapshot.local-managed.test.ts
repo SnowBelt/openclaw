@@ -72,6 +72,7 @@ vi.mock("../../media/store.js", () => ({
 }));
 
 vi.mock("./agent.shared.js", () => ({
+  assertBrowserStewardApprovedTabOrigin: vi.fn(),
   browserNavigationPolicyForProfile: vi.fn(() => ({
     ssrfPolicy: { dangerouslyAllowPrivateNetwork: false },
   })),

@@ -28,6 +28,7 @@ const BROWSER_STEWARD_AGENT_ID = "browser-session-credential-steward";
 export type BrowserStewardSessionBoundaryKind =
   | "browser_steward"
   | "other_agent"
+  | "global"
   | "unscoped"
   | "unknown";
 
@@ -54,6 +55,33 @@ type BrowserStewardCredentialExposure = {
   blocked: boolean;
 };
 
+const SIGNED_URL_QUERY_KEYS = new Set([
+  "sig",
+  "signature",
+  "se",
+  "sp",
+  "sr",
+  "st",
+  "sv",
+  "skoid",
+  "sktid",
+  "skt",
+  "ske",
+  "sks",
+  "skv",
+  "x-amz-algorithm",
+  "x-amz-credential",
+  "x-amz-date",
+  "x-amz-expires",
+  "x-amz-security-token",
+  "x-amz-signature",
+  "x-goog-algorithm",
+  "x-goog-credential",
+  "x-goog-date",
+  "x-goog-expires",
+  "x-goog-signature",
+]);
+
 const NON_SECRET_READ_ACTIONS = new Set(["status", "profiles", "doctor"]);
 const CREDENTIAL_CLASS_ORDER = Object.freeze([
   "api key",
@@ -63,6 +91,8 @@ const CREDENTIAL_CLASS_ORDER = Object.freeze([
   "private key",
   "secret",
 ]);
+const CREDENTIAL_LIKE_UPLOAD_PATH_RE =
+  /(?:api[-_ ]?key|auth(?:entication)?|cookie|credential|id_rsa|password|private[-_ ]?key|secret|token|\.env(?:\.|$))/iu;
 
 const ACTION_CREDENTIAL_CLASSES: Record<string, string[]> = {
   start: ["browser profile"],
@@ -87,12 +117,21 @@ const UNKNOWN_SESSION_BOUNDARY: BrowserStewardSessionBoundary = {
   affectedSession: "UNKNOWN",
 };
 
+const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+
 export function resolveBrowserStewardSessionBoundary(
   sessionKey: string | undefined,
 ): BrowserStewardSessionBoundary {
   const normalized = sessionKey?.trim().toLowerCase();
   if (!normalized) {
     return UNKNOWN_SESSION_BOUNDARY;
+  }
+  if (normalized === "global") {
+    return {
+      kind: "global",
+      ownerAgentId: "UNKNOWN",
+      affectedSession: "GLOBAL",
+    };
   }
   const parts = normalized.split(":");
   if (parts[0] !== "agent") {
@@ -105,7 +144,7 @@ export function resolveBrowserStewardSessionBoundary(
   const ownerAgentId = parts[1]?.trim();
   const hasMalformedEmptyTail =
     parts.length > 2 && !parts.slice(2).some((part) => part.trim().length > 0);
-  if (!ownerAgentId || hasMalformedEmptyTail) {
+  if (!ownerAgentId || !VALID_AGENT_ID_RE.test(ownerAgentId) || hasMalformedEmptyTail) {
     return UNKNOWN_SESSION_BOUNDARY;
   }
   if (ownerAgentId === BROWSER_STEWARD_AGENT_ID) {
@@ -150,10 +189,8 @@ export function resolveBrowserStewardProxyAction(params: {
   path?: string;
   body?: unknown;
 }): string {
-  const method = String(params.method ?? "GET")
-    .trim()
-    .toUpperCase();
-  const path = normalizeProxyPath(String(params.path ?? ""));
+  const method = (params.method ?? "GET").trim().toUpperCase();
+  const path = normalizeProxyPath(params.path ?? "");
   if (method === "GET" && path === "/") {
     return "status";
   }
@@ -221,7 +258,7 @@ function safeRequestedAction(action: string): string {
 }
 
 function classifyCredentialLabel(value: string): string | undefined {
-  const normalized = value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase().replace(/[_-]+/g, " ");
   if (!normalized) {
     return undefined;
   }
@@ -246,7 +283,38 @@ function classifyCredentialLabel(value: string): string | undefined {
   return undefined;
 }
 
+function classifySignedUrl(value: string): string | undefined {
+  const candidates = value.match(/\bhttps?:\/\/[^\s"'<>]+/gi) ?? [];
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate.replace(/[),.;]+$/g, ""));
+      for (const [key, queryValue] of url.searchParams) {
+        if (!queryValue.trim()) {
+          continue;
+        }
+        if (SIGNED_URL_QUERY_KEYS.has(key.toLowerCase())) {
+          return "token";
+        }
+        const credentialClass = classifyCredentialLabel(key);
+        if (credentialClass) {
+          return credentialClass;
+        }
+      }
+    } catch {
+      // Continue scanning other URL-like values.
+    }
+  }
+  return undefined;
+}
+
 function classifyCredentialMaterial(value: string): string | undefined {
+  const signedUrlClass = classifySignedUrl(value);
+  if (signedUrlClass) {
+    return signedUrlClass;
+  }
+  if (/\b[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(value)) {
+    return "password";
+  }
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(value)) {
     return "private key";
   }
@@ -281,15 +349,160 @@ function classifyCredentialMaterial(value: string): string | undefined {
   return undefined;
 }
 
+/** Identifies upload filenames that may themselves disclose or carry credentials. */
+export function isBrowserStewardCredentialLikeUploadPath(value: string): boolean {
+  return CREDENTIAL_LIKE_UPLOAD_PATH_RE.test(value);
+}
+
+function hasCredentialLabel(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.some((entry) => typeof entry === "string" && classifyCredentialLabel(entry) !== undefined)
+  );
+}
+
+function credentialFieldType(record: Record<string, unknown>): string | undefined {
+  return typeof record.type === "string" ? classifyCredentialLabel(record.type) : undefined;
+}
+
+function fillFieldsHaveCredentialHint(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.some((field) => {
+      if (!field || typeof field !== "object" || Array.isArray(field)) {
+        return false;
+      }
+      const record = field as Record<string, unknown>;
+      return (
+        credentialFieldType(record) !== undefined ||
+        hasCredentialLabel(record.labels) ||
+        Object.keys(record).some((key) => classifyCredentialLabel(key) !== undefined)
+      );
+    })
+  );
+}
+
+function isSensitiveBrowserInputField(record: Record<string, unknown>, key: string): boolean {
+  const kind = typeof record.kind === "string" ? record.kind.trim().toLowerCase() : "";
+  // Typed, selected, and dialog-prompt values can be opaque secrets even when
+  // neither the value nor its key has a recognizable credential pattern.
+  return (
+    (kind === "type" && key === "text") ||
+    (kind === "select" && key === "values") ||
+    key === "promptText"
+  );
+}
+
+function redactBrowserFillFields(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return "REDACTED";
+  }
+  const seen = new WeakMap<object, unknown>();
+  const redactFieldPart = (candidate: unknown): unknown => {
+    if (typeof candidate === "string") {
+      return classifyCredentialMaterial(candidate) ? "REDACTED" : candidate;
+    }
+    if (!candidate || typeof candidate !== "object") {
+      return candidate;
+    }
+    const cached = seen.get(candidate);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (Array.isArray(candidate)) {
+      const result: unknown[] = [];
+      seen.set(candidate, result);
+      for (const entry of candidate) {
+        result.push(redactFieldPart(entry));
+      }
+      return result;
+    }
+    const result: Record<string, unknown> = {};
+    seen.set(candidate, result);
+    for (const [key, entry] of Object.entries(candidate as Record<string, unknown>)) {
+      result[key] = key === "value" ? "REDACTED" : redactFieldPart(entry);
+    }
+    return result;
+  };
+  return redactFieldPart(value);
+}
+
+/**
+ * Preserve non-secret Browser request structure for downstream policy hooks
+ * while replacing credential fields and credential-bearing strings.
+ */
+export function redactBrowserStewardCredentialMaterial(value: unknown): unknown {
+  const seen = new WeakMap<object, unknown>();
+  const redact = (candidate: unknown): unknown => {
+    if (typeof candidate === "string") {
+      return classifyCredentialMaterial(candidate) ? "REDACTED" : candidate;
+    }
+    if (!candidate || typeof candidate !== "object") {
+      return candidate;
+    }
+    const cached = seen.get(candidate);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (Array.isArray(candidate)) {
+      const result: unknown[] = [];
+      seen.set(candidate, result);
+      for (const entry of candidate) {
+        result.push(redact(entry));
+      }
+      return result;
+    }
+    const record = candidate as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    seen.set(candidate, result);
+    const kind = typeof record.kind === "string" ? record.kind.trim().toLowerCase() : "";
+    const operationKind =
+      kind || (typeof record.action === "string" ? record.action.trim().toLowerCase() : "");
+    const labelsCredentialMaterial = hasCredentialLabel(record.labels);
+    const typedCredentialMaterial = credentialFieldType(record) !== undefined;
+    for (const [key, entry] of Object.entries(record)) {
+      if (operationKind === "upload" && key === "paths") {
+        result[key] = Array.isArray(entry) ? entry.map(() => "REDACTED") : "REDACTED";
+        continue;
+      }
+      result[key] =
+        ((kind === "evaluate" || kind === "wait") && key === "fn") ||
+        classifyCredentialLabel(key) ||
+        isSensitiveBrowserInputField(record, key) ||
+        (key === "value" && (labelsCredentialMaterial || typedCredentialMaterial))
+          ? kind === "select" && key === "values" && Array.isArray(entry)
+            ? entry.map(() => "REDACTED")
+            : "REDACTED"
+          : kind === "fill" && key === "fields"
+            ? redactBrowserFillFields(entry)
+            : redact(entry);
+    }
+    return result;
+  };
+  return redact(value);
+}
+
+/** Browser output can contain opaque page data, so diagnostic copies are metadata-only. */
+export function redactBrowserStewardDiagnosticResult(_value: unknown): unknown {
+  return { redacted: true };
+}
+
 function hasConcreteCredentialValue(value: unknown): boolean {
-  if (typeof value === "string") {
-    return value.trim().length > 0;
-  }
-  if (Array.isArray(value)) {
-    return value.some((entry) => hasConcreteCredentialValue(entry));
-  }
-  if (value && typeof value === "object") {
-    return Object.values(value).some((entry) => hasConcreteCredentialValue(entry));
+  const pending = [value];
+  const seen = new WeakSet<object>();
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (typeof entry === "string" && entry.trim().length > 0) {
+      return true;
+    }
+    if (typeof entry === "number" && Number.isFinite(entry)) {
+      return true;
+    }
+    if (!entry || typeof entry !== "object" || seen.has(entry)) {
+      continue;
+    }
+    seen.add(entry);
+    pending.push(...(Array.isArray(entry) ? entry : Object.values(entry)));
   }
   return false;
 }
@@ -298,25 +511,65 @@ function evaluateBrowserCredentialExposure(value: unknown): BrowserStewardCreden
   const classes = new Set<string>();
   let credentialLike = false;
   let material = false;
-  const scan = (entry: unknown): void => {
+  const pending = [value];
+  const seen = new WeakSet<object>();
+  while (pending.length > 0) {
+    const entry = pending.pop();
     if (typeof entry === "string") {
       const materialClass = classifyCredentialMaterial(entry);
       if (materialClass) {
         classes.add(materialClass);
         material = true;
       }
-      return;
+      continue;
     }
+    if (!entry || typeof entry !== "object" || seen.has(entry)) {
+      continue;
+    }
+    seen.add(entry);
     if (Array.isArray(entry)) {
-      for (const item of entry) {
-        scan(item);
-      }
-      return;
-    }
-    if (!entry || typeof entry !== "object") {
-      return;
+      pending.push(...entry);
+      continue;
     }
     const record = entry as Record<string, unknown>;
+    const kind = typeof record.kind === "string" ? record.kind.trim().toLowerCase() : "";
+    const operationKind =
+      kind || (typeof record.action === "string" ? record.action.trim().toLowerCase() : "");
+    if (
+      operationKind === "upload" &&
+      Array.isArray(record.paths) &&
+      record.paths.some(
+        (path): path is string =>
+          typeof path === "string" && isBrowserStewardCredentialLikeUploadPath(path),
+      )
+    ) {
+      classes.add("secret");
+      credentialLike = true;
+      material = true;
+    }
+    if (
+      (kind === "evaluate" || kind === "wait") &&
+      typeof record.fn === "string" &&
+      record.fn.trim()
+    ) {
+      classes.add("secret");
+      credentialLike = true;
+      material = true;
+    }
+    if (
+      kind === "fill" &&
+      hasConcreteCredentialValue(record.fields) &&
+      !fillFieldsHaveCredentialHint(record.fields)
+    ) {
+      classes.add("secret");
+      credentialLike = true;
+      material = true;
+    }
+    if (kind === "select" && hasConcreteCredentialValue(record.values)) {
+      classes.add("secret");
+      credentialLike = true;
+      material = true;
+    }
     const labels = Array.isArray(record.labels) ? record.labels : [];
     for (const label of labels) {
       if (typeof label !== "string") {
@@ -332,7 +585,22 @@ function evaluateBrowserCredentialExposure(value: unknown): BrowserStewardCreden
         material = true;
       }
     }
+    const fieldTypeClass = credentialFieldType(record);
+    if (fieldTypeClass) {
+      classes.add(fieldTypeClass);
+      credentialLike = true;
+      if (hasConcreteCredentialValue(record.value)) {
+        material = true;
+      }
+    }
     for (const [key, nested] of Object.entries(entry)) {
+      if (isSensitiveBrowserInputField(record, key)) {
+        classes.add("secret");
+        credentialLike = true;
+        if (hasConcreteCredentialValue(nested)) {
+          material = true;
+        }
+      }
       const labelClass = classifyCredentialLabel(key);
       if (labelClass) {
         classes.add(labelClass);
@@ -341,10 +609,9 @@ function evaluateBrowserCredentialExposure(value: unknown): BrowserStewardCreden
           material = true;
         }
       }
-      scan(nested);
+      pending.push(nested);
     }
-  };
-  scan(value);
+  }
   const sortedClasses = CREDENTIAL_CLASS_ORDER.filter((entry) => classes.has(entry));
   if (material) {
     return {
@@ -381,12 +648,22 @@ function uniqueCredentialClasses(values: string[]): string[] {
   });
 }
 
+function redactedBrowserProfile(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return "UNKNOWN";
+  }
+  return VALID_AGENT_ID_RE.test(trimmed) && !classifyCredentialMaterial(trimmed)
+    ? trimmed
+    : "REDACTED";
+}
+
 export function evaluateBrowserStewardRuntimeGuard(
   request: BrowserStewardRuntimeRequest,
 ): BrowserStewardRuntimeDecision {
   const action = normalizeAction(request.action);
   const requestedAction = safeRequestedAction(action);
-  const profile = request.profile?.trim() || "UNKNOWN";
+  const profile = redactedBrowserProfile(request.profile);
   const sessionBoundary = resolveBrowserStewardSessionBoundary(request.agentSessionKey);
   const credentialExposure = evaluateBrowserCredentialExposure(request);
   const credentialClasses = uniqueCredentialClasses([

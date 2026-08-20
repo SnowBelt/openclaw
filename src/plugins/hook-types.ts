@@ -610,6 +610,11 @@ export type PluginHookToolContext = {
   toolCallId?: string;
   getSessionExtension?: (namespace: string) => PluginJsonValue | undefined;
   channelId?: string;
+  /** Trusted browser backend context used by browser-owned approval policies. */
+  browser?: {
+    sandboxBridgeUrl?: string;
+    allowHostControl?: boolean;
+  };
 };
 
 export type PluginHookBeforeToolCallEvent = {

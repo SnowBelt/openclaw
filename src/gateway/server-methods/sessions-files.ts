@@ -705,7 +705,7 @@ function respondSessionFileTooLarge(respond: RespondFn, file: SessionFileEntry, 
 
 /** Gateway handlers for files referenced by session transcripts. */
 export const sessionsFilesHandlers: GatewayRequestHandlers = {
-  "sessions.files.list": async ({ params, respond }) => {
+  "sessions.files.list": async ({ params, respond, context }) => {
     if (
       !assertValidParams(params, validateSessionsFilesListParams, "sessions.files.list", respond)
     ) {
@@ -714,6 +714,7 @@ export const sessionsFilesHandlers: GatewayRequestHandlers = {
     const boundaryCheck = assertGatewaySessionStewardBoundary({
       sessionKey: params.sessionKey,
       requestedAgentId: params.agentId,
+      config: context.getRuntimeConfig(),
       surface: "sessions.files.list",
       action: "list",
     });
@@ -727,13 +728,14 @@ export const sessionsFilesHandlers: GatewayRequestHandlers = {
       ...result,
     });
   },
-  "sessions.files.get": async ({ params, respond }) => {
+  "sessions.files.get": async ({ params, respond, context }) => {
     if (!assertValidParams(params, validateSessionsFilesGetParams, "sessions.files.get", respond)) {
       return;
     }
     const boundaryCheck = assertGatewaySessionStewardBoundary({
       sessionKey: params.sessionKey,
       requestedAgentId: params.agentId,
+      config: context.getRuntimeConfig(),
       surface: "sessions.files.get",
       action: "get",
     });

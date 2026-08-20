@@ -391,6 +391,7 @@ async function ensureSessionRuntimeCleanup(params: {
     await cleanupBrowserSessionsForLifecycleEnd({
       cfg: params.cfg,
       sessionKeys: [...closeKeys],
+      agentId: params.target.agentId,
       onWarn: (message) => logVerbose(message),
     });
     params.assertCurrent?.();
@@ -868,6 +869,7 @@ export async function performGatewaySessionReset(params: {
     const boundaryCheck = assertGatewaySessionStewardBoundary({
       sessionKey: params.key,
       requestedAgentId: explicitAgentId,
+      config: cfg,
       surface: "sessions.reset",
       action: params.reason,
     });

@@ -10,6 +10,8 @@ const formatAriaSnapshot = vi.fn();
 const gotoPageWithNavigationGuard = vi.fn();
 
 vi.mock("./pw-session.js", () => ({
+  assertBrowserPageFramesOrigin: vi.fn(),
+  assertBrowserPageOrigin: vi.fn(),
   assertPageNavigationCompletedSafely: vi.fn(),
   closeBlockedNavigationTarget: vi.fn(),
   ensurePageState,

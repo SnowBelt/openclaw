@@ -10,6 +10,7 @@ import {
   getRuntimeConfigSourceSnapshot,
 } from "../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
 import { resolvePluginTools } from "../plugins/tools.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.js";
 import { resolveApiKeyForProfile, resolveAuthProfileOrder } from "./auth-profiles.js";
@@ -20,6 +21,15 @@ import {
 } from "./openclaw-tools.plugin-context.js";
 import { applyPluginToolDeliveryDefaults } from "./plugin-tool-delivery-defaults.js";
 import type { AnyAgentTool } from "./tools/common.js";
+
+const trustedPolicyRegistryByToolList = new WeakMap<AnyAgentTool[], PluginRegistry>();
+
+/** Reads the request-scoped trusted-policy registry used to build plugin tools. */
+export function getTrustedPolicyRegistryForPluginToolList(
+  tools: AnyAgentTool[],
+): PluginRegistry | undefined {
+  return trustedPolicyRegistryByToolList.get(tools);
+}
 
 type ResolveOpenClawPluginToolsOptions = OpenClawPluginToolOptions & {
   pluginToolAllowlist?: string[];
@@ -117,6 +127,7 @@ export function resolveOpenClawPluginToolsForOptions(params: {
     runtimeConfig: resolveCurrentRuntimeConfig(),
     getRuntimeConfig: resolveCurrentRuntimeConfig,
   });
+  const trustedPolicyRegistryRef: { current?: PluginRegistry } = {};
   const pluginTools = resolvePluginTools({
     ...pluginToolInputs,
     context: {
@@ -129,10 +140,15 @@ export function resolveOpenClawPluginToolsForOptions(params: {
     toolDenylist: params.options?.pluginToolDenylist,
     allowGatewaySubagentBinding: params.options?.allowGatewaySubagentBinding,
     ...(hasAuthForProvider ? { hasAuthForProvider } : {}),
+    trustedPolicyRegistryRef,
   });
 
-  return applyPluginToolDeliveryDefaults({
+  const deliveredTools = applyPluginToolDeliveryDefaults({
     tools: pluginTools,
     deliveryContext,
   });
+  if (trustedPolicyRegistryRef.current) {
+    trustedPolicyRegistryByToolList.set(deliveredTools, trustedPolicyRegistryRef.current);
+  }
+  return deliveredTools;
 }

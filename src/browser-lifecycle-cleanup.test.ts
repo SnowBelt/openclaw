@@ -21,12 +21,14 @@ describe("cleanupBrowserSessionsForLifecycleEnd", () => {
     await expect(
       cleanupBrowserSessionsForLifecycleEnd({
         sessionKeys: ["", "  session-a  ", "session-a", "session-b"],
+        agentId: "main",
         onWarn,
       }),
     ).resolves.toBeUndefined();
 
     expect(closeTrackedBrowserTabsForSessions).toHaveBeenCalledWith({
       sessionKeys: ["session-a", "session-b"],
+      agentId: "main",
       onWarn,
     });
   });

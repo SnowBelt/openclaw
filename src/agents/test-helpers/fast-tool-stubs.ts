@@ -42,5 +42,7 @@ vi.mock("../../plugins/tools.js", () => ({
     JSON.stringify([pluginId, toolName]),
   copyPluginToolMeta: (_from: unknown, to: unknown) => to,
   getPluginToolMeta: () => undefined,
+  getTrustedPolicyRegistryForTool: () => undefined,
   resolvePluginTools: () => [],
+  setTrustedPolicyRegistryForTool: () => {},
 }));

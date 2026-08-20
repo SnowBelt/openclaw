@@ -24,6 +24,11 @@
       "requestedAgentId": "UNKNOWN",
       "agentRelation": "unbound",
       "affectedSession": "GLOBAL"
+    },
+    "browserExpected": {
+      "kind": "global",
+      "ownerAgentId": "UNKNOWN",
+      "affectedSession": "GLOBAL"
     }
   },
   {
@@ -94,6 +99,19 @@
     "rawMustNotContain": ["PERSON-123"]
   },
   {
+    "name": "configured legacy agent id",
+    "sessionKey": "agent:Team Ops:main",
+    "requestedAgentId": "Team Ops",
+    "configuredAgentIds": ["Team Ops"],
+    "expected": {
+      "kind": "agent",
+      "ownerAgentId": "team-ops",
+      "requestedAgentId": "team-ops",
+      "agentRelation": "same_agent",
+      "affectedSession": "agent:team-ops:REDACTED"
+    }
+  },
+  {
     "name": "empty agent owner",
     "sessionKey": "agent::main",
     "expected": {
@@ -114,6 +132,41 @@
       "agentRelation": "unbound",
       "affectedSession": "UNKNOWN"
     }
+  },
+  {
+    "name": "invalid agent owner",
+    "sessionKey": "agent:secret=raw-owner-value:main",
+    "expected": {
+      "kind": "malformed",
+      "ownerAgentId": "UNKNOWN",
+      "requestedAgentId": "UNKNOWN",
+      "agentRelation": "unbound",
+      "affectedSession": "UNKNOWN"
+    },
+    "browserExpected": {
+      "kind": "unknown",
+      "ownerAgentId": "UNKNOWN",
+      "affectedSession": "UNKNOWN"
+    },
+    "rawMustNotContain": ["raw-owner-value"]
+  },
+  {
+    "name": "invalid requested agent id",
+    "sessionKey": "agent:main:direct:person-123",
+    "requestedAgentId": "secret=raw-requested-value",
+    "expected": {
+      "kind": "malformed",
+      "ownerAgentId": "UNKNOWN",
+      "requestedAgentId": "UNKNOWN",
+      "agentRelation": "unbound",
+      "affectedSession": "UNKNOWN"
+    },
+    "browserExpected": {
+      "kind": "other_agent",
+      "ownerAgentId": "main",
+      "affectedSession": "agent:main:REDACTED"
+    },
+    "rawMustNotContain": ["person-123", "raw-requested-value"]
   },
   {
     "name": "unscoped hook key",

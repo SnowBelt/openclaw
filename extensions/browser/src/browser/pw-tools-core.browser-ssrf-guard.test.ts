@@ -7,6 +7,8 @@ const pageState = vi.hoisted(() => ({
 }));
 
 const sessionMocks = vi.hoisted(() => ({
+  assertBrowserPageFramesOrigin: vi.fn(() => {}),
+  assertBrowserPageOrigin: vi.fn(() => {}),
   assertPageNavigationCompletedSafely: vi.fn(async () => {}),
   closeBlockedNavigationTarget: vi.fn(async () => {}),
   ensurePageState: vi.fn(() => ({})),
@@ -165,6 +167,42 @@ describe("pw-tools-core browser SSRF guards", () => {
       ssrfPolicy: { allowPrivateNetwork: false },
       targetId: "tab-1",
     });
+  });
+
+  it("re-checks the approved origin before each form field", async () => {
+    let currentUrl = "https://example.com";
+    const handleEvaluate = vi.fn(async () => {
+      const currentOrigin = new URL(currentUrl).origin;
+      currentUrl = "https://other.example/secret";
+      return currentOrigin;
+    });
+    pageState.page = { url: vi.fn(() => currentUrl) };
+    const fill = vi.fn();
+    const handleFill = vi.fn(async () => {});
+    const dispose = vi.fn(async () => {});
+    pageState.locator = {
+      elementHandle: vi.fn(async () => ({
+        evaluate: handleEvaluate,
+        fill: handleFill,
+        dispose,
+      })),
+      fill,
+    };
+
+    await expect(
+      interactions.fillFormViaPlaywright({
+        cdpUrl: "http://127.0.0.1:18792",
+        targetId: "tab-1",
+        fields: [
+          { ref: "username", type: "text", value: "synthetic-user" },
+          { ref: "password", type: "password", value: "synthetic-value" },
+        ],
+        approvedOrigin: "https://example.com",
+      }),
+    ).rejects.toThrow("Browser Steward approved origin changed before execution");
+    expect(handleEvaluate).toHaveBeenCalledOnce();
+    expect(handleFill).toHaveBeenCalledOnce();
+    expect(fill).not.toHaveBeenCalled();
   });
 
   it("re-checks the current page before evaluating page content", async () => {

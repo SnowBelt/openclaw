@@ -1,5 +1,6 @@
 // Browser tests cover session tab registry plugin behavior.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { evaluateBrowserStewardRuntimeGuard } from "./browser-steward-runtime-guard.js";
 import {
   countTrackedSessionBrowserTabsForTests,
   getTrackedSessionBrowserTabsForTests,
@@ -87,6 +88,24 @@ describe("session tab registry", () => {
     });
   });
 
+  it("shares tracked tabs across separate plugin module instances", async () => {
+    const firstInstance = await import("./session-tab-registry.js");
+    firstInstance.trackSessionBrowserTab({
+      sessionKey: "agent:main:main",
+      targetId: "cross-instance-tab",
+    });
+
+    vi.resetModules();
+    const secondInstance = await import("./session-tab-registry.js");
+    expect(secondInstance.countTrackedSessionBrowserTabsForTests("agent:main:main")).toBe(1);
+
+    secondInstance.untrackSessionBrowserTab({
+      sessionKey: "agent:main:main",
+      targetId: "cross-instance-tab",
+    });
+    expect(firstInstance.countTrackedSessionBrowserTabsForTests("agent:main:main")).toBe(0);
+  });
+
   it("deduplicates tabs and ignores expected close errors", async () => {
     trackSessionBrowserTab({
       sessionKey: "agent:main:main",
@@ -172,6 +191,82 @@ describe("session tab registry", () => {
       profile: undefined,
     });
     expect(countTrackedSessionBrowserTabsForTests("agent:main:main")).toBe(2);
+  });
+
+  it("isolates global-session tabs and cleanup by trusted agent id", async () => {
+    trackSessionBrowserTab({ sessionKey: "global", agentId: "main", targetId: "main-tab" });
+    trackSessionBrowserTab({
+      sessionKey: "global",
+      agentId: "browser-session-credential-steward",
+      targetId: "steward-tab",
+    });
+
+    expect(countTrackedSessionBrowserTabsForTests("global", "main")).toBe(1);
+    expect(
+      countTrackedSessionBrowserTabsForTests("global", "browser-session-credential-steward"),
+    ).toBe(1);
+
+    const sweepCloseTab = vi.fn(async () => {});
+    await expect(
+      sweepTrackedBrowserTabs({ now: Date.now(), maxTabsPerSession: 1, closeTab: sweepCloseTab }),
+    ).resolves.toBe(0);
+    expect(sweepCloseTab).not.toHaveBeenCalled();
+
+    const closeTab = vi.fn(async () => {});
+    await expect(
+      closeTrackedBrowserTabsForSessions({
+        sessionKeys: ["global"],
+        agentId: "browser-session-credential-steward",
+        closeTab,
+      }),
+    ).resolves.toBe(1);
+    expect(closeTab).toHaveBeenCalledWith({
+      targetId: "steward-tab",
+      baseUrl: undefined,
+      profile: undefined,
+    });
+    expect(countTrackedSessionBrowserTabsForTests("global", "main")).toBe(1);
+    expect(
+      countTrackedSessionBrowserTabsForTests("global", "browser-session-credential-steward"),
+    ).toBe(0);
+  });
+
+  it("preserves configured legacy agent ids when isolating global tabs", async () => {
+    trackSessionBrowserTab({ sessionKey: "global", agentId: "Team Ops", targetId: "ops-tab" });
+    trackSessionBrowserTab({ sessionKey: "global", agentId: "Team QA", targetId: "qa-tab" });
+
+    expect(countTrackedSessionBrowserTabsForTests("global", "Team Ops")).toBe(1);
+    expect(countTrackedSessionBrowserTabsForTests("global", "Team QA")).toBe(1);
+
+    const closeTab = vi.fn(async () => {});
+    await closeTrackedBrowserTabsForSessions({
+      sessionKeys: ["global"],
+      agentId: "Team Ops",
+      closeTab,
+    });
+
+    expect(closeTab).toHaveBeenCalledWith({
+      targetId: "ops-tab",
+      baseUrl: undefined,
+      profile: undefined,
+    });
+    expect(countTrackedSessionBrowserTabsForTests("global", "Team QA")).toBe(1);
+  });
+
+  it("closes all global-session tabs when cleanup has no agent scope", async () => {
+    trackSessionBrowserTab({ sessionKey: "global", agentId: "main", targetId: "main-tab" });
+    trackSessionBrowserTab({
+      sessionKey: "global",
+      agentId: "browser-session-credential-steward",
+      targetId: "steward-tab",
+    });
+
+    const closeTab = vi.fn(async () => {});
+    await expect(
+      closeTrackedBrowserTabsForSessions({ sessionKeys: ["global"], closeTab }),
+    ).resolves.toBe(2);
+    expect(closeTab).toHaveBeenCalledTimes(2);
+    expect(countTrackedSessionBrowserTabsForTests()).toBe(0);
   });
 
   it("honors session filters during sweeps", async () => {
@@ -266,13 +361,171 @@ describe("session tab registry", () => {
           ownerAgentId: "browser-session-credential-steward",
           affectedSession: "agent:browser-session-credential-steward:REDACTED",
         },
+        credentialExposureKind: "none",
+        credentialExposureReasonCode: "no_credential_material",
         approvalSource: "runtime",
         telemetryEvent: "browser_steward.boundary_decision",
       },
     });
     expect(JSON.stringify(tracked[0]?.browserStewardRuntimeGuard)).not.toContain("runtime-check");
+    expect(JSON.stringify(tracked[0])).not.toContain("runtime-check");
     expect(JSON.stringify(tracked[0]?.browserStewardRuntimeGuard)).not.toMatch(
       /password|token|cookie|secret|privateKey|apiKey/i,
     );
+  });
+
+  it("keeps the omitted default profile executable during Browser Steward cleanup", async () => {
+    const sessionKey = "agent:browser-session-credential-steward:runtime-check";
+    trackSessionBrowserTab({
+      sessionKey,
+      targetId: "tab-default-profile",
+      browserStewardRuntimeDecision: evaluateBrowserStewardRuntimeGuard({
+        action: "open",
+        agentSessionKey: sessionKey,
+        approved: true,
+      }),
+    });
+    const closeTab = vi.fn(async () => {});
+
+    const closed = await closeTrackedBrowserTabsForSessions({
+      sessionKeys: [sessionKey],
+      closeTab,
+    });
+
+    expect(closed).toBe(1);
+    expect(closeTab).toHaveBeenCalledWith({
+      targetId: "tab-default-profile",
+      baseUrl: undefined,
+      profile: undefined,
+    });
+  });
+
+  it("keeps a redacted profile's executable identity private for cleanup", async () => {
+    const sessionKey = "agent:browser-session-credential-steward:runtime-check";
+    const executableProfile = "sk-abcdefghijk";
+    trackSessionBrowserTab({
+      sessionKey,
+      targetId: "tab-private-profile",
+      profile: executableProfile,
+      browserStewardRuntimeDecision: evaluateBrowserStewardRuntimeGuard({
+        action: "open",
+        profile: executableProfile,
+        agentSessionKey: sessionKey,
+        approved: true,
+      }),
+    });
+    const tracked = getTrackedSessionBrowserTabsForTests(sessionKey);
+    const closeTab = vi.fn(async () => {});
+
+    expect(tracked[0]?.profile).toBe("redacted");
+    expect(JSON.stringify(tracked)).not.toContain(executableProfile);
+
+    const closed = await closeTrackedBrowserTabsForSessions({
+      sessionKeys: [sessionKey],
+      closeTab,
+    });
+
+    expect(closed).toBe(1);
+    expect(closeTab).toHaveBeenCalledWith({
+      targetId: "tab-private-profile",
+      baseUrl: undefined,
+      profile: executableProfile,
+    });
+  });
+
+  it("preserves private profile identity across separate module registries", async () => {
+    const sessionKey = "agent:browser-session-credential-steward:runtime-check";
+    const executableProfile = "sk-abcdefghijk";
+    trackSessionBrowserTab({
+      sessionKey,
+      targetId: "tab-cross-registry-profile",
+      profile: executableProfile,
+      browserStewardRuntimeDecision: evaluateBrowserStewardRuntimeGuard({
+        action: "open",
+        profile: executableProfile,
+        agentSessionKey: sessionKey,
+        approved: true,
+      }),
+    });
+    vi.resetModules();
+    const separatelyLoadedRegistry = await import("./session-tab-registry.js");
+    const closeTab = vi.fn(async () => {});
+
+    const closed = await separatelyLoadedRegistry.closeTrackedBrowserTabsForSessions({
+      sessionKeys: [sessionKey],
+      closeTab,
+    });
+
+    expect(closed).toBe(1);
+    expect(closeTab).toHaveBeenCalledWith({
+      targetId: "tab-cross-registry-profile",
+      baseUrl: undefined,
+      profile: executableProfile,
+    });
+  });
+
+  it("updates tracked metadata with only the redacted credential classification", () => {
+    const sessionKey = "agent:browser-session-credential-steward:runtime-check";
+    trackSessionBrowserTab({
+      sessionKey,
+      targetId: "tab-approved",
+      profile: "user",
+      browserStewardRuntimeDecision: evaluateBrowserStewardRuntimeGuard({
+        action: "open",
+        profile: "user",
+        agentSessionKey: sessionKey,
+        approved: true,
+      }),
+    });
+
+    const rawValue = "raw-do-not-store-123456";
+    touchSessionBrowserTab({
+      sessionKey,
+      targetId: "tab-approved",
+      profile: "user",
+      browserStewardRuntimeDecision: evaluateBrowserStewardRuntimeGuard({
+        action: "act",
+        profile: "user",
+        agentSessionKey: sessionKey,
+        approved: true,
+        request: { fn: `() => { document.body.dataset.password = "${rawValue}"; }` },
+      }),
+    });
+    touchSessionBrowserTab({
+      sessionKey,
+      targetId: "tab-approved",
+      profile: "user",
+      browserStewardRuntimeDecision: evaluateBrowserStewardRuntimeGuard({
+        action: "act",
+        profile: "user",
+        agentSessionKey: sessionKey,
+        approved: true,
+        request: { fn: "() => document.title" },
+      }),
+    });
+
+    const trackedJson = JSON.stringify(getTrackedSessionBrowserTabsForTests(sessionKey));
+    expect(trackedJson).toContain('"credentialExposureKind":"credential_material"');
+    expect(trackedJson).toContain('"credentialExposureReasonCode":"credential_material_detected"');
+    expect(trackedJson).not.toContain(rawValue);
+  });
+
+  it("never exposes malformed agent owners to registry sweep filters", async () => {
+    const rawOwner = "secret=raw-owner-value-123456";
+    trackSessionBrowserTab({
+      sessionKey: `agent:${rawOwner}:main`,
+      targetId: "tab-malformed-owner",
+    });
+    const observedSessionKeys: string[] = [];
+
+    await sweepTrackedBrowserTabs({
+      sessionFilter: (sessionKey) => {
+        observedSessionKeys.push(sessionKey);
+        return false;
+      },
+    });
+
+    expect(observedSessionKeys).toEqual(["UNKNOWN"]);
+    expect(JSON.stringify(observedSessionKeys)).not.toContain(rawOwner);
   });
 });

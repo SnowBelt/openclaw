@@ -351,6 +351,7 @@ export async function fetchBrowserJson<T>(
       path: parsed.pathname,
       query,
       body,
+      headers: Object.fromEntries(new Headers(init?.headers ?? {}).entries()),
       signal: abortCtrl.signal,
     });
 

@@ -34,7 +34,7 @@ function parseArgs(argv) {
     contractsOnly: false,
     selfContained: false,
     keepSelfContainedState: false,
-    timeoutSeconds: 180,
+    timeoutSeconds: 480,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];

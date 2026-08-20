@@ -337,6 +337,28 @@ describe("tools.effective handler", () => {
     expect(JSON.stringify(diagnostics.events)).not.toContain("user-1");
   });
 
+  it("loads and resolves a global session under the explicit agent", async () => {
+    runtimeMocks.listAgentIds.mockReturnValueOnce(["main", "work"]);
+    runtimeMocks.loadSessionEntry.mockReturnValueOnce({
+      cfg: { agents: { list: [{ id: "main", default: true }, { id: "work" }] } },
+      canonicalKey: "global",
+      entry: {
+        sessionId: "global-work-session",
+        updatedAt: 1,
+      },
+    });
+    runtimeMocks.resolveSessionAgentId.mockReturnValueOnce("work");
+    const { respond, invoke } = createInvokeParams({ sessionKey: "global", agentId: "work" });
+
+    await invoke();
+
+    expect(firstRespondCall(respond)?.[0]).toBe(true);
+    expect(runtimeMocks.loadSessionEntry).toHaveBeenCalledWith("global", { agentId: "work" });
+    expect(runtimeMocks.resolveSessionAgentId).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionKey: "global", agentId: "work" }),
+    );
+  });
+
   it("returns the read-only effective runtime inventory without MCP startup", async () => {
     const { respond, invoke } = createInvokeParams({ sessionKey: "main:abc" });
     await invoke();

@@ -235,6 +235,24 @@ describe("fetchBrowserJson loopback auth", () => {
     });
   });
 
+  it("forwards approved origin through the default local dispatcher", async () => {
+    await fetchBrowserJson<{ ok: boolean }>("/act", {
+      method: "POST",
+      headers: {
+        "x-openclaw-browser-steward-approved-origin": "https://example.com",
+      },
+      body: JSON.stringify({ kind: "click", ref: "1" }),
+    });
+
+    expect(mocks.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: {
+          "x-openclaw-browser-steward-approved-origin": "https://example.com",
+        },
+      }),
+    );
+  });
+
   it("preserves dispatcher abort context without no-retry hint", async () => {
     mocks.dispatch.mockRejectedValueOnce(new DOMException("operation aborted", "AbortError"));
 

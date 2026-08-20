@@ -10,6 +10,7 @@ import { selectApplicableRuntimeConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { callGateway } from "../gateway/call.js";
 import { isEmbeddedMode } from "../infra/embedded-mode.js";
+import { setTrustedPolicyRegistryForTool } from "../plugins/tools.js";
 import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.js";
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime-web-tools-state.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
@@ -23,7 +24,10 @@ import {
   wrapToolWithBeforeToolCallHook,
 } from "./agent-tools.before-tool-call.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
-import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";
+import {
+  getTrustedPolicyRegistryForPluginToolList,
+  resolveOpenClawPluginToolsForOptions,
+} from "./openclaw-plugin-tools.js";
 import {
   isToolExplicitlyAllowedByFactoryPolicy,
   mergeFactoryPolicyList,
@@ -150,6 +154,8 @@ export function createOpenClawTools(
     enableHeartbeatTool?: boolean;
     /** If true, skip plugin tool resolution and return only shipped core tools. */
     disablePluginTools?: boolean;
+    /** If true with disablePluginTools, still load trusted policies for core tools. */
+    includeTrustedToolPolicies?: boolean;
     /**
      * Wrap returned tools with the before_tool_call hook at construction time.
      * Defaults to true; callers that already enforce the hook at a later shared
@@ -557,19 +563,40 @@ export function createOpenClawTools(
   ];
   options?.recordToolPrepStage?.("openclaw-tools:core-tool-list");
   let allTools = tools;
+  if (options?.disablePluginTools && options.includeTrustedToolPolicies) {
+    const policyOnlyTools = resolveOpenClawPluginToolsForOptions({
+      options: {
+        ...options,
+        disablePluginTools: false,
+        pluginToolDenylist: ["*"],
+      },
+      resolvedConfig,
+      existingToolNames: new Set(tools.map((tool) => tool.name)),
+    });
+    const trustedPolicyRegistry = getTrustedPolicyRegistryForPluginToolList(policyOnlyTools);
+    if (trustedPolicyRegistry) {
+      for (const tool of tools) {
+        setTrustedPolicyRegistryForTool(tool, trustedPolicyRegistry);
+      }
+    }
+  }
   if (!options?.disablePluginTools) {
     const existingToolNames = new Set<string>();
     for (const tool of tools) {
       existingToolNames.add(tool.name);
     }
-    allTools = [
-      ...tools,
-      ...resolveOpenClawPluginToolsForOptions({
-        options,
-        resolvedConfig,
-        existingToolNames,
-      }),
-    ];
+    const resolvedPluginTools = resolveOpenClawPluginToolsForOptions({
+      options,
+      resolvedConfig,
+      existingToolNames,
+    });
+    const trustedPolicyRegistry = getTrustedPolicyRegistryForPluginToolList(resolvedPluginTools);
+    if (trustedPolicyRegistry) {
+      for (const tool of tools) {
+        setTrustedPolicyRegistryForTool(tool, trustedPolicyRegistry);
+      }
+    }
+    allTools = [...tools, ...resolvedPluginTools];
     options?.recordToolPrepStage?.("openclaw-tools:plugin-tools");
   }
 
@@ -580,6 +607,10 @@ export function createOpenClawTools(
   const defaultHookContext: HookContext = {
     ...(hookAgentId ? { agentId: hookAgentId } : {}),
     ...(resolvedConfig ? { config: resolvedConfig } : {}),
+    browser: {
+      sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
+      allowHostControl: options?.sandboxed ? options.allowHostBrowserControl : true,
+    },
     ...(options?.agentSessionKey ? { sessionKey: options.agentSessionKey } : {}),
     ...(options?.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options?.currentChannelId ? { channelId: options.currentChannelId } : {}),

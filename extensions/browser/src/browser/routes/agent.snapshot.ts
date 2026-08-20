@@ -7,6 +7,11 @@
 import path from "node:path";
 import { getImageMetadata } from "../../media/media-services.js";
 import { ensureMediaDir, saveMediaBuffer } from "../../media/store.js";
+import {
+  matchesBrowserStewardApprovedUrl,
+  readBrowserStewardApprovedOrigin,
+  resolveBrowserStewardUrlOrigin,
+} from "../browser-steward-transport.js";
 import { captureScreenshot, snapshotAria, snapshotRoleViaCdp } from "../cdp.js";
 import {
   evaluateChromeMcpScript,
@@ -37,6 +42,7 @@ import { appendSnapshotUrls, type SnapshotUrlEntry } from "../snapshot-urls.js";
 import { normalizeBrowserTimerDelayMs } from "../timer-delay.js";
 import {
   browserNavigationPolicyForProfile,
+  assertBrowserStewardApprovedTabOrigin,
   getPwAiModule,
   handleRouteError,
   readBody,
@@ -57,6 +63,37 @@ import type { BrowserResponse, BrowserRouteRegistrar } from "./types.js";
 import { asyncBrowserRoute, jsonError, toBoolean, toStringOrEmpty } from "./utils.js";
 
 const CHROME_MCP_OVERLAY_ATTR = "data-openclaw-mcp-overlay";
+
+function assertBrowserStewardRestoredTabOrigin(restoredUrl: string, originalUrl: string): void {
+  const originalOrigin = resolveBrowserStewardUrlOrigin(originalUrl);
+  if (!originalOrigin) {
+    throw new Error("Browser Steward original tab origin could not be verified");
+  }
+  assertBrowserStewardApprovedTabOrigin(restoredUrl, originalOrigin);
+}
+
+async function assertChromeMcpApprovedOrigin(params: {
+  profileName: string;
+  profile?: ChromeMcpProfileOptions;
+  targetId: string;
+  approvedOrigin?: string;
+}): Promise<void> {
+  if (!params.approvedOrigin) {
+    return;
+  }
+  const currentUrl = await evaluateChromeMcpScript({
+    profileName: params.profileName,
+    profile: params.profile,
+    targetId: params.targetId,
+    fn: "() => location.href",
+  });
+  if (
+    typeof currentUrl !== "string" ||
+    !matchesBrowserStewardApprovedUrl(currentUrl, params.approvedOrigin)
+  ) {
+    throw new Error("Browser Steward approved origin changed before execution");
+  }
+}
 
 async function collectChromeMcpSnapshotUrls(params: {
   profileName: string;
@@ -317,6 +354,10 @@ export function registerBrowserAgentSnapshotRoutes(
   app.post(
     "/navigate",
     asyncBrowserRoute(async (req, res) => {
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonError(res, 403, "Browser Steward approved origin is invalid");
+      }
       const body = readBody(req);
       const url = toStringOrEmpty(body.url);
       const targetId = toStringOrEmpty(body.targetId) || undefined;
@@ -328,6 +369,7 @@ export function registerBrowserAgentSnapshotRoutes(
         res,
         ctx,
         targetId,
+        approvedOrigin: approvedOriginHeader.origin,
         run: async ({ profileCtx, tab, cdpUrl }) => {
           if (getBrowserProfileCapabilities(profileCtx.profile).usesChromeMcp) {
             const ssrfPolicyOpts = browserNavigationPolicyForProfile(ctx, profileCtx);
@@ -339,6 +381,21 @@ export function registerBrowserAgentSnapshotRoutes(
               url,
             });
             await assertBrowserNavigationResultAllowed({ url: result.url, ...ssrfPolicyOpts });
+            try {
+              assertBrowserStewardApprovedTabOrigin(result.url, approvedOriginHeader.origin);
+            } catch (error) {
+              await navigateChromeMcpPage({
+                profileName: profileCtx.profile.name,
+                profile: profileCtx.profile,
+                targetId: tab.targetId,
+                url: tab.url,
+              })
+                .then((restored) => assertBrowserStewardRestoredTabOrigin(restored.url, tab.url))
+                .catch(async () => {
+                  await profileCtx.closeTab(tab.targetId).catch(() => {});
+                });
+              throw error;
+            }
             return res.json({ ok: true, targetId: tab.targetId, ...result });
           }
           const pw = await requirePwAi(res, "navigate");
@@ -351,6 +408,22 @@ export function registerBrowserAgentSnapshotRoutes(
             url,
             ...browserNavigationPolicyForProfile(ctx, profileCtx),
           });
+          try {
+            assertBrowserStewardApprovedTabOrigin(result.url, approvedOriginHeader.origin);
+          } catch (error) {
+            await pw
+              .navigateViaPlaywright({
+                cdpUrl,
+                targetId: tab.targetId,
+                url: tab.url,
+                ...browserNavigationPolicyForProfile(ctx, profileCtx),
+              })
+              .then((restored) => assertBrowserStewardRestoredTabOrigin(restored.url, tab.url))
+              .catch(async () => {
+                await profileCtx.closeTab(tab.targetId).catch(() => {});
+              });
+            throw error;
+          }
           const currentTargetId = await resolveTargetIdAfterNavigate({
             oldTargetId: tab.targetId,
             navigatedUrl: result.url,
@@ -365,6 +438,10 @@ export function registerBrowserAgentSnapshotRoutes(
   app.post(
     "/pdf",
     asyncBrowserRoute(async (req, res) => {
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonError(res, 403, "Browser Steward approved origin is invalid");
+      }
       const body = readBody(req);
       const targetId = toStringOrEmpty(body.targetId) || undefined;
       const profileCtx = resolveProfileContext(req, res, ctx);
@@ -381,10 +458,12 @@ export function registerBrowserAgentSnapshotRoutes(
         targetId,
         feature: "pdf",
         enforceCurrentUrlAllowed: true,
+        approvedOrigin: approvedOriginHeader.origin,
         run: async ({ cdpUrl, tab, pw }) => {
           const pdf = await pw.pdfViaPlaywright({
             cdpUrl,
             targetId: tab.targetId,
+            approvedOrigin: approvedOriginHeader.origin,
           });
           await saveBrowserMediaResponse({
             res,
@@ -402,6 +481,10 @@ export function registerBrowserAgentSnapshotRoutes(
   app.post(
     "/screenshot",
     asyncBrowserRoute(async (req, res) => {
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonError(res, 403, "Browser Steward approved origin is invalid");
+      }
       const body = readBody(req);
       const targetId = toStringOrEmpty(body.targetId) || undefined;
       const fullPage = toBoolean(body.fullPage) ?? false;
@@ -430,8 +513,15 @@ export function registerBrowserAgentSnapshotRoutes(
         ctx,
         targetId,
         enforceCurrentUrlAllowed: true,
+        approvedOrigin: approvedOriginHeader.origin,
         run: async ({ profileCtx, tab, cdpUrl }) => {
           if (getBrowserProfileCapabilities(profileCtx.profile).usesChromeMcp) {
+            await assertChromeMcpApprovedOrigin({
+              profileName: profileCtx.profile.name,
+              profile: profileCtx.profile,
+              targetId: tab.targetId,
+              approvedOrigin: approvedOriginHeader.origin,
+            });
             const ssrfPolicyOpts = browserNavigationPolicyForProfile(ctx, profileCtx);
             if (ssrfPolicyOpts.ssrfPolicy) {
               await assertBrowserNavigationResultAllowed({
@@ -464,6 +554,12 @@ export function registerBrowserAgentSnapshotRoutes(
                   format: type,
                   timeoutMs,
                 });
+                await assertChromeMcpApprovedOrigin({
+                  profileName: profileCtx.profile.name,
+                  profile: profileCtx.profile,
+                  targetId: tab.targetId,
+                  approvedOrigin: approvedOriginHeader.origin,
+                });
                 await saveNormalizedScreenshotResponse({
                   res,
                   buffer,
@@ -492,6 +588,12 @@ export function registerBrowserAgentSnapshotRoutes(
               format: type,
               timeoutMs,
             });
+            await assertChromeMcpApprovedOrigin({
+              profileName: profileCtx.profile.name,
+              profile: profileCtx.profile,
+              targetId: tab.targetId,
+              approvedOrigin: approvedOriginHeader.origin,
+            });
             await saveNormalizedScreenshotResponse({
               res,
               buffer,
@@ -504,6 +606,7 @@ export function registerBrowserAgentSnapshotRoutes(
 
           let buffer: Buffer;
           const shouldUsePlaywright =
+            Boolean(approvedOriginHeader.origin) ||
             labels ||
             shouldUsePlaywrightForScreenshot({
               profile: profileCtx.profile,
@@ -521,6 +624,7 @@ export function registerBrowserAgentSnapshotRoutes(
                 cdpUrl,
                 targetId: tab.targetId,
                 ssrfPolicy: ctx.state().resolved.ssrfPolicy,
+                approvedOrigin: approvedOriginHeader.origin,
               });
               const labeled = await pw.screenshotWithLabelsViaPlaywright({
                 cdpUrl,
@@ -531,6 +635,7 @@ export function registerBrowserAgentSnapshotRoutes(
                 fullPage,
                 ref,
                 element,
+                approvedOrigin: approvedOriginHeader.origin,
               });
               await saveNormalizedScreenshotResponse({
                 res,
@@ -553,6 +658,7 @@ export function registerBrowserAgentSnapshotRoutes(
               fullPage,
               type,
               timeoutMs,
+              approvedOrigin: approvedOriginHeader.origin,
             });
             buffer = snap.buffer;
           } else {
@@ -580,6 +686,10 @@ export function registerBrowserAgentSnapshotRoutes(
   app.get(
     "/snapshot",
     asyncBrowserRoute(async (req, res) => {
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonError(res, 403, "Browser Steward approved origin is invalid");
+      }
       const profileCtx = resolveProfileContext(req, res, ctx);
       if (!profileCtx) {
         return;
@@ -595,6 +705,7 @@ export function registerBrowserAgentSnapshotRoutes(
 
       try {
         const tab = await profileCtx.ensureTabAvailable(targetId || undefined);
+        assertBrowserStewardApprovedTabOrigin(tab.url, approvedOriginHeader.origin);
         const usesChromeMcp = getBrowserProfileCapabilities(profileCtx.profile).usesChromeMcp;
         const ssrfPolicyOpts = browserNavigationPolicyForProfile(ctx, profileCtx);
         if ((plan.labels || plan.mode === "efficient") && plan.format === "aria") {
@@ -616,15 +727,28 @@ export function registerBrowserAgentSnapshotRoutes(
               cdpUrl: profileCtx.profile.cdpUrl,
               targetId: tab.targetId,
               ssrfPolicy: ctx.state().resolved.ssrfPolicy,
+              approvedOrigin: approvedOriginHeader.origin,
             })
             .catch(() => undefined);
         }
         if (usesChromeMcp) {
+          await assertChromeMcpApprovedOrigin({
+            profileName: profileCtx.profile.name,
+            profile: profileCtx.profile,
+            targetId: tab.targetId,
+            approvedOrigin: approvedOriginHeader.origin,
+          });
           const snapshot = await takeChromeMcpSnapshot({
             profileName: profileCtx.profile.name,
             profile: profileCtx.profile,
             targetId: tab.targetId,
             timeoutMs: plan.timeoutMs,
+          });
+          await assertChromeMcpApprovedOrigin({
+            profileName: profileCtx.profile.name,
+            profile: profileCtx.profile,
+            targetId: tab.targetId,
+            approvedOrigin: approvedOriginHeader.origin,
           });
           if (plan.format === "aria") {
             return res.json({
@@ -657,6 +781,12 @@ export function registerBrowserAgentSnapshotRoutes(
                 ),
               }
             : built;
+          await assertChromeMcpApprovedOrigin({
+            profileName: profileCtx.profile.name,
+            profile: profileCtx.profile,
+            targetId: tab.targetId,
+            approvedOrigin: approvedOriginHeader.origin,
+          });
           if (plan.labels) {
             const refs = Object.keys(builtWithUrls.refs);
             const labelResult = await renderChromeMcpLabels({
@@ -672,6 +802,12 @@ export function registerBrowserAgentSnapshotRoutes(
                 targetId: tab.targetId,
                 format: "png",
                 timeoutMs: plan.timeoutMs,
+              });
+              await assertChromeMcpApprovedOrigin({
+                profileName: profileCtx.profile.name,
+                profile: profileCtx.profile,
+                targetId: tab.targetId,
+                approvedOrigin: approvedOriginHeader.origin,
               });
               const normalized = await normalizeBrowserScreenshot(labeled, {
                 maxSide: DEFAULT_BROWSER_SCREENSHOT_MAX_SIDE,
@@ -733,6 +869,7 @@ export function registerBrowserAgentSnapshotRoutes(
             ssrfPolicy: ctx.state().resolved.ssrfPolicy,
             urls: plan.urls,
             timeoutMs: plan.timeoutMs,
+            approvedOrigin: approvedOriginHeader.origin,
             options: {
               interactive: plan.interactive ?? undefined,
               compact: plan.compact ?? undefined,
@@ -763,13 +900,18 @@ export function registerBrowserAgentSnapshotRoutes(
           const snap = plan.wantsRoleSnapshot
             ? pw
               ? await pw.snapshotRoleViaPlaywright(roleSnapshotArgs).catch(async (err: unknown) => {
+                  if (approvedOriginHeader.origin) {
+                    throw err;
+                  }
                   const fallback = await cdpRoleSnapshot();
                   if (fallback) {
                     return fallback;
                   }
                   throw err;
                 })
-              : await cdpRoleSnapshot()
+              : approvedOriginHeader.origin
+                ? null
+                : await cdpRoleSnapshot()
             : pw
               ? await pw.snapshotAiViaPlaywright({
                   cdpUrl: profileCtx.profile.cdpUrl,
@@ -777,11 +919,14 @@ export function registerBrowserAgentSnapshotRoutes(
                   ssrfPolicy: ctx.state().resolved.ssrfPolicy,
                   urls: plan.urls,
                   timeoutMs: plan.timeoutMs,
+                  approvedOrigin: approvedOriginHeader.origin,
                   ...(typeof plan.resolvedMaxChars === "number"
                     ? { maxChars: plan.resolvedMaxChars }
                     : {}),
                 })
-              : await cdpRoleSnapshot();
+              : approvedOriginHeader.origin
+                ? null
+                : await cdpRoleSnapshot();
           if (!snap) {
             await requirePwAi(res, "ai snapshot");
             return;
@@ -796,6 +941,7 @@ export function registerBrowserAgentSnapshotRoutes(
               refs: "refs" in snap ? snap.refs : {},
               type: "png",
               timeoutMs: plan.timeoutMs,
+              approvedOrigin: approvedOriginHeader.origin,
             });
             const originalMeta = labeled.annotations.length
               ? ((await getImageMetadata(labeled.buffer)) ?? undefined)
@@ -845,10 +991,12 @@ export function registerBrowserAgentSnapshotRoutes(
           });
         }
 
-        const usePlaywrightAriaSnapshot = shouldUsePlaywrightForAriaSnapshot({
-          profile: profileCtx.profile,
-          wsUrl: tab.wsUrl,
-        });
+        const usePlaywrightAriaSnapshot =
+          Boolean(approvedOriginHeader.origin) ||
+          shouldUsePlaywrightForAriaSnapshot({
+            profile: profileCtx.profile,
+            wsUrl: tab.wsUrl,
+          });
         const snap = usePlaywrightAriaSnapshot
           ? (() => {
               // Extension relay doesn't expose per-page WS URLs; run AX snapshot via Playwright CDP session.
@@ -863,10 +1011,17 @@ export function registerBrowserAgentSnapshotRoutes(
                   limit: plan.limit,
                   timeoutMs: plan.timeoutMs,
                   ssrfPolicy: ctx.state().resolved.ssrfPolicy,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
               });
             })()
-          : snapshotAria({ wsUrl: tab.wsUrl ?? "", limit: plan.limit, timeoutMs: plan.timeoutMs });
+          : approvedOriginHeader.origin
+            ? null
+            : snapshotAria({
+                wsUrl: tab.wsUrl ?? "",
+                limit: plan.limit,
+                timeoutMs: plan.timeoutMs,
+              });
 
         const resolved = await Promise.resolve(snap);
         if (!resolved) {

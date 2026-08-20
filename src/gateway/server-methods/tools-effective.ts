@@ -456,11 +456,13 @@ async function resolveReadOnlyToolsEffectiveInventory(
 function resolveTrustedToolsEffectiveContext(params: {
   sessionKey: string;
   requestedAgentId?: string;
+  config: OpenClawConfig;
   respond: RespondFn;
 }) {
   const requestBoundary = assertGatewaySessionStewardBoundary({
     sessionKey: params.sessionKey,
     requestedAgentId: params.requestedAgentId,
+    config: params.config,
     surface: "tools.effective",
     action: "read",
   });
@@ -470,7 +472,9 @@ function resolveTrustedToolsEffectiveContext(params: {
   }
   // The effective tools request is read-only but security-sensitive. Derive
   // routing/account/model context from the persisted session, not client params.
-  const loaded = loadSessionEntry(params.sessionKey);
+  const loaded = loadSessionEntry(params.sessionKey, {
+    agentId: params.requestedAgentId,
+  });
   if (!loaded.entry) {
     params.respond(
       false,
@@ -485,6 +489,7 @@ function resolveTrustedToolsEffectiveContext(params: {
   const loadedBoundary = assertGatewaySessionStewardBoundary({
     sessionKey: loaded.canonicalKey ?? params.sessionKey,
     requestedAgentId: params.requestedAgentId,
+    config: loaded.cfg,
     surface: "tools.effective",
     action: "read",
   });
@@ -496,6 +501,7 @@ function resolveTrustedToolsEffectiveContext(params: {
   const sessionAgentId = resolveSessionAgentId({
     sessionKey: loaded.canonicalKey ?? params.sessionKey,
     config: loaded.cfg,
+    agentId: params.requestedAgentId,
   });
   if (params.requestedAgentId && params.requestedAgentId !== sessionAgentId) {
     params.respond(
@@ -584,6 +590,7 @@ async function handleToolsEffectiveRequest(params: {
   const trustedContext = resolveTrustedToolsEffectiveContext({
     sessionKey: params.rawParams.sessionKey,
     requestedAgentId,
+    config: cfg,
     respond: params.respond,
   });
   if (!trustedContext) {

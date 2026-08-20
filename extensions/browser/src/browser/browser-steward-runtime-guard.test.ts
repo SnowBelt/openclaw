@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateBrowserStewardRuntimeGuard,
   isBrowserStewardSession,
+  redactBrowserStewardCredentialMaterial,
+  redactBrowserStewardDiagnosticResult,
   shouldApplyBrowserStewardRuntimeGuard,
   resolveBrowserStewardSessionBoundary,
   resolveBrowserStewardProxyAction,
@@ -12,7 +14,7 @@ type BrowserStewardBoundaryFixture = {
   name: string;
   sessionKey?: string | null;
   browserExpected?: {
-    kind: "browser_steward" | "other_agent" | "unscoped" | "unknown";
+    kind: "browser_steward" | "other_agent" | "global" | "unscoped" | "unknown";
     ownerAgentId: string;
     affectedSession: string;
   };
@@ -130,6 +132,41 @@ describe("Browser Steward runtime guard", () => {
     expect(JSON.stringify(decision)).not.toContain("SHOULD_NOT_APPEAR");
   });
 
+  it("redacts credential-shaped browser profile values in decisions", () => {
+    for (const profile of [
+      "token=raw-profile-secret-123456",
+      "sk-abcdefghijk",
+      "ghp_abcdefghijk",
+    ]) {
+      const decision = evaluateBrowserStewardRuntimeGuard({
+        action: "navigate",
+        profile,
+        agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+      });
+
+      expect(decision.affectedBrowserProfile).toBe("REDACTED");
+      expect(JSON.stringify(decision)).not.toContain(profile);
+    }
+  });
+
+  it("fails closed without recursing forever on cyclic credential input", () => {
+    const credential: Record<string, unknown> = { token: "raw-cycle-token-123456" };
+    credential.self = credential;
+
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "act",
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+      request: credential,
+    });
+
+    expect(decision).toMatchObject({
+      credentialExposureKind: "credential_material",
+      approvalRequired: true,
+      telemetryEvent: "browser_steward.blocked_credential_exposure",
+    });
+    expect(JSON.stringify(decision)).not.toContain("raw-cycle-token-123456");
+  });
+
   it("allows approved Browser Steward mutations with redacted session metadata", () => {
     expect(
       evaluateBrowserStewardRuntimeGuard({
@@ -193,6 +230,141 @@ describe("Browser Steward runtime guard", () => {
     expect(JSON.stringify(decision)).not.toContain("SHOULD_NOT_APPEAR");
   });
 
+  it("redacts credential values without hiding non-secret request structure", () => {
+    const rawSecret = "raw-hook-secret-123456";
+    const redacted = redactBrowserStewardCredentialMaterial({
+      action: "act",
+      target: "settings-form",
+      request: {
+        kind: "type",
+        targetId: "field-1",
+        text: rawSecret,
+      },
+    });
+
+    expect(redacted).toEqual({
+      action: "act",
+      target: "settings-form",
+      request: {
+        kind: "type",
+        targetId: "field-1",
+        text: "REDACTED",
+      },
+    });
+    expect(JSON.stringify(redacted)).not.toContain(rawSecret);
+  });
+
+  it("redacts every upload path while classifying credential-like filenames", () => {
+    const rawPaths = ["/tmp/private-key.pem", "/tmp/report.pdf"];
+    const redacted = redactBrowserStewardCredentialMaterial({
+      action: "upload",
+      paths: rawPaths,
+    });
+
+    expect(redacted).toEqual({ action: "upload", paths: ["REDACTED", "REDACTED"] });
+    expect(JSON.stringify(redacted)).not.toContain("private-key.pem");
+    expect(JSON.stringify(redacted)).not.toContain("report.pdf");
+
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "upload",
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+      request: { action: "upload", paths: rawPaths },
+    });
+    expect(decision).toMatchObject({
+      approvalRequired: true,
+      credentialExposureKind: "credential_material",
+      telemetryEvent: "browser_steward.blocked_credential_exposure",
+    });
+    expect(JSON.stringify(decision)).not.toContain("private-key.pem");
+    expect(JSON.stringify(decision)).not.toContain("report.pdf");
+  });
+
+  it("treats wait functions as credential-bearing executable material", () => {
+    const rawFunction = "() => document.cookie && true";
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "act",
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+      request: { kind: "wait", fn: rawFunction, targetId: "tab-1" },
+    });
+
+    expect(decision).toMatchObject({
+      credentialExposureKind: "credential_material",
+      approvalRequired: true,
+      telemetryEvent: "browser_steward.blocked_credential_exposure",
+    });
+    expect(
+      redactBrowserStewardCredentialMaterial({
+        kind: "wait",
+        fn: rawFunction,
+        targetId: "tab-1",
+      }),
+    ).toEqual({ kind: "wait", fn: "REDACTED", targetId: "tab-1" });
+    expect(JSON.stringify(decision)).not.toContain(rawFunction);
+  });
+
+  it("treats opaque select values as credential-bearing material", () => {
+    const rawValue = "correct-horse-battery-staple";
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "act",
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+      request: { kind: "select", targetId: "tab-1", values: [rawValue] },
+    });
+
+    expect(decision).toMatchObject({
+      credentialExposureKind: "credential_material",
+      approvalRequired: true,
+      telemetryEvent: "browser_steward.blocked_credential_exposure",
+    });
+    const redacted = redactBrowserStewardCredentialMaterial({
+      kind: "select",
+      targetId: "tab-1",
+      values: [rawValue],
+    });
+    expect(redacted).toEqual({ kind: "select", targetId: "tab-1", values: ["REDACTED"] });
+    expect(JSON.stringify(decision)).not.toContain(rawValue);
+    expect(JSON.stringify(redacted)).not.toContain(rawValue);
+  });
+
+  it("preserves fill field structure while redacting every opaque field value", () => {
+    const rawEmail = "person@example.com";
+    const rawPassword = "raw-fill-password-123456";
+    const redacted = redactBrowserStewardCredentialMaterial({
+      action: "act",
+      request: {
+        kind: "fill",
+        fields: [
+          { ref: "email", type: "text", value: rawEmail },
+          { ref: "password", type: "password", value: rawPassword },
+        ],
+      },
+    });
+
+    expect(redacted).toEqual({
+      action: "act",
+      request: {
+        kind: "fill",
+        fields: [
+          { ref: "email", type: "text", value: "REDACTED" },
+          { ref: "password", type: "password", value: "REDACTED" },
+        ],
+      },
+    });
+    const serialized = JSON.stringify(redacted);
+    expect(serialized).not.toContain(rawEmail);
+    expect(serialized).not.toContain(rawPassword);
+  });
+
+  it("never captures opaque browser output in diagnostics", () => {
+    const rawSecret = "correct-horse-battery-staple";
+    const redacted = redactBrowserStewardDiagnosticResult({
+      content: [{ type: "text", text: JSON.stringify({ result: rawSecret }) }],
+      details: { result: rawSecret },
+    });
+
+    expect(redacted).toEqual({ redacted: true });
+    expect(JSON.stringify(redacted)).not.toContain(rawSecret);
+  });
+
   it.each(credentialFixtures)("matches shared credential fixture: $name", (fixture) => {
     const decision = evaluateBrowserStewardRuntimeGuard({
       action: "status",
@@ -217,6 +389,14 @@ describe("Browser Steward runtime guard", () => {
     ]);
     for (const rawValue of fixture.rawMustNotContain ?? []) {
       expect(JSON.stringify(decision)).not.toContain(rawValue);
+      expect(
+        JSON.stringify(
+          redactBrowserStewardCredentialMaterial({
+            ...(fixture.labels ? { labels: fixture.labels } : {}),
+            value: fixture.value,
+          }),
+        ),
+      ).not.toContain(rawValue);
     }
   });
 

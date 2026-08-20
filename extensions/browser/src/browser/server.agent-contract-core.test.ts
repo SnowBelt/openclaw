@@ -273,6 +273,50 @@ describe("browser control server", () => {
   );
 
   it(
+    "passes the approved Browser Steward origin through to the action backend",
+    async () => {
+      const base = await startServerAndBase();
+      const realFetch = getBrowserTestFetch();
+      const response = await realFetch(`${base}/act`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-openclaw-browser-steward-approved-origin": "https://example.com",
+        },
+        body: JSON.stringify({ kind: "type", ref: "5", text: "synthetic-value" }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(pwMocks.executeActViaPlaywright).toHaveBeenLastCalledWith(
+        expect.objectContaining({ approvedOrigin: "https://example.com" }),
+      );
+    },
+    slowTimeoutMs,
+  );
+
+  it(
+    "rejects malformed internal Browser Steward origin metadata before execution",
+    async () => {
+      const base = await startServerAndBase();
+      const realFetch = getBrowserTestFetch();
+      const response = await realFetch(`${base}/act`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-openclaw-browser-steward-approved-origin": "not-an-origin",
+        },
+        body: JSON.stringify({ kind: "click", ref: "5" }),
+      });
+
+      expect(response.status).toBe(403);
+      expect((await response.json()) as ActErrorResponse).toMatchObject({
+        code: "ACT_INVALID_REQUEST",
+      });
+    },
+    slowTimeoutMs,
+  );
+
+  it(
     "returns ACT_SELECTOR_UNSUPPORTED for selector on unsupported action kinds",
     async () => {
       const base = await startServerAndBase();

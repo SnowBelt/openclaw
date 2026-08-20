@@ -1,4 +1,5 @@
 // Resolves trusted tool policy for plugins from runtime config.
+import { isDeepStrictEqual } from "node:util";
 import { getRuntimeConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isPlainObject } from "../utils.js";
@@ -11,6 +12,7 @@ import type {
 } from "./hook-types.js";
 import { getPluginSessionExtensionStateSync } from "./host-hook-state.js";
 import type { PluginJsonValue, PluginTrustedToolPolicyRegistration } from "./host-hooks.js";
+import { isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type {
   PluginRegistry,
   PluginTrustedToolPolicyRegistryRegistration,
@@ -18,6 +20,11 @@ import type {
 import { getActivePluginRegistry } from "./runtime.js";
 
 type TrustedPolicyRegistration = PluginTrustedToolPolicyRegistryRegistration;
+type TrustedPolicyApproval = NonNullable<PluginHookBeforeToolCallResult["requireApproval"]>;
+
+export type TrustedToolPolicyRunResult = PluginHookBeforeToolCallResult & {
+  additionalApprovals?: TrustedPolicyApproval[];
+};
 
 /** Diagnostic entry for an installed trusted tool policy. */
 export type TrustedToolPolicyDiagnosticEntry = {
@@ -27,8 +34,8 @@ export type TrustedToolPolicyDiagnosticEntry = {
 };
 
 /** True when the active plugin registry has trusted tool policies. */
-export function hasTrustedToolPolicies(): boolean {
-  return copyTrustedPolicyRegistrations(getActivePluginRegistry()).length > 0;
+export function hasTrustedToolPolicies(registry?: PluginRegistry): boolean {
+  return resolveTrustedPolicyRegistrations(registry).length > 0;
 }
 
 function unreadableTrustedPolicyRegistration(): TrustedPolicyRegistration {
@@ -116,6 +123,53 @@ function readTrustedPolicyId(registration: TrustedPolicyRegistration): string {
   }
 }
 
+function trustedPolicyRegistrationKey(registration: TrustedPolicyRegistration): string | undefined {
+  const pluginId = readTrustedPolicyPluginId(registration);
+  const policy = readTrustedPolicy(registration);
+  if (!pluginId || !policy.ok) {
+    return undefined;
+  }
+  try {
+    const policyId = policy.policy.id;
+    return typeof policyId === "string" && policyId.trim()
+      ? `${pluginId}\0${policyId.trim()}`
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveTrustedPolicyRegistrations(
+  requestRegistry?: PluginRegistry,
+): TrustedPolicyRegistration[] {
+  const activeRegistry = getActivePluginRegistry();
+  const requestRegistryIsRetired =
+    requestRegistry &&
+    requestRegistry !== activeRegistry &&
+    isPluginRegistryRetired(requestRegistry);
+  const registries =
+    requestRegistry && requestRegistry !== activeRegistry
+      ? requestRegistryIsRetired
+        ? [activeRegistry, requestRegistry]
+        : [requestRegistry]
+      : [activeRegistry];
+  const resolved: TrustedPolicyRegistration[] = [];
+  const seen = new Set<string>();
+  for (const registry of registries) {
+    for (const registration of copyTrustedPolicyRegistrations(registry)) {
+      const key = trustedPolicyRegistrationKey(registration);
+      if (key && seen.has(key)) {
+        continue;
+      }
+      if (key) {
+        seen.add(key);
+      }
+      resolved.push(registration);
+    }
+  }
+  return resolved;
+}
+
 function trustedPolicyDefaultBlockReason(registration: TrustedPolicyRegistration): string {
   return `blocked by ${readTrustedPolicyId(registration)}`;
 }
@@ -123,7 +177,7 @@ function trustedPolicyDefaultBlockReason(registration: TrustedPolicyRegistration
 function trustedPolicyFailureResult(
   registration: TrustedPolicyRegistration,
   detail: string,
-): PluginHookBeforeToolCallResult {
+): TrustedToolPolicyRunResult {
   return {
     block: true,
     blockReason: `${trustedPolicyDefaultBlockReason(registration)}: ${detail}`,
@@ -165,12 +219,44 @@ function normalizeToolIdentity(
   };
 }
 
+function copyTrustedPolicyPrivateMetadata(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+): boolean {
+  try {
+    for (const key of Reflect.ownKeys(source)) {
+      const descriptor = Object.getOwnPropertyDescriptor(source, key);
+      if (!descriptor || (typeof key !== "symbol" && descriptor.enumerable)) {
+        continue;
+      }
+      if (Object.hasOwn(target, key)) {
+        continue;
+      }
+      Object.defineProperty(target, key, descriptor);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cloneTrustedPolicyParams(params: Record<string, unknown>): Record<string, unknown> | null {
+  const publicParams = Object.fromEntries(Object.entries(params));
+  try {
+    const cloned = structuredClone(publicParams) as Record<string, unknown>;
+    return copyTrustedPolicyPrivateMetadata(params, cloned) ? cloned : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Runs trusted tool policies before a tool call and returns the first terminal decision. */
 export async function runTrustedToolPolicies(
   event: PluginHookBeforeToolCallEvent,
   ctx: PluginHookToolContext,
   options?: {
     config?: OpenClawConfig;
+    registry?: PluginRegistry;
     deriveEvent?: (
       params: Record<string, unknown>,
     ) => Pick<PluginHookBeforeToolCallEvent, "derivedPaths">;
@@ -185,11 +271,11 @@ export async function runTrustedToolPolicies(
         }
       | undefined;
   },
-): Promise<PluginHookBeforeToolCallResult | undefined> {
-  const policies = copyTrustedPolicyRegistrations(getActivePluginRegistry());
+): Promise<TrustedToolPolicyRunResult | undefined> {
+  const policies = resolveTrustedPolicyRegistrations(options?.registry);
   let adjustedParams = event.params;
   let hasAdjustedParams = false;
-  let approval: PluginHookBeforeToolCallResult["requireApproval"];
+  const approvals: TrustedPolicyApproval[] = [];
   const sessionExtensionStateCache = new Map<string, Record<string, PluginJsonValue> | undefined>();
   let resolvedSessionConfig: OpenClawConfig | undefined = options?.config;
   let didResolveSessionConfig = Boolean(options?.config);
@@ -212,10 +298,10 @@ export async function runTrustedToolPolicies(
     toolKind: ctxToolKind,
     toolInputKind: ctxToolInputKind,
   });
-  const buildEvent = (): PluginHookBeforeToolCallEvent => {
+  const buildEvent = (params: Record<string, unknown>): PluginHookBeforeToolCallEvent => {
     return {
       ...eventWithoutDerivedPaths,
-      params: adjustedParams,
+      params,
       ...currentEventToolIdentity,
       ...currentDerivedEvent,
     };
@@ -257,11 +343,22 @@ export async function runTrustedToolPolicies(
       return trustedPolicyFailureResult(registration, "policy is unreadable");
     }
 
+    const policyParams = cloneTrustedPolicyParams(adjustedParams);
+    if (!policyParams) {
+      return trustedPolicyFailureResult(registration, "tool parameters are not cloneable");
+    }
+    const policyParamsSnapshot = cloneTrustedPolicyParams(policyParams);
+    if (!policyParamsSnapshot) {
+      return trustedPolicyFailureResult(registration, "tool parameters are not cloneable");
+    }
     let decision: Awaited<ReturnType<PluginTrustedToolPolicyRegistration["evaluate"]>>;
     try {
-      decision = await policy.policy.evaluate(buildEvent(), policyCtx);
+      decision = await policy.policy.evaluate(buildEvent(policyParams), policyCtx);
     } catch {
       return trustedPolicyFailureResult(registration, "policy evaluation failed");
+    }
+    if (!isDeepStrictEqual(policyParams, policyParamsSnapshot)) {
+      return trustedPolicyFailureResult(registration, "policy mutated tool parameters in place");
     }
     if (!decision) {
       continue;
@@ -296,30 +393,53 @@ export async function runTrustedToolPolicies(
           },
           policyCtx,
         );
-        adjustedParams = normalized?.params ?? decision.params;
-        if (normalized?.event) {
-          currentEventToolIdentity = normalizeToolIdentity(normalized.event);
+        const nextParams = normalized?.params ?? decision.params;
+        // An approval authorizes the exact parameter set shown to that policy.
+        // A later rewrite would make the earlier approval ambiguous, so fail
+        // closed rather than executing a value no operator approved end-to-end.
+        if (approvals.length > 0) {
+          const nextPublicParams = Object.fromEntries(Object.entries(nextParams));
+          const approvedPublicParams = Object.fromEntries(Object.entries(adjustedParams));
+          if (!isDeepStrictEqual(nextPublicParams, approvedPublicParams)) {
+            return {
+              block: true,
+              blockReason: `${trustedPolicyDefaultBlockReason(registration)}: parameter rewrite conflicts with an earlier approval`,
+            };
+          }
+          if (!copyTrustedPolicyPrivateMetadata(nextParams, adjustedParams)) {
+            return trustedPolicyFailureResult(
+              registration,
+              "private approval metadata could not be preserved",
+            );
+          }
+        } else {
+          adjustedParams = nextParams;
+          if (normalized?.event) {
+            currentEventToolIdentity = normalizeToolIdentity(normalized.event);
+          }
+          if (normalized?.ctx) {
+            currentContextToolIdentity = normalizeToolIdentity(normalized.ctx);
+          } else if (normalized?.event) {
+            currentContextToolIdentity = normalizeToolIdentity(normalized.event);
+          }
+          hasAdjustedParams = true;
+          currentDerivedEvent = normalizeDerivedEventFields(options?.deriveEvent?.(adjustedParams));
         }
-        if (normalized?.ctx) {
-          currentContextToolIdentity = normalizeToolIdentity(normalized.ctx);
-        } else if (normalized?.event) {
-          currentContextToolIdentity = normalizeToolIdentity(normalized.event);
-        }
-        hasAdjustedParams = true;
-        currentDerivedEvent = normalizeDerivedEventFields(options?.deriveEvent?.(adjustedParams));
       }
-      if ("requireApproval" in decision && decision.requireApproval && !approval) {
-        approval = decision.requireApproval;
+      if ("requireApproval" in decision && decision.requireApproval) {
+        approvals.push(decision.requireApproval);
       }
     } catch {
       return trustedPolicyFailureResult(registration, "policy decision is unreadable");
     }
   }
+  const approval = approvals[0];
   if (!hasAdjustedParams && !approval) {
     return undefined;
   }
   return {
     ...(hasAdjustedParams ? { params: adjustedParams } : {}),
     ...(approval ? { requireApproval: approval } : {}),
+    ...(approvals.length > 1 ? { additionalApprovals: approvals.slice(1) } : {}),
   };
 }

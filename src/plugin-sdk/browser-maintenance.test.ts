@@ -125,14 +125,15 @@ describe("browser maintenance", () => {
     const { closeTrackedBrowserTabsForSessions } = await import("./browser-maintenance.js");
 
     await expect(
-      closeTrackedBrowserTabsForSessions({ sessionKeys: ["agent:main:test"] }),
+      closeTrackedBrowserTabsForSessions({ sessionKeys: ["global"], agentId: "main" }),
     ).resolves.toBe(2);
     expect(tryLoadActivatedBundledPluginPublicSurfaceModuleSync).toHaveBeenCalledWith({
       dirName: "browser",
       artifactBasename: "browser-maintenance.js",
     });
     expect(closeTrackedBrowserTabsForSessionsImpl).toHaveBeenCalledWith({
-      sessionKeys: ["agent:main:test"],
+      sessionKeys: ["global"],
+      agentId: "main",
     });
   });
 

@@ -32,6 +32,8 @@ export type AgentToolWithMeta<TParameters extends TSchema, TResult> = AgentTool<
     ctx: { toolCallId?: string; hookContext?: unknown; signal?: AbortSignal },
   ) => unknown;
   finalizeBeforeToolCallParams?: (params: unknown, preparedParams: unknown) => unknown;
+  redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
+  redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
 };
 
 type ErasedAgentToolExecute = {
@@ -55,6 +57,14 @@ export type AnyAgentTool = Omit<AgentTool, "execute"> &
       TSchema,
       unknown
     >["finalizeBeforeToolCallParams"];
+    redactBeforeToolCallDiagnosticParams?: AgentToolWithMeta<
+      TSchema,
+      unknown
+    >["redactBeforeToolCallDiagnosticParams"];
+    redactBeforeToolCallDiagnosticResult?: AgentToolWithMeta<
+      TSchema,
+      unknown
+    >["redactBeforeToolCallDiagnosticResult"];
   };
 
 export function asToolParamsRecord(params: unknown): Record<string, unknown> {

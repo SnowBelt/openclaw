@@ -11,6 +11,20 @@ const getPageForTargetId = vi.fn(async () => {
   return page;
 });
 const ensurePageState = vi.fn(() => ({}));
+const assertBrowserTargetOrigin = vi.fn(async () => {});
+const assertBrowserPageOrigin = vi.fn(
+  (currentPage: { url?: () => string }, approvedOrigin?: string) => {
+    if (!approvedOrigin) {
+      return;
+    }
+    if (
+      typeof currentPage.url !== "function" ||
+      new URL(currentPage.url()).origin !== approvedOrigin
+    ) {
+      throw new Error("Browser Steward approved origin changed before execution");
+    }
+  },
+);
 const restoreRoleRefsForTarget = vi.fn(() => {});
 const isBrowserObservedDialogBlockedError = vi.fn(() => false);
 const markObservedDialogsHandledRemotelyForPage = vi.fn(() => ({}));
@@ -27,6 +41,8 @@ const resolveStrictExistingUploadPaths =
 
 vi.mock("./pw-session.js", () => {
   return {
+    assertBrowserTargetOrigin,
+    assertBrowserPageOrigin,
     ensurePageState,
     forceDisconnectPlaywrightForTarget,
     getPageForTargetId,
@@ -45,7 +61,9 @@ vi.mock("./paths.js", () => {
 
 const { setInputFilesViaPlaywright } = await import("./pw-tools-core.interactions.js");
 
-function seedSingleLocatorPage(): { setInputFiles: ReturnType<typeof vi.fn> } {
+function seedSingleLocatorPage(url = "https://example.com/page"): {
+  setInputFiles: ReturnType<typeof vi.fn>;
+} {
   const setInputFiles = vi.fn(async () => {});
   locator = {
     setInputFiles,
@@ -53,6 +71,7 @@ function seedSingleLocatorPage(): { setInputFiles: ReturnType<typeof vi.fn> } {
   };
   page = {
     locator: vi.fn(() => ({ first: () => locator })),
+    url: () => url,
   };
   return { setInputFiles };
 }
@@ -102,6 +121,21 @@ describe("setInputFilesViaPlaywright", () => {
       }),
     ).rejects.toThrow("Invalid path: must stay within inbound media directory");
 
+    expect(setInputFiles).not.toHaveBeenCalled();
+  });
+
+  it("rejects setInputFiles when the approved origin no longer matches", async () => {
+    const { setInputFiles } = seedSingleLocatorPage("https://other.example/page");
+
+    await expect(
+      setInputFilesViaPlaywright({
+        cdpUrl: "http://127.0.0.1:18792",
+        targetId: "T1",
+        element: "input[type=file]",
+        paths: ["/tmp/openclaw/uploads/ok.txt"],
+        approvedOrigin: "https://example.com",
+      }),
+    ).rejects.toThrow("approved origin changed");
     expect(setInputFiles).not.toHaveBeenCalled();
   });
 });

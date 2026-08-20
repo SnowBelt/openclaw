@@ -64,7 +64,7 @@ async function invokeSessionFilesHandler(
     client: null,
     isWebchatConnect: () => false,
     respond: responder.respond,
-    context: {} as never,
+    context: { getRuntimeConfig: () => ({}) } as never,
   });
   return responder.calls;
 }

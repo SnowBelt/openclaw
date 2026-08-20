@@ -30,18 +30,17 @@ describe("Credential Steward redaction policy", () => {
     }
   });
 
-  it("allows explicit credential-material handling without exposing raw material", () => {
-    const decision = evaluateCredentialStewardExposure({
-      value: { token: "raw-token-value-123456" },
-      allowCredentialMaterial: true,
-    });
+  it("fails closed without recursing forever on cyclic credential input", () => {
+    const credential: Record<string, unknown> = { token: "raw-cycle-token-123456" };
+    credential.self = credential;
+
+    const decision = evaluateCredentialStewardExposure({ value: credential });
 
     expect(decision).toMatchObject({
       exposureKind: "credential_material",
-      blocked: false,
+      blocked: true,
       credentialClassesInvolved: ["token"],
-      redactedSummary: "credential material redacted",
     });
-    expect(JSON.stringify(decision)).not.toContain("raw-token-value-123456");
+    expect(JSON.stringify(decision)).not.toContain("raw-cycle-token-123456");
   });
 });

@@ -18,7 +18,7 @@ on:
       timeout_seconds:
         description: Steward live eval timeout in seconds
         required: false
-        default: "180"
+        default: "480"
         type: string
 
 permissions:
@@ -31,6 +31,7 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NODE_VERSION: "24.x"
+  OLLAMA_IMAGE: docker.io/ollama/ollama@sha256:1685741456770df6e3cceb2a945a5f75e020f658d1701509668d6f4688f1dd3f
 
 jobs:
   contract-catalog:
@@ -94,7 +95,7 @@ jobs:
           echo "STEWARD_TIMEOUT_SECONDS=$INPUT_TIMEOUT_SECONDS" >> "$GITHUB_ENV"
       - name: Start local Ollama for Steward live evals
         run: |
-          docker run --rm -d --name openclaw-agent-role-ollama -p 127.0.0.1:11434:11434 ollama/ollama:latest
+          docker run --rm -d --name openclaw-agent-role-ollama -p 127.0.0.1:11434:11434 "$OLLAMA_IMAGE"
           for attempt in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then
               break

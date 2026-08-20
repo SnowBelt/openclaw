@@ -1,5 +1,6 @@
 // Gateway wrappers keep Session Steward policy errors redacted and protocol-shaped.
 import { ErrorCodes, errorShape } from "../../packages/gateway-protocol/src/index.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { emitTrustedDiagnosticEvent } from "../infra/diagnostic-events.js";
 import {
   resolveSessionStewardBoundary,
@@ -15,6 +16,7 @@ type GatewaySessionStewardBoundaryTelemetry = {
 type GatewaySessionStewardBoundaryParams = {
   sessionKey?: string | null;
   requestedAgentId?: string | null;
+  config?: OpenClawConfig;
 } & GatewaySessionStewardBoundaryTelemetry;
 
 export type GatewaySessionStewardBoundaryFacts = {
@@ -90,7 +92,16 @@ export function resolveGatewaySessionStewardBoundary(params: GatewaySessionStewa
   boundary: GatewaySessionStewardBoundaryFacts;
   decision: SessionStewardBoundaryDecision;
 } {
-  const decision = resolveSessionStewardBoundary(params);
+  const configuredAgentIds = params.config?.agents?.list
+    ?.map((entry) => entry?.id)
+    .filter(
+      (agentId): agentId is string => typeof agentId === "string" && agentId.trim().length > 0,
+    );
+  const decision = resolveSessionStewardBoundary({
+    sessionKey: params.sessionKey,
+    requestedAgentId: params.requestedAgentId,
+    ...(configuredAgentIds?.length ? { configuredAgentIds } : {}),
+  });
   const invalid = decision.kind === "malformed" || decision.agentRelation === "cross_agent";
   emitSessionStewardBoundaryDecision({
     telemetry: params,

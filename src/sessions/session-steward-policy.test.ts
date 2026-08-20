@@ -9,6 +9,7 @@ type SessionStewardBoundaryFixture = {
   name: string;
   sessionKey?: string | null;
   requestedAgentId?: string | null;
+  configuredAgentIds?: string[];
   expected: SessionStewardBoundaryDecision;
   rawMustNotContain?: string[];
 };
@@ -22,6 +23,7 @@ describe("Session Steward boundary policy", () => {
     const decision = resolveSessionStewardBoundary({
       sessionKey: fixture.sessionKey,
       requestedAgentId: fixture.requestedAgentId,
+      configuredAgentIds: fixture.configuredAgentIds,
     });
     expect(decision).toEqual(fixture.expected);
     expect(decision.affectedSession).toBe(fixture.expected.affectedSession);

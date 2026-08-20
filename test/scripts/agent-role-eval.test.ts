@@ -32,6 +32,7 @@ type WorkflowJob = {
 };
 
 type AgentRoleEvalWorkflow = {
+  env?: Record<string, string>;
   on?: {
     workflow_dispatch?: {
       inputs?: Record<
@@ -155,6 +156,9 @@ describe("agent role eval harness", () => {
     expect(contract.prompt).toContain("Put one exact role signal in ROLE");
     expect(contract.prompt).toContain("do not use slash commands as content");
     expect(contract.prompt).toContain("BLOCKED: <reason>");
+    expect(contract.prompt).toContain(
+      "Copy these five non-empty lines with each label on its own line",
+    );
     expect(contract.prompt).toContain("Stop immediately after the BLOCK_OR_ESCALATE line");
     expect(contract.prompt).toContain("milestone, owner, acceptance, status, dependency");
   });
@@ -234,7 +238,7 @@ describe("agent role eval harness", () => {
       type: "string",
     });
     expect(dispatchInputs?.timeout_seconds).toMatchObject({
-      default: "180",
+      default: "480",
       required: false,
       type: "string",
     });
@@ -249,6 +253,8 @@ describe("agent role eval harness", () => {
     expect(source).not.toContain("OPENCLAW_AGENT_ROLE_EVAL_LIVE");
     expect(source).not.toContain("ci-hydrate-live-auth");
     expect(source).not.toContain("actions/upload-artifact");
+    expect(source).not.toContain("ollama/ollama:latest");
+    expect(workflow.env?.OLLAMA_IMAGE).toMatch(/^docker\.io\/ollama\/ollama@sha256:[a-f0-9]{64}$/);
     expect(requireWorkflowStep(contractJob, "Validate role contracts").run).toBe(
       "node scripts/agent-role-eval.mjs --contracts-only",
     );
@@ -261,6 +267,7 @@ describe("agent role eval harness", () => {
     expect(validateLiveInputsStep.run).toContain("STEWARD_LIVE_MODEL=");
     expect(validateLiveInputsStep.run).toContain("STEWARD_TIMEOUT_SECONDS=");
     expect(startOllamaStep.run).toContain("docker run --rm -d --name openclaw-agent-role-ollama");
+    expect(startOllamaStep.run).toContain('"$OLLAMA_IMAGE"');
     expect(startOllamaStep.run).toContain("ollama pull");
     expect(startOllamaStep.run).toContain('model_id="${STEWARD_LIVE_MODEL#ollama/}"');
     expect(

@@ -5,6 +5,7 @@
  * control or Chrome MCP existing-session operations with navigation guards.
  */
 import { formatErrorMessage } from "../../infra/errors.js";
+import { readBrowserStewardApprovedOrigin } from "../browser-steward-transport.js";
 import {
   clickChromeMcpElement,
   clickChromeMcpCoords,
@@ -59,12 +60,16 @@ function sleep(ms: number): Promise<void> {
 
 const EXISTING_SESSION_INTERACTION_NAVIGATION_RECHECK_DELAYS_MS = [0, 250, 500] as const;
 
-async function readExistingSessionLocationHref(params: {
+type ExistingSessionLocationParams = {
   profileName: string;
   profile?: ChromeMcpProfileOptions;
   userDataDir?: string;
   targetId: string;
-}): Promise<string> {
+};
+
+async function readExistingSessionLocationHref(
+  params: ExistingSessionLocationParams,
+): Promise<string> {
   const currentUrl = await evaluateChromeMcpScript({
     profileName: params.profileName,
     profile: params.profile,
@@ -171,7 +176,11 @@ async function assertExistingSessionPostInteractionNavigationAllowed(params: {
 async function runExistingSessionActionWithNavigationGuard<T>(params: {
   execute: () => Promise<T>;
   guard?: Parameters<typeof assertExistingSessionPostInteractionNavigationAllowed>[0];
+  approvedOrigin?: string;
 }): Promise<T> {
+  if (params.approvedOrigin && params.guard) {
+    await assertExistingSessionApprovedOrigin(params.guard, params.approvedOrigin);
+  }
   let actionError: unknown;
   let result: T | undefined;
   try {
@@ -189,6 +198,110 @@ async function runExistingSessionActionWithNavigationGuard<T>(params: {
   }
 
   return result as T;
+}
+
+async function assertExistingSessionApprovedOrigin(
+  guard: ExistingSessionLocationParams,
+  approvedOrigin: string,
+): Promise<void> {
+  const currentUrl = await readExistingSessionLocationHref(guard);
+  let currentOrigin: string;
+  try {
+    currentOrigin = new URL(currentUrl).origin;
+  } catch {
+    throw new Error("Browser Steward approved origin could not be verified");
+  }
+  if (currentOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved origin changed before execution");
+  }
+}
+
+async function assertExistingSessionApprovedFocusedFrameOrigin(
+  guard: ExistingSessionLocationParams,
+  approvedOrigin: string,
+): Promise<void> {
+  await assertExistingSessionApprovedOrigin(guard, approvedOrigin);
+  const focusedOrigin = await evaluateChromeMcpScript({
+    profileName: guard.profileName,
+    profile: guard.profile,
+    userDataDir: guard.userDataDir,
+    targetId: guard.targetId,
+    fn: `() => {
+      const active = document.activeElement;
+      if (active && (active.tagName === "IFRAME" || active.tagName === "FRAME")) {
+        try {
+          return active.contentWindow?.location?.origin ?? null;
+        } catch {
+          return null;
+        }
+      }
+      return location.origin;
+    }`,
+  });
+  if (focusedOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved focused frame origin could not be verified");
+  }
+}
+
+async function assertExistingSessionApprovedElementOrigin(
+  guard: ExistingSessionLocationParams,
+  approvedOrigin: string,
+  uid: string,
+): Promise<void> {
+  await assertExistingSessionApprovedOrigin(guard, approvedOrigin);
+  const targetOrigin = await evaluateChromeMcpScript({
+    profileName: guard.profileName,
+    profile: guard.profile,
+    userDataDir: guard.userDataDir,
+    targetId: guard.targetId,
+    fn: "(el) => el?.ownerDocument?.location?.origin ?? null",
+    args: [uid],
+  });
+  if (targetOrigin !== approvedOrigin) {
+    throw new Error(
+      "Browser Steward approved destination element frame origin could not be verified",
+    );
+  }
+}
+
+async function assertExistingSessionApprovedCoordinateOrigin(
+  guard: ExistingSessionLocationParams,
+  approvedOrigin: string,
+  x: number,
+  y: number,
+): Promise<void> {
+  await assertExistingSessionApprovedOrigin(guard, approvedOrigin);
+  const targetOrigin = await evaluateChromeMcpScript({
+    profileName: guard.profileName,
+    profile: guard.profile,
+    userDataDir: guard.userDataDir,
+    targetId: guard.targetId,
+    fn: `() => {
+      const target = document.elementFromPoint(${JSON.stringify(x)}, ${JSON.stringify(y)});
+      const frame = target?.closest("iframe,frame");
+      if (!frame) return location.origin;
+      try { return frame.contentWindow?.location?.origin ?? null; } catch { return null; }
+    }`,
+  });
+  if (targetOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved coordinate frame origin could not be verified");
+  }
+}
+
+function guardExistingSessionEvaluateSource(fnSource: string, approvedOrigin?: string): string {
+  if (!approvedOrigin) {
+    return fnSource;
+  }
+  return `(async (...args) => {
+    if (location.origin !== ${JSON.stringify(approvedOrigin)}) {
+      throw new Error("Browser Steward approved origin changed before execution");
+    }
+    const result = await (${fnSource})(...args);
+    if (location.origin !== ${JSON.stringify(approvedOrigin)}) {
+      throw new Error("Browser Steward approved origin changed before execution");
+    }
+    return result;
+  })`;
 }
 
 function buildExistingSessionWaitPredicate(params: {
@@ -222,22 +335,27 @@ function buildExistingSessionWaitPredicate(params: {
   return checks.length === 1 ? checks[0] : checks.map((check) => `(${check})`).join(" && ");
 }
 
-async function waitForExistingSessionCondition(params: {
-  profileName: string;
-  profile?: ChromeMcpProfileOptions;
-  userDataDir?: string;
-  targetId: string;
-  timeMs?: number;
-  text?: string;
-  textGone?: string;
-  selector?: string;
-  url?: string;
-  loadState?: "load" | "domcontentloaded" | "networkidle";
-  fn?: string;
-  timeoutMs?: number;
-}): Promise<void> {
+async function waitForExistingSessionCondition(
+  params: ExistingSessionLocationParams & {
+    timeMs?: number;
+    text?: string;
+    textGone?: string;
+    selector?: string;
+    url?: string;
+    loadState?: "load" | "domcontentloaded" | "networkidle";
+    fn?: string;
+    timeoutMs?: number;
+    approvedOrigin?: string;
+  },
+): Promise<void> {
+  if (params.approvedOrigin) {
+    await assertExistingSessionApprovedOrigin(params, params.approvedOrigin);
+  }
   if (params.timeMs && params.timeMs > 0) {
     await sleep(params.timeMs);
+    if (params.approvedOrigin) {
+      await assertExistingSessionApprovedOrigin(params, params.approvedOrigin);
+    }
   }
   const predicate = buildExistingSessionWaitPredicate(params);
   if (!predicate && !params.url) {
@@ -246,6 +364,9 @@ async function waitForExistingSessionCondition(params: {
   const timeoutMs = Math.max(250, params.timeoutMs ?? 10_000);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (params.approvedOrigin) {
+      await assertExistingSessionApprovedOrigin(params, params.approvedOrigin);
+    }
     let ready = true;
     if (predicate) {
       ready = Boolean(
@@ -254,21 +375,44 @@ async function waitForExistingSessionCondition(params: {
           profile: params.profile,
           userDataDir: params.userDataDir,
           targetId: params.targetId,
-          fn: `async () => ${predicate}`,
+          fn: `async () => {
+            ${
+              params.approvedOrigin
+                ? `if (location.origin !== ${JSON.stringify(params.approvedOrigin)}) {
+              throw new Error("Browser Steward approved origin changed before execution");
+            }`
+                : ""
+            }
+            const result = await (${predicate});
+            ${
+              params.approvedOrigin
+                ? `if (location.origin !== ${JSON.stringify(params.approvedOrigin)}) {
+              throw new Error("Browser Steward approved origin changed during execution");
+            }`
+                : ""
+            }
+            return result;
+          }`,
         }),
       );
+      if (params.approvedOrigin) {
+        await assertExistingSessionApprovedOrigin(params, params.approvedOrigin);
+      }
     }
     if (ready && params.url) {
-      const currentUrl = await evaluateChromeMcpScript({
-        profileName: params.profileName,
-        profile: params.profile,
-        userDataDir: params.userDataDir,
-        targetId: params.targetId,
-        fn: "() => window.location.href",
-      });
-      ready = typeof currentUrl === "string" && matchBrowserUrlPattern(params.url, currentUrl);
+      if (params.approvedOrigin) {
+        await assertExistingSessionApprovedOrigin(params, params.approvedOrigin);
+      }
+      const currentUrl = await readExistingSessionLocationHref(params);
+      if (params.approvedOrigin) {
+        await assertExistingSessionApprovedOrigin(params, params.approvedOrigin);
+      }
+      ready = matchBrowserUrlPattern(params.url, currentUrl);
     }
     if (ready) {
+      if (params.approvedOrigin) {
+        await assertExistingSessionApprovedOrigin(params, params.approvedOrigin);
+      }
       return;
     }
     await sleep(250);
@@ -378,6 +522,15 @@ export function registerBrowserAgentActRoutes(
         return jsonActError(res, 400, ACT_ERROR_CODES.invalidRequest, formatErrorMessage(err));
       }
       const targetId = resolveTargetIdFromBody(body);
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonActError(
+          res,
+          403,
+          ACT_ERROR_CODES.invalidRequest,
+          "Browser Steward approved origin is invalid",
+        );
+      }
       if (Object.hasOwn(body, "selector") && !SELECTOR_ALLOWED_KINDS.has(kind)) {
         return jsonActError(
           res,
@@ -461,6 +614,9 @@ export function registerBrowserAgentActRoutes(
               ssrfPolicy,
               listTabs: () => profileCtx.listTabs(),
               initialTabTargetIds,
+              ...(approvedOriginHeader.origin
+                ? { approvedOrigin: approvedOriginHeader.origin }
+                : {}),
             };
             const unsupportedMessage = getExistingSessionUnsupportedMessage(action);
             if (unsupportedMessage) {
@@ -474,8 +630,15 @@ export function registerBrowserAgentActRoutes(
             switch (action.kind) {
               case "click":
                 await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    clickChromeMcpElement({
+                  execute: async () => {
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref!,
+                      );
+                    }
+                    await clickChromeMcpElement({
                       profileName,
                       profile: profileCtx.profile,
                       targetId: tab.targetId,
@@ -483,14 +646,24 @@ export function registerBrowserAgentActRoutes(
                       doubleClick: action.doubleClick ?? false,
                       timeoutMs: action.timeoutMs,
                       signal: req.signal,
-                    }),
+                    });
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk(undefined, { resolveCurrentTarget: true });
               case "clickCoords":
                 await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    clickChromeMcpCoords({
+                  execute: async () => {
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedCoordinateOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.x,
+                        action.y,
+                      );
+                    }
+                    await clickChromeMcpCoords({
                       profileName,
                       profile: profileCtx.profile,
                       targetId: tab.targetId,
@@ -499,13 +672,22 @@ export function registerBrowserAgentActRoutes(
                       doubleClick: action.doubleClick ?? false,
                       button: action.button as "left" | "right" | "middle" | undefined,
                       delayMs: action.delayMs,
-                    }),
+                    });
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk(undefined, { resolveCurrentTarget: true });
               case "type":
                 await runExistingSessionActionWithNavigationGuard({
                   execute: async () => {
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref!,
+                      );
+                    }
                     await fillChromeMcpElement({
                       profileName,
                       profile: profileCtx.profile,
@@ -513,6 +695,13 @@ export function registerBrowserAgentActRoutes(
                       uid: action.ref!,
                       value: action.text,
                     });
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref!,
+                      );
+                    }
                     if (action.submit) {
                       await pressChromeMcpKey({
                         profileName,
@@ -523,93 +712,182 @@ export function registerBrowserAgentActRoutes(
                     }
                   },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk(undefined, { resolveCurrentTarget: true });
               case "press":
                 await runExistingSessionActionWithNavigationGuard({
                   execute: () =>
-                    pressChromeMcpKey({
-                      profileName,
-                      profile: profileCtx.profile,
-                      targetId: tab.targetId,
-                      key: action.key,
-                    }),
+                    (async () => {
+                      if (approvedOriginHeader.origin) {
+                        await assertExistingSessionApprovedFocusedFrameOrigin(
+                          existingSessionNavigationGuard,
+                          approvedOriginHeader.origin,
+                        );
+                      }
+                      const result = await pressChromeMcpKey({
+                        profileName,
+                        profile: profileCtx.profile,
+                        targetId: tab.targetId,
+                        key: action.key,
+                      });
+                      if (approvedOriginHeader.origin) {
+                        await assertExistingSessionApprovedFocusedFrameOrigin(
+                          existingSessionNavigationGuard,
+                          approvedOriginHeader.origin,
+                        );
+                      }
+                      return result;
+                    })(),
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk(undefined, { resolveCurrentTarget: true });
               case "hover":
                 await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    hoverChromeMcpElement({
+                  execute: async () => {
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref!,
+                      );
+                    }
+                    await hoverChromeMcpElement({
                       profileName,
                       profile: profileCtx.profile,
                       targetId: tab.targetId,
                       uid: action.ref!,
-                    }),
+                    });
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk();
               case "scrollIntoView":
                 await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    evaluateChromeMcpScript({
+                  execute: async () => {
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref!,
+                      );
+                    }
+                    await evaluateChromeMcpScript({
                       profileName,
                       profile: profileCtx.profile,
                       targetId: tab.targetId,
                       fn: `(el) => { el.scrollIntoView({ block: "center", inline: "center" }); return true; }`,
                       args: [action.ref!],
-                    }),
+                    });
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk();
               case "drag":
                 await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    dragChromeMcpElement({
+                  execute: async () => {
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.startRef!,
+                      );
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.endRef!,
+                      );
+                    }
+                    await dragChromeMcpElement({
                       profileName,
                       profile: profileCtx.profile,
                       targetId: tab.targetId,
                       fromUid: action.startRef!,
                       toUid: action.endRef!,
-                    }),
+                    });
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk();
               case "select":
                 await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    fillChromeMcpElement({
+                  execute: async () => {
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref!,
+                      );
+                    }
+                    await fillChromeMcpElement({
                       profileName,
                       profile: profileCtx.profile,
                       targetId: tab.targetId,
                       uid: action.ref!,
                       value: action.values[0] ?? "",
-                    }),
+                    });
+                    if (approvedOriginHeader.origin) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref!,
+                      );
+                    }
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk();
               case "fill":
                 await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    fillChromeMcpForm({
-                      profileName,
-                      profile: profileCtx.profile,
-                      targetId: tab.targetId,
-                      elements: action.fields.map((field) => ({
+                  execute: async () => {
+                    if (!approvedOriginHeader.origin) {
+                      await fillChromeMcpForm({
+                        profileName,
+                        profile: profileCtx.profile,
+                        targetId: tab.targetId,
+                        elements: action.fields.map((field) => ({
+                          uid: field.ref,
+                          value: String(field.value ?? ""),
+                        })),
+                      });
+                      return;
+                    }
+                    for (const field of action.fields) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        field.ref,
+                      );
+                      await fillChromeMcpElement({
+                        profileName,
+                        profile: profileCtx.profile,
+                        targetId: tab.targetId,
                         uid: field.ref,
                         value: String(field.value ?? ""),
-                      })),
-                    }),
+                      });
+                    }
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk();
               case "resize":
-                await resizeChromeMcpPage({
-                  profileName,
-                  profile: profileCtx.profile,
-                  targetId: tab.targetId,
-                  width: action.width,
-                  height: action.height,
+                await runExistingSessionActionWithNavigationGuard({
+                  execute: () =>
+                    resizeChromeMcpPage({
+                      profileName,
+                      profile: profileCtx.profile,
+                      targetId: tab.targetId,
+                      width: action.width,
+                      height: action.height,
+                    }),
+                  guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk();
               case "wait":
@@ -625,26 +903,45 @@ export function registerBrowserAgentActRoutes(
                   loadState: action.loadState,
                   fn: action.fn,
                   timeoutMs: action.timeoutMs,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk();
               case "evaluate": {
                 const result = await runExistingSessionActionWithNavigationGuard({
-                  execute: () =>
-                    evaluateChromeMcpScript({
+                  execute: async () => {
+                    if (approvedOriginHeader.origin && action.ref) {
+                      await assertExistingSessionApprovedElementOrigin(
+                        existingSessionNavigationGuard,
+                        approvedOriginHeader.origin,
+                        action.ref,
+                      );
+                    }
+                    return await evaluateChromeMcpScript({
                       profileName,
                       profile: profileCtx.profile,
                       targetId: tab.targetId,
-                      fn: normalizeBrowserEvaluateFunctionSource(
-                        action.fn,
-                        action.ref ? { argumentName: "el" } : undefined,
+                      fn: guardExistingSessionEvaluateSource(
+                        normalizeBrowserEvaluateFunctionSource(
+                          action.fn,
+                          action.ref ? { argumentName: "el" } : undefined,
+                        ),
+                        approvedOriginHeader.origin,
                       ),
                       args: action.ref ? [action.ref] : undefined,
-                    }),
+                    });
+                  },
                   guard: existingSessionNavigationGuard,
+                  approvedOrigin: approvedOriginHeader.origin,
                 });
                 return await jsonOk({ result });
               }
               case "close":
+                if (approvedOriginHeader.origin) {
+                  await assertExistingSessionApprovedOrigin(
+                    existingSessionNavigationGuard,
+                    approvedOriginHeader.origin,
+                  );
+                }
                 await closeChromeMcpTab(profileName, tab.targetId, profileCtx.profile);
                 return await jsonOk();
               case "batch":
@@ -673,6 +970,7 @@ export function registerBrowserAgentActRoutes(
             targetId: tab.targetId,
             evaluateEnabled,
             ssrfPolicy,
+            approvedOrigin: approvedOriginHeader.origin,
             signal: req.signal,
           });
           if (result.blockedByDialog) {

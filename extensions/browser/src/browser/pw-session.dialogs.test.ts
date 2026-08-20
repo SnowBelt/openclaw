@@ -14,16 +14,32 @@ import {
 
 type Handler = (arg: unknown) => void;
 
-function createPageHarness() {
+function createPageHarness(initialUrl = "https://example.com/page") {
   const handlers = new Map<string, Handler[]>();
+  let currentUrl = initialUrl;
+  let frames = [
+    {
+      url: () => currentUrl,
+      parentFrame: () => null,
+      evaluate: async () => new URL(currentUrl).origin,
+    },
+  ];
   const page = {
     on: (event: string, handler: Handler) => {
       handlers.set(event, [...(handlers.get(event) ?? []), handler]);
       return page;
     },
+    url: () => currentUrl,
+    frames: () => frames,
   };
   return {
     page: page as unknown as Page,
+    setUrl: (url: string) => {
+      currentUrl = url;
+    },
+    setFrames: (nextFrames: typeof frames) => {
+      frames = nextFrames;
+    },
     emit: (event: string, arg: unknown) => {
       for (const handler of handlers.get(event) ?? []) {
         handler(arg);
@@ -63,7 +79,7 @@ describe("observed browser dialogs", () => {
 
     emit("dialog", dialog);
 
-    expect(getObservedBrowserStateForPage(page).dialogs.pending).toMatchObject([
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toMatchObject([
       { id: "d1", type: "confirm", message: "Ship it?" },
     ]);
 
@@ -76,8 +92,8 @@ describe("observed browser dialogs", () => {
 
     expect(dialog.accept).toHaveBeenCalledWith("yes");
     expect(closed.closedBy).toBe("agent");
-    expect(getObservedBrowserStateForPage(page).dialogs.pending).toEqual([]);
-    expect(getObservedBrowserStateForPage(page).dialogs.recent).toMatchObject([
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toEqual([]);
+    expect((await getObservedBrowserStateForPage(page)).dialogs.recent).toMatchObject([
       { id: "d1", closedBy: "agent" },
     ]);
   });
@@ -94,11 +110,114 @@ describe("observed browser dialogs", () => {
 
     expect(observed.signal.aborted).toBe(false);
     expect(dialog.dismiss).toHaveBeenCalledOnce();
-    expect(getObservedBrowserStateForPage(page).dialogs.pending).toEqual([]);
-    expect(getObservedBrowserStateForPage(page).dialogs.recent).toMatchObject([
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toEqual([]);
+    expect((await getObservedBrowserStateForPage(page)).dialogs.recent).toMatchObject([
       { id: "d1", type: "alert", closedBy: "armed" },
     ]);
     observed.cleanup();
+  });
+
+  it("does not respond to a pending dialog after the approved origin changes", async () => {
+    const { page, emit, setUrl } = createPageHarness();
+    ensurePageState(page);
+    const dialog = createDialog({ type: "prompt", message: "Sensitive input" });
+    emit("dialog", dialog);
+    setUrl("https://other.example/page");
+
+    await expect(
+      respondToObservedDialogOnPage({
+        page,
+        dialogId: "d1",
+        accept: true,
+        promptText: "should-not-be-sent",
+        approvedOrigin: "https://example.com",
+      }),
+    ).rejects.toThrow("approved origin changed");
+    expect(dialog.accept).not.toHaveBeenCalled();
+    expect(dialog.dismiss).not.toHaveBeenCalled();
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toHaveLength(1);
+  });
+
+  it("does not deliver approved prompt text to a cross-origin dialog frame", async () => {
+    const { page, emit, setFrames } = createPageHarness();
+    ensurePageState(page);
+    const dialog = createDialog({ type: "prompt", message: "Sensitive input" });
+    emit("dialog", dialog);
+    setFrames([
+      {
+        url: () => "https://example.com/page",
+        parentFrame: () => null,
+        evaluate: async () => "https://example.com",
+      },
+      {
+        url: () => "https://evil.example/collect",
+        parentFrame: () => null,
+        evaluate: async () => "https://evil.example",
+      },
+    ]);
+
+    await expect(
+      respondToObservedDialogOnPage({
+        page,
+        dialogId: "d1",
+        accept: true,
+        promptText: "should-not-be-sent",
+        approvedOrigin: "https://example.com",
+      }),
+    ).rejects.toThrow("approved dialog origin could not be verified");
+    expect(dialog.accept).not.toHaveBeenCalled();
+    expect(dialog.dismiss).not.toHaveBeenCalled();
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toHaveLength(1);
+  });
+
+  it("rejects an approved non-prompt dialog from a cross-origin frame", async () => {
+    const { page, emit, setFrames } = createPageHarness();
+    ensurePageState(page);
+    const dialog = createDialog({ type: "confirm", message: "Continue?" });
+    emit("dialog", dialog);
+    setFrames([
+      {
+        url: () => "https://example.com/page",
+        parentFrame: () => null,
+        evaluate: async () => "https://example.com",
+      },
+      {
+        url: () => "https://evil.example/collect",
+        parentFrame: () => null,
+        evaluate: async () => "https://evil.example",
+      },
+    ]);
+
+    await expect(
+      respondToObservedDialogOnPage({
+        page,
+        dialogId: "d1",
+        accept: true,
+        approvedOrigin: "https://example.com",
+      }),
+    ).rejects.toThrow("approved dialog origin could not be verified");
+    expect(dialog.accept).not.toHaveBeenCalled();
+    expect(dialog.dismiss).not.toHaveBeenCalled();
+  });
+
+  it("dismisses an armed dialog when the page changes origin before it appears", async () => {
+    const { page, emit, setUrl } = createPageHarness();
+    ensurePageState(page);
+    armObservedDialogResponseOnPage({
+      page,
+      accept: true,
+      promptText: "should-not-be-sent",
+      approvedOrigin: "https://example.com",
+      timeoutMs: 1000,
+    });
+    setUrl("https://other.example/page");
+    const dialog = createDialog({ type: "prompt", message: "Sensitive input" });
+    emit("dialog", dialog);
+    await Promise.resolve();
+
+    expect(dialog.accept).not.toHaveBeenCalled();
+    expect(dialog.dismiss).toHaveBeenCalledOnce();
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toEqual([]);
   });
 
   it("uses the default arm-next-dialog timeout for non-finite timeoutMs", async () => {
@@ -116,14 +235,14 @@ describe("observed browser dialogs", () => {
 
     expect(observed.signal.aborted).toBe(false);
     expect(dialog.dismiss).toHaveBeenCalledOnce();
-    expect(getObservedBrowserStateForPage(page).dialogs.pending).toEqual([]);
-    expect(getObservedBrowserStateForPage(page).dialogs.recent).toMatchObject([
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toEqual([]);
+    expect((await getObservedBrowserStateForPage(page)).dialogs.recent).toMatchObject([
       { id: "d1", type: "alert", closedBy: "armed" },
     ]);
     observed.cleanup();
   });
 
-  it("does not arm next-dialog responses while the process clock is invalid", () => {
+  it("does not arm next-dialog responses while the process clock is invalid", async () => {
     const nowSpy = vi.spyOn(Date, "now");
     try {
       nowSpy.mockReturnValue(Number.NaN);
@@ -135,7 +254,7 @@ describe("observed browser dialogs", () => {
       emit("dialog", dialog);
 
       expect(dialog.dismiss).not.toHaveBeenCalled();
-      expect(getObservedBrowserStateForPage(page).dialogs.pending).toMatchObject([
+      expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toMatchObject([
         { id: "d1", type: "alert", message: "Still pending" },
       ]);
     } finally {
@@ -143,7 +262,7 @@ describe("observed browser dialogs", () => {
     }
   });
 
-  it("does not arm next-dialog responses when the expiry would overflow Date bounds", () => {
+  it("does not arm next-dialog responses when the expiry would overflow Date bounds", async () => {
     const nowSpy = vi.spyOn(Date, "now");
     try {
       nowSpy.mockReturnValue(MAX_DATE_TIMESTAMP_MS);
@@ -155,7 +274,7 @@ describe("observed browser dialogs", () => {
       emit("dialog", dialog);
 
       expect(dialog.dismiss).not.toHaveBeenCalled();
-      expect(getObservedBrowserStateForPage(page).dialogs.pending).toMatchObject([
+      expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toMatchObject([
         { id: "d1", type: "alert", message: "Still pending" },
       ]);
     } finally {
@@ -173,7 +292,7 @@ describe("observed browser dialogs", () => {
 
     expect(observed.signal.aborted).toBe(true);
     expect(isBrowserObservedDialogBlockedError(observed.signal.reason)).toBe(true);
-    expect(getObservedBrowserStateForPage(page).dialogs.pending).toMatchObject([
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toMatchObject([
       { id: "d1", type: "alert", message: "Heads up" },
     ]);
 
@@ -182,8 +301,8 @@ describe("observed browser dialogs", () => {
     observed.cleanup();
 
     expect(dialog.dismiss).toHaveBeenCalledOnce();
-    expect(getObservedBrowserStateForPage(page).dialogs.pending).toEqual([]);
-    expect(getObservedBrowserStateForPage(page).dialogs.recent).toMatchObject([
+    expect((await getObservedBrowserStateForPage(page)).dialogs.pending).toEqual([]);
+    expect((await getObservedBrowserStateForPage(page)).dialogs.recent).toMatchObject([
       { id: "d1", type: "alert", closedBy: "agent" },
     ]);
   });

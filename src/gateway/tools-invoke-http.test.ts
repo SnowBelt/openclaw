@@ -15,8 +15,9 @@ type RunBeforeToolCallHookArgs = Parameters<RunBeforeToolCallHook>[0];
 type RunBeforeToolCallHookResult = Awaited<ReturnType<RunBeforeToolCallHook>>;
 
 const pluginToolMetaState = vi.hoisted(
-  () => new Map<string, { pluginId: string; optional: boolean }>(),
+  () => new Map<string, { pluginId: string; optional: boolean; trustedPolicyRegistry?: object }>(),
 );
+const trustedPolicyRegistryState = vi.hoisted(() => new Map<string, object>());
 
 const hookMocks = vi.hoisted(() => ({
   resolveToolLoopDetectionConfig: vi.fn(() => ({ warnAt: 3 })),
@@ -76,6 +77,11 @@ vi.mock("../plugins/config-state.js", async (importOriginal) => {
 vi.mock("../plugins/tools.js", () => ({
   getPluginToolMeta: (tool: { name?: string }) =>
     typeof tool?.name === "string" ? pluginToolMetaState.get(tool.name) : undefined,
+  getTrustedPolicyRegistryForTool: (tool: { name?: string }) =>
+    typeof tool?.name === "string"
+      ? (trustedPolicyRegistryState.get(tool.name) ??
+        pluginToolMetaState.get(tool.name)?.trustedPolicyRegistry)
+      : undefined,
 }));
 
 // Perf: the real tool factory instantiates many tools per request; for these HTTP
@@ -284,6 +290,7 @@ beforeEach(() => {
   cfg = {};
   lastCreateOpenClawToolsContext = undefined;
   pluginToolMetaState.clear();
+  trustedPolicyRegistryState.clear();
   pluginToolMetaState.set("plugin_doctor", { pluginId: "test-plugin", optional: true });
   hookMocks.resolveToolLoopDetectionConfig.mockClear();
   hookMocks.resolveToolLoopDetectionConfig.mockImplementation(() => ({ warnAt: 3 }));
@@ -474,6 +481,7 @@ describe("POST /tools/invoke", () => {
     expect(body).toHaveProperty("result");
     expect(lastCreateOpenClawToolsContext?.allowMediaInvokeCommands).toBe(true);
     expect(lastCreateOpenClawToolsContext?.disablePluginTools).toBe(true);
+    expect(lastCreateOpenClawToolsContext?.includeTrustedToolPolicies).toBe(true);
     const hookArg = firstHookCallArg();
     expect(hookArg.toolName).toBe("agents_list");
     const hookCtx = hookArg.ctx;
@@ -484,6 +492,62 @@ describe("POST /tools/invoke", () => {
     expect(hookCtx.config).toBe(cfg);
     expect(hookCtx.sessionKey).toBe("agent:main:main");
     expect(hookCtx.loopDetection).toEqual({ warnAt: 3 });
+  });
+
+  it("uses an explicit agent for a global session", async () => {
+    cfg = {
+      agents: {
+        list: [
+          { id: "main", default: true, tools: { allow: ["agents_list"] } },
+          { id: "worker", tools: { allow: ["agents_list"] } },
+        ],
+      },
+    };
+
+    const res = await postToolsInvoke({
+      port: sharedPort,
+      headers: gatewayAuthHeaders(),
+      body: {
+        tool: "agents_list",
+        args: {},
+        sessionKey: "global",
+        agentId: "worker",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ ok: true });
+    expect(lastCreateOpenClawToolsContext?.requesterAgentIdOverride).toBe("worker");
+    const hookCtx = firstHookCallArg().ctx;
+    expect(hookCtx?.agentId).toBe("worker");
+    expect(hookCtx?.sessionKey).toBe("global");
+  });
+
+  it("rejects an unknown explicit agent for a global session before tool resolution", async () => {
+    cfg = {
+      agents: {
+        list: [{ id: "main", default: true, tools: { deny: ["agents_list"] } }],
+      },
+    };
+
+    const res = await postToolsInvoke({
+      port: sharedPort,
+      headers: gatewayAuthHeaders(),
+      body: {
+        tool: "agents_list",
+        args: {},
+        sessionKey: "global",
+        agentId: "ghost",
+      },
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: { type: "invalid_request", message: 'unknown agent id "ghost"' },
+    });
+    expect(lastCreateOpenClawToolsContext).toBeUndefined();
+    expect(hookMocks.runBeforeToolCallHook).not.toHaveBeenCalled();
   });
 
   it("opts direct gateway tool invocation into gateway subagent binding", async () => {
@@ -592,6 +656,41 @@ describe("POST /tools/invoke", () => {
 
     const body = await expectOkInvokeResponse(res);
     expect(body.result?.ok).toBe(true);
+  });
+
+  it("forwards a plugin tool's request-scoped trusted policy registry", async () => {
+    setMainAllowedTools({ allow: ["tools_invoke_test"] });
+    const trustedPolicyRegistry = { trustedToolPolicies: [] };
+    pluginToolMetaState.set("tools_invoke_test", {
+      pluginId: "test-plugin",
+      optional: false,
+      trustedPolicyRegistry,
+    });
+
+    const res = await invokeToolAuthed({
+      tool: "tools_invoke_test",
+      args: { mode: "ok" },
+      sessionKey: "main",
+    });
+
+    await expectOkInvokeResponse(res);
+    expect(firstHookCallArg().trustedPolicyRegistry).toBe(trustedPolicyRegistry);
+  });
+
+  it("forwards a core tool's request-scoped trusted policy registry", async () => {
+    setMainAllowedTools({ allow: ["nodes"], gatewayAllow: ["nodes"] });
+    const trustedPolicyRegistry = { trustedToolPolicies: [] };
+    trustedPolicyRegistryState.set("nodes", trustedPolicyRegistry);
+
+    const res = await invokeTool({
+      port: sharedPort,
+      headers: gatewayAdminHeaders(),
+      tool: "nodes",
+      sessionKey: "main",
+    });
+
+    await expectOkInvokeResponse(res);
+    expect(firstHookCallArg().trustedPolicyRegistry).toBe(trustedPolicyRegistry);
   });
 
   it("supports tools.alsoAllow in profile and implicit modes", async () => {
