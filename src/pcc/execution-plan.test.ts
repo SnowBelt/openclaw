@@ -10,6 +10,7 @@ import {
   findPccExecutionWorkspaceLeaseCollision,
   isPccExecutionPlanActive,
   isPccExecutionWorkspaceLeaseExpired,
+  pccExecutionProofCandidateId,
   partitionPccExecutionTasks,
   transitionPccExecutionPlan,
 } from "./execution-plan.js";
@@ -29,6 +30,15 @@ function plan(id = "plan-1") {
 }
 
 describe("PCC multi-agent execution plans", () => {
+  it("derives a stable browser-safe proof candidate id", () => {
+    const first = pccExecutionProofCandidateId("plan-1", "run-1");
+    const second = pccExecutionProofCandidateId("plan-1", "run-1");
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^proof-candidate-[a-f0-9]{24}$/);
+    expect(first).not.toBe(pccExecutionProofCandidateId("plan-1", "run-2"));
+  });
+
   it("creates a versioned local-only snapshot bound to a project revision and coordinator", () => {
     const created = plan();
 

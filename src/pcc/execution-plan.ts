@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   consumeExecutionApprovalEnvelope,
   evaluateExecutionApprovalEnvelope,
@@ -93,11 +92,22 @@ export type PccExecutionProofCandidate = {
   reviewNote?: string;
 };
 
+function deterministicExecutionIdDigest(value: string): string {
+  // This identifier is for stable deduplication, not integrity or authorization. Keep
+  // it synchronous and browser-safe because this module is shared with the Control UI.
+  const lanes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b];
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    for (let lane = 0; lane < lanes.length; lane += 1) {
+      lanes[lane] ^= code + index * (lane + 1);
+      lanes[lane] = Math.imul(lanes[lane], lane === 0 ? 0x01000193 : 0x85ebca6b);
+    }
+  }
+  return lanes.map((lane) => (lane >>> 0).toString(16).padStart(8, "0")).join("");
+}
+
 export function pccExecutionProofCandidateId(planId: string, runId: string): string {
-  return `proof-candidate-${createHash("sha256")
-    .update(`${planId}:${runId}`)
-    .digest("hex")
-    .slice(0, 24)}`;
+  return `proof-candidate-${deterministicExecutionIdDigest(`${planId}:${runId}`).slice(0, 24)}`;
 }
 
 export type PccExecutionPlanAuditEvent = {
