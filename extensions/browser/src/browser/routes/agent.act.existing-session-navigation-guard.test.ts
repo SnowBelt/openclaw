@@ -1,5 +1,6 @@
 // Browser tests cover agent.act.existing session navigation guard plugin behavior.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "../browser-steward-transport.js";
 import {
   createExistingSessionAgentSharedModule,
   existingSessionRouteState,
@@ -14,6 +15,7 @@ const chromeMcpMocks = vi.hoisted(() => ({
   fillChromeMcpForm: vi.fn(async () => {}),
   hoverChromeMcpElement: vi.fn(async () => {}),
   pressChromeMcpKey: vi.fn(async () => {}),
+  resizeChromeMcpPage: vi.fn(async () => {}),
 }));
 
 const navigationGuardMocks = vi.hoisted(() => ({
@@ -33,7 +35,7 @@ vi.mock("../chrome-mcp.js", () => ({
   fillChromeMcpForm: chromeMcpMocks.fillChromeMcpForm,
   hoverChromeMcpElement: chromeMcpMocks.hoverChromeMcpElement,
   pressChromeMcpKey: chromeMcpMocks.pressChromeMcpKey,
-  resizeChromeMcpPage: vi.fn(async () => {}),
+  resizeChromeMcpPage: chromeMcpMocks.resizeChromeMcpPage,
 }));
 
 vi.mock("../navigation-guard.js", () => navigationGuardMocks);
@@ -92,10 +94,11 @@ describe("existing-session interaction navigation guard", () => {
   async function runAction(
     body: Record<string, unknown>,
     ssrfPolicy: { allowPrivateNetwork: false } | null = DEFAULT_SSRF_POLICY,
+    headers?: Record<string, string>,
   ) {
     const handler = getActPostHandler(ssrfPolicy);
     const response = createBrowserRouteResponse();
-    const pending = handler?.({ params: {}, query: {}, body }, response.res);
+    const pending = handler?.({ params: {}, query: {}, body, headers }, response.res);
     await vi.runAllTimersAsync();
     await pending;
     return response;
@@ -105,10 +108,15 @@ describe("existing-session interaction navigation guard", () => {
     await expectActionToThrow(body, "Unable to verify stable post-interaction navigation");
   }
 
-  async function expectActionToThrow(body: Record<string, unknown>, message: string) {
+  async function expectActionToThrow(
+    body: Record<string, unknown>,
+    message: string,
+    headers?: Record<string, string>,
+  ) {
     const handler = getActPostHandler();
     const response = createBrowserRouteResponse();
-    const pending = handler?.({ params: {}, query: {}, body }, response.res) ?? Promise.resolve();
+    const pending =
+      handler?.({ params: {}, query: {}, body, headers }, response.res) ?? Promise.resolve();
     void pending.catch(() => {});
     const completion = (async () => {
       await vi.runAllTimersAsync();
@@ -145,6 +153,82 @@ describe("existing-session interaction navigation guard", () => {
       expect.objectContaining({ key: "Enter" }),
     );
     expectNavigationProbeUrls(Array.from({ length: 8 }, () => "https://example.com"));
+  });
+
+  it("checks the approved origin before executing an existing-session action", async () => {
+    chromeMcpMocks.evaluateChromeMcpScript.mockResolvedValueOnce(
+      "https://different.example" as never,
+    );
+
+    await expectActionToThrow(
+      { kind: "type", ref: "password-field", text: "synthetic-value" },
+      "Browser Steward approved origin changed before execution",
+      { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" },
+    );
+    expect(chromeMcpMocks.fillChromeMcpElement).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the approved origin before evaluating an existing-session wait", async () => {
+    chromeMcpMocks.evaluateChromeMcpScript.mockRejectedValueOnce(
+      new Error("Browser Steward approved origin changed before execution"),
+    );
+
+    await expectActionToThrow(
+      { kind: "wait", fn: "() => true" },
+      "Browser Steward approved origin changed before execution",
+      { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" },
+    );
+  });
+
+  it("rechecks the approved origin before resizing an existing session", async () => {
+    chromeMcpMocks.evaluateChromeMcpScript.mockResolvedValueOnce(
+      "https://different.example" as never,
+    );
+
+    await expectActionToThrow(
+      { kind: "resize", width: 1200, height: 800 },
+      "Browser Steward approved origin changed before execution",
+      { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" },
+    );
+    expect(chromeMcpMocks.resizeChromeMcpPage).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the approved origin between existing-session type sub-operations", async () => {
+    chromeMcpMocks.evaluateChromeMcpScript
+      .mockResolvedValueOnce("https://example.com" as never)
+      .mockResolvedValueOnce("https://example.com" as never)
+      .mockResolvedValueOnce("https://example.com" as never)
+      .mockResolvedValueOnce("https://different.example" as never);
+
+    await expectActionToThrow(
+      { kind: "type", ref: "password-field", text: "synthetic-value", submit: true },
+      "Browser Steward approved origin changed before execution",
+      { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" },
+    );
+    expect(chromeMcpMocks.fillChromeMcpElement).toHaveBeenCalledOnce();
+    expect(chromeMcpMocks.pressChromeMcpKey).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the approved origin between existing-session form fields", async () => {
+    chromeMcpMocks.evaluateChromeMcpScript
+      .mockResolvedValueOnce("https://example.com" as never)
+      .mockResolvedValueOnce("https://example.com" as never)
+      .mockResolvedValueOnce("https://example.com" as never)
+      .mockResolvedValueOnce("https://different.example" as never);
+
+    await expectActionToThrow(
+      {
+        kind: "fill",
+        fields: [
+          { ref: "username-field", type: "text", value: "synthetic-user" },
+          { ref: "password-field", type: "password", value: "synthetic-value" },
+        ],
+      },
+      "Browser Steward approved origin changed before execution",
+      { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" },
+    );
+    expect(chromeMcpMocks.fillChromeMcpElement).toHaveBeenCalledOnce();
+    expect(chromeMcpMocks.fillChromeMcpForm).not.toHaveBeenCalled();
   });
 
   it("rechecks the page url after delayed navigation-triggering interactions", async () => {

@@ -8,6 +8,7 @@ import {
   clampPositiveTimerTimeoutMs,
   resolveTimerTimeoutMs,
 } from "openclaw/plugin-sdk/number-runtime";
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "./browser-steward-transport.js";
 import { buildProfileQuery, withBaseUrl } from "./client-actions-url.js";
 import { fetchBrowserJson } from "./client-fetch.js";
 import type {
@@ -34,6 +35,7 @@ type BrowserClientTimeoutOptions = {
 
 type BrowserClientProfileOptions = BrowserClientTimeoutOptions & {
   profile?: string;
+  approvedOrigin?: string;
 };
 
 function resolveBrowserClientTimeoutMs(
@@ -66,9 +68,16 @@ async function sendTabTargetRequest(params: {
   opts: BrowserClientProfileOptions | undefined;
   body?: object;
 }): Promise<void> {
+  const headers = {
+    ...(params.body ? JSON_HEADERS : {}),
+    ...(params.opts?.approvedOrigin
+      ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: params.opts.approvedOrigin }
+      : {}),
+  };
   await fetchBrowserJson(withProfilePath(params.baseUrl, params.path, params.opts?.profile), {
     method: params.method,
-    ...(params.body ? { headers: JSON_HEADERS, body: JSON.stringify(params.body) } : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(params.body ? { body: JSON.stringify(params.body) } : {}),
     timeoutMs: resolveBrowserClientTimeoutMs(params.opts, 5000),
   });
 }
@@ -290,11 +299,16 @@ export async function browserTabs(
 export async function browserOpenTab(
   baseUrl: string | undefined,
   url: string,
-  opts?: { profile?: string; label?: string; timeoutMs?: number },
+  opts?: { profile?: string; label?: string; timeoutMs?: number; approvedOrigin?: string },
 ): Promise<BrowserTab> {
   return await fetchBrowserJson<BrowserTab>(withProfilePath(baseUrl, "/tabs/open", opts?.profile), {
     method: "POST",
-    headers: JSON_HEADERS,
+    headers: {
+      ...JSON_HEADERS,
+      ...(opts?.approvedOrigin
+        ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin }
+        : {}),
+    },
     body: JSON.stringify({ url, ...(opts?.label ? { label: opts.label } : {}) }),
     timeoutMs: resolveBrowserClientTimeoutMs(opts, 15000),
   });
@@ -304,7 +318,7 @@ export async function browserOpenTab(
 export async function browserFocusTab(
   baseUrl: string | undefined,
   targetId: string,
-  opts?: { profile?: string; timeoutMs?: number },
+  opts?: { profile?: string; timeoutMs?: number; approvedOrigin?: string },
 ): Promise<void> {
   const body = { targetId };
   await sendTabTargetRequest({ baseUrl, path: "/tabs/focus", method: "POST", opts, body });
@@ -314,7 +328,7 @@ export async function browserFocusTab(
 export async function browserCloseTab(
   baseUrl: string | undefined,
   targetId: string,
-  opts?: { profile?: string; timeoutMs?: number },
+  opts?: { profile?: string; timeoutMs?: number; approvedOrigin?: string },
 ): Promise<void> {
   const path = `/tabs/${encodeURIComponent(targetId)}`;
   await sendTabTargetRequest({ baseUrl, path, method: "DELETE", opts });
@@ -360,6 +374,7 @@ export async function browserSnapshot(
     mode?: "efficient";
     profile?: string;
     timeoutMs?: number;
+    approvedOrigin?: string;
   },
 ): Promise<SnapshotResult> {
   const q = new URLSearchParams();
@@ -409,6 +424,9 @@ export async function browserSnapshot(
     clampPositiveTimerTimeoutMs(opts.timeoutMs) ?? DEFAULT_BROWSER_SNAPSHOT_TIMEOUT_MS;
   q.set("timeoutMs", String(resolvedTimeoutMs));
   return await fetchBrowserJson<SnapshotResult>(withBaseUrl(baseUrl, `/snapshot?${q.toString()}`), {
+    ...(opts.approvedOrigin
+      ? { headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin } }
+      : {}),
     timeoutMs: resolvedTimeoutMs,
   });
 }

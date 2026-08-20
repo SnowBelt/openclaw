@@ -6,6 +6,7 @@
  */
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveBrowserNavigationProxyMode } from "../browser-proxy-mode.js";
+import { matchesBrowserStewardApprovedUrl } from "../browser-steward-transport.js";
 import { toBrowserErrorResponse } from "../errors.js";
 import {
   assertBrowserNavigationResultAllowed,
@@ -135,8 +136,22 @@ type RouteWithTabParams<T> = {
    * Leave false only for routes that navigate, activate, close, or otherwise manage the tab.
    */
   enforceCurrentUrlAllowed?: boolean;
+  approvedOrigin?: string;
   run: (ctx: RouteTabContext) => Promise<T>;
 };
+
+/** Verify an approved browser action still targets the origin that was approved. */
+export function assertBrowserStewardApprovedTabOrigin(
+  tabUrl: string,
+  approvedOrigin: string | undefined,
+): void {
+  if (!approvedOrigin) {
+    return;
+  }
+  if (!matchesBrowserStewardApprovedUrl(tabUrl, approvedOrigin)) {
+    throw new Error("Browser Steward approved origin changed before execution");
+  }
+}
 
 /** Resolve profile and tab context, optionally enforcing current URL policy. */
 export async function withRouteTabContext<T>(
@@ -148,6 +163,7 @@ export async function withRouteTabContext<T>(
   }
   try {
     const tab = await profileCtx.ensureTabAvailable(params.targetId);
+    assertBrowserStewardApprovedTabOrigin(tab.url, params.approvedOrigin);
     if (params.enforceCurrentUrlAllowed) {
       await assertBrowserNavigationResultAllowed({
         url: tab.url,
@@ -210,6 +226,7 @@ type RouteWithPwParams<T> = {
    * Leave false only for routes that navigate, activate, close, or otherwise manage the tab.
    */
   enforceCurrentUrlAllowed?: boolean;
+  approvedOrigin?: string;
   run: (ctx: RouteTabPwContext) => Promise<T>;
 };
 
@@ -223,6 +240,7 @@ export async function withPlaywrightRouteContext<T>(
     ctx: params.ctx,
     targetId: params.targetId,
     enforceCurrentUrlAllowed: params.enforceCurrentUrlAllowed,
+    approvedOrigin: params.approvedOrigin,
     run: async ({ profileCtx, tab, cdpUrl, resolveTabUrl }) => {
       const pw = await requirePwAi(params.res, params.feature);
       if (!pw) {

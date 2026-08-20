@@ -13,6 +13,7 @@ const getPageForTargetId = vi.fn(async () => {
   return page;
 });
 const ensurePageState = vi.fn(() => {});
+const assertBrowserTargetOrigin = vi.fn(async () => {});
 const assertPageNavigationCompletedSafely = vi.fn(async () => {});
 const forceDisconnectPlaywrightForTarget = vi.fn(async () => {});
 const isBrowserObservedDialogBlockedError = vi.fn(() => false);
@@ -26,6 +27,7 @@ const closePageViaPlaywright = vi.fn(async () => {});
 const resizeViewportViaPlaywright = vi.fn(async () => {});
 
 vi.mock("./pw-session.js", () => ({
+  assertBrowserTargetOrigin,
   assertPageNavigationCompletedSafely,
   ensurePageState,
   forceDisconnectPlaywrightForTarget,
@@ -96,5 +98,36 @@ describe("batchViaPlaywright", () => {
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
     });
+  });
+
+  it("rechecks the approved origin inside nested batches", async () => {
+    let currentUrl = "https://example.com/start";
+    page = {
+      evaluate: vi.fn(async () => {
+        currentUrl = "https://other.example/secret";
+        return "ok";
+      }),
+      url: vi.fn(() => currentUrl),
+    };
+
+    const result = await batchViaPlaywright({
+      cdpUrl: "http://127.0.0.1:9222",
+      targetId: "tab-1",
+      evaluateEnabled: true,
+      approvedOrigin: "https://example.com",
+      actions: [
+        {
+          kind: "batch",
+          actions: [
+            { kind: "evaluate", fn: "() => 1" },
+            { kind: "evaluate", fn: "() => document.body.innerText" },
+          ],
+        },
+      ],
+    });
+
+    expect(result).toEqual({ results: [{ ok: true }] });
+    expect(page.evaluate).toHaveBeenCalledTimes(1);
+    expect(assertBrowserTargetOrigin).toHaveBeenCalled();
   });
 });

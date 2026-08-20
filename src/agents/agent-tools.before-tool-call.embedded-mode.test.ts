@@ -8,9 +8,14 @@ import { setEmbeddedMode } from "../infra/embedded-mode.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import type { HookRunner } from "../plugins/hooks.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
+import { markPluginRegistryRetired } from "../plugins/registry-lifecycle.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
+import { setPluginToolMeta } from "../plugins/tools.js";
 import { PluginApprovalResolutions } from "../plugins/types.js";
-import { runBeforeToolCallHook } from "./agent-tools.before-tool-call.js";
+import {
+  runBeforeToolCallHook,
+  wrapToolWithBeforeToolCallHook,
+} from "./agent-tools.before-tool-call.js";
 import { callGatewayTool } from "./tools/gateway.js";
 
 vi.mock("../plugins/hook-runner-global.js", async () => {
@@ -316,6 +321,393 @@ describe("runBeforeToolCallHook — embedded mode approvals", () => {
     expect(approvalCall.request.twoPhase).toBe(true);
     expect(approvalCall.options.expectFinal).toBe(false);
     expect(runBeforeToolCallMock).not.toHaveBeenCalled();
+  });
+
+  it("requires every trusted policy approval for the same final params", async () => {
+    setEmbeddedMode(true);
+    const firstResolution = vi.fn();
+    const secondResolution = vi.fn();
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-a",
+        pluginName: "Trusted A",
+        source: "test",
+        policy: {
+          id: "approval-a",
+          description: "Approval A",
+          evaluate: () => ({
+            params: { command: "approved-snapshot" },
+            requireApproval: {
+              pluginId: "trusted-a",
+              title: "First approval",
+              description: "Approve the frozen operation",
+              onResolution: firstResolution,
+            },
+          }),
+        },
+      },
+      {
+        pluginId: "trusted-b",
+        pluginName: "Trusted B",
+        source: "test",
+        policy: {
+          id: "approval-b",
+          description: "Approval B",
+          evaluate: (event) => ({
+            params: event.params,
+            requireApproval: {
+              pluginId: "trusted-b",
+              title: "Second approval",
+              description: "Approve the same frozen operation",
+              onResolution: secondResolution,
+            },
+          }),
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockCallGatewayTool
+      .mockResolvedValueOnce({ id: "approval-a", decision: PluginApprovalResolutions.ALLOW_ONCE })
+      .mockResolvedValueOnce({ id: "approval-b", decision: PluginApprovalResolutions.ALLOW_ONCE });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "bash",
+      params: { command: "original" },
+      toolCallId: "call-two-policies",
+    });
+
+    expect(result).toEqual({
+      blocked: false,
+      params: { command: "approved-snapshot" },
+      approvalResolution: PluginApprovalResolutions.ALLOW_ONCE,
+    });
+    expect(mockCallGatewayTool).toHaveBeenCalledTimes(2);
+    expect(firstResolution).toHaveBeenCalledWith(PluginApprovalResolutions.ALLOW_ONCE);
+    expect(secondResolution).toHaveBeenCalledWith(PluginApprovalResolutions.ALLOW_ONCE);
+  });
+
+  it("uses the trusted policy registry carried by a plugin tool", async () => {
+    setEmbeddedMode(true);
+    const requestRegistry = createEmptyPluginRegistry();
+    requestRegistry.trustedToolPolicies = [
+      {
+        pluginId: "browser",
+        source: "test",
+        policy: {
+          id: "request-browser-policy",
+          description: "request browser approval",
+          evaluate: () => ({
+            requireApproval: {
+              pluginId: "browser",
+              title: "Approve browser operation",
+              description: "Approve request-scoped browser operation",
+            },
+          }),
+        },
+      },
+    ];
+    setActivePluginRegistry(createEmptyPluginRegistry());
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
+    const sourceTool = {
+      name: "browser",
+      description: "browser",
+      parameters: { type: "object", properties: {} },
+      execute,
+    } as never;
+    setPluginToolMeta(sourceTool, {
+      pluginId: "browser",
+      optional: false,
+      trustedPolicyRegistry: requestRegistry,
+    });
+    const tool = wrapToolWithBeforeToolCallHook(sourceTool, {
+      agentId: "main",
+      sessionKey: "main",
+      loopDetection: { enabled: false },
+    });
+    mockCallGatewayTool.mockResolvedValueOnce({
+      id: "request-browser-policy",
+      decision: PluginApprovalResolutions.ALLOW_ONCE,
+    });
+
+    await tool.execute("call-request-registry", { action: "open" });
+
+    expect(mockCallGatewayTool).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith(
+      "call-request-registry",
+      { action: "open" },
+      undefined,
+      undefined,
+    );
+  });
+
+  it("isolates a carried request registry from unrelated active trusted policies", async () => {
+    const requestPolicy = vi.fn(() => undefined);
+    const activePolicy = vi.fn(() => undefined);
+    const requestRegistry = createEmptyPluginRegistry();
+    requestRegistry.trustedToolPolicies = [
+      {
+        pluginId: "request-policy",
+        source: "test",
+        policy: {
+          id: "request-guard",
+          description: "request guard",
+          evaluate: requestPolicy,
+        },
+      },
+    ];
+    const activeRegistry = createEmptyPluginRegistry();
+    activeRegistry.trustedToolPolicies = [
+      {
+        pluginId: "active-policy",
+        source: "test",
+        policy: {
+          id: "active-guard",
+          description: "active guard",
+          evaluate: activePolicy,
+        },
+      },
+    ];
+    setActivePluginRegistry(activeRegistry);
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const result = await runBeforeToolCallHook({
+      toolName: "browser",
+      params: { action: "status" },
+      trustedPolicyRegistry: requestRegistry,
+    });
+
+    expect(result).toMatchObject({ blocked: false, params: { action: "status" } });
+    expect(requestPolicy).toHaveBeenCalledTimes(1);
+    expect(activePolicy).not.toHaveBeenCalled();
+  });
+
+  it("prefers the active trusted policy over a stale carried duplicate", async () => {
+    const stalePolicy = vi.fn(() => undefined);
+    const requestRegistry = createEmptyPluginRegistry();
+    requestRegistry.trustedToolPolicies = [
+      {
+        pluginId: "shared-policy",
+        source: "stale-request",
+        policy: {
+          id: "shared-guard",
+          description: "stale request guard",
+          evaluate: stalePolicy,
+        },
+      },
+    ];
+    const activeRegistry = createEmptyPluginRegistry();
+    activeRegistry.trustedToolPolicies = [
+      {
+        pluginId: "shared-policy",
+        source: "active",
+        policy: {
+          id: "shared-guard",
+          description: "active guard",
+          evaluate: () => ({ block: true, blockReason: "active policy blocked the operation" }),
+        },
+      },
+    ];
+    markPluginRegistryRetired(requestRegistry);
+    setActivePluginRegistry(activeRegistry);
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const result = await runBeforeToolCallHook({
+      toolName: "browser",
+      params: { action: "status" },
+      trustedPolicyRegistry: requestRegistry,
+    });
+
+    expect(result).toMatchObject({
+      blocked: true,
+      kind: "veto",
+      reason: "active policy blocked the operation",
+    });
+    expect(stalePolicy).not.toHaveBeenCalled();
+  });
+
+  it("blocks hook rewrites after a trusted policy approval", async () => {
+    setEmbeddedMode(true);
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-policy",
+        pluginName: "Trusted Policy",
+        source: "test",
+        policy: {
+          id: "freeze-after-approval",
+          description: "Freeze approved params",
+          evaluate: () => ({
+            params: { action: "open", url: "https://example.com" },
+            requireApproval: {
+              pluginId: "trusted-policy",
+              title: "Approve open",
+              description: "Approve the open operation",
+            },
+          }),
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    runBeforeToolCallMock.mockResolvedValueOnce({
+      params: { action: "act", request: { kind: "evaluate", fn: "dangerous()" } },
+    });
+    mockCallGatewayTool.mockResolvedValueOnce({
+      id: "approval-freeze",
+      decision: PluginApprovalResolutions.ALLOW_ONCE,
+    });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "browser",
+      params: { action: "open", url: "https://example.com" },
+      toolCallId: "call-freeze-after-approval",
+    });
+
+    expect(result).toEqual({
+      blocked: true,
+      kind: "veto",
+      deniedReason: "plugin-before-tool-call",
+      reason: "Tool call blocked because parameters changed after trusted approval",
+      params: { action: "open", url: "https://example.com" },
+    });
+  });
+
+  it("blocks in-place hook mutation after a trusted policy approval", async () => {
+    setEmbeddedMode(true);
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-policy",
+        source: "test",
+        policy: {
+          id: "approval-before-mutation",
+          description: "approve immutable params",
+          evaluate: () => ({
+            params: { action: "open", url: "https://example.com" },
+            requireApproval: {
+              pluginId: "trusted-policy",
+              title: "Approve open",
+              description: "Approve the original URL",
+            },
+          }),
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    runBeforeToolCallMock.mockImplementationOnce((event: { params: Record<string, unknown> }) => {
+      event.params.url = "https://different.example";
+      return undefined;
+    });
+    mockCallGatewayTool.mockResolvedValueOnce({
+      id: "approval-before-mutation",
+      decision: PluginApprovalResolutions.ALLOW_ONCE,
+    });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "browser",
+      params: { action: "open", url: "https://example.com" },
+      toolCallId: "call-in-place-mutation",
+    });
+
+    expect(result).toEqual({
+      blocked: true,
+      kind: "veto",
+      deniedReason: "plugin-before-tool-call",
+      reason: "Tool call blocked because parameters changed after trusted approval",
+      params: { action: "open", url: "https://example.com" },
+    });
+  });
+
+  it("preserves a non-serializable trusted policy marker only after approval", async () => {
+    setEmbeddedMode(true);
+    const trustedMarker = Symbol("trusted-policy-marker");
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-policy",
+        pluginName: "Trusted Policy",
+        source: "test",
+        policy: {
+          id: "marker-policy",
+          description: "Marker policy",
+          evaluate: (event) => ({
+            params: Object.assign({ ...event.params }, { [trustedMarker]: true }),
+            requireApproval: {
+              pluginId: "trusted-policy",
+              title: "Marker approval",
+              description: "Attach the trusted marker after approval",
+            },
+          }),
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockCallGatewayTool.mockResolvedValueOnce({
+      id: "marker-policy",
+      decision: PluginApprovalResolutions.ALLOW_ONCE,
+    });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "bash",
+      params: { command: "approved" },
+      toolCallId: "call-marker-policy",
+      ctx: { agentId: "main", sessionKey: "main" },
+    });
+
+    expect(result.blocked).toBe(false);
+    if (!result.blocked) {
+      expect((result.params as Record<symbol, unknown>)[trustedMarker]).toBe(true);
+      expect(JSON.stringify(result.params)).toBe('{"command":"approved"}');
+    }
+  });
+
+  it("does not restore keys removed by trusted policy params after approval", async () => {
+    setEmbeddedMode(true);
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-policy",
+        pluginName: "Trusted Policy",
+        source: "test",
+        policy: {
+          id: "redacting-policy",
+          description: "Redacting policy",
+          evaluate: () => ({
+            params: { command: "redacted" },
+            requireApproval: {
+              pluginId: "trusted-policy",
+              title: "Redacted approval",
+              description: "Approve without restoring removed input",
+            },
+          }),
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+    (hookRunner.hasHooks as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    mockCallGatewayTool.mockResolvedValueOnce({
+      id: "redacting-policy",
+      decision: PluginApprovalResolutions.ALLOW_ONCE,
+    });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "bash",
+      params: { command: "original", secret: "raw-secret-value-123456" },
+      toolCallId: "call-redacting-policy",
+      ctx: { agentId: "main", sessionKey: "main" },
+    });
+
+    expect(result).toEqual({
+      blocked: false,
+      params: { command: "redacted" },
+      approvalResolution: PluginApprovalResolutions.ALLOW_ONCE,
+    });
+    expect(JSON.stringify(result)).not.toContain("raw-secret-value-123456");
   });
 
   it("requires approval before skill_workshop applies a proposal", async () => {

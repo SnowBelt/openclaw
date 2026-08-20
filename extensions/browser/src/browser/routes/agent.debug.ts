@@ -7,6 +7,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { readBrowserStewardApprovedOrigin } from "../browser-steward-transport.js";
 import type { PwAiModule } from "../pw-ai-module.js";
 import type { BrowserRouteContext } from "../server-context.js";
 import {
@@ -33,6 +34,7 @@ async function sendPlaywrightDebugCollection(params: {
   ctx: BrowserRouteContext;
   targetId?: string;
   feature: string;
+  approvedOrigin?: string;
   collect: (ctx: { cdpUrl: string; targetId: string; pw: PwAiModule }) => Promise<object>;
 }): Promise<void> {
   await withPlaywrightRouteContext({
@@ -42,6 +44,7 @@ async function sendPlaywrightDebugCollection(params: {
     targetId: params.targetId,
     feature: params.feature,
     enforceCurrentUrlAllowed: true,
+    approvedOrigin: params.approvedOrigin,
     run: async ({ cdpUrl, tab, pw, resolveTabUrl }) => {
       const result = await params.collect({ cdpUrl, targetId: tab.targetId, pw });
       const url = await resolveTabUrl(tab.url);
@@ -58,6 +61,10 @@ export function registerBrowserAgentDebugRoutes(
   app.get(
     "/console",
     asyncBrowserRoute(async (req, res) => {
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return res.status(403).json({ error: "Browser Steward approved origin is invalid" });
+      }
       const targetId = resolveTargetIdFromQuery(req.query);
       const level = typeof req.query.level === "string" ? req.query.level : "";
 
@@ -68,11 +75,13 @@ export function registerBrowserAgentDebugRoutes(
         targetId,
         feature: "console messages",
         enforceCurrentUrlAllowed: true,
+        approvedOrigin: approvedOriginHeader.origin,
         run: async ({ cdpUrl, tab, pw, resolveTabUrl }) => {
           const messages = await pw.getConsoleMessagesViaPlaywright({
             cdpUrl,
             targetId: tab.targetId,
             level: normalizeOptionalString(level),
+            approvedOrigin: approvedOriginHeader.origin,
           });
           const url = await resolveTabUrl(tab.url);
           res.json({ ...browserDebugTargetPayload(tab.targetId, url), messages });

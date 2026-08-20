@@ -15,6 +15,7 @@ import {
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { root as fsSafeRoot, FsSafeError, type ReadResult } from "../../infra/fs-safe.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
+import { assertGatewaySessionStewardBoundary } from "../session-steward-boundary.js";
 import { loadSessionEntry, visitSessionMessagesAsync } from "../session-utils.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
@@ -704,10 +705,21 @@ function respondSessionFileTooLarge(respond: RespondFn, file: SessionFileEntry, 
 
 /** Gateway handlers for files referenced by session transcripts. */
 export const sessionsFilesHandlers: GatewayRequestHandlers = {
-  "sessions.files.list": async ({ params, respond }) => {
+  "sessions.files.list": async ({ params, respond, context }) => {
     if (
       !assertValidParams(params, validateSessionsFilesListParams, "sessions.files.list", respond)
     ) {
+      return;
+    }
+    const boundaryCheck = assertGatewaySessionStewardBoundary({
+      sessionKey: params.sessionKey,
+      requestedAgentId: params.agentId,
+      config: context.getRuntimeConfig(),
+      surface: "sessions.files.list",
+      action: "list",
+    });
+    if (!boundaryCheck.ok) {
+      respond(false, undefined, boundaryCheck.error);
       return;
     }
     const result = await buildListResult(params);
@@ -716,8 +728,19 @@ export const sessionsFilesHandlers: GatewayRequestHandlers = {
       ...result,
     });
   },
-  "sessions.files.get": async ({ params, respond }) => {
+  "sessions.files.get": async ({ params, respond, context }) => {
     if (!assertValidParams(params, validateSessionsFilesGetParams, "sessions.files.get", respond)) {
+      return;
+    }
+    const boundaryCheck = assertGatewaySessionStewardBoundary({
+      sessionKey: params.sessionKey,
+      requestedAgentId: params.agentId,
+      config: context.getRuntimeConfig(),
+      surface: "sessions.files.get",
+      action: "get",
+    });
+    if (!boundaryCheck.ok) {
+      respond(false, undefined, boundaryCheck.error);
       return;
     }
     const result = await findSessionFile(params);

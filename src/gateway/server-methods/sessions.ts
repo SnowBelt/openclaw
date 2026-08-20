@@ -87,6 +87,7 @@ import {
   listSessionCompactionCheckpoints,
 } from "../session-compaction-checkpoints.js";
 import { triggerSessionPatchHook } from "../session-patch-hooks.js";
+import { assertGatewaySessionStewardBoundary } from "../session-steward-boundary.js";
 import {
   resolveSessionStoreAgentId,
   resolveSessionStoreKey,
@@ -637,23 +638,29 @@ type RequestedGlobalAgentIdResolution =
 function resolveRequestedGlobalAgentId(
   cfg: OpenClawConfig,
   key: string,
-  explicitAgentId?: string,
+  explicitAgentId: string | undefined,
+  surface: string,
+  action: string,
 ): RequestedGlobalAgentIdResolution {
   const canonicalKey = resolveSessionStoreKey({ cfg, sessionKey: key });
   const parsed = parseAgentSessionKey(key);
   const requestedAgentId = normalizeOptionalString(explicitAgentId);
+  const baseBoundary = assertGatewaySessionStewardBoundary({
+    sessionKey: key,
+    ...(requestedAgentId ? { requestedAgentId } : {}),
+    config: cfg,
+    surface,
+    action,
+  });
+  if (!baseBoundary.ok) {
+    return { ok: false, error: baseBoundary.error };
+  }
   if (requestedAgentId) {
-    const agentId = normalizeAgentId(requestedAgentId);
+    const agentId = baseBoundary.boundary.requestedAgentId;
     if (!listAgentIds(cfg).includes(agentId)) {
       return {
         ok: false,
-        error: errorShape(ErrorCodes.INVALID_REQUEST, `Unknown agent id "${explicitAgentId}"`),
-      };
-    }
-    if (parsed?.agentId && normalizeAgentId(parsed.agentId) !== agentId) {
-      return {
-        ok: false,
-        error: errorShape(ErrorCodes.INVALID_REQUEST, "session key agent does not match agentId"),
+        error: errorShape(ErrorCodes.INVALID_REQUEST, `Unknown agent id "${agentId}"`),
       };
     }
     if (canonicalKey !== "global") {
@@ -661,9 +668,18 @@ function resolveRequestedGlobalAgentId(
         ? normalizeAgentId(parsed.agentId)
         : normalizeAgentId(resolveSessionStoreAgentId(cfg, canonicalKey));
       if (keyAgentId !== agentId) {
+        const canonicalBoundary = assertGatewaySessionStewardBoundary({
+          sessionKey: canonicalKey,
+          requestedAgentId: agentId,
+          config: cfg,
+          surface,
+          action,
+        });
         return {
           ok: false,
-          error: errorShape(ErrorCodes.INVALID_REQUEST, "session key agent does not match agentId"),
+          error: canonicalBoundary.ok
+            ? errorShape(ErrorCodes.INVALID_REQUEST, "session key agent does not match agentId")
+            : canonicalBoundary.error,
         };
       }
     }
@@ -793,6 +809,8 @@ async function handleSessionSend(params: {
     cfg,
     key,
     (p as { agentId?: string }).agentId,
+    params.method,
+    params.method === "sessions.send" ? "send" : "steer",
   );
   if (!requestedAgent.ok) {
     params.respond(false, undefined, requestedAgent.error);
@@ -1101,7 +1119,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.messages.subscribe",
+      "subscribe",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -1138,7 +1162,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.messages.unsubscribe",
+      "unsubscribe",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -1278,7 +1308,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.compaction.list",
+      "read",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -1318,7 +1354,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.compaction.get",
+      "read",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -1352,34 +1394,49 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const p = params;
     const cfg = context.getRuntimeConfig();
     const requestedKey = normalizeOptionalString(p.key);
-    const agentId = normalizeAgentId(
-      normalizeOptionalString(p.agentId) ?? resolveDefaultAgentId(cfg),
-    );
-    if (requestedKey) {
-      const requestedAgentId = parseAgentSessionKey(requestedKey)?.agentId;
-      if (requestedAgentId && requestedAgentId !== agentId && normalizeOptionalString(p.agentId)) {
-        respond(
-          false,
-          undefined,
-          errorShape(
-            ErrorCodes.INVALID_REQUEST,
-            `sessions.create key agent (${requestedAgentId}) does not match agentId (${agentId})`,
-          ),
-        );
+    const explicitAgentId = normalizeOptionalString(p.agentId);
+    let normalizedExplicitAgentId: string | undefined;
+    if (requestedKey || explicitAgentId) {
+      const boundaryCheck = assertGatewaySessionStewardBoundary({
+        sessionKey: requestedKey,
+        requestedAgentId: explicitAgentId,
+        config: cfg,
+        surface: "sessions.create",
+        action: "create",
+      });
+      if (!boundaryCheck.ok) {
+        respond(false, undefined, boundaryCheck.error);
         return;
       }
+      normalizedExplicitAgentId = explicitAgentId
+        ? boundaryCheck.boundary.requestedAgentId
+        : undefined;
     }
+    const agentId = normalizeAgentId(normalizedExplicitAgentId ?? resolveDefaultAgentId(cfg));
     const parentSessionKey = normalizeOptionalString(p.parentSessionKey);
     let canonicalParentSessionKey: string | undefined;
     let parentSessionEntry: SessionEntry | undefined;
     let parentSelectedAgentId: string | undefined;
     if (parentSessionKey) {
+      const parentBoundaryCheck = assertGatewaySessionStewardBoundary({
+        sessionKey: parentSessionKey,
+        requestedAgentId: agentId,
+        config: cfg,
+        surface: "sessions.create",
+        action: "parent",
+      });
+      if (!parentBoundaryCheck.ok) {
+        respond(false, undefined, parentBoundaryCheck.error);
+        return;
+      }
       const parentCanonicalKey = resolveSessionStoreKey({ cfg, sessionKey: parentSessionKey });
       if (parentCanonicalKey === "global") {
         const parentRequestedAgent = resolveRequestedGlobalAgentId(
           cfg,
           parentSessionKey,
           p.agentId,
+          "sessions.create",
+          "parent",
         );
         if (!parentRequestedAgent.ok) {
           respond(false, undefined, parentRequestedAgent.error);
@@ -1696,7 +1753,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.compaction.branch",
+      "branch",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -1811,7 +1874,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.compaction.restore",
+      "restore",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -1928,6 +1997,19 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const requestedRunId = readStringValue(p.runId);
     const requestedKey = normalizeOptionalString(p.key);
     const requestedParamAgentId = normalizeOptionalString(p.agentId);
+    if (requestedKey) {
+      const boundaryCheck = assertGatewaySessionStewardBoundary({
+        sessionKey: requestedKey,
+        requestedAgentId: requestedParamAgentId,
+        config: cfg,
+        surface: "sessions.abort",
+        action: "abort",
+      });
+      if (!boundaryCheck.ok) {
+        respond(false, undefined, boundaryCheck.error);
+        return;
+      }
+    }
     const scopedRequestedKey = resolveScopedAbortKey({
       cfg,
       key: requestedKey,
@@ -1986,6 +2068,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       cfg,
       key,
       requestedParamAgentId ?? requestedRunAgentId,
+      "sessions.abort",
+      "abort",
     );
     if (!requestedGlobalAgent.ok) {
       respond(false, undefined, requestedGlobalAgent.error);
@@ -2103,7 +2187,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.patch",
+      "patch",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -2191,6 +2281,16 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
     const key = requireSessionKey(params.key, respond);
     if (!key) {
+      return;
+    }
+    const boundaryCheck = assertGatewaySessionStewardBoundary({
+      sessionKey: key,
+      config: context.getRuntimeConfig(),
+      surface: "sessions.pluginPatch",
+      action: "patch",
+    });
+    if (!boundaryCheck.ok) {
+      respond(false, undefined, boundaryCheck.error);
       return;
     }
     if (rejectWebchatSessionMutation({ action: "patch", client, isWebchatConnect, respond })) {
@@ -2301,7 +2401,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.delete",
+      "delete",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;
@@ -2428,6 +2534,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       cfg,
       key,
       normalizeOptionalString(p.agentId),
+      "sessions.get",
+      "read",
     );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
@@ -2473,7 +2581,13 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         : undefined;
 
     const cfg = context.getRuntimeConfig();
-    const requestedAgent = resolveRequestedGlobalAgentId(cfg, key, p.agentId);
+    const requestedAgent = resolveRequestedGlobalAgentId(
+      cfg,
+      key,
+      p.agentId,
+      "sessions.compact",
+      "compact",
+    );
     if (!requestedAgent.ok) {
       respond(false, undefined, requestedAgent.error);
       return;

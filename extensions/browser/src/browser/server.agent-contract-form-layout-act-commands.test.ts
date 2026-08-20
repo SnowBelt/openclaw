@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import "../test-support/browser-security.mock.js";
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "./browser-steward-transport.js";
 import { BROWSER_NAVIGATION_BLOCKED_MESSAGE } from "./errors.js";
 import { DEFAULT_DOWNLOAD_DIR, DEFAULT_TRACE_DIR, DEFAULT_UPLOAD_DIR } from "./paths.js";
 import {
@@ -511,19 +512,37 @@ describe("browser control server", () => {
     expect(pwMocks.downloadViaPlaywright).toHaveBeenCalledTimes(downloadCalls);
   });
 
+  it("rejects invalid Browser Steward approval-origin metadata before hook dispatch", async () => {
+    const base = await startServerAndBase();
+    const uploadCalls = pwMocks.armFileUploadViaPlaywright.mock.calls.length;
+    const response = await postJson<{ error?: string }>(
+      `${base}/hooks/file-chooser`,
+      { paths: ["a.txt"] },
+      { headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "not-an-origin" } },
+    );
+
+    expect(response.error).toContain("approved origin is invalid");
+    expect(pwMocks.armFileUploadViaPlaywright).toHaveBeenCalledTimes(uploadCalls);
+  });
+
   it("agent contract: hooks + response + downloads + screenshot", async () => {
     const base = await startServerAndBase();
 
-    const upload = await postJson(`${base}/hooks/file-chooser`, {
-      paths: ["a.txt"],
-      timeoutMs: 1234,
-    });
+    const upload = await postJson(
+      `${base}/hooks/file-chooser`,
+      {
+        paths: ["a.txt"],
+        timeoutMs: 1234,
+      },
+      { headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" } },
+    );
     expectOkResult(upload);
     expectBrowserCallFields(pwMocks.armFileUploadViaPlaywright, {
       targetId: "abcd1234",
       // The server resolves paths (which adds a drive letter on Windows for `\\tmp\\...` style roots).
       paths: [path.resolve(DEFAULT_UPLOAD_DIR, "a.txt")],
       timeoutMs: 1234,
+      approvedOrigin: "https://example.com",
     });
 
     const uploadWithRef = await postJson(`${base}/hooks/file-chooser`, {
@@ -544,17 +563,22 @@ describe("browser control server", () => {
     });
     expectOkResult(uploadWithElement);
 
-    const dialog = await postJson(`${base}/hooks/dialog`, {
-      accept: true,
-      dialogId: "d1",
-      timeoutMs: 5678,
-    });
+    const dialog = await postJson(
+      `${base}/hooks/dialog`,
+      {
+        accept: true,
+        dialogId: "d1",
+        timeoutMs: 5678,
+      },
+      { headers: { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: "https://example.com" } },
+    );
     expectOkResult(dialog);
     expectBrowserCallFields(pwMocks.armDialogViaPlaywright, {
       targetId: "abcd1234",
       accept: true,
       dialogId: "d1",
       timeoutMs: 5678,
+      approvedOrigin: "https://example.com",
     });
 
     const waitDownload = await postJson(`${base}/wait/download`, {

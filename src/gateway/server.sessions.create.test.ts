@@ -471,6 +471,38 @@ test("sessions.get reads selected global messages from the requested agent store
   }
 });
 
+test("sessions.get rejects malformed explicit agent ids without leaking them", async () => {
+  await createSessionStoreDir();
+  const rawAgentId = "secret=raw-agent-value-123456";
+
+  const result = await directSessionReq("sessions.get", {
+    key: "global",
+    agentId: rawAgentId,
+  });
+
+  expect(result.ok).toBe(false);
+  const serialized = JSON.stringify(result);
+  expect(serialized).toContain("malformed session boundary");
+  expect(serialized).not.toContain(rawAgentId);
+  expect(serialized).not.toContain("raw-agent-value-123456");
+});
+
+test("sessions.create preserves normalization for configured legacy agent ids", async () => {
+  await createSessionStoreDir();
+  testState.agentsConfig = { list: [{ id: "Team Ops", default: true }] };
+  try {
+    const created = await directSessionReq<{ key?: string }>("sessions.create", {
+      key: "agent:Team Ops:dashboard:compat",
+      agentId: "Team Ops",
+    });
+
+    expect(created.ok).toBe(true);
+    expect(created.payload?.key).toBe("agent:team ops:dashboard:compat");
+  } finally {
+    testState.agentsConfig = undefined;
+  }
+});
+
 test("sessions.create sends selected global initial tasks to the requested agent", async () => {
   const { mainStorePath, workStorePath } = await createSelectedGlobalSessionStore();
   const { ws } = await openClient();
@@ -512,13 +544,28 @@ test("sessions.create rejects unknown parentSessionKey", async () => {
 
   const created = await directSessionReq("sessions.create", {
     agentId: "ops",
-    parentSessionKey: "agent:main:missing",
+    parentSessionKey: "agent:ops:missing",
   });
 
   expect(created.ok).toBe(false);
   expect((created.error as { message?: string } | undefined)?.message ?? "").toContain(
     "unknown parent session",
   );
+});
+
+test("sessions.create rejects cross-agent parentSessionKey before loading parent", async () => {
+  await createSessionStoreDir();
+
+  const created = await directSessionReq("sessions.create", {
+    agentId: "worker",
+    parentSessionKey: "agent:main:direct:user-1",
+  });
+
+  expect(created.ok).toBe(false);
+  const serialized = JSON.stringify(created);
+  expect(serialized).toContain("session key agent does not match agentId");
+  expect(serialized).toContain("agent:main:REDACTED");
+  expect(serialized).not.toContain("user-1");
 });
 
 test("sessions.create can start the first agent turn from an initial task", async () => {

@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_UPLOAD_DIR } from "./paths.js";
 import {
@@ -154,6 +155,67 @@ describe("pw-tools-core", () => {
     });
     expect(waitForFunction).toHaveBeenCalledWith("window.ready===true", {
       timeout: 1234,
+    });
+  });
+
+  it("invokes the approved wait predicate instead of returning its function object", async () => {
+    const waitForFunction = vi.fn(async (expression: string) => {
+      const predicate = await vm.runInNewContext(expression, {
+        location: { origin: "https://example.com" },
+      });
+      expect(typeof predicate).toBe("function");
+      expect(predicate()).toBe(true);
+    });
+    const page = {
+      url: vi.fn(() => "https://example.com/page"),
+      waitForFunction,
+    };
+    setPwToolsCoreCurrentPage(page);
+
+    await mod.waitForViaPlaywright({
+      cdpUrl: "http://127.0.0.1:18792",
+      fn: "() => true",
+      approvedOrigin: "https://example.com",
+    });
+
+    expect(waitForFunction).toHaveBeenCalledWith(expect.stringContaining("=>"), {
+      timeout: 20_000,
+    });
+  });
+
+  it("preserves polling for approved expression-form wait predicates", async () => {
+    let attempts = 0;
+    const window = {} as { ready?: boolean };
+    Object.defineProperty(window, "ready", {
+      get: () => {
+        attempts += 1;
+        return attempts >= 2;
+      },
+    });
+    const waitForFunction = vi.fn(async (expression: string) => {
+      const predicate = await vm.runInNewContext(expression, {
+        location: { origin: "https://example.com" },
+        window,
+      });
+      expect(typeof predicate).toBe("function");
+      expect(predicate()).toBe(false);
+      expect(predicate()).toBe(true);
+    });
+    const page = {
+      url: vi.fn(() => "https://example.com/page"),
+      waitForFunction,
+    };
+    setPwToolsCoreCurrentPage(page);
+
+    await mod.waitForViaPlaywright({
+      cdpUrl: "http://127.0.0.1:18792",
+      fn: "window.ready===true",
+      approvedOrigin: "https://example.com",
+    });
+
+    expect(attempts).toBe(2);
+    expect(waitForFunction).toHaveBeenCalledWith(expect.stringContaining("const predicate"), {
+      timeout: 20_000,
     });
   });
 

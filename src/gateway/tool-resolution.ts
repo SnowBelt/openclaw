@@ -40,6 +40,8 @@ type GatewayScopedToolSurface = "http" | "loopback";
 export function resolveGatewayScopedTools(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
+  /** Trusted agent selection for global or legacy session keys. */
+  agentId?: string;
   messageProvider?: string;
   currentChannelId?: string;
   currentThreadTs?: string;
@@ -68,7 +70,11 @@ export function resolveGatewayScopedTools(params: {
     providerProfile,
     profileAlsoAllow,
     providerProfileAlsoAllow,
-  } = resolveEffectiveToolPolicy({ config: params.cfg, sessionKey: params.sessionKey });
+  } = resolveEffectiveToolPolicy({
+    config: params.cfg,
+    sessionKey: params.sessionKey,
+    agentId: params.agentId,
+  });
   const profilePolicy = resolveToolProfilePolicy(profile);
   const providerProfilePolicy = resolveToolProfilePolicy(providerProfile);
   const gatewayRequestedTools = params.gatewayRequestedTools ?? [];
@@ -158,6 +164,7 @@ export function resolveGatewayScopedTools(params: {
 
   const allTools = createOpenClawTools({
     agentSessionKey: params.sessionKey,
+    requesterAgentIdOverride: params.agentId,
     agentChannel: params.messageProvider ?? undefined,
     agentAccountId: params.accountId,
     inboundEventKind: params.inboundEventKind,
@@ -172,6 +179,7 @@ export function resolveGatewayScopedTools(params: {
     allowGatewaySubagentBinding: params.allowGatewaySubagentBinding,
     allowMediaInvokeCommands: params.allowMediaInvokeCommands,
     disablePluginTools: params.disablePluginTools,
+    includeTrustedToolPolicies: params.disablePluginTools,
     wrapBeforeToolCallHook: false,
     config: params.cfg,
     workspaceDir,

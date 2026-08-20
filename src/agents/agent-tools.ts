@@ -1059,6 +1059,7 @@ export function createOpenClawCodingTools(options?: {
           disableMessageTool: options?.disableMessageTool,
           enableHeartbeatTool,
           disablePluginTools: !includePluginTools,
+          includeTrustedToolPolicies: !includePluginTools,
           wrapBeforeToolCallHook: false,
           ...(cronSelfRemoveOnlyJobId ? { cronSelfRemoveOnlyJobId } : {}),
           requesterAgentIdOverride: agentId,
@@ -1184,6 +1185,10 @@ export function createOpenClawCodingTools(options?: {
     ...(sandboxRoot && allowWorkspaceWrites
       ? { sandbox: { root: sandboxRoot, bridge: sandboxFsBridge! } }
       : {}),
+    browser: {
+      sandboxBridgeUrl: sandbox?.browser?.bridgeUrl,
+      allowHostControl: sandbox ? sandbox.browserAllowHostControl : true,
+    },
     sessionKey: options?.sessionKey,
     sessionId: options?.sessionId,
     runId: options?.runId,

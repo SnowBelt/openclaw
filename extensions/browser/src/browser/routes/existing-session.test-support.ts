@@ -39,6 +39,7 @@ export const existingSessionRouteState = {
 /** Create a vi mock module for routes that import agent.shared helpers. */
 export function createExistingSessionAgentSharedModule() {
   return {
+    assertBrowserStewardApprovedTabOrigin: vi.fn(),
     browserNavigationPolicyForProfile: vi.fn((ctx: BrowserRouteContext) =>
       withBrowserNavigationPolicy(ctx.state().resolved.ssrfPolicy),
     ),

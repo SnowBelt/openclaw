@@ -4,7 +4,7 @@
  */
 import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { Frame, Page } from "playwright-core";
+import type { ElementHandle, Frame, Locator, Page } from "playwright-core";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { SsrFPolicy } from "../infra/net/ssrf.js";
 import {
@@ -24,6 +24,9 @@ import {
 } from "./navigation-guard.js";
 import { resolveStrictExistingUploadPaths } from "./paths.js";
 import {
+  assertBrowserFrameOrigin,
+  assertBrowserPageFramesOrigin,
+  assertBrowserTargetOrigin,
   assertPageNavigationCompletedSafely,
   createObservedDialogAbortSignalForPage,
   ensurePageState,
@@ -92,6 +95,201 @@ function reconcileRemoteDialogAfterActionSettled(page: Page, signal?: AbortSigna
   if (isBrowserObservedDialogBlockedError(signal?.reason)) {
     markObservedDialogsHandledRemotelyForPage(page);
   }
+}
+
+function assertApprovedPageOrigin(page: Page, approvedOrigin?: string): void {
+  if (!approvedOrigin) {
+    return;
+  }
+  let currentOrigin: string;
+  try {
+    currentOrigin = new URL(page.url()).origin;
+  } catch {
+    throw new Error("Browser Steward approved origin could not be verified");
+  }
+  if (currentOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved origin changed before execution");
+  }
+}
+
+/** Verifies the frame containing keyboard focus without rejecting unrelated iframes. */
+async function assertApprovedFocusedFrameOrigin(
+  page: Page,
+  approvedOrigin?: string,
+): Promise<void> {
+  if (!approvedOrigin) {
+    return;
+  }
+  assertApprovedPageOrigin(page, approvedOrigin);
+  const focusedOrigin = await page.evaluate(() => {
+    const active = document.activeElement;
+    if (active && (active.tagName === "IFRAME" || active.tagName === "FRAME")) {
+      try {
+        return active.contentWindow?.location?.origin ?? null;
+      } catch {
+        return null;
+      }
+    }
+    return location.origin;
+  });
+  if (focusedOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved focused frame origin could not be verified");
+  }
+}
+
+/** Verifies the frame receiving an approved coordinate click before dispatch. */
+async function assertApprovedCoordinateOrigin(
+  page: Page,
+  x: number,
+  y: number,
+  approvedOrigin?: string,
+): Promise<void> {
+  if (!approvedOrigin) {
+    return;
+  }
+  const targetTagName = await page.evaluate(
+    ({ x: pointX, y: pointY }) =>
+      document.elementFromPoint(pointX, pointY)?.tagName.toLowerCase() ?? null,
+    { x, y },
+  );
+  if (targetTagName === null) {
+    throw new Error("Browser Steward approved coordinate frame origin could not be verified");
+  }
+  let targetFrame = page.mainFrame();
+  if (targetTagName === "iframe" || targetTagName === "frame") {
+    let smallestArea = Number.POSITIVE_INFINITY;
+    for (const frame of page.frames()) {
+      if (frame === targetFrame) {
+        continue;
+      }
+      const frameElement = await frame.frameElement().catch(() => null);
+      const box = await frameElement?.boundingBox().catch(() => null);
+      if (!box || x < box.x || y < box.y || x > box.x + box.width || y > box.y + box.height) {
+        continue;
+      }
+      const area = box.width * box.height;
+      if (area < smallestArea) {
+        smallestArea = area;
+        targetFrame = frame;
+      }
+    }
+  }
+  const targetOrigin = resolveLiveFrameOrigin(targetFrame);
+  if (targetOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved coordinate frame origin could not be verified");
+  }
+}
+
+function resolveLiveFrameOrigin(frame: Frame): string | undefined {
+  const frameUrl = frame.url();
+  if (frameUrl === "about:blank" || frameUrl === "about:srcdoc") {
+    const parent = frame.parentFrame();
+    return parent ? resolveLiveFrameOrigin(parent) : undefined;
+  }
+  try {
+    const origin = new URL(frameUrl).origin;
+    return origin && origin !== "null" ? origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Verifies the frame owning a locator before an approved native Playwright action. */
+async function assertApprovedElementOrigin(
+  handle: ElementHandle,
+  approvedOrigin: string | undefined,
+): Promise<void> {
+  if (!approvedOrigin) {
+    return;
+  }
+  const currentOrigin = await handle.evaluate(() => location.origin);
+  if (currentOrigin !== approvedOrigin) {
+    throw new Error("Browser Steward approved origin changed before execution");
+  }
+}
+
+/** Re-check the page and, when applicable, the element frame around a capture. */
+async function assertApprovedCaptureOrigin(params: {
+  page: Page;
+  locator?: Locator;
+  approvedOrigin?: string;
+}): Promise<void> {
+  if (!params.approvedOrigin) {
+    return;
+  }
+  await assertBrowserPageFramesOrigin(params.page, params.approvedOrigin);
+  if (!params.locator) {
+    return;
+  }
+  const handle = await params.locator.elementHandle({ timeout: 1000 });
+  if (!handle) {
+    throw new Error("Browser Steward approved capture element could not be verified");
+  }
+  try {
+    await assertBrowserFrameOrigin(await handle.ownerFrame(), params.approvedOrigin);
+  } finally {
+    await handle.dispose().catch(() => {});
+  }
+}
+
+/** Pins an approved action to the exact DOM element before sending values. */
+async function withApprovedElementHandle<T>(params: {
+  locator: Locator;
+  approvedOrigin?: string;
+  timeout: number;
+  action: (handle: ElementHandle) => Promise<T>;
+}): Promise<{ approved: boolean; value?: T }> {
+  if (!params.approvedOrigin) {
+    return { approved: false };
+  }
+  const handle = await params.locator.elementHandle({ timeout: params.timeout });
+  if (!handle) {
+    throw new Error("Browser Steward approved element could not be resolved");
+  }
+  try {
+    await assertApprovedElementOrigin(handle, params.approvedOrigin);
+    return { approved: true, value: await params.action(handle) };
+  } finally {
+    await handle.dispose().catch(() => {});
+  }
+}
+
+/** Verifies the live frame owning a locator immediately before a frame-targeted action. */
+async function assertApprovedLocatorFrameOrigin(params: {
+  locator: Locator;
+  approvedOrigin?: string;
+  timeout: number;
+}): Promise<void> {
+  if (!params.approvedOrigin) {
+    return;
+  }
+  const handle = await params.locator.elementHandle({ timeout: params.timeout });
+  if (!handle) {
+    throw new Error("Browser Steward approved element could not be resolved");
+  }
+  try {
+    await assertBrowserFrameOrigin(await handle.ownerFrame(), params.approvedOrigin);
+  } finally {
+    await handle.dispose().catch(() => {});
+  }
+}
+
+function guardApprovedWaitFunction(fn: string, approvedOrigin?: string): string {
+  if (!approvedOrigin) {
+    return fn;
+  }
+  return `(...args) => {
+    if (location.origin !== ${JSON.stringify(approvedOrigin)}) {
+      throw new Error("Browser Steward approved origin changed before execution");
+    }
+    const predicate = (${fn});
+    const result =
+      typeof predicate === "function" ? predicate(...args) : predicate;
+    if (location.origin !== ${JSON.stringify(approvedOrigin)}) {
+      throw new Error("Browser Steward approved origin changed during execution");
+    }
+    return result;
+  }`;
 }
 
 const resolveInteractionTimeoutMs = resolveActInteractionTimeoutMs;
@@ -542,6 +740,7 @@ export async function clickViaPlaywright(opts: {
   timeoutMs?: number;
   ssrfPolicy?: SsrFPolicy;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const resolved = requireRefOrSelector(opts.ref, opts.selector);
   const page = await getRestoredPageForTarget(opts);
@@ -587,6 +786,7 @@ export async function clickViaPlaywright(opts: {
   }
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, signal);
   try {
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
     await assertInteractionNavigationCompletedSafely({
       action: async () => {
         const delayMs = resolveBoundedDelayMs(
@@ -604,24 +804,42 @@ export async function clickViaPlaywright(opts: {
             setTimeout(resolve, delayMs);
           });
         }
-        if (opts.doubleClick) {
-          await awaitActionWithAbort(
-            locator.dblclick({
-              timeout,
-              button: opts.button,
-              modifiers: opts.modifiers,
-            }),
-            abortPromise,
-            reconcileRemoteDialog,
-          );
+        const approvedOperation = await withApprovedElementHandle({
+          locator,
+          approvedOrigin: opts.approvedOrigin,
+          timeout,
+          action: (handle) =>
+            awaitActionWithAbort(
+              opts.doubleClick
+                ? handle.dblclick({
+                    timeout,
+                    button: opts.button,
+                    modifiers: opts.modifiers,
+                  })
+                : handle.click({
+                    timeout,
+                    button: opts.button,
+                    modifiers: opts.modifiers,
+                  }),
+              abortPromise,
+              reconcileRemoteDialog,
+            ),
+        });
+        if (approvedOperation.approved) {
           return;
         }
         await awaitActionWithAbort(
-          locator.click({
-            timeout,
-            button: opts.button,
-            modifiers: opts.modifiers,
-          }),
+          opts.doubleClick
+            ? locator.dblclick({
+                timeout,
+                button: opts.button,
+                modifiers: opts.modifiers,
+              })
+            : locator.click({
+                timeout,
+                button: opts.button,
+                modifiers: opts.modifiers,
+              }),
           abortPromise,
           reconcileRemoteDialog,
         );
@@ -632,6 +850,7 @@ export async function clickViaPlaywright(opts: {
       ssrfPolicy: opts.ssrfPolicy,
       targetId: opts.targetId,
     });
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
   } catch (err) {
     throw toFriendlyInteractionError(err, label);
   } finally {
@@ -653,29 +872,41 @@ export async function clickCoordsViaPlaywright(opts: {
   timeoutMs?: number;
   ssrfPolicy?: SsrFPolicy;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const page = await getRestoredPageForTarget(opts);
   const previousUrl = page.url();
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
-  await assertInteractionNavigationCompletedSafely({
-    action: async () => {
-      await awaitActionWithAbort(
-        page.mouse.click(opts.x, opts.y, {
-          button: opts.button,
-          clickCount: opts.doubleClick ? 2 : 1,
-          delay: resolveBoundedDelayMs(opts.delayMs, "clickCoords delayMs", ACT_MAX_CLICK_DELAY_MS),
-        }),
-        abortPromise,
-        reconcileRemoteDialog,
-      );
-    },
-    cdpUrl: opts.cdpUrl,
-    page,
-    previousUrl,
-    ssrfPolicy: opts.ssrfPolicy,
-    targetId: opts.targetId,
-  }).finally(cleanup);
+  try {
+    await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
+    await assertInteractionNavigationCompletedSafely({
+      action: async () => {
+        await assertApprovedCoordinateOrigin(page, opts.x, opts.y, opts.approvedOrigin);
+        await awaitActionWithAbort(
+          page.mouse.click(opts.x, opts.y, {
+            button: opts.button,
+            clickCount: opts.doubleClick ? 2 : 1,
+            delay: resolveBoundedDelayMs(
+              opts.delayMs,
+              "clickCoords delayMs",
+              ACT_MAX_CLICK_DELAY_MS,
+            ),
+          }),
+          abortPromise,
+          reconcileRemoteDialog,
+        );
+      },
+      cdpUrl: opts.cdpUrl,
+      page,
+      previousUrl,
+      ssrfPolicy: opts.ssrfPolicy,
+      targetId: opts.targetId,
+    });
+    await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
+  } finally {
+    cleanup();
+  }
 }
 
 /** Hovers a role ref or selector on the target page. */
@@ -686,6 +917,7 @@ export async function hoverViaPlaywright(opts: {
   selector?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const resolved = requireRefOrSelector(opts.ref, opts.selector);
   const page = await getRestoredPageForTarget(opts);
@@ -693,16 +925,18 @@ export async function hoverViaPlaywright(opts: {
   const locator = resolved.ref
     ? refLocator(page, requireRef(resolved.ref))
     : page.locator(resolved.selector!);
+  const timeout = resolveInteractionTimeoutMs(opts.timeoutMs);
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
   try {
-    await awaitActionWithAbort(
-      locator.hover({
-        timeout: resolveInteractionTimeoutMs(opts.timeoutMs),
-      }),
-      abortPromise,
-      reconcileRemoteDialog,
-    );
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
+    await assertApprovedLocatorFrameOrigin({
+      locator,
+      approvedOrigin: opts.approvedOrigin,
+      timeout,
+    });
+    await awaitActionWithAbort(locator.hover({ timeout }), abortPromise, reconcileRemoteDialog);
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
   } catch (err) {
     throw toFriendlyInteractionError(err, label);
   } finally {
@@ -720,6 +954,7 @@ export async function dragViaPlaywright(opts: {
   endSelector?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const resolvedStart = requireRefOrSelector(opts.startRef, opts.startSelector);
   const resolvedEnd = requireRefOrSelector(opts.endRef, opts.endSelector);
@@ -732,16 +967,29 @@ export async function dragViaPlaywright(opts: {
     : page.locator(resolvedEnd.selector!);
   const startLabel = resolvedStart.ref ?? resolvedStart.selector!;
   const endLabel = resolvedEnd.ref ?? resolvedEnd.selector!;
+  const timeout = resolveInteractionTimeoutMs(opts.timeoutMs);
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
   try {
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
+    await assertApprovedLocatorFrameOrigin({
+      locator: startLocator,
+      approvedOrigin: opts.approvedOrigin,
+      timeout,
+    });
+    await assertApprovedLocatorFrameOrigin({
+      locator: endLocator,
+      approvedOrigin: opts.approvedOrigin,
+      timeout,
+    });
     await awaitActionWithAbort(
       startLocator.dragTo(endLocator, {
-        timeout: resolveInteractionTimeoutMs(opts.timeoutMs),
+        timeout,
       }),
       abortPromise,
       reconcileRemoteDialog,
     );
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
   } catch (err) {
     throw toFriendlyInteractionError(err, `${startLabel} -> ${endLabel}`);
   } finally {
@@ -759,6 +1007,7 @@ export async function selectOptionViaPlaywright(opts: {
   timeoutMs?: number;
   ssrfPolicy?: SsrFPolicy;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const resolved = requireRefOrSelector(opts.ref, opts.selector);
   if (!opts.values?.length) {
@@ -773,15 +1022,30 @@ export async function selectOptionViaPlaywright(opts: {
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
   try {
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
     await assertInteractionNavigationCompletedSafely({
       action: async () => {
-        await awaitActionWithAbort(
-          locator.selectOption(opts.values, {
-            timeout: resolveInteractionTimeoutMs(opts.timeoutMs),
-          }),
-          abortPromise,
-          reconcileRemoteDialog,
-        );
+        const timeout = resolveInteractionTimeoutMs(opts.timeoutMs);
+        const approvedOperation = await withApprovedElementHandle({
+          locator,
+          approvedOrigin: opts.approvedOrigin,
+          timeout,
+          action: (handle) =>
+            awaitActionWithAbort(
+              handle.selectOption(opts.values, { timeout }),
+              abortPromise,
+              reconcileRemoteDialog,
+            ),
+        });
+        if (!approvedOperation.approved) {
+          await awaitActionWithAbort(
+            locator.selectOption(opts.values, {
+              timeout,
+            }),
+            abortPromise,
+            reconcileRemoteDialog,
+          );
+        }
       },
       cdpUrl: opts.cdpUrl,
       page,
@@ -789,6 +1053,7 @@ export async function selectOptionViaPlaywright(opts: {
       ssrfPolicy: opts.ssrfPolicy,
       targetId: opts.targetId,
     });
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
   } catch (err) {
     throw toFriendlyInteractionError(err, label);
   } finally {
@@ -804,6 +1069,7 @@ export async function pressKeyViaPlaywright(opts: {
   delayMs?: number;
   ssrfPolicy?: SsrFPolicy;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const key = normalizeOptionalString(opts.key) ?? "";
   if (!key) {
@@ -815,6 +1081,7 @@ export async function pressKeyViaPlaywright(opts: {
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
   try {
+    await assertApprovedFocusedFrameOrigin(page, opts.approvedOrigin);
     await assertInteractionNavigationCompletedSafely({
       action: async () => {
         await awaitActionWithAbort(
@@ -831,6 +1098,7 @@ export async function pressKeyViaPlaywright(opts: {
       ssrfPolicy: opts.ssrfPolicy,
       targetId: opts.targetId,
     });
+    await assertApprovedFocusedFrameOrigin(page, opts.approvedOrigin);
   } finally {
     cleanup();
   }
@@ -848,6 +1116,7 @@ export async function typeViaPlaywright(opts: {
   timeoutMs?: number;
   ssrfPolicy?: SsrFPolicy;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const resolved = requireRefOrSelector(opts.ref, opts.selector);
   const text = opts.text ?? "";
@@ -859,27 +1128,62 @@ export async function typeViaPlaywright(opts: {
   const timeout = resolveInteractionTimeoutMs(opts.timeoutMs);
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
+  const assertApprovedOrigin = () => assertApprovedPageOrigin(page, opts.approvedOrigin);
   try {
     const previousUrl = page.url();
     if (opts.slowly) {
       await assertInteractionNavigationCompletedSafely({
         action: async () => {
+          if (opts.approvedOrigin) {
+            await withApprovedElementHandle({
+              locator,
+              approvedOrigin: opts.approvedOrigin,
+              timeout,
+              action: async (handle) => {
+                await awaitActionWithAbort(
+                  handle.click({ timeout }),
+                  abortPromise,
+                  reconcileRemoteDialog,
+                );
+                assertApprovedOrigin();
+                await awaitActionWithAbort(
+                  handle.type(text, { timeout, delay: 75 }),
+                  abortPromise,
+                  reconcileRemoteDialog,
+                );
+                assertApprovedOrigin();
+                if (opts.submit) {
+                  await awaitActionWithAbort(
+                    handle.press("Enter", { timeout }),
+                    abortPromise,
+                    reconcileRemoteDialog,
+                  );
+                  assertApprovedOrigin();
+                }
+              },
+            });
+            return;
+          }
+          assertApprovedOrigin();
           await awaitActionWithAbort(
             locator.click({ timeout }),
             abortPromise,
             reconcileRemoteDialog,
           );
+          assertApprovedOrigin();
           await awaitActionWithAbort(
             locator.type(text, { timeout, delay: 75 }),
             abortPromise,
             reconcileRemoteDialog,
           );
+          assertApprovedOrigin();
           if (opts.submit) {
             await awaitActionWithAbort(
               locator.press("Enter", { timeout }),
               abortPromise,
               reconcileRemoteDialog,
             );
+            assertApprovedOrigin();
           }
         },
         cdpUrl: opts.cdpUrl,
@@ -891,17 +1195,44 @@ export async function typeViaPlaywright(opts: {
     } else {
       await assertInteractionNavigationCompletedSafely({
         action: async () => {
+          if (opts.approvedOrigin) {
+            await withApprovedElementHandle({
+              locator,
+              approvedOrigin: opts.approvedOrigin,
+              timeout,
+              action: async (handle) => {
+                await awaitActionWithAbort(
+                  handle.fill(text, { timeout }),
+                  abortPromise,
+                  reconcileRemoteDialog,
+                );
+                assertApprovedOrigin();
+                if (opts.submit) {
+                  await awaitActionWithAbort(
+                    handle.press("Enter", { timeout }),
+                    abortPromise,
+                    reconcileRemoteDialog,
+                  );
+                  assertApprovedOrigin();
+                }
+              },
+            });
+            return;
+          }
+          assertApprovedOrigin();
           await awaitActionWithAbort(
             locator.fill(text, { timeout }),
             abortPromise,
             reconcileRemoteDialog,
           );
+          assertApprovedOrigin();
           if (opts.submit) {
             await awaitActionWithAbort(
               locator.press("Enter", { timeout }),
               abortPromise,
               reconcileRemoteDialog,
             );
+            assertApprovedOrigin();
           }
         },
         cdpUrl: opts.cdpUrl,
@@ -926,6 +1257,7 @@ export async function fillFormViaPlaywright(opts: {
   timeoutMs?: number;
   ssrfPolicy?: SsrFPolicy;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const page = await getRestoredPageForTarget(opts);
   const timeout = resolveInteractionTimeoutMs(opts.timeoutMs);
@@ -945,6 +1277,7 @@ export async function fillFormViaPlaywright(opts: {
       if (!ref) {
         continue;
       }
+      assertApprovedPageOrigin(page, opts.approvedOrigin);
       const locator = refLocator(page, ref);
       if (type === "checkbox" || type === "radio") {
         const checked =
@@ -953,11 +1286,24 @@ export async function fillFormViaPlaywright(opts: {
           const previousUrl = page.url();
           await assertInteractionNavigationCompletedSafely({
             action: async () => {
-              await awaitActionWithAbort(
-                locator.setChecked(checked, { timeout }),
-                abortPromise,
-                reconcileRemoteDialog,
-              );
+              const approvedOperation = await withApprovedElementHandle({
+                locator,
+                approvedOrigin: opts.approvedOrigin,
+                timeout,
+                action: (handle) =>
+                  awaitActionWithAbort(
+                    handle.setChecked(checked, { timeout }),
+                    abortPromise,
+                    reconcileRemoteDialog,
+                  ),
+              });
+              if (!approvedOperation.approved) {
+                await awaitActionWithAbort(
+                  locator.setChecked(checked, { timeout }),
+                  abortPromise,
+                  reconcileRemoteDialog,
+                );
+              }
             },
             cdpUrl: opts.cdpUrl,
             page,
@@ -965,6 +1311,7 @@ export async function fillFormViaPlaywright(opts: {
             ssrfPolicy: opts.ssrfPolicy,
             targetId: opts.targetId,
           });
+          assertApprovedPageOrigin(page, opts.approvedOrigin);
         } catch (err) {
           throw toFriendlyInteractionError(err, ref);
         }
@@ -974,11 +1321,24 @@ export async function fillFormViaPlaywright(opts: {
         const previousUrl = page.url();
         await assertInteractionNavigationCompletedSafely({
           action: async () => {
-            await awaitActionWithAbort(
-              locator.fill(value, { timeout }),
-              abortPromise,
-              reconcileRemoteDialog,
-            );
+            const approvedOperation = await withApprovedElementHandle({
+              locator,
+              approvedOrigin: opts.approvedOrigin,
+              timeout,
+              action: (handle) =>
+                awaitActionWithAbort(
+                  handle.fill(value, { timeout }),
+                  abortPromise,
+                  reconcileRemoteDialog,
+                ),
+            });
+            if (!approvedOperation.approved) {
+              await awaitActionWithAbort(
+                locator.fill(value, { timeout }),
+                abortPromise,
+                reconcileRemoteDialog,
+              );
+            }
           },
           cdpUrl: opts.cdpUrl,
           page,
@@ -986,6 +1346,7 @@ export async function fillFormViaPlaywright(opts: {
           ssrfPolicy: opts.ssrfPolicy,
           targetId: opts.targetId,
         });
+        assertApprovedPageOrigin(page, opts.approvedOrigin);
       } catch (err) {
         throw toFriendlyInteractionError(err, ref);
       }
@@ -1004,6 +1365,7 @@ export async function evaluateViaPlaywright(opts: {
   ref?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<unknown> {
   const fnText = normalizeOptionalString(opts.fn) ?? "";
   if (!fnText) {
@@ -1063,8 +1425,11 @@ export async function evaluateViaPlaywright(opts: {
         "args",
         `
         "use strict";
-        var fnSource = args.fnSource, timeoutMs = args.timeoutMs;
+        var fnSource = args.fnSource, timeoutMs = args.timeoutMs, approvedOrigin = args.approvedOrigin;
         try {
+          if (approvedOrigin && location.origin !== approvedOrigin) {
+            throw new Error("Browser Steward approved origin changed before execution");
+          }
           var candidate = eval("(" + fnSource + ")");
           if (typeof candidate !== "function") {
             throw new Error("evaluate source did not produce a function");
@@ -1076,17 +1441,29 @@ export async function evaluateViaPlaywright(opts: {
               new Promise(function(_, reject) {
                 setTimeout(function() { reject(new Error("evaluate timed out after " + timeoutMs + "ms")); }, timeoutMs);
               })
-            ]);
+            ]).then(function(value) {
+              if (approvedOrigin && location.origin !== approvedOrigin) {
+                throw new Error("Browser Steward approved origin changed before execution");
+              }
+              return value;
+            });
+          }
+          if (approvedOrigin && location.origin !== approvedOrigin) {
+            throw new Error("Browser Steward approved origin changed before execution");
           }
           return result;
         } catch (err) {
           throw new Error("Invalid evaluate function: " + (err && err.message ? err.message : String(err)));
         }
         `,
-      ) as (el: Element, args: { fnSource: string; timeoutMs: number }) => unknown;
+      ) as (
+        el: Element,
+        args: { fnSource: string; timeoutMs: number; approvedOrigin?: string },
+      ) => unknown;
       const evalPromise = locator.evaluate(elementEvaluator, {
         fnSource,
         timeoutMs: evaluateTimeout,
+        ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
       });
       const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, signal);
       const result = await assertInteractionNavigationCompletedSafely({
@@ -1097,6 +1474,7 @@ export async function evaluateViaPlaywright(opts: {
         ssrfPolicy: opts.ssrfPolicy,
         targetId: opts.targetId,
       });
+      assertApprovedPageOrigin(page, opts.approvedOrigin);
       return result;
     }
 
@@ -1105,8 +1483,11 @@ export async function evaluateViaPlaywright(opts: {
       "args",
       `
         "use strict";
-        var fnSource = args.fnSource, timeoutMs = args.timeoutMs;
+        var fnSource = args.fnSource, timeoutMs = args.timeoutMs, approvedOrigin = args.approvedOrigin;
         try {
+          if (approvedOrigin && location.origin !== approvedOrigin) {
+            throw new Error("Browser Steward approved origin changed before execution");
+          }
           var candidate = eval("(" + fnSource + ")");
           if (typeof candidate !== "function") {
             throw new Error("evaluate source did not produce a function");
@@ -1118,17 +1499,26 @@ export async function evaluateViaPlaywright(opts: {
               new Promise(function(_, reject) {
                 setTimeout(function() { reject(new Error("evaluate timed out after " + timeoutMs + "ms")); }, timeoutMs);
               })
-            ]);
+            ]).then(function(value) {
+              if (approvedOrigin && location.origin !== approvedOrigin) {
+                throw new Error("Browser Steward approved origin changed before execution");
+              }
+              return value;
+            });
+          }
+          if (approvedOrigin && location.origin !== approvedOrigin) {
+            throw new Error("Browser Steward approved origin changed before execution");
           }
           return result;
         } catch (err) {
           throw new Error("Invalid evaluate function: " + (err && err.message ? err.message : String(err)));
         }
       `,
-    ) as (args: { fnSource: string; timeoutMs: number }) => unknown;
+    ) as (args: { fnSource: string; timeoutMs: number; approvedOrigin?: string }) => unknown;
     const evalPromise = page.evaluate(browserEvaluator, {
       fnSource,
       timeoutMs: evaluateTimeout,
+      ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
     });
     const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, signal);
     const result = await assertInteractionNavigationCompletedSafely({
@@ -1139,6 +1529,7 @@ export async function evaluateViaPlaywright(opts: {
       ssrfPolicy: opts.ssrfPolicy,
       targetId: opts.targetId,
     });
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
     return result;
   } finally {
     cleanup();
@@ -1153,6 +1544,7 @@ export async function scrollIntoViewViaPlaywright(opts: {
   selector?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const resolved = requireRefOrSelector(opts.ref, opts.selector);
   const page = await getRestoredPageForTarget(opts);
@@ -1165,11 +1557,18 @@ export async function scrollIntoViewViaPlaywright(opts: {
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
   try {
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
+    await assertApprovedLocatorFrameOrigin({
+      locator,
+      approvedOrigin: opts.approvedOrigin,
+      timeout,
+    });
     await awaitActionWithAbort(
       locator.scrollIntoViewIfNeeded({ timeout }),
       abortPromise,
       reconcileRemoteDialog,
     );
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
   } catch (err) {
     throw toFriendlyInteractionError(err, label);
   } finally {
@@ -1190,26 +1589,29 @@ export async function waitForViaPlaywright(opts: {
   fn?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  approvedOrigin?: string;
 }): Promise<void> {
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
   const timeout = resolveActWaitTimeoutMs(opts.timeoutMs);
   const { abortPromise, cleanup } = createAbortPromise(opts.signal);
   const reconcileRemoteDialog = () => reconcileRemoteDialogAfterActionSettled(page, opts.signal);
-  const waitForStep = async <T>(stepPromise: Promise<T>) => {
-    await awaitActionWithAbort(stepPromise, abortPromise, reconcileRemoteDialog);
+  const waitForStep = async <T>(step: () => Promise<T>) => {
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
+    await awaitActionWithAbort(step(), abortPromise, reconcileRemoteDialog);
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
   };
 
   try {
     if (typeof opts.timeMs === "number" && Number.isFinite(opts.timeMs)) {
-      await waitForStep(
+      await waitForStep(() =>
         page.waitForTimeout(
           resolveBoundedDelayMs(opts.timeMs, "wait timeMs", ACT_MAX_WAIT_TIME_MS),
         ),
       );
     }
     if (opts.text) {
-      await waitForStep(
+      await waitForStep(() =>
         page.getByText(opts.text).first().waitFor({
           state: "visible",
           timeout,
@@ -1217,7 +1619,7 @@ export async function waitForViaPlaywright(opts: {
       );
     }
     if (opts.textGone) {
-      await waitForStep(
+      await waitForStep(() =>
         page.getByText(opts.textGone).first().waitFor({
           state: "hidden",
           timeout,
@@ -1227,22 +1629,26 @@ export async function waitForViaPlaywright(opts: {
     if (opts.selector) {
       const selector = normalizeOptionalString(opts.selector) ?? "";
       if (selector) {
-        await waitForStep(page.locator(selector).first().waitFor({ state: "visible", timeout }));
+        await waitForStep(() =>
+          page.locator(selector).first().waitFor({ state: "visible", timeout }),
+        );
       }
     }
     if (opts.url) {
       const url = normalizeOptionalString(opts.url) ?? "";
       if (url) {
-        await waitForStep(page.waitForURL(url, { timeout }));
+        await waitForStep(() => page.waitForURL(url, { timeout }));
       }
     }
     if (opts.loadState) {
-      await waitForStep(page.waitForLoadState(opts.loadState, { timeout }));
+      await waitForStep(() => page.waitForLoadState(opts.loadState, { timeout }));
     }
     if (opts.fn) {
       const fn = normalizeOptionalString(opts.fn) ?? "";
       if (fn) {
-        await waitForStep(page.waitForFunction(fn, { timeout }));
+        await waitForStep(() =>
+          page.waitForFunction(guardApprovedWaitFunction(fn, opts.approvedOrigin), { timeout }),
+        );
       }
     }
   } finally {
@@ -1259,9 +1665,11 @@ export async function takeScreenshotViaPlaywright(opts: {
   fullPage?: boolean;
   type?: "png" | "jpeg";
   timeoutMs?: number;
+  approvedOrigin?: string;
 }): Promise<{ buffer: Buffer }> {
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
+  await assertApprovedCaptureOrigin({ page, approvedOrigin: opts.approvedOrigin });
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
   const type = opts.type ?? "png";
   if (opts.ref) {
@@ -1269,7 +1677,17 @@ export async function takeScreenshotViaPlaywright(opts: {
       throw new Error("fullPage is not supported for element screenshots");
     }
     const locator = refLocator(page, opts.ref);
+    await assertApprovedCaptureOrigin({
+      page,
+      locator,
+      approvedOrigin: opts.approvedOrigin,
+    });
     const buffer = await locator.screenshot({ type, timeout: opts.timeoutMs });
+    await assertApprovedCaptureOrigin({
+      page,
+      locator,
+      approvedOrigin: opts.approvedOrigin,
+    });
     return { buffer };
   }
   if (opts.element) {
@@ -1277,7 +1695,17 @@ export async function takeScreenshotViaPlaywright(opts: {
       throw new Error("fullPage is not supported for element screenshots");
     }
     const locator = page.locator(opts.element).first();
+    await assertApprovedCaptureOrigin({
+      page,
+      locator,
+      approvedOrigin: opts.approvedOrigin,
+    });
     const buffer = await locator.screenshot({ type, timeout: opts.timeoutMs });
+    await assertApprovedCaptureOrigin({
+      page,
+      locator,
+      approvedOrigin: opts.approvedOrigin,
+    });
     return { buffer };
   }
   const buffer = await page.screenshot({
@@ -1285,6 +1713,7 @@ export async function takeScreenshotViaPlaywright(opts: {
     fullPage: Boolean(opts.fullPage),
     timeout: opts.timeoutMs,
   });
+  await assertApprovedCaptureOrigin({ page, approvedOrigin: opts.approvedOrigin });
   return { buffer };
 }
 
@@ -1299,6 +1728,7 @@ export async function screenshotWithLabelsViaPlaywright(opts: {
   fullPage?: boolean;
   ref?: string;
   element?: string;
+  approvedOrigin?: string;
 }): Promise<{
   buffer: Buffer;
   labels: number;
@@ -1307,6 +1737,7 @@ export async function screenshotWithLabelsViaPlaywright(opts: {
 }> {
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
+  await assertApprovedCaptureOrigin({ page, approvedOrigin: opts.approvedOrigin });
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
   const type = opts.type ?? "png";
   const maxLabels =
@@ -1316,6 +1747,18 @@ export async function screenshotWithLabelsViaPlaywright(opts: {
 
   const refKey = normalizeOptionalString(opts.ref) ?? undefined;
   const elementSelector = normalizeOptionalString(opts.element) ?? undefined;
+  const captureLocator = refKey
+    ? refLocator(page, refKey)
+    : elementSelector
+      ? page.locator(elementSelector).first()
+      : undefined;
+  if (captureLocator) {
+    await assertApprovedCaptureOrigin({
+      page,
+      locator: captureLocator,
+      approvedOrigin: opts.approvedOrigin,
+    });
+  }
   const space: CoordinateSpace = opts.fullPage
     ? "fullpage"
     : refKey || elementSelector
@@ -1405,6 +1848,11 @@ export async function screenshotWithLabelsViaPlaywright(opts: {
             fullPage: Boolean(opts.fullPage),
             timeout: opts.timeoutMs,
           });
+    await assertApprovedCaptureOrigin({
+      page,
+      locator: captureLocator,
+      approvedOrigin: opts.approvedOrigin,
+    });
     return {
       // `labels` reports overlay boxes actually drawn on the captured image
       // (in-viewport, within budget); off-viewport refs are surfaced via
@@ -1464,6 +1912,7 @@ export async function setInputFilesViaPlaywright(opts: {
   inputRef?: string;
   element?: string;
   paths: string[];
+  approvedOrigin?: string;
 }): Promise<void> {
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
@@ -1488,7 +1937,18 @@ export async function setInputFilesViaPlaywright(opts: {
   const resolvedPaths = resolvedResult.paths;
 
   try {
-    await locator.setInputFiles(resolvedPaths);
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
+    await assertBrowserTargetOrigin(page, opts.approvedOrigin);
+    if (opts.approvedOrigin) {
+      const handle = await locator.elementHandle();
+      const ownerFrame = handle ? await handle.ownerFrame() : null;
+      await assertBrowserFrameOrigin(ownerFrame, opts.approvedOrigin);
+      await handle!.setInputFiles(resolvedPaths);
+    } else {
+      await locator.setInputFiles(resolvedPaths);
+    }
+    assertApprovedPageOrigin(page, opts.approvedOrigin);
+    await assertBrowserTargetOrigin(page, opts.approvedOrigin);
   } catch (err) {
     throw toFriendlyInteractionError(err, inputRef || element);
   }
@@ -1513,11 +1973,22 @@ async function executeSingleAction(
   ssrfPolicy?: SsrFPolicy,
   depth = 0,
   signal?: AbortSignal,
+  approvedOrigin?: string,
 ): Promise<unknown> {
   if (depth > ACT_MAX_BATCH_DEPTH) {
     throw new Error(`Batch nesting depth exceeds maximum of ${ACT_MAX_BATCH_DEPTH}`);
   }
   const effectiveTargetId = action.targetId ?? targetId;
+  const approvedPage = approvedOrigin
+    ? await getPageForTargetId({
+        cdpUrl,
+        targetId: effectiveTargetId,
+        ssrfPolicy,
+      })
+    : undefined;
+  if (approvedOrigin) {
+    await assertBrowserTargetOrigin(approvedPage!, approvedOrigin);
+  }
   switch (action.kind) {
     case "click":
       await clickViaPlaywright({
@@ -1534,6 +2005,7 @@ async function executeSingleAction(
         timeoutMs: action.timeoutMs,
         ssrfPolicy,
         signal,
+        approvedOrigin,
       });
       break;
     case "clickCoords":
@@ -1548,6 +2020,7 @@ async function executeSingleAction(
         timeoutMs: action.timeoutMs,
         ssrfPolicy,
         signal,
+        approvedOrigin,
       });
       break;
     case "type":
@@ -1562,6 +2035,7 @@ async function executeSingleAction(
         timeoutMs: action.timeoutMs,
         ssrfPolicy,
         signal,
+        approvedOrigin,
       });
       break;
     case "press":
@@ -1572,6 +2046,7 @@ async function executeSingleAction(
         delayMs: action.delayMs,
         ssrfPolicy,
         signal,
+        approvedOrigin,
       });
       break;
     case "hover":
@@ -1582,6 +2057,7 @@ async function executeSingleAction(
         selector: action.selector,
         timeoutMs: action.timeoutMs,
         signal,
+        approvedOrigin,
       });
       break;
     case "scrollIntoView":
@@ -1592,6 +2068,7 @@ async function executeSingleAction(
         selector: action.selector,
         timeoutMs: action.timeoutMs,
         signal,
+        approvedOrigin,
       });
       break;
     case "drag":
@@ -1604,6 +2081,7 @@ async function executeSingleAction(
         endSelector: action.endSelector,
         timeoutMs: action.timeoutMs,
         signal,
+        approvedOrigin,
       });
       break;
     case "select":
@@ -1616,6 +2094,7 @@ async function executeSingleAction(
         timeoutMs: action.timeoutMs,
         ssrfPolicy,
         signal,
+        approvedOrigin,
       });
       break;
     case "fill":
@@ -1626,6 +2105,7 @@ async function executeSingleAction(
         timeoutMs: action.timeoutMs,
         ssrfPolicy,
         signal,
+        approvedOrigin,
       });
       break;
     case "resize":
@@ -1652,6 +2132,7 @@ async function executeSingleAction(
         fn: action.fn,
         timeoutMs: action.timeoutMs,
         signal,
+        approvedOrigin,
       });
       break;
     case "evaluate":
@@ -1666,11 +2147,13 @@ async function executeSingleAction(
         ref: action.ref,
         timeoutMs: action.timeoutMs,
         signal,
+        approvedOrigin,
       });
     case "close":
       await closePageViaPlaywright({
         cdpUrl,
         targetId: effectiveTargetId,
+        approvedOrigin,
       });
       break;
     case "batch":
@@ -1683,10 +2166,14 @@ async function executeSingleAction(
         evaluateEnabled,
         depth: depth + 1,
         signal,
+        approvedOrigin,
       });
       break;
     default:
       throw new Error(`Unsupported batch action kind: ${(action as { kind: string }).kind}`);
+  }
+  if (approvedOrigin) {
+    await assertBrowserTargetOrigin(approvedPage!, approvedOrigin);
   }
   return undefined;
 }
@@ -1698,6 +2185,7 @@ export async function executeActViaPlaywright(opts: {
   targetId?: string;
   evaluateEnabled?: boolean;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
   signal?: AbortSignal;
 }): Promise<{
   result?: unknown;
@@ -1713,6 +2201,7 @@ export async function executeActViaPlaywright(opts: {
   const dialogAbort = createObservedDialogAbortSignalForPage({
     page,
     parentSignal: opts.signal,
+    approvedOrigin: opts.approvedOrigin,
   });
   try {
     if (opts.action.kind === "batch") {
@@ -1724,6 +2213,7 @@ export async function executeActViaPlaywright(opts: {
         stopOnError: opts.action.stopOnError,
         evaluateEnabled: opts.evaluateEnabled,
         signal: dialogAbort.signal,
+        approvedOrigin: opts.approvedOrigin,
       });
       return { results: batch.results };
     }
@@ -1735,6 +2225,7 @@ export async function executeActViaPlaywright(opts: {
       opts.ssrfPolicy,
       0,
       dialogAbort.signal,
+      opts.approvedOrigin,
     );
     if (opts.action.kind === "evaluate") {
       return { result };
@@ -1758,6 +2249,7 @@ export async function batchViaPlaywright(opts: {
   stopOnError?: boolean;
   evaluateEnabled?: boolean;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
   depth?: number;
   signal?: AbortSignal;
 }): Promise<{ results: Array<{ ok: boolean; error?: string }> }> {
@@ -1782,13 +2274,16 @@ export async function batchViaPlaywright(opts: {
         opts.ssrfPolicy,
         depth,
         opts.signal,
+        opts.approvedOrigin,
       );
       results.push({ ok: true });
     } catch (err) {
       if (isBrowserObservedDialogBlockedError(err)) {
         throw err;
       }
-      const message = formatErrorMessage(err);
+      const message = opts.approvedOrigin
+        ? "Browser Steward approved batch step failed"
+        : formatErrorMessage(err);
       results.push({ ok: false, error: message });
       if (opts.stopOnError !== false) {
         break;

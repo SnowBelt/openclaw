@@ -5,6 +5,7 @@
  * policy checks and profile reachability probes.
  */
 import { clampPositiveTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
+import { readBrowserStewardApprovedOrigin } from "../browser-steward-transport.js";
 import {
   BrowserProfileUnavailableError,
   BrowserTabNotFoundError,
@@ -18,7 +19,11 @@ import {
 import { getBrowserProfileCapabilities } from "../profile-capabilities.js";
 import type { BrowserRouteContext, ProfileContext } from "../server-context.js";
 import { resolveTargetIdFromTabs } from "../target-id.js";
-import { browserNavigationPolicyForProfile, resolveProfileContext } from "./agent.shared.js";
+import {
+  assertBrowserStewardApprovedTabOrigin,
+  browserNavigationPolicyForProfile,
+  resolveProfileContext,
+} from "./agent.shared.js";
 import { readRouteNonNegativeInteger } from "./route-numeric.js";
 import type { BrowserRequest, BrowserResponse, BrowserRouteRegistrar } from "./types.js";
 import { asyncBrowserRoute, jsonError, toStringOrEmpty } from "./utils.js";
@@ -224,6 +229,10 @@ export function registerBrowserTabRoutes(app: BrowserRouteRegistrar, ctx: Browse
   app.post(
     "/tabs/open",
     asyncBrowserRoute(async (req, res) => {
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonError(res, 403, "Browser Steward approved origin is invalid");
+      }
       const url = toStringOrEmpty((req.body as { url?: unknown })?.url);
       const label = readOptionalTabLabel(req.body);
       if (!url) {
@@ -242,6 +251,12 @@ export function registerBrowserTabRoutes(app: BrowserRouteRegistrar, ctx: Browse
           });
           await profileCtx.ensureBrowserAvailable();
           const tab = await profileCtx.openTab(url, { label });
+          try {
+            assertBrowserStewardApprovedTabOrigin(tab.url, approvedOriginHeader.origin);
+          } catch (error) {
+            await profileCtx.closeTab(tab.targetId).catch(() => {});
+            throw error;
+          }
           res.json(tab);
         },
       });
@@ -254,6 +269,10 @@ export function registerBrowserTabRoutes(app: BrowserRouteRegistrar, ctx: Browse
       const targetId = parseRequiredTargetId(res, (req.body as { targetId?: unknown })?.targetId);
       if (!targetId) {
         return;
+      }
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonError(res, 403, "Browser Steward approved origin is invalid");
       }
       await runTabTargetMutation({
         req,
@@ -280,6 +299,7 @@ export function registerBrowserTabRoutes(app: BrowserRouteRegistrar, ctx: Browse
               ...ssrfPolicyOpts,
             });
           }
+          assertBrowserStewardApprovedTabOrigin(tab.url, approvedOriginHeader.origin);
           await profileCtx.focusTab(resolved.targetId);
         },
       });
@@ -289,6 +309,10 @@ export function registerBrowserTabRoutes(app: BrowserRouteRegistrar, ctx: Browse
   app.delete(
     "/tabs/:targetId",
     asyncBrowserRoute(async (req, res) => {
+      const approvedOriginHeader = readBrowserStewardApprovedOrigin(req.headers);
+      if (approvedOriginHeader.present && !approvedOriginHeader.origin) {
+        return jsonError(res, 403, "Browser Steward approved origin is invalid");
+      }
       const targetId = parseRequiredTargetId(res, req.params.targetId);
       if (!targetId) {
         return;
@@ -299,6 +323,23 @@ export function registerBrowserTabRoutes(app: BrowserRouteRegistrar, ctx: Browse
         ctx,
         targetId,
         mutate: async (profileCtx, id) => {
+          if (approvedOriginHeader.origin) {
+            const tabs = await profileCtx.listTabs();
+            const resolved = resolveTargetIdFromTabs(id, tabs);
+            if (!resolved.ok) {
+              if (resolved.reason === "ambiguous") {
+                throw new BrowserTargetAmbiguousError();
+              }
+              throw new BrowserTabNotFoundError({ input: id });
+            }
+            const tab = tabs.find((currentTab) => currentTab.targetId === resolved.targetId);
+            if (!tab) {
+              throw new BrowserTabNotFoundError({ input: id });
+            }
+            assertBrowserStewardApprovedTabOrigin(tab.url, approvedOriginHeader.origin);
+            await profileCtx.closeTab(resolved.targetId);
+            return;
+          }
           await profileCtx.closeTab(id);
         },
       });

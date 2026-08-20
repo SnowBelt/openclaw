@@ -3,6 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  onTrustedInternalDiagnosticEvent,
+  resetDiagnosticEventsForTest,
+  type DiagnosticEventPayload,
+} from "../../infra/diagnostic-events.js";
 import { sessionsFilesHandlers } from "./sessions-files.js";
 
 const hoisted = vi.hoisted(() => ({
@@ -36,6 +41,16 @@ function createResponder() {
   };
 }
 
+function captureSessionStewardEvents() {
+  const events: DiagnosticEventPayload[] = [];
+  const stop = onTrustedInternalDiagnosticEvent((event) => {
+    if (event.type.startsWith("session_steward.")) {
+      events.push(event);
+    }
+  });
+  return { events, stop };
+}
+
 type SessionFilesMethod = "sessions.files.list" | "sessions.files.get";
 
 async function invokeSessionFilesHandler(
@@ -49,7 +64,7 @@ async function invokeSessionFilesHandler(
     client: null,
     isWebchatConnect: () => false,
     respond: responder.respond,
-    context: {} as never,
+    context: { getRuntimeConfig: () => ({}) } as never,
   });
   return responder.calls;
 }
@@ -90,6 +105,7 @@ describe("sessions.files RPC handlers", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDiagnosticEventsForTest();
     workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-session-files-test-"));
     hoisted.resolveDefaultAgentId.mockReturnValue("main");
     hoisted.resolveAgentWorkspaceDir.mockReturnValue(workspaceRoot);
@@ -123,6 +139,7 @@ describe("sessions.files RPC handlers", () => {
   });
 
   afterEach(() => {
+    resetDiagnosticEventsForTest();
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
@@ -151,6 +168,100 @@ describe("sessions.files RPC handlers", () => {
       ["ui", "directory", "modified"],
       ["package.json", "file", "modified"],
     ]);
+  });
+
+  it("lists files for same-agent and global session boundaries", async () => {
+    const diagnostics = captureSessionStewardEvents();
+    const sameAgentPayload = expectOkPayload(
+      await invokeSessionFilesHandler("sessions.files.list", {
+        sessionKey: "agent:main:main",
+        agentId: "main",
+      }),
+    );
+    expect(sameAgentPayload.sessionKey).toBe("agent:main:main");
+
+    const globalPayload = expectOkPayload(
+      await invokeSessionFilesHandler("sessions.files.list", {
+        sessionKey: "global",
+        agentId: "main",
+      }),
+    );
+    expect(globalPayload.sessionKey).toBe("global");
+    diagnostics.stop();
+
+    expect(diagnostics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_steward.boundary_decision",
+          surface: "sessions.files.list",
+          action: "list",
+          outcome: "allow",
+          boundaryKind: "agent",
+          agentRelation: "same_agent",
+          affectedSession: "agent:main:REDACTED",
+          ownerAgentId: "main",
+          requestedAgentId: "main",
+        }),
+        expect.objectContaining({
+          type: "session_steward.boundary_decision",
+          surface: "sessions.files.list",
+          action: "list",
+          outcome: "allow",
+          boundaryKind: "global",
+          agentRelation: "unbound",
+          affectedSession: "GLOBAL",
+          ownerAgentId: "UNKNOWN",
+          requestedAgentId: "main",
+        }),
+      ]),
+    );
+  });
+
+  it("rejects cross-agent and malformed session boundaries without raw tails", async () => {
+    const diagnostics = captureSessionStewardEvents();
+    for (const sessionKey of ["agent:main:direct:user-1", "agent::main", "agent:main:"]) {
+      const params =
+        sessionKey === "agent:main:direct:user-1"
+          ? { sessionKey, agentId: "worker" }
+          : { sessionKey };
+      const calls = await invokeSessionFilesHandler("sessions.files.list", params);
+
+      const error = expectError(calls);
+      expect(error.code).toBe("INVALID_REQUEST");
+      expect(JSON.stringify(calls)).not.toContain("user-1");
+      expect(JSON.stringify(calls)).not.toContain("person-123");
+      expect(JSON.stringify(calls)).not.toContain("thread-123");
+    }
+    diagnostics.stop();
+
+    expect(diagnostics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_steward.boundary_decision",
+          surface: "sessions.files.list",
+          action: "list",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+        expect.objectContaining({
+          type: "session_steward.boundary_rejected",
+          surface: "sessions.files.list",
+          action: "list",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+        expect.objectContaining({
+          type: "session_steward.boundary_rejected",
+          surface: "sessions.files.list",
+          action: "list",
+          outcome: "reject",
+          affectedSession: "UNKNOWN",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(diagnostics.events)).not.toContain("user-1");
+    expect(JSON.stringify(diagnostics.events)).not.toContain("person-123");
+    expect(JSON.stringify(diagnostics.events)).not.toContain("thread-123");
   });
 
   it("collects touched files from existing transcript tool-call spellings", async () => {

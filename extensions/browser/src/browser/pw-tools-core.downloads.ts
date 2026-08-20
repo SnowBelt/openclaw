@@ -9,6 +9,8 @@ import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import { writeExternalFileWithinOutputRoot } from "./output-files.js";
 import { resolveStrictExistingUploadPaths } from "./paths.js";
 import {
+  assertBrowserFrameOrigin,
+  assertBrowserPageOrigin,
   armObservedDialogResponseOnPage,
   ensurePageState,
   getPageForTargetId,
@@ -139,10 +141,13 @@ export async function armFileUploadViaPlaywright(opts: {
   targetId?: string;
   paths?: string[];
   timeoutMs?: number;
+  approvedOrigin?: string;
 }): Promise<void> {
   const page = await getPageForTargetId(opts);
   const state = ensurePageState(page);
   const timeout = normalizeTimeoutMs(opts.timeoutMs, 120_000);
+
+  assertBrowserPageOrigin(page, opts.approvedOrigin);
 
   state.armIdUpload = bumpUploadArmId();
   const armId = state.armIdUpload;
@@ -175,12 +180,32 @@ export async function armFileUploadViaPlaywright(opts: {
         }
         return;
       }
-      await fileChooser.setFiles(uploadPathsResult.paths);
+      let input: Awaited<ReturnType<typeof fileChooser.element>> | null = null;
       try {
-        const input =
+        assertBrowserPageOrigin(page, opts.approvedOrigin);
+        input =
           typeof fileChooser.element === "function"
             ? await Promise.resolve(fileChooser.element())
             : null;
+        if (opts.approvedOrigin) {
+          const chooserPage =
+            typeof fileChooser.page === "function" ? fileChooser.page() : undefined;
+          if (chooserPage !== page || !input || typeof input.ownerFrame !== "function") {
+            throw new Error("Browser Steward approved upload frame could not be verified");
+          }
+          const ownerFrame = await input.ownerFrame();
+          await assertBrowserFrameOrigin(ownerFrame, opts.approvedOrigin);
+        }
+      } catch {
+        try {
+          await page.keyboard.press("Escape");
+        } catch {
+          // Best-effort.
+        }
+        return;
+      }
+      await fileChooser.setFiles(uploadPathsResult.paths);
+      try {
         if (input) {
           await input.evaluate((el) => {
             el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -204,6 +229,7 @@ export async function armDialogViaPlaywright(opts: {
   accept: boolean;
   promptText?: string;
   timeoutMs?: number;
+  approvedOrigin?: string;
 }): Promise<void> {
   const page = await getPageForTargetId(opts);
   const timeout = normalizeTimeoutMs(opts.timeoutMs, 120_000);
@@ -214,6 +240,7 @@ export async function armDialogViaPlaywright(opts: {
       closedBy: "agent",
       ...(opts.dialogId !== undefined ? { dialogId: opts.dialogId } : {}),
       ...(opts.promptText !== undefined ? { promptText: opts.promptText } : {}),
+      ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
     });
     return;
   } catch (err) {
@@ -226,6 +253,7 @@ export async function armDialogViaPlaywright(opts: {
     page,
     accept: opts.accept,
     timeoutMs: timeout,
+    ...(opts.approvedOrigin ? { approvedOrigin: opts.approvedOrigin } : {}),
     ...(opts.promptText !== undefined ? { promptText: opts.promptText } : {}),
   });
 }

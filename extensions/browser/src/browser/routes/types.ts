@@ -9,6 +9,7 @@ export type BrowserRequest = {
   params: Record<string, string>;
   query: Record<string, unknown>;
   body?: unknown;
+  headers?: Record<string, string | string[] | undefined>;
   /**
    * Optional abort signal for in-process dispatch. This lets callers enforce
    * timeouts and (where supported) cancel long-running operations.

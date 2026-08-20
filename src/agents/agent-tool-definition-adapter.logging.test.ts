@@ -115,6 +115,39 @@ describe("agent tool definition adapter logging", () => {
     );
   });
 
+  it("uses a tool-owned redactor for browser failure input previews", async () => {
+    const rawSecret = "browser-failure-password-123456";
+    const baseTool = {
+      name: "browser",
+      label: "Browser",
+      description: "controls a browser",
+      parameters: Type.Any(),
+      redactBeforeToolCallDiagnosticParams: (value: unknown) => ({
+        ...(value as Record<string, unknown>),
+        password: "REDACTED",
+      }),
+      execute: async () => {
+        throw new Error("Browser Steward approved origin changed before execution");
+      },
+    } satisfies AgentTool;
+    const [def] = toToolDefinitions([baseTool]);
+    if (!def) {
+      throw new Error("missing tool definition");
+    }
+
+    await def.execute(
+      "call-browser-failure-redaction",
+      { action: "act", password: rawSecret },
+      undefined,
+      undefined,
+      extensionContext,
+    );
+
+    const message = String(firstLogErrorMessage());
+    expect(message).toContain('"password":"***"');
+    expect(message).not.toContain(rawSecret);
+  });
+
   it("omits raw exec commands and env values from failure logs", async () => {
     const commandSecret = "issue85049-xai-cleartext-token-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
     const envSecret = "issue85049-env-cleartext-token-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";

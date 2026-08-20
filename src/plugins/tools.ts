@@ -56,6 +56,8 @@ export type PluginToolMeta = {
   optional: boolean;
   trustedLocalMedia?: boolean;
   mcp?: PluginToolMcpMeta;
+  /** Request-scoped registry that owns trusted policy for this tool instance. */
+  trustedPolicyRegistry?: PluginRegistry;
 };
 
 type PluginToolFactoryTimingResult = "array" | "error" | "null" | "single";
@@ -79,6 +81,7 @@ const PLUGIN_TOOL_FACTORY_SUMMARY_LIMIT = 20;
 
 const pluginToolMeta = new WeakMap<AnyAgentTool, PluginToolMeta>();
 const scopedPluginTools = new WeakMap<AnyAgentTool, Map<string, AnyAgentTool>>();
+const trustedPolicyRegistryByTool = new WeakMap<AnyAgentTool, PluginRegistry>();
 
 /** Attaches plugin ownership metadata to a concrete agent tool instance. */
 export function setPluginToolMeta(tool: AnyAgentTool, meta: PluginToolMeta): void {
@@ -90,11 +93,28 @@ export function getPluginToolMeta(tool: AnyAgentTool): PluginToolMeta | undefine
   return pluginToolMeta.get(tool);
 }
 
+/** Attaches a request-scoped trusted-policy registry to a core tool instance. */
+export function setTrustedPolicyRegistryForTool(
+  tool: AnyAgentTool,
+  registry: PluginRegistry,
+): void {
+  trustedPolicyRegistryByTool.set(tool, registry);
+}
+
+/** Reads the request-scoped trusted-policy registry for any tool instance. */
+export function getTrustedPolicyRegistryForTool(tool: AnyAgentTool): PluginRegistry | undefined {
+  return pluginToolMeta.get(tool)?.trustedPolicyRegistry ?? trustedPolicyRegistryByTool.get(tool);
+}
+
 /** Copies plugin ownership metadata when wrappers replace a tool object. */
 export function copyPluginToolMeta(source: AnyAgentTool, target: AnyAgentTool): void {
   const meta = pluginToolMeta.get(source);
   if (meta) {
     pluginToolMeta.set(target, meta);
+  }
+  const trustedPolicyRegistry = trustedPolicyRegistryByTool.get(source);
+  if (trustedPolicyRegistry) {
+    trustedPolicyRegistryByTool.set(target, trustedPolicyRegistry);
   }
 }
 
@@ -587,6 +607,11 @@ function resolvePluginToolRuntimePluginIds(params: {
     ) {
       continue;
     }
+    if ((plugin.contracts?.trustedToolPolicies?.length ?? 0) > 0) {
+      // Trusted policies protect calls that may remain exposed through another
+      // tool, so load their owner independently of tool allow/deny filtering.
+      pluginIds.add(plugin.id);
+    }
     if (denylistBlocksPlugin({ pluginId: plugin.id, denylist })) {
       continue;
     }
@@ -669,64 +694,87 @@ function createCachedDescriptorPluginTool(params: {
   const { descriptor } = params.descriptor;
   const pluginId = descriptor.owner.kind === "plugin" ? descriptor.owner.pluginId : "";
   const toolName = descriptor.name;
+  let runtimeTool: AnyAgentTool | undefined;
+  const resolveRuntimeTool = (): AnyAgentTool => {
+    if (runtimeTool) {
+      return runtimeTool;
+    }
+    const loadOptions = buildPluginRuntimeLoadOptions(params.loadContext, {
+      activate: false,
+      toolDiscovery: true,
+      onlyPluginIds: [pluginId],
+      ...(params.runtimeOptions ? { runtimeOptions: params.runtimeOptions } : {}),
+    });
+    const registry = resolvePluginToolRegistry({
+      loadOptions,
+      onlyPluginIds: [pluginId],
+    });
+    const candidates = registry?.tools.filter((candidate) => candidate.pluginId === pluginId);
+    if (!candidates || candidates.length === 0) {
+      throw new Error(`plugin tool runtime unavailable (${pluginId}): ${toolName}`);
+    }
+    const requestedToolName = normalizeToolName(toolName);
+    const resolveCandidateTool = (candidate: PluginToolRegistration): AnyAgentTool | undefined => {
+      const resolved = resolvePluginToolFactory(candidate, params.ctx);
+      const listRaw: unknown[] = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
+      for (const toolRaw of listRaw) {
+        const malformedReason = describeMalformedPluginTool(toolRaw);
+        if (malformedReason) {
+          continue;
+        }
+        const candidateTool = toolRaw as AnyAgentTool;
+        if (normalizeToolName(readPluginToolName(candidateTool)) === requestedToolName) {
+          return candidateTool;
+        }
+      }
+      return undefined;
+    };
+    const matchingNamedCandidates = candidates.filter(
+      (candidate) =>
+        candidate.names.length > 0 &&
+        candidate.names.some((name) => normalizeToolName(name) === requestedToolName),
+    );
+    const unnamedCandidates = candidates.filter((candidate) => candidate.names.length === 0);
+    for (const candidate of [...matchingNamedCandidates, ...unnamedCandidates]) {
+      try {
+        const matchedTool = resolveCandidateTool(candidate);
+        if (matchedTool) {
+          runtimeTool = matchedTool;
+          return matchedTool;
+        }
+      } catch {
+        continue;
+      }
+    }
+    throw new Error(`plugin tool runtime missing (${pluginId}): ${toolName}`);
+  };
   const tool: AnyAgentTool = {
     name: descriptor.name,
     label: descriptor.title ?? descriptor.name,
     description: descriptor.description,
     parameters: descriptor.inputSchema as never,
     async execute(toolCallId, executeParams, signal, onUpdate) {
-      const loadOptions = buildPluginRuntimeLoadOptions(params.loadContext, {
-        activate: false,
-        toolDiscovery: true,
-        onlyPluginIds: [pluginId],
-        ...(params.runtimeOptions ? { runtimeOptions: params.runtimeOptions } : {}),
-      });
-      const registry = resolvePluginToolRegistry({
-        loadOptions,
-        onlyPluginIds: [pluginId],
-      });
-      const candidates = registry?.tools.filter((candidate) => candidate.pluginId === pluginId);
-      if (!candidates || candidates.length === 0) {
-        throw new Error(`plugin tool runtime unavailable (${pluginId}): ${toolName}`);
-      }
-      const requestedToolName = normalizeToolName(toolName);
-      const resolveCandidateTool = (
-        candidate: PluginToolRegistration,
-      ): AnyAgentTool | undefined => {
-        const resolved = resolvePluginToolFactory(candidate, params.ctx);
-        const listRaw: unknown[] = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
-        for (const toolRaw of listRaw) {
-          const malformedReason = describeMalformedPluginTool(toolRaw);
-          if (malformedReason) {
-            continue;
-          }
-          const runtimeTool = toolRaw as AnyAgentTool;
-          if (normalizeToolName(readPluginToolName(runtimeTool)) === requestedToolName) {
-            return runtimeTool;
-          }
-        }
-        return undefined;
-      };
-      const matchingNamedCandidates = candidates.filter(
-        (candidate) =>
-          candidate.names.length > 0 &&
-          candidate.names.some((name) => normalizeToolName(name) === requestedToolName),
-      );
-      const unnamedCandidates = candidates.filter((candidate) => candidate.names.length === 0);
-      for (const candidate of [...matchingNamedCandidates, ...unnamedCandidates]) {
-        let matchedTool: AnyAgentTool | undefined;
-        try {
-          matchedTool = resolveCandidateTool(candidate);
-        } catch {
-          continue;
-        }
-        if (matchedTool) {
-          return matchedTool.execute(toolCallId, executeParams, signal, onUpdate);
-        }
-      }
-      throw new Error(`plugin tool runtime missing (${pluginId}): ${toolName}`);
+      return resolveRuntimeTool().execute(toolCallId, executeParams, signal, onUpdate);
     },
   };
+  if (params.descriptor.hasBeforeToolCallDiagnosticParamsRedactor) {
+    tool.redactBeforeToolCallDiagnosticParams = (value) => {
+      const redact = resolveRuntimeTool().redactBeforeToolCallDiagnosticParams;
+      if (!redact) {
+        throw new Error(`plugin tool input redactor unavailable (${pluginId}): ${toolName}`);
+      }
+      return redact(value);
+    };
+  }
+  if (params.descriptor.hasBeforeToolCallDiagnosticResultRedactor) {
+    tool.redactBeforeToolCallDiagnosticResult = (value) => {
+      const redact = resolveRuntimeTool().redactBeforeToolCallDiagnosticResult;
+      if (!redact) {
+        throw new Error(`plugin tool output redactor unavailable (${pluginId}): ${toolName}`);
+      }
+      return redact(value);
+    };
+  }
   if (params.descriptor.displaySummary) {
     tool.displaySummary = params.descriptor.displaySummary;
   }
@@ -1028,6 +1076,7 @@ export function resolvePluginTools(params: {
   allowGatewaySubagentBinding?: boolean;
   hasAuthForProvider?: (providerId: string) => boolean;
   env?: NodeJS.ProcessEnv;
+  trustedPolicyRegistryRef?: { current?: PluginRegistry };
 }): AnyAgentTool[] {
   // Fast path: when plugins are effectively disabled, avoid discovery/jiti entirely.
   // This matters a lot for unit tests and for tool construction hot paths.
@@ -1069,8 +1118,19 @@ export function resolvePluginTools(params: {
     configCacheKeyMemo,
   });
   tools.push(...cached.tools);
-  const runtimePluginIds = onlyPluginIds.filter(
+  const toolFactoryPluginIds = onlyPluginIds.filter(
     (pluginId) => !cached.handledPluginIds.has(pluginId),
+  );
+  const trustedPolicyPluginIds = new Set(
+    snapshot.plugins
+      .filter((plugin) => (plugin.contracts?.trustedToolPolicies?.length ?? 0) > 0)
+      .map((plugin) => plugin.id),
+  );
+  // Cached descriptors defer the owning factory until execute(), after the
+  // before-tool hook. Keep trusted-policy owners live so security policy is
+  // installed before that hook instead of disappearing between requests.
+  const runtimePluginIds = onlyPluginIds.filter(
+    (pluginId) => toolFactoryPluginIds.includes(pluginId) || trustedPolicyPluginIds.has(pluginId),
   );
   if (runtimePluginIds.length === 0) {
     return tools;
@@ -1116,10 +1176,23 @@ export function resolvePluginTools(params: {
       return tools;
     }
   }
+  if (params.trustedPolicyRegistryRef) {
+    params.trustedPolicyRegistryRef.current = registry;
+  }
 
-  const scopedPluginIds = new Set(runtimePluginIds);
+  // Tool discovery may resolve a pinned request registry while another scoped
+  // registry is globally active. Carry the authoritative registry with every
+  // returned tool so its before-tool policy cannot disappear during churn.
+  for (const tool of tools) {
+    const meta = pluginToolMeta.get(tool);
+    if (meta) {
+      pluginToolMeta.set(tool, { ...meta, trustedPolicyRegistry: registry });
+    }
+  }
+
+  const scopedPluginIds = new Set(toolFactoryPluginIds);
   const registryToolPluginIds = new Set(registry.tools.map((entry) => entry.pluginId));
-  const missingRegistryToolPluginIds = runtimePluginIds.filter(
+  const missingRegistryToolPluginIds = toolFactoryPluginIds.filter(
     (pluginId) => !registryToolPluginIds.has(pluginId),
   );
   for (const pluginId of missingRegistryToolPluginIds) {
@@ -1332,6 +1405,7 @@ export function resolvePluginTools(params: {
       pluginToolMeta.set(tool, {
         pluginId: entry.pluginId,
         optional,
+        trustedPolicyRegistry: registry,
         trustedLocalMedia: isTrustedManifestLocalMediaTool({
           manifestPlugin,
           toolName: tool.name,

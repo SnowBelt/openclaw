@@ -189,6 +189,119 @@ describe("pw-tools-core interaction navigation guard", () => {
     }
   });
 
+  it("rejects an approved select when the page origin changes during execution", async () => {
+    let currentUrl = "https://example.com/form";
+    const handleEvaluate = vi.fn(async () => {
+      const currentOrigin = new URL(currentUrl).origin;
+      currentUrl = "https://evil.example/collect";
+      return currentOrigin;
+    });
+    const handleSelectOption = vi.fn(async () => {});
+    const dispose = vi.fn(async () => {});
+    const selectOption = vi.fn();
+    const page = {
+      on: vi.fn(),
+      off: vi.fn(),
+      url: vi.fn(() => currentUrl),
+    };
+    setPwToolsCoreCurrentRefLocator({
+      elementHandle: vi.fn(async () => ({
+        evaluate: handleEvaluate,
+        selectOption: handleSelectOption,
+        dispose,
+      })),
+      selectOption,
+    });
+    setPwToolsCoreCurrentPage(page);
+
+    await expect(
+      mod.selectOptionViaPlaywright({
+        cdpUrl: "http://127.0.0.1:18792",
+        targetId: "T1",
+        ref: "1",
+        values: ["opaque-secret"],
+        ssrfPolicy: { allowPrivateNetwork: false },
+        approvedOrigin: "https://example.com",
+      }),
+    ).rejects.toThrow("Browser Steward approved origin changed");
+    expect(handleEvaluate).toHaveBeenCalledOnce();
+    expect(handleSelectOption).toHaveBeenCalledOnce();
+    expect(selectOption).not.toHaveBeenCalled();
+  });
+
+  it("rejects an approved coordinate click targeting another frame origin", async () => {
+    const evaluate = vi.fn(async () => "iframe");
+    const click = vi.fn(async () => {});
+    const mainFrame = {
+      url: vi.fn(() => "https://example.com/form"),
+      parentFrame: vi.fn(() => null),
+    };
+    const childFrame = {
+      url: vi.fn(() => "https://evil.example/collect"),
+      parentFrame: vi.fn(() => mainFrame),
+      frameElement: vi.fn(async () => ({
+        boundingBox: vi.fn(async () => ({ x: 0, y: 0, width: 100, height: 100 })),
+      })),
+    };
+    const page = {
+      on: vi.fn(),
+      off: vi.fn(),
+      evaluate,
+      mainFrame: vi.fn(() => mainFrame),
+      frames: vi.fn(() => [mainFrame, childFrame]),
+      mouse: { click },
+      url: vi.fn(() => "https://example.com/form"),
+    };
+    setPwToolsCoreCurrentPage(page);
+
+    await expect(
+      mod.clickCoordsViaPlaywright({
+        cdpUrl: "http://127.0.0.1:18792",
+        targetId: "T1",
+        x: 20,
+        y: 30,
+        approvedOrigin: "https://example.com",
+      }),
+    ).rejects.toThrow("Browser Steward approved coordinate frame origin could not be verified");
+    expect(evaluate).toHaveBeenCalledOnce();
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it("preserves incremental typing semantics for approved slowly typed text", async () => {
+    const handleClick = vi.fn(async () => {});
+    const handleType = vi.fn(async () => {});
+    const handleEvaluate = vi.fn(async () => "https://example.com");
+    const dispose = vi.fn(async () => {});
+    const type = vi.fn();
+    const page = {
+      url: vi.fn(() => "https://example.com/form"),
+    };
+    setPwToolsCoreCurrentRefLocator({
+      elementHandle: vi.fn(async () => ({
+        evaluate: handleEvaluate,
+        click: handleClick,
+        type: handleType,
+        dispose,
+      })),
+      type,
+    });
+    setPwToolsCoreCurrentPage(page);
+
+    await mod.typeViaPlaywright({
+      cdpUrl: "http://127.0.0.1:18792",
+      targetId: "T1",
+      ref: "1",
+      text: "abc",
+      slowly: true,
+      approvedOrigin: "https://example.com",
+    });
+
+    expect(handleEvaluate).toHaveBeenCalledOnce();
+    expect(handleClick).toHaveBeenCalledWith({ timeout: 8_000 });
+    expect(handleType).toHaveBeenCalledWith("abc", { timeout: 8_000, delay: 75 });
+    expect(type).not.toHaveBeenCalled();
+  });
+
   it("checks subframe navigations before a later main-frame navigation", async () => {
     vi.useFakeTimers();
     try {
@@ -1046,6 +1159,30 @@ describe("pw-tools-core interaction navigation guard", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("checks the focused frame without rejecting unrelated iframe origins", async () => {
+    const press = vi.fn(async () => {});
+    const evaluate = vi.fn(async () => "https://example.com");
+    const page = {
+      evaluate,
+      keyboard: { press },
+      on: vi.fn(),
+      off: vi.fn(),
+      url: vi.fn(() => "https://example.com/form"),
+    };
+    setPwToolsCoreCurrentPage(page);
+
+    await mod.pressKeyViaPlaywright({
+      cdpUrl: "http://127.0.0.1:18792",
+      targetId: "T1",
+      key: "Enter",
+      approvedOrigin: "https://example.com",
+    });
+
+    expect(evaluate).toHaveBeenCalledTimes(2);
+    expect(press).toHaveBeenCalledWith("Enter", { delay: 0 });
+    expect(getPwToolsCoreSessionMocks().assertBrowserPageFramesOrigin).not.toHaveBeenCalled();
   });
 
   it("propagates blocked delayed submit navigation instead of reporting type success", async () => {

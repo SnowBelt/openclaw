@@ -166,6 +166,7 @@ type BrowserProxyRequest = (opts: {
   body?: unknown;
   timeoutMs?: number;
   profile?: string;
+  approvedOrigin?: string;
 }) => Promise<unknown>;
 
 type BrowserTabLike = {
@@ -354,9 +355,10 @@ export async function executeSnapshotAction(params: {
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  approvedOrigin?: string;
   onTabActivity?: (targetId: string | undefined) => void;
 }): Promise<AgentToolResult<unknown>> {
-  const { input, baseUrl, profile, proxyRequest } = params;
+  const { input, baseUrl, profile, proxyRequest, approvedOrigin } = params;
   const snapshotDefaults = browserToolActionDeps.getRuntimeConfig().browser?.snapshotDefaults;
   const format: "ai" | "aria" | undefined =
     input.snapshotFormat === "ai" ? "ai" : input.snapshotFormat === "aria" ? "aria" : undefined;
@@ -428,10 +430,12 @@ export async function executeSnapshotAction(params: {
           profile,
           query,
           timeoutMs: snapshotTimeoutMs,
+          ...(approvedOrigin ? { approvedOrigin } : {}),
         })) as Awaited<ReturnType<typeof browserSnapshot>>)
       : await browserToolActionDeps.browserSnapshot(baseUrl, {
           ...query,
           profile,
+          ...(approvedOrigin ? { approvedOrigin } : {}),
         });
   let snapshot: Awaited<ReturnType<typeof browserSnapshot>>;
   try {
@@ -546,8 +550,9 @@ export async function executeConsoleAction(params: {
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  approvedOrigin?: string;
 }): Promise<AgentToolResult<unknown>> {
-  const { input, baseUrl, profile, proxyRequest } = params;
+  const { input, baseUrl, profile, proxyRequest, approvedOrigin } = params;
   const level = normalizeOptionalString(input.level);
   const targetId = normalizeOptionalString(input.targetId);
   if (proxyRequest) {
@@ -559,6 +564,7 @@ export async function executeConsoleAction(params: {
         level,
         targetId,
       },
+      ...(approvedOrigin ? { approvedOrigin } : {}),
     })) as { ok?: boolean; targetId?: string; messages?: unknown[] };
     return formatConsoleToolResult(result);
   }
@@ -566,6 +572,7 @@ export async function executeConsoleAction(params: {
     level,
     targetId,
     profile,
+    ...(approvedOrigin ? { approvedOrigin } : {}),
   });
   return formatConsoleToolResult(result);
 }
@@ -576,9 +583,10 @@ export async function executeActAction(params: {
   baseUrl?: string;
   profile?: string;
   proxyRequest: BrowserProxyRequest | null;
+  approvedOrigin?: string;
   onTabActivity?: (targetId: string | undefined) => void;
 }): Promise<AgentToolResult<unknown>> {
-  const { request, baseUrl, profile, proxyRequest } = params;
+  const { request, baseUrl, profile, proxyRequest, approvedOrigin } = params;
   const effectiveRequest = withConfiguredActTimeout(request, profile);
   try {
     const result = proxyRequest
@@ -588,9 +596,11 @@ export async function executeActAction(params: {
           profile,
           body: effectiveRequest,
           timeoutMs: resolveActProxyTimeoutMs(effectiveRequest),
+          approvedOrigin,
         })
       : await browserToolActionDeps.browserAct(baseUrl, effectiveRequest, {
           profile,
+          approvedOrigin,
         });
     params.onTabActivity?.(
       readStringValue((result as { targetId?: unknown }).targetId) ??
@@ -620,9 +630,11 @@ export async function executeActAction(params: {
                 profile,
                 body: retryRequest,
                 timeoutMs: resolveActProxyTimeoutMs(retryRequest),
+                approvedOrigin,
               })
             : await browserToolActionDeps.browserAct(baseUrl, retryRequest, {
                 profile,
+                approvedOrigin,
               });
           params.onTabActivity?.(
             readStringValue((retryResult as { targetId?: unknown }).targetId) ??

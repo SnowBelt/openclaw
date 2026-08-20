@@ -2024,6 +2024,8 @@ describe("resolvePluginTools optional tools", () => {
       const ctx = rawCtx as { sessionId?: string };
       return {
         ...makeTool("cached_tool"),
+        redactBeforeToolCallDiagnosticParams: () => ({ inputSession: ctx.sessionId }),
+        redactBeforeToolCallDiagnosticResult: () => ({ resultSession: ctx.sessionId }),
         async execute() {
           return { content: [{ type: "text", text: ctx.sessionId ?? "missing" }] };
         },
@@ -2046,7 +2048,7 @@ describe("resolvePluginTools optional tools", () => {
     );
     const second = resolvePluginTools(
       createResolveToolsParams({
-        context: { ...createContext(), sessionId: "same" },
+        context: { ...createContext(), sessionId: "later-session" },
       }),
     );
 
@@ -2054,12 +2056,211 @@ describe("resolvePluginTools optional tools", () => {
     expectResolvedToolNames(second, ["cached_tool"]);
     expect(factory).toHaveBeenCalledTimes(1);
     expect(second[0]).not.toBe(first[0]);
+    expect(second[0]?.redactBeforeToolCallDiagnosticParams?.({ secret: "raw" })).toEqual({
+      inputSession: "later-session",
+    });
+    expect(second[0]?.redactBeforeToolCallDiagnosticResult?.({ secret: "raw" })).toEqual({
+      resultSession: "later-session",
+    });
     expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
 
     await expect(second[0]?.execute("call", {}, undefined)).resolves.toEqual({
-      content: [{ type: "text", text: "same" }],
+      content: [{ type: "text", text: "later-session" }],
     });
     expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps trusted policy owners in the runtime scope after their tool descriptors are cached", () => {
+    const context = createContext();
+    const config = {
+      ...context.config,
+      plugins: {
+        ...context.config.plugins,
+        allow: ["policy-demo", "runtime-only"],
+      },
+    };
+    installToolManifestSnapshots({
+      config,
+      plugins: [
+        {
+          id: "policy-demo",
+          origin: "bundled",
+          enabledByDefault: true,
+          channels: [],
+          providers: [],
+          contracts: {
+            tools: ["policy_tool"],
+            trustedToolPolicies: ["policy-demo-guard"],
+          },
+        },
+        {
+          id: "runtime-only",
+          origin: "bundled",
+          enabledByDefault: true,
+          channels: [],
+          providers: [],
+          contracts: {
+            tools: ["runtime_only_tool"],
+          },
+        },
+      ],
+    });
+    const policyEntry: MockRegistryToolEntry = {
+      pluginId: "policy-demo",
+      optional: false,
+      source: "/tmp/policy-demo.js",
+      names: ["policy_tool"],
+      factory: () => makeTool("policy_tool"),
+    };
+    const policyRegistry = {
+      ...createToolRegistry([policyEntry]),
+      trustedToolPolicies: [
+        {
+          pluginId: "policy-demo",
+          pluginName: "Policy Demo",
+          policy: {
+            id: "policy-demo-guard",
+            evaluate: () => undefined,
+          },
+        },
+      ],
+    };
+    const policylessRegistry = createToolRegistry([]);
+    loadOpenClawPluginsMock.mockImplementation((params: { onlyPluginIds?: string[] }) =>
+      params.onlyPluginIds?.includes("policy-demo") ? policyRegistry : policylessRegistry,
+    );
+
+    const resolve = () =>
+      resolvePluginTools(
+        createResolveToolsParams({
+          context: { ...context, config },
+        }),
+      );
+    const firstTools = resolve();
+    pinActivePluginChannelRegistry(policyRegistry as never);
+    setActivePluginRegistry(policylessRegistry as never);
+    const secondTools = resolve();
+    expectResolvedToolNames(firstTools, ["policy_tool"]);
+    expectResolvedToolNames(secondTools, ["policy_tool"]);
+
+    expect(getPluginToolMeta(secondTools[0])?.trustedPolicyRegistry).toBe(policyRegistry);
+  });
+
+  it("loads trusted policy owners even when their tools are excluded by the allowlist", () => {
+    const context = createContext();
+    const config = {
+      ...context.config,
+      plugins: {
+        ...context.config.plugins,
+        allow: ["policy-demo"],
+      },
+    };
+    const policyEntry: MockRegistryToolEntry = {
+      pluginId: "policy-demo",
+      optional: false,
+      source: "/tmp/policy-demo.js",
+      names: ["policy_tool"],
+      factory: () => makeTool("policy_tool"),
+    };
+    const policyRegistry = {
+      ...createToolRegistry([policyEntry]),
+      trustedToolPolicies: [
+        {
+          pluginId: "policy-demo",
+          policy: { id: "policy-demo-guard", evaluate: () => undefined },
+        },
+      ],
+    };
+    installToolManifestSnapshots({
+      config,
+      plugins: [
+        {
+          id: "policy-demo",
+          origin: "bundled",
+          enabledByDefault: true,
+          channels: [],
+          providers: [],
+          contracts: {
+            tools: ["policy_tool"],
+            trustedToolPolicies: ["policy-demo-guard"],
+          },
+        },
+      ],
+    });
+    loadOpenClawPluginsMock.mockReturnValue(policyRegistry);
+
+    const tools = resolvePluginTools(
+      createResolveToolsParams({
+        context: { ...context, config },
+        toolAllowlist: ["nodes"],
+      }),
+    );
+
+    expectResolvedToolNames(tools, []);
+    expect(
+      loadOpenClawPluginsMock.mock.calls.some(([params]) =>
+        (params as { onlyPluginIds?: string[] }).onlyPluginIds?.includes("policy-demo"),
+      ),
+    ).toBe(true);
+  });
+
+  it("loads trusted policy owners even when their plugin is tool-denied", () => {
+    const context = createContext();
+    const config = {
+      ...context.config,
+      plugins: {
+        ...context.config.plugins,
+        allow: ["policy-demo"],
+      },
+    };
+    const policyEntry: MockRegistryToolEntry = {
+      pluginId: "policy-demo",
+      optional: false,
+      source: "/tmp/policy-demo.js",
+      names: ["policy_tool"],
+      factory: () => makeTool("policy_tool"),
+    };
+    const policyRegistry = {
+      ...createToolRegistry([policyEntry]),
+      trustedToolPolicies: [
+        {
+          pluginId: "policy-demo",
+          policy: { id: "policy-demo-guard", evaluate: () => undefined },
+        },
+      ],
+    };
+    installToolManifestSnapshots({
+      config,
+      plugins: [
+        {
+          id: "policy-demo",
+          origin: "bundled",
+          enabledByDefault: true,
+          channels: [],
+          providers: [],
+          contracts: {
+            tools: ["policy_tool"],
+            trustedToolPolicies: ["policy-demo-guard"],
+          },
+        },
+      ],
+    });
+    loadOpenClawPluginsMock.mockReturnValue(policyRegistry);
+
+    const tools = resolvePluginTools(
+      createResolveToolsParams({
+        context: { ...context, config },
+        toolAllowlist: ["*"],
+        toolDenylist: ["policy-demo"],
+      }),
+    );
+
+    expectResolvedToolNames(tools, []);
+    expect(
+      loadOpenClawPluginsMock.mock.calls.some(([params]) =>
+        (params as { onlyPluginIds?: string[] }).onlyPluginIds?.includes("policy-demo"),
+      ),
+    ).toBe(true);
   });
 
   it("executes cached healthy tools when a runtime sibling is malformed", async () => {

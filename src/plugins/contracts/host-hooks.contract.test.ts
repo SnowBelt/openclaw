@@ -5,7 +5,7 @@ import {
   createPluginRegistryFixture,
   registerTestPlugin,
 } from "openclaw/plugin-sdk/plugin-test-contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   validatePluginsUiDescriptorsParams,
   validateSessionsPluginPatchParams,
@@ -807,6 +807,270 @@ describe("host-hook fixture plugin contract", () => {
       block: true,
       blockReason: "blocked by later policy",
     });
+  });
+
+  it("uses an explicit request registry instead of unrelated active policy state", async () => {
+    const requestRegistry = createEmptyPluginRegistry();
+    const activeRegistry = createEmptyPluginRegistry();
+    requestRegistry.trustedToolPolicies = [
+      {
+        pluginId: "request-policy",
+        source: "test",
+        policy: {
+          id: "shared-guard",
+          description: "request-scoped policy",
+          evaluate: () => ({ block: true, blockReason: "request registry blocked" }),
+        },
+      },
+    ];
+    activeRegistry.trustedToolPolicies = [
+      {
+        pluginId: "request-policy",
+        source: "test",
+        policy: {
+          id: "shared-guard",
+          description: "active policy with the same key",
+          evaluate: () => undefined,
+        },
+      },
+    ];
+    setActivePluginRegistry(activeRegistry);
+
+    await expect(
+      runTrustedToolPolicies(
+        { toolName: "browser", params: { action: "open" } },
+        { toolName: "browser" },
+        { registry: requestRegistry },
+      ),
+    ).resolves.toEqual({ block: true, blockReason: "request registry blocked" });
+  });
+
+  it("retains later trusted policy approvals when they preserve approved params", async () => {
+    const seenParams: Record<string, unknown>[] = [];
+    const firstApproval = {
+      title: "First review",
+      description: "Review the original operation",
+    };
+    const secondApproval = {
+      title: "Second review",
+      description: "Independently review the same operation",
+    };
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-a",
+        pluginName: "Trusted A",
+        source: "test",
+        policy: {
+          id: "first-approval",
+          description: "first approval",
+          evaluate: () => ({
+            params: { command: "approved-snapshot" },
+            requireApproval: firstApproval,
+          }),
+        },
+      },
+      {
+        pluginId: "trusted-b",
+        pluginName: "Trusted B",
+        source: "test",
+        policy: {
+          id: "second-approval",
+          description: "second approval",
+          evaluate: (event) => {
+            seenParams.push(event.params);
+            return {
+              params: event.params,
+              requireApproval: secondApproval,
+            };
+          },
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+
+    await expect(
+      runTrustedToolPolicies(
+        { toolName: "exec", params: { command: "original" } },
+        { toolName: "exec" },
+      ),
+    ).resolves.toEqual({
+      params: { command: "approved-snapshot" },
+      requireApproval: firstApproval,
+      additionalApprovals: [secondApproval],
+    });
+    expect(seenParams).toEqual([{ command: "approved-snapshot" }]);
+  });
+
+  it("preserves private approval markers from equal later policy params", async () => {
+    const firstMarker = Symbol("first-policy-marker");
+    const secondMarker = "secondPolicyMarker";
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-a",
+        source: "test",
+        policy: {
+          id: "first-private-marker",
+          description: "first private marker",
+          evaluate: () => {
+            const params = { command: "approved-snapshot" };
+            Object.defineProperty(params, firstMarker, {
+              value: "first",
+              enumerable: true,
+            });
+            return {
+              params,
+              requireApproval: { title: "First", description: "First approval" },
+            };
+          },
+        },
+      },
+      {
+        pluginId: "trusted-b",
+        source: "test",
+        policy: {
+          id: "second-private-marker",
+          description: "second private marker",
+          evaluate: (event) => {
+            const params = { ...event.params };
+            Object.defineProperty(params, secondMarker, {
+              value: "second",
+              enumerable: false,
+            });
+            return {
+              params,
+              requireApproval: { title: "Second", description: "Second approval" },
+            };
+          },
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+
+    const result = await runTrustedToolPolicies(
+      { toolName: "exec", params: { command: "original" } },
+      { toolName: "exec" },
+    );
+    const params = result?.params;
+    expect(params && Object.fromEntries(Object.entries(params))).toEqual({
+      command: "approved-snapshot",
+    });
+    expect(params && Reflect.get(params, firstMarker)).toBe("first");
+    expect(params && Reflect.get(params, secondMarker)).toBe("second");
+    expect(params && Object.getOwnPropertyDescriptor(params, secondMarker)?.enumerable).toBe(false);
+    expect(JSON.stringify(params)).not.toContain("first");
+    expect(JSON.stringify(params)).not.toContain("second");
+  });
+
+  it("blocks a later trusted policy rewrite after an approval request", async () => {
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-a",
+        source: "test",
+        policy: {
+          id: "first-approval",
+          description: "first approval",
+          evaluate: () => ({
+            params: { command: "approved-snapshot" },
+            requireApproval: { title: "Review", description: "Review the operation" },
+          }),
+        },
+      },
+      {
+        pluginId: "trusted-b",
+        source: "test",
+        policy: {
+          id: "later-rewrite",
+          description: "later rewrite",
+          evaluate: () => ({ params: { command: "different-operation" } }),
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+
+    await expect(
+      runTrustedToolPolicies(
+        { toolName: "exec", params: { command: "original" } },
+        { toolName: "exec" },
+      ),
+    ).resolves.toEqual({
+      block: true,
+      blockReason: "blocked by later-rewrite: parameter rewrite conflicts with an earlier approval",
+    });
+  });
+
+  it("blocks a later trusted policy that mutates approved params in place", async () => {
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-a",
+        source: "test",
+        policy: {
+          id: "approval",
+          description: "approval",
+          evaluate: () => ({
+            params: { command: "approved" },
+            requireApproval: { title: "Review", description: "Review approved command" },
+          }),
+        },
+      },
+      {
+        pluginId: "trusted-b",
+        source: "test",
+        policy: {
+          id: "mutator",
+          description: "mutator",
+          evaluate: (event) => {
+            event.params.command = "different";
+            return undefined;
+          },
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+
+    await expect(
+      runTrustedToolPolicies(
+        { toolName: "exec", params: { command: "original" } },
+        { toolName: "exec" },
+      ),
+    ).resolves.toEqual({
+      block: true,
+      blockReason: "blocked by mutator: policy mutated tool parameters in place",
+    });
+  });
+
+  it("fails closed before policy evaluation when parameters cannot be cloned", async () => {
+    const evaluate = vi.fn();
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [
+      {
+        pluginId: "trusted-a",
+        source: "test",
+        policy: {
+          id: "clone-boundary",
+          description: "clone boundary",
+          evaluate,
+        },
+      },
+    ];
+    setActivePluginRegistry(registry);
+
+    await expect(
+      runTrustedToolPolicies(
+        {
+          toolName: "exec",
+          params: { nested: { command: "original", callback: () => undefined } },
+        },
+        { toolName: "exec" },
+      ),
+    ).resolves.toEqual({
+      block: true,
+      blockReason: "blocked by clone-boundary: tool parameters are not cloneable",
+    });
+    expect(evaluate).not.toHaveBeenCalled();
   });
 
   it("passes adjusted trusted policy params to later trusted policies", async () => {

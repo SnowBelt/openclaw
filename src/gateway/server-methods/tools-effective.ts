@@ -17,6 +17,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { toErrorObject } from "../../infra/errors.js";
 import { logDebug, logWarn } from "../../logger.js";
 import { stringifyRouteThreadId } from "../../plugin-sdk/channel-route.js";
+import { assertGatewaySessionStewardBoundary } from "../session-steward-boundary.js";
 import {
   applyFinalEffectiveToolPolicy,
   buildBundleMcpToolsFromCatalog,
@@ -455,32 +456,58 @@ async function resolveReadOnlyToolsEffectiveInventory(
 function resolveTrustedToolsEffectiveContext(params: {
   sessionKey: string;
   requestedAgentId?: string;
+  config: OpenClawConfig;
   respond: RespondFn;
 }) {
+  const requestBoundary = assertGatewaySessionStewardBoundary({
+    sessionKey: params.sessionKey,
+    requestedAgentId: params.requestedAgentId,
+    config: params.config,
+    surface: "tools.effective",
+    action: "read",
+  });
+  if (!requestBoundary.ok) {
+    params.respond(false, undefined, requestBoundary.error);
+    return null;
+  }
   // The effective tools request is read-only but security-sensitive. Derive
   // routing/account/model context from the persisted session, not client params.
-  const loaded = loadSessionEntry(params.sessionKey);
+  const loaded = loadSessionEntry(params.sessionKey, {
+    agentId: params.requestedAgentId,
+  });
   if (!loaded.entry) {
     params.respond(
       false,
       undefined,
-      errorShape(ErrorCodes.INVALID_REQUEST, `unknown session key "${params.sessionKey}"`),
+      errorShape(
+        ErrorCodes.INVALID_REQUEST,
+        `unknown session key: ${requestBoundary.boundary.affectedSession}`,
+      ),
     );
+    return null;
+  }
+  const loadedBoundary = assertGatewaySessionStewardBoundary({
+    sessionKey: loaded.canonicalKey ?? params.sessionKey,
+    requestedAgentId: params.requestedAgentId,
+    config: loaded.cfg,
+    surface: "tools.effective",
+    action: "read",
+  });
+  if (!loadedBoundary.ok) {
+    params.respond(false, undefined, loadedBoundary.error);
     return null;
   }
 
   const sessionAgentId = resolveSessionAgentId({
     sessionKey: loaded.canonicalKey ?? params.sessionKey,
     config: loaded.cfg,
+    agentId: params.requestedAgentId,
   });
   if (params.requestedAgentId && params.requestedAgentId !== sessionAgentId) {
     params.respond(
       false,
       undefined,
-      errorShape(
-        ErrorCodes.INVALID_REQUEST,
-        `agent id "${params.requestedAgentId}" does not match session agent "${sessionAgentId}"`,
-      ),
+      errorShape(ErrorCodes.INVALID_REQUEST, "session key agent does not match agentId"),
     );
     return null;
   }
@@ -563,6 +590,7 @@ async function handleToolsEffectiveRequest(params: {
   const trustedContext = resolveTrustedToolsEffectiveContext({
     sessionKey: params.rawParams.sessionKey,
     requestedAgentId,
+    config: cfg,
     respond: params.respond,
   });
   if (!trustedContext) {

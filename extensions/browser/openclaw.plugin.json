@@ -6,7 +6,8 @@
     "onConfigPaths": ["browser"]
   },
   "contracts": {
-    "tools": ["browser"]
+    "tools": ["browser"],
+    "trustedToolPolicies": ["browser-steward-runtime"]
   },
   "commandAliases": [{ "name": "browser" }],
   "skills": ["./skills"],

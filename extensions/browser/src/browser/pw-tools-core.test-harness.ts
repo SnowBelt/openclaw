@@ -19,6 +19,46 @@ let pageState: {
 };
 
 const sessionMocks = vi.hoisted(() => ({
+  assertBrowserTargetOrigin: vi.fn(
+    async (page: { url?: () => string }, approvedOrigin?: string) => {
+      if (!approvedOrigin) {
+        return;
+      }
+      if (typeof page.url !== "function" || new URL(page.url()).origin !== approvedOrigin) {
+        throw new Error("Browser Steward approved origin changed before execution");
+      }
+    },
+  ),
+  assertBrowserPageOrigin: vi.fn((page: { url?: () => string }, approvedOrigin?: string) => {
+    if (!approvedOrigin) {
+      return;
+    }
+    if (typeof page.url !== "function" || new URL(page.url()).origin !== approvedOrigin) {
+      throw new Error("Browser Steward approved origin changed before execution");
+    }
+  }),
+  assertBrowserPageFramesOrigin: vi.fn((page: { url?: () => string }, approvedOrigin?: string) => {
+    if (!approvedOrigin) {
+      return;
+    }
+    if (typeof page.url !== "function" || new URL(page.url()).origin !== approvedOrigin) {
+      throw new Error("Browser Steward approved origin changed before execution");
+    }
+  }),
+  assertBrowserFrameOrigin: vi.fn(
+    async (frame: { url?: () => string } | null, approvedOrigin?: string) => {
+      if (!approvedOrigin) {
+        return;
+      }
+      if (
+        !frame ||
+        typeof frame.url !== "function" ||
+        new URL(frame.url()).origin !== approvedOrigin
+      ) {
+        throw new Error("Browser Steward approved frame origin changed before execution");
+      }
+    },
+  ),
   assertPageNavigationCompletedSafely: vi.fn(async () => {}),
   closeBlockedNavigationTarget: vi.fn(async () => {}),
   getPageForTargetId: vi.fn(async () => {

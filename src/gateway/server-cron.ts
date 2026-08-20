@@ -410,6 +410,7 @@ export function buildGatewayCronService(params: {
       } finally {
         await cleanupBrowserSessionsForLifecycleEnd({
           sessionKeys: [sessionKey],
+          agentId,
           onWarn: (msg) => cronLogger.warn({ jobId: job.id }, msg),
         });
       }

@@ -1,6 +1,7 @@
 // Browser tests cover client plugin behavior.
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "./browser-steward-transport.js";
 import {
   browserAct,
   browserArmDialog,
@@ -346,11 +347,25 @@ describe("browser client", () => {
 
     const fileChooser = await browserArmFileChooser("http://127.0.0.1:18791", {
       paths: ["/tmp/a.txt"],
+      approvedOrigin: "https://example.com",
     });
     expect(fileChooser.ok).toBe(true);
 
-    const dialog = await browserArmDialog("http://127.0.0.1:18791", { accept: true });
+    const dialog = await browserArmDialog("http://127.0.0.1:18791", {
+      accept: true,
+      approvedOrigin: "https://example.com",
+    });
     expect(dialog.ok).toBe(true);
+    expect(
+      new Headers(
+        calls.find((entry) => entry.url.includes("/hooks/file-chooser"))?.init?.headers,
+      ).get(BROWSER_STEWARD_APPROVED_ORIGIN_HEADER),
+    ).toBe("https://example.com");
+    expect(
+      new Headers(calls.find((entry) => entry.url.includes("/hooks/dialog"))?.init?.headers).get(
+        BROWSER_STEWARD_APPROVED_ORIGIN_HEADER,
+      ),
+    ).toBe("https://example.com");
 
     const consoleMessages = await browserConsoleMessages("http://127.0.0.1:18791", {
       level: "error",

@@ -129,6 +129,7 @@ type ExecuteActMockOptions = {
   targetId?: string;
   ssrfPolicy?: unknown;
   evaluateEnabled?: boolean;
+  approvedOrigin?: string;
   signal?: AbortSignal;
 };
 

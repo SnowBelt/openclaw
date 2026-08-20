@@ -3,6 +3,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import type { McpToolCatalog, SessionMcpRuntime } from "../../agents/agent-bundle-mcp-types.js";
+import {
+  onTrustedInternalDiagnosticEvent,
+  resetDiagnosticEventsForTest,
+  type DiagnosticEventPayload,
+} from "../../infra/diagnostic-events.js";
 import { testing, toolsEffectiveHandlers } from "./tools-effective.js";
 
 const runtimeMocks = vi.hoisted(() => ({
@@ -115,6 +120,16 @@ function firstRespondCall(respond: ReturnType<typeof vi.fn>): RespondCall | unde
   return respond.mock.calls[0] as RespondCall | undefined;
 }
 
+function captureSessionStewardEvents() {
+  const events: DiagnosticEventPayload[] = [];
+  const stop = onTrustedInternalDiagnosticEvent((event) => {
+    if (event.type.startsWith("session_steward.")) {
+      events.push(event);
+    }
+  });
+  return { events, stop };
+}
+
 function makeMcpTool(params: Record<string, unknown> = { type: "object", properties: {} }) {
   return {
     name: "reproProbe__probe_tool",
@@ -222,6 +237,7 @@ function expectPayloadNotice(respond: ReturnType<typeof vi.fn>, id: string) {
 describe("tools.effective handler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDiagnosticEventsForTest();
     testing.resetToolsEffectiveCacheForTest();
     testing.resetToolsEffectiveNowForTest();
     runtimeMocks.resolveAgentWorkspaceDir.mockReturnValue("/tmp/workspace-main");
@@ -283,7 +299,64 @@ describe("tools.effective handler", () => {
     } as never);
     const { respond, invoke } = createInvokeParams({ sessionKey: "missing-session" });
     await invoke();
-    expectInvalidResponse(respond, 'unknown session key "missing-session"');
+    expectInvalidResponse(respond, "unknown session key: UNSCOPED");
+  });
+
+  it("rejects cross-agent session boundaries before loading trusted context", async () => {
+    runtimeMocks.listAgentIds.mockReturnValueOnce(["main", "worker"]);
+    const { respond, invoke } = createInvokeParams({
+      sessionKey: "agent:main:direct:user-1",
+      agentId: "worker",
+    });
+    const diagnostics = captureSessionStewardEvents();
+
+    await invoke();
+    diagnostics.stop();
+
+    expectInvalidResponse(respond, "session key agent does not match agentId");
+    expect(runtimeMocks.loadSessionEntry).not.toHaveBeenCalled();
+    expect(JSON.stringify(firstRespondCall(respond))).not.toContain("user-1");
+    expect(diagnostics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_steward.boundary_decision",
+          surface: "tools.effective",
+          action: "read",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+        expect.objectContaining({
+          type: "session_steward.boundary_rejected",
+          surface: "tools.effective",
+          action: "read",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(diagnostics.events)).not.toContain("user-1");
+  });
+
+  it("loads and resolves a global session under the explicit agent", async () => {
+    runtimeMocks.listAgentIds.mockReturnValueOnce(["main", "work"]);
+    runtimeMocks.loadSessionEntry.mockReturnValueOnce({
+      cfg: { agents: { list: [{ id: "main", default: true }, { id: "work" }] } },
+      canonicalKey: "global",
+      entry: {
+        sessionId: "global-work-session",
+        updatedAt: 1,
+      },
+    });
+    runtimeMocks.resolveSessionAgentId.mockReturnValueOnce("work");
+    const { respond, invoke } = createInvokeParams({ sessionKey: "global", agentId: "work" });
+
+    await invoke();
+
+    expect(firstRespondCall(respond)?.[0]).toBe(true);
+    expect(runtimeMocks.loadSessionEntry).toHaveBeenCalledWith("global", { agentId: "work" });
+    expect(runtimeMocks.resolveSessionAgentId).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionKey: "global", agentId: "work" }),
+    );
   });
 
   it("returns the read-only effective runtime inventory without MCP startup", async () => {

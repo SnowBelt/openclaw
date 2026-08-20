@@ -4,14 +4,20 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { runBeforeToolCallHook as runBeforeToolCallHookType } from "../agents/agent-tools.before-tool-call.js";
+import {
+  onTrustedInternalDiagnosticEvent,
+  resetDiagnosticEventsForTest,
+  type DiagnosticEventPayload,
+} from "../infra/diagnostic-events.js";
 
 type RunBeforeToolCallHook = typeof runBeforeToolCallHookType;
 type RunBeforeToolCallHookArgs = Parameters<RunBeforeToolCallHook>[0];
 type RunBeforeToolCallHookResult = Awaited<ReturnType<RunBeforeToolCallHook>>;
 
 const pluginToolMetaState = vi.hoisted(
-  () => new Map<string, { pluginId: string; optional: boolean }>(),
+  () => new Map<string, { pluginId: string; optional: boolean; trustedPolicyRegistry?: object }>(),
 );
+const trustedPolicyRegistryState = vi.hoisted(() => new Map<string, object>());
 
 const hookMocks = vi.hoisted(() => ({
   resolveToolLoopDetectionConfig: vi.fn(() => ({ warnAt: 3 })),
@@ -71,6 +77,11 @@ vi.mock("../plugins/config-state.js", async (importOriginal) => {
 vi.mock("../plugins/tools.js", () => ({
   getPluginToolMeta: (tool: { name?: string }) =>
     typeof tool?.name === "string" ? pluginToolMetaState.get(tool.name) : undefined,
+  getTrustedPolicyRegistryForTool: (tool: { name?: string }) =>
+    typeof tool?.name === "string"
+      ? (trustedPolicyRegistryState.get(tool.name) ??
+        pluginToolMetaState.get(tool.name)?.trustedPolicyRegistry)
+      : undefined,
 }));
 
 // Perf: the real tool factory instantiates many tools per request; for these HTTP
@@ -272,12 +283,14 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  resetDiagnosticEventsForTest();
   delete process.env.OPENCLAW_GATEWAY_TOKEN;
   delete process.env.OPENCLAW_GATEWAY_PASSWORD;
   pluginHttpHandlers = [];
   cfg = {};
   lastCreateOpenClawToolsContext = undefined;
   pluginToolMetaState.clear();
+  trustedPolicyRegistryState.clear();
   pluginToolMetaState.set("plugin_doctor", { pluginId: "test-plugin", optional: true });
   hookMocks.resolveToolLoopDetectionConfig.mockClear();
   hookMocks.resolveToolLoopDetectionConfig.mockImplementation(() => ({ warnAt: 3 }));
@@ -409,6 +422,16 @@ const firstHookCallArg = () => {
   return call[0];
 };
 
+function captureSessionStewardEvents() {
+  const events: DiagnosticEventPayload[] = [];
+  const stop = onTrustedInternalDiagnosticEvent((event) => {
+    if (event.type.startsWith("session_steward.")) {
+      events.push(event);
+    }
+  });
+  return { events, stop };
+}
+
 const invokeToolsRpc = async (params: Record<string, unknown>, scopes = ["operator.write"]) => {
   const respond = vi.fn();
   await toolsInvokeHandlers["tools.invoke"]({
@@ -458,6 +481,7 @@ describe("POST /tools/invoke", () => {
     expect(body).toHaveProperty("result");
     expect(lastCreateOpenClawToolsContext?.allowMediaInvokeCommands).toBe(true);
     expect(lastCreateOpenClawToolsContext?.disablePluginTools).toBe(true);
+    expect(lastCreateOpenClawToolsContext?.includeTrustedToolPolicies).toBe(true);
     const hookArg = firstHookCallArg();
     expect(hookArg.toolName).toBe("agents_list");
     const hookCtx = hookArg.ctx;
@@ -468,6 +492,62 @@ describe("POST /tools/invoke", () => {
     expect(hookCtx.config).toBe(cfg);
     expect(hookCtx.sessionKey).toBe("agent:main:main");
     expect(hookCtx.loopDetection).toEqual({ warnAt: 3 });
+  });
+
+  it("uses an explicit agent for a global session", async () => {
+    cfg = {
+      agents: {
+        list: [
+          { id: "main", default: true, tools: { allow: ["agents_list"] } },
+          { id: "worker", tools: { allow: ["agents_list"] } },
+        ],
+      },
+    };
+
+    const res = await postToolsInvoke({
+      port: sharedPort,
+      headers: gatewayAuthHeaders(),
+      body: {
+        tool: "agents_list",
+        args: {},
+        sessionKey: "global",
+        agentId: "worker",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ ok: true });
+    expect(lastCreateOpenClawToolsContext?.requesterAgentIdOverride).toBe("worker");
+    const hookCtx = firstHookCallArg().ctx;
+    expect(hookCtx?.agentId).toBe("worker");
+    expect(hookCtx?.sessionKey).toBe("global");
+  });
+
+  it("rejects an unknown explicit agent for a global session before tool resolution", async () => {
+    cfg = {
+      agents: {
+        list: [{ id: "main", default: true, tools: { deny: ["agents_list"] } }],
+      },
+    };
+
+    const res = await postToolsInvoke({
+      port: sharedPort,
+      headers: gatewayAuthHeaders(),
+      body: {
+        tool: "agents_list",
+        args: {},
+        sessionKey: "global",
+        agentId: "ghost",
+      },
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: { type: "invalid_request", message: 'unknown agent id "ghost"' },
+    });
+    expect(lastCreateOpenClawToolsContext).toBeUndefined();
+    expect(hookMocks.runBeforeToolCallHook).not.toHaveBeenCalled();
   });
 
   it("opts direct gateway tool invocation into gateway subagent binding", async () => {
@@ -576,6 +656,41 @@ describe("POST /tools/invoke", () => {
 
     const body = await expectOkInvokeResponse(res);
     expect(body.result?.ok).toBe(true);
+  });
+
+  it("forwards a plugin tool's request-scoped trusted policy registry", async () => {
+    setMainAllowedTools({ allow: ["tools_invoke_test"] });
+    const trustedPolicyRegistry = { trustedToolPolicies: [] };
+    pluginToolMetaState.set("tools_invoke_test", {
+      pluginId: "test-plugin",
+      optional: false,
+      trustedPolicyRegistry,
+    });
+
+    const res = await invokeToolAuthed({
+      tool: "tools_invoke_test",
+      args: { mode: "ok" },
+      sessionKey: "main",
+    });
+
+    await expectOkInvokeResponse(res);
+    expect(firstHookCallArg().trustedPolicyRegistry).toBe(trustedPolicyRegistry);
+  });
+
+  it("forwards a core tool's request-scoped trusted policy registry", async () => {
+    setMainAllowedTools({ allow: ["nodes"], gatewayAllow: ["nodes"] });
+    const trustedPolicyRegistry = { trustedToolPolicies: [] };
+    trustedPolicyRegistryState.set("nodes", trustedPolicyRegistry);
+
+    const res = await invokeTool({
+      port: sharedPort,
+      headers: gatewayAdminHeaders(),
+      tool: "nodes",
+      sessionKey: "main",
+    });
+
+    await expectOkInvokeResponse(res);
+    expect(firstHookCallArg().trustedPolicyRegistry).toBe(trustedPolicyRegistry);
   });
 
   it("supports tools.alsoAllow in profile and implicit modes", async () => {
@@ -1157,7 +1272,56 @@ describe("tools.invoke Gateway RPC", () => {
     expect(call?.[1]?.toolName).toBe("agents_list");
     const error = call?.[1]?.error as { code?: string; message?: string } | undefined;
     expect(error?.code).toBe("validation_error");
-    expect(error?.message).toBe('agent id "other" does not match session agent "main"');
+    expect(error?.message).toBe("session key agent does not match agentId");
+  });
+
+  it("rejects cross-agent scoped invokes before tool resolution or hook execution", async () => {
+    cfg = {
+      agents: {
+        list: [
+          { id: "main", default: true, tools: { allow: ["tools_invoke_test"] } },
+          { id: "worker", tools: { allow: ["tools_invoke_test"] } },
+        ],
+      },
+    };
+    const diagnostics = captureSessionStewardEvents();
+
+    const call = await invokeToolsRpc({
+      name: "tools_invoke_test",
+      args: { mode: "ok" },
+      sessionKey: "agent:main:direct:user-1",
+      agentId: "worker",
+    });
+    diagnostics.stop();
+
+    expect(call?.[0]).toBe(true);
+    expect(call?.[1]?.ok).toBe(false);
+    expect(call?.[1]?.toolName).toBe("tools_invoke_test");
+    const error = call?.[1]?.error as { code?: string; message?: string } | undefined;
+    expect(error?.code).toBe("validation_error");
+    expect(error?.message).toBe("session key agent does not match agentId");
+    expect(JSON.stringify(call)).not.toContain("user-1");
+    expect(diagnostics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_steward.boundary_decision",
+          surface: "tools.invoke",
+          action: "invoke",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+        expect.objectContaining({
+          type: "session_steward.boundary_rejected",
+          surface: "tools.invoke",
+          action: "invoke",
+          outcome: "reject",
+          affectedSession: "agent:main:REDACTED",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(diagnostics.events)).not.toContain("user-1");
+    expect(hookMocks.runBeforeToolCallHook).not.toHaveBeenCalled();
+    expect(lastCreateOpenClawToolsContext).toBeUndefined();
   });
 
   it("rejects malformed params at the RPC boundary", async () => {

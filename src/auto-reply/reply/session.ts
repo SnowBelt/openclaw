@@ -893,6 +893,7 @@ export async function initSessionState(params: {
     void cleanupBrowserSessionsForLifecycleEnd({
       cfg,
       sessionKeys: [previousSessionEntry.sessionId, sessionKey],
+      agentId,
       onWarn: (message) => log.warn(message),
       onError: (error) => log.warn(`browser tab cleanup failed: ${String(error)}`),
     });

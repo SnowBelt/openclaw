@@ -4,6 +4,7 @@
  * logging for failed tool calls.
  */
 import { createHash } from "node:crypto";
+import { cloneDiagnosticContentValue } from "../infra/diagnostic-llm-content.js";
 import { logDebug, logError } from "../logger.js";
 import { redactToolDetail } from "../logging/redact.js";
 import { isPlainObject } from "../utils.js";
@@ -207,7 +208,18 @@ function sanitizeExecFailureParamsForLog(value: unknown): unknown {
   return sanitized;
 }
 
-function sanitizeToolFailureParamsForLog(toolName: string, value: unknown): unknown {
+function sanitizeToolFailureParamsForLog(
+  toolName: string,
+  value: unknown,
+  redactParams?: (value: unknown) => unknown,
+): unknown {
+  if (redactParams) {
+    try {
+      return redactParams(cloneDiagnosticContentValue(value));
+    } catch {
+      return { redacted: true };
+    }
+  }
   return toolName === "exec" ? sanitizeExecFailureParamsForLog(value) : value;
 }
 
@@ -215,9 +227,18 @@ function describeToolFailureInputs(params: {
   toolName: string;
   rawParams: unknown;
   effectiveParams: unknown;
+  redactParams?: (value: unknown) => unknown;
 }): string {
-  const rawParams = sanitizeToolFailureParamsForLog(params.toolName, params.rawParams);
-  const effectiveParams = sanitizeToolFailureParamsForLog(params.toolName, params.effectiveParams);
+  const rawParams = sanitizeToolFailureParamsForLog(
+    params.toolName,
+    params.rawParams,
+    params.redactParams,
+  );
+  const effectiveParams = sanitizeToolFailureParamsForLog(
+    params.toolName,
+    params.effectiveParams,
+    params.redactParams,
+  );
   const parts = [formatToolParamPreview("raw_params", rawParams)];
   const rawSerialized = serializeToolParams(rawParams);
   const effectiveSerialized = serializeToolParams(effectiveParams);
@@ -443,6 +464,7 @@ export function toToolDefinitions(
             toolName: normalizedName,
             rawParams: params,
             effectiveParams: executeParams,
+            redactParams: tool.redactBeforeToolCallDiagnosticParams,
           });
           logError(`[tools] ${normalizedName} failed: ${described.message} ${inputPreview}`);
 

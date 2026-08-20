@@ -5,6 +5,7 @@ import type { Page } from "playwright-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DOWNLOAD_DIR } from "./paths.js";
 import {
+  assertBrowserTargetOrigin,
   ensurePageState,
   refLocator,
   rememberRoleRefsForTarget,
@@ -125,6 +126,70 @@ describe("pw-session refLocator", () => {
 
     expect(() => refLocator(page, "ax12")).toThrow(/Unknown ref/);
     expect(mocks.locator).not.toHaveBeenCalled();
+  });
+});
+
+describe("pw-session approved target origin", () => {
+  it("accepts a same-origin snapshot frame", async () => {
+    const frame = {
+      url: () => "https://example.com/embedded",
+      parentFrame: () => null,
+      evaluate: vi.fn(async () => "https://example.com"),
+    };
+    const elementHandle = { contentFrame: vi.fn(async () => frame) };
+    const page = {
+      on: vi.fn(),
+      url: () => "https://example.com/page",
+      locator: vi.fn(() => ({
+        first: () => ({ elementHandle: vi.fn(async () => elementHandle) }),
+      })),
+    } as unknown as Page;
+    const state = ensurePageState(page);
+    state.roleRefsFrameSelector = "iframe#trusted";
+
+    await expect(assertBrowserTargetOrigin(page, "https://example.com")).resolves.toBeUndefined();
+  });
+
+  it("rejects a cross-origin snapshot frame before credential delivery", async () => {
+    const frame = {
+      url: () => "https://evil.example/collect",
+      parentFrame: () => null,
+      evaluate: vi.fn(async () => "https://evil.example"),
+    };
+    const page = {
+      on: vi.fn(),
+      url: () => "https://example.com/page",
+      locator: vi.fn(() => ({
+        first: () => ({ elementHandle: vi.fn(async () => ({ contentFrame: async () => frame })) }),
+      })),
+    } as unknown as Page;
+    const state = ensurePageState(page);
+    state.roleRefsFrameSelector = "iframe#evil";
+
+    await expect(assertBrowserTargetOrigin(page, "https://example.com")).rejects.toThrow(
+      "approved destination frame origin could not be verified",
+    );
+  });
+
+  it("rejects an opaque sandboxed frame before credential delivery", async () => {
+    const frame = {
+      url: () => "about:srcdoc",
+      parentFrame: () => null,
+      evaluate: vi.fn(async () => "null"),
+    };
+    const page = {
+      on: vi.fn(),
+      url: () => "https://example.com/page",
+      locator: vi.fn(() => ({
+        first: () => ({ elementHandle: vi.fn(async () => ({ contentFrame: async () => frame })) }),
+      })),
+    } as unknown as Page;
+    const state = ensurePageState(page);
+    state.roleRefsFrameSelector = "iframe#opaque";
+
+    await expect(assertBrowserTargetOrigin(page, "https://example.com")).rejects.toThrow(
+      "approved destination frame origin could not be verified",
+    );
   });
 });
 
@@ -269,6 +334,22 @@ describe("pw-session ensurePageState", () => {
     expect(request?.status).toBe(500);
     expect(request?.ok).toBe(false);
     expect(request?.failureText).toBe("net::ERR_FAILED");
+  });
+
+  it("records console origin from the execution frame rather than the source URL", async () => {
+    const { page, handlers } = fakePage();
+    const state = ensurePageState(page);
+    const message = {
+      type: () => "log",
+      text: () => "hello",
+      location: () => ({ url: "https://cdn.example/script.js" }),
+      args: () => [{ evaluate: vi.fn(async () => "https://example.com") }],
+    };
+
+    handlers.get("console")?.[0]?.(message);
+    await Promise.all([...state.pendingConsoleOrigins]);
+
+    expect(state.console.at(-1)?.observedOrigin).toBe("https://example.com");
   });
 
   it("drops state on page close", () => {

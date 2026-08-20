@@ -262,8 +262,21 @@ vi.mock("./browser-tool.runtime.js", () => {
 });
 
 import { testing as browserToolActionsTesting } from "./browser-tool.actions.js";
-import { testing as browserToolTesting, createBrowserTool } from "./browser-tool.js";
+import {
+  testing as browserToolTesting,
+  createBrowserTool,
+  resolveBrowserStewardTargetOrigin,
+} from "./browser-tool.js";
+import {
+  markBrowserStewardRuntimeApprovalPending,
+  markBrowserStewardRuntimeApproved,
+} from "./browser/browser-steward-approval.js";
+import type { BrowserStewardRuntimeApprovalBinding } from "./browser/browser-steward-approval.js";
 import { DEFAULT_AI_SNAPSHOT_MAX_CHARS } from "./browser/constants.js";
+
+const HOST_APPROVAL_BINDING: BrowserStewardRuntimeApprovalBinding = {
+  backend: { kind: "host" },
+};
 
 function mockSingleBrowserProxyNode() {
   nodesUtilsMocks.listNodes.mockResolvedValue([
@@ -272,7 +285,7 @@ function mockSingleBrowserProxyNode() {
       displayName: "Browser Node",
       connected: true,
       caps: ["browser"],
-      commands: ["browser.proxy"],
+      commands: ["browser.proxy", "browser.proxy.approved-origin"],
     },
   ]);
 }
@@ -474,6 +487,624 @@ describe("browser tool description", () => {
     expect(tool.description).toContain("omit timeoutMs on act:type");
     expect(tool.description).toContain("existing-session profiles");
     expect(tool.description).toContain("browser-automation skill");
+  });
+});
+
+describe("Browser Steward runtime guard", () => {
+  registerBrowserToolAfterEachReset();
+
+  it("blocks unsafe browser mutation for the Browser Steward without approval", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.("call-1", { action: "open", url: "https://example.com" }),
+    ).rejects.toThrow(/Browser Steward runtime guard blocked open: approval_required/);
+    expect(browserClientMocks.browserOpenTab).not.toHaveBeenCalled();
+  });
+
+  it("blocks Browser Steward global-session mutation by trusted agent id", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "global",
+      agentId: "browser-session-credential-steward",
+    });
+
+    await expect(
+      tool.execute?.("call-1", { action: "open", url: "https://example.com" }),
+    ).rejects.toThrow(/Browser Steward runtime guard blocked open: approval_required/);
+    expect(browserClientMocks.browserOpenTab).not.toHaveBeenCalled();
+  });
+
+  it("tracks an approved global-session mutation under its trusted agent id", async () => {
+    browserClientMocks.browserOpenTab.mockResolvedValueOnce({
+      targetId: "global-steward-tab",
+      url: "https://example.com",
+    });
+    const tool = createBrowserTool({
+      agentSessionKey: "global",
+      agentId: "browser-session-credential-steward",
+    });
+
+    await tool.execute?.(
+      "call-global-approved",
+      markBrowserStewardRuntimeApproved({ action: "open", url: "https://example.com" }, undefined, {
+        backend: { kind: "host" },
+        origin: "https://example.com",
+      }),
+    );
+
+    expect(sessionTabRegistryMocks.trackSessionBrowserTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "global",
+        agentId: "browser-session-credential-steward",
+        targetId: "global-steward-tab",
+      }),
+    );
+  });
+
+  it("does not echo credential-like action values in Browser Steward errors", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    let thrown: unknown;
+    try {
+      await tool.execute?.("call-1", { action: "Bearer SHOULD_NOT_APPEAR" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(String(thrown)).toMatch(/Browser Steward runtime guard blocked unknown/);
+    expect(String(thrown)).toMatch(/browser_steward\.blocked_credential_exposure/);
+    expect(String(thrown)).not.toContain("SHOULD_NOT_APPEAR");
+  });
+
+  it("allows non-secret read-only Browser Steward status checks", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await tool.execute?.("call-1", { action: "status" });
+
+    expect(browserClientMocks.browserStatus).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ profile: undefined }),
+    );
+  });
+
+  it("rejects secret-like Browser Steward values without echoing them", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    const secretLike = "Bearer SHOULD_NOT_APPEAR";
+
+    let thrown: unknown;
+    try {
+      await tool.execute?.("call-1", {
+        action: "act",
+        request: { kind: "type", text: secretLike },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(String(thrown)).toMatch(/browser_steward\.blocked_credential_exposure/);
+    expect(String(thrown)).not.toContain("SHOULD_NOT_APPEAR");
+  });
+
+  it("does not let the Browser Steward self-approve through tool args", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.("call-1", {
+        action: "open",
+        url: "https://example.com",
+        browserStewardDelegated: true,
+      }),
+    ).rejects.toThrow(/Browser Steward runtime guard blocked open: approval_required/);
+    expect(browserClientMocks.browserOpenTab).not.toHaveBeenCalled();
+  });
+
+  it("allows a Browser Steward mutation only with the trusted runtime approval marker", async () => {
+    browserClientMocks.browserOpenTab.mockResolvedValueOnce({
+      targetId: "tab-approved",
+      url: "https://example.com",
+    });
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    await tool.execute?.(
+      "call-1",
+      markBrowserStewardRuntimeApproved(
+        {
+          action: "open",
+          url: "https://example.com",
+        },
+        undefined,
+        { backend: { kind: "host" }, origin: "https://example.com" },
+      ),
+    );
+
+    expect(browserClientMocks.browserOpenTab).toHaveBeenCalledWith(
+      undefined,
+      "https://example.com",
+      expect.objectContaining({ profile: undefined }),
+    );
+    expect(sessionTabRegistryMocks.trackSessionBrowserTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:browser-session-credential-steward:runtime-check",
+        targetId: "tab-approved",
+        browserStewardRuntimeDecision: expect.objectContaining({
+          boundaryDecision: "allow",
+          requestedAction: "open",
+          telemetryEvent: "browser_steward.boundary_decision",
+        }),
+      }),
+    );
+  });
+
+  it("rejects an approved open that redirects to another origin", async () => {
+    browserClientMocks.browserOpenTab.mockResolvedValueOnce({
+      targetId: "tab-redirected",
+      url: "https://evil.example/landing",
+    });
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.(
+        "call-open-redirect",
+        markBrowserStewardRuntimeApproved(
+          { action: "open", url: "https://example.com/start" },
+          undefined,
+          { backend: { kind: "host" }, origin: "https://example.com" },
+        ),
+      ),
+    ).rejects.toThrow("approved navigation origin changed before completion");
+    expect(sessionTabRegistryMocks.trackSessionBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it("rejects an approved navigate that redirects to another origin", async () => {
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      { targetId: "tab-1", url: "https://example.com/start" },
+    ]);
+    browserActionsMocks.browserNavigate.mockResolvedValueOnce({
+      ok: true,
+      targetId: "tab-redirected",
+      url: "https://evil.example/landing",
+    });
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.(
+        "call-navigate-redirect",
+        markBrowserStewardRuntimeApproved(
+          { action: "navigate", url: "https://example.com/start", targetId: "tab-1" },
+          undefined,
+          { backend: { kind: "host" }, origin: "https://example.com", targetRef: "tab-1" },
+        ),
+      ),
+    ).rejects.toThrow("approved navigation origin changed before completion");
+  });
+
+  it("blocks a pending Browser Steward marker until its own approval resolves", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.(
+        "call-pending",
+        markBrowserStewardRuntimeApprovalPending(
+          {
+            action: "open",
+            url: "https://example.com/private",
+          },
+          {
+            action: "open",
+            url: "REDACTED",
+          },
+          HOST_APPROVAL_BINDING,
+        ),
+      ),
+    ).rejects.toThrow(/Browser Steward runtime guard blocked open: approval_required/);
+    expect(browserClientMocks.browserOpenTab).not.toHaveBeenCalled();
+  });
+
+  it("removes approved Browser Steward tabs using their executable profile identity", async () => {
+    const sessionKey = "agent:browser-session-credential-steward:runtime-check";
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      { targetId: "tab-approved", url: "https://example.com" },
+    ]);
+    const tool = createBrowserTool({ agentSessionKey: sessionKey });
+
+    await tool.execute?.(
+      "call-close",
+      markBrowserStewardRuntimeApproved(
+        {
+          action: "close",
+          targetId: "tab-approved",
+        },
+        undefined,
+        { backend: { kind: "host" }, targetRef: "tab-approved" },
+      ),
+    );
+
+    expect(sessionTabRegistryMocks.untrackSessionBrowserTab).toHaveBeenCalledWith({
+      sessionKey,
+      targetId: "tab-approved",
+      baseUrl: undefined,
+      profile: undefined,
+    });
+  });
+
+  it("keeps approved credential material private until browser execution", async () => {
+    const secretValue = "raw-approved-browser-secret-123456";
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    await tool.execute?.(
+      "call-credential",
+      markBrowserStewardRuntimeApproved(
+        {
+          action: "act",
+          request: { kind: "type", text: secretValue },
+        },
+        {
+          action: "act",
+          credentialMaterial: "REDACTED",
+        },
+        HOST_APPROVAL_BINDING,
+      ),
+    );
+
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ kind: "type", text: secretValue }),
+      expect.any(Object),
+    );
+    const trackedMetadata = JSON.stringify(
+      sessionTabRegistryMocks.trackSessionBrowserTab.mock.calls,
+    );
+    expect(trackedMetadata).not.toContain(secretValue);
+  });
+
+  it("does not return raw credential URLs from approved execution failures", async () => {
+    const malformedCredentialUrl = "https://user:password@[";
+    browserClientMocks.browserOpenTab.mockRejectedValueOnce(
+      new Error(`Invalid URL: ${malformedCredentialUrl}`),
+    );
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    const approvedParams = markBrowserStewardRuntimeApproved(
+      { action: "open", targetUrl: malformedCredentialUrl },
+      { action: "open", targetUrl: "REDACTED" },
+      { backend: { kind: "host" }, origin: "https://example.com" },
+    );
+
+    await expect(tool.execute?.("call-malformed-credential-url", approvedParams)).rejects.toThrow(
+      "Browser Steward approved credential operation failed safely",
+    );
+    expect(JSON.stringify(approvedParams)).not.toContain(malformedCredentialUrl);
+  });
+
+  it("revalidates the approved tab origin before releasing credential material", async () => {
+    const secretValue = "raw-origin-revalidation-secret";
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      { tabId: "tab-1", url: "https://new.example/login" },
+    ]);
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    const approvedParams = markBrowserStewardRuntimeApproved(
+      {
+        action: "act",
+        request: { kind: "type", targetId: "tab-1", text: secretValue },
+      },
+      {
+        action: "act",
+        request: { kind: "type", targetId: "tab-1", text: "REDACTED" },
+      },
+      {
+        backend: { kind: "host" },
+        origin: "https://old.example",
+        targetRef: "tab-1",
+      },
+    );
+
+    await expect(tool.execute?.("call-origin-changed", approvedParams)).rejects.toThrow(
+      /browser destination changed before execution/i,
+    );
+    expect(browserActionsMocks.browserAct).not.toHaveBeenCalled();
+    expect(JSON.stringify(approvedParams)).not.toContain(secretValue);
+  });
+
+  it("does not trust a direct URL supplied on a tab-targeted credential action", async () => {
+    const secretValue = "raw-spoofed-origin-secret";
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      { tabId: "tab-1", url: "https://actual.example/login" },
+    ]);
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    const approvedParams = markBrowserStewardRuntimeApproved(
+      {
+        action: "act",
+        targetUrl: "https://trusted.example/approval",
+        request: { kind: "type", targetId: "tab-1", text: secretValue },
+      },
+      {
+        action: "act",
+        targetUrl: "https://trusted.example/approval",
+        request: { kind: "type", targetId: "tab-1", text: "REDACTED" },
+      },
+      {
+        backend: { kind: "host" },
+        origin: "https://trusted.example",
+        targetRef: "tab-1",
+      },
+    );
+
+    await expect(tool.execute?.("call-origin-spoof", approvedParams)).rejects.toThrow(
+      /browser destination changed before execution/i,
+    );
+    expect(browserActionsMocks.browserAct).not.toHaveBeenCalled();
+    expect(JSON.stringify(approvedParams)).not.toContain(secretValue);
+  });
+
+  it("releases approved credential material only after matching tab-origin proof", async () => {
+    const secretValue = "raw-origin-matched-secret";
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      { tabId: "tab-1", url: "https://trusted.example/login" },
+    ]);
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    const approvedParams = markBrowserStewardRuntimeApproved(
+      {
+        action: "act",
+        request: { kind: "type", targetId: "tab-1", text: secretValue },
+      },
+      {
+        action: "act",
+        request: { kind: "type", targetId: "tab-1", text: "REDACTED" },
+      },
+      {
+        backend: { kind: "host" },
+        origin: "https://trusted.example",
+        targetRef: "tab-1",
+      },
+    );
+
+    await tool.execute?.("call-origin-matched", approvedParams);
+
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ text: secretValue }),
+      expect.objectContaining({
+        profile: undefined,
+        approvedOrigin: "https://trusted.example",
+      }),
+    );
+  });
+
+  it("pins an approved no-target credential action to the tab used for origin proof", async () => {
+    const secretValue = "correct-horse-battery-staple";
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      { targetId: "default-target", url: "https://default.example/form", type: "page" },
+    ]);
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    const approvedParams = markBrowserStewardRuntimeApproved(
+      {
+        action: "act",
+        request: { kind: "select", values: [secretValue] },
+      },
+      {
+        action: "act",
+        request: { kind: "select", values: ["REDACTED"] },
+      },
+      {
+        backend: { kind: "host" },
+        origin: "https://default.example",
+        targetRef: "default-target",
+      },
+    );
+
+    await tool.execute?.("call-default-target", approvedParams);
+
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        kind: "select",
+        targetId: "default-target",
+        values: [secretValue],
+      }),
+      expect.objectContaining({
+        profile: undefined,
+        approvedOrigin: "https://default.example",
+      }),
+    );
+  });
+
+  it("restores an approved private profile before backend resolution", async () => {
+    setResolvedBrowserProfiles({
+      "profile-secret-shaped": { driver: "openclaw" },
+    });
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+    const approvedParams = markBrowserStewardRuntimeApproved(
+      { action: "status", profile: "profile-secret-shaped" },
+      { action: "status", profile: "REDACTED" },
+      HOST_APPROVAL_BINDING,
+    );
+
+    await tool.execute?.("call-private-profile", approvedParams);
+
+    expect(browserClientMocks.browserStatus).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ profile: "profile-secret-shaped" }),
+    );
+  });
+
+  it("blocks Browser Steward node proxy mutation before node.invoke", async () => {
+    mockSingleBrowserProxyNode();
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.("call-1", { action: "open", url: "https://example.com", target: "node" }),
+    ).rejects.toThrow(/Browser Steward runtime guard blocked open: approval_required/);
+    expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
+  it("keeps Browser Steward approval local before node proxy dispatch", async () => {
+    mockSingleBrowserProxyNode();
+    gatewayMocks.callGatewayTool.mockResolvedValueOnce({
+      ok: true,
+      payload: { result: { ok: true, targetId: "tab-1", url: "https://example.com/" } },
+    });
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await tool.execute?.(
+      "call-1",
+      markBrowserStewardRuntimeApproved(
+        {
+          action: "open",
+          url: "https://example.com",
+          target: "node",
+        },
+        undefined,
+        { backend: { kind: "node", identity: "node-1" }, origin: "https://example.com" },
+      ),
+    );
+
+    expect(gatewayMocks.callGatewayTool).toHaveBeenCalledWith(
+      "node.invoke",
+      expect.any(Object),
+      expect.objectContaining({
+        command: "browser.proxy",
+        params: expect.objectContaining({
+          path: "/tabs/open",
+        }),
+      }),
+    );
+    const params = mockCallArg<{ params?: Record<string, unknown> }>(
+      gatewayMocks.callGatewayTool,
+      0,
+      2,
+    ).params;
+    expect(params).not.toHaveProperty("agentSessionKey");
+    expect(params).not.toHaveProperty("browserStewardRuntimeApproved");
+    expect(params).not.toHaveProperty("browserStewardRuntimeDelegated");
+  });
+
+  it("rejects approved Browser Steward node actions without the approval capability", async () => {
+    nodesUtilsMocks.listNodes.mockResolvedValue([
+      {
+        nodeId: "node-1",
+        connected: true,
+        caps: ["browser"],
+        commands: ["browser.proxy"],
+      },
+    ]);
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.(
+        "call-1",
+        markBrowserStewardRuntimeApproved(
+          { action: "open", url: "https://example.com", target: "node" },
+          undefined,
+          { backend: { kind: "node", identity: "node-1" }, origin: "https://example.com" },
+        ),
+      ),
+    ).rejects.toThrow(/compatible browser node/);
+    expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("Browser Steward destination resolution", () => {
+  registerBrowserToolAfterEachReset();
+
+  it("matches an existing tab and returns only its sanitized origin", async () => {
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      {
+        targetId: "raw-target",
+        tabId: "tab-1",
+        label: "credential-form",
+        url: "https://user:password@evil.example/login?token=hidden",
+      },
+    ]);
+
+    await expect(
+      resolveBrowserStewardTargetOrigin({ targetRef: "tab-1", profile: "openclaw" }),
+    ).resolves.toBe("https://evil.example");
+    expect(browserClientMocks.browserTabs).toHaveBeenCalledWith(undefined, {
+      profile: "openclaw",
+    });
+  });
+
+  it("resolves the default tab origin when targetId is omitted", async () => {
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      {
+        targetId: "default-target",
+        url: "https://default.example/account",
+        type: "page",
+      },
+    ]);
+
+    await expect(resolveBrowserStewardTargetOrigin({ profile: "openclaw" })).resolves.toBe(
+      "https://default.example",
+    );
+  });
+
+  it("fails closed when an omitted target could select multiple tabs", async () => {
+    browserClientMocks.browserTabs.mockResolvedValueOnce([
+      { targetId: "first-target", url: "https://first.example/account", type: "page" },
+      { targetId: "second-target", url: "https://second.example/account", type: "page" },
+    ]);
+
+    await expect(resolveBrowserStewardTargetOrigin({ profile: "openclaw" })).rejects.toThrow(
+      /destination tab could not be verified/i,
+    );
+  });
+
+  it("resolves a tab origin through the same selected browser node used for execution", async () => {
+    mockSingleBrowserProxyNode();
+    gatewayMocks.callGatewayTool.mockResolvedValueOnce({
+      ok: true,
+      payload: {
+        result: {
+          running: true,
+          tabs: [{ tabId: "tab-1", url: "https://node.example/account" }],
+        },
+      },
+    });
+
+    await expect(
+      resolveBrowserStewardTargetOrigin({ target: "node", targetRef: "tab-1" }),
+    ).resolves.toBe("https://node.example");
+    expect(gatewayMocks.callGatewayTool).toHaveBeenCalledWith(
+      "node.invoke",
+      expect.any(Object),
+      expect.objectContaining({ nodeId: "node-1", command: "browser.proxy" }),
+    );
+    expect(browserClientMocks.browserTabs).not.toHaveBeenCalled();
   });
 });
 

@@ -9,6 +9,7 @@ import {
   clampPositiveTimerTimeoutMs,
   resolveTimerTimeoutMs,
 } from "openclaw/plugin-sdk/number-runtime";
+import { BROWSER_STEWARD_APPROVED_ORIGIN_HEADER } from "./browser-steward-transport.js";
 import type {
   BrowserActionOk,
   BrowserActionPathResult,
@@ -64,12 +65,18 @@ export async function browserNavigate(
     url: string;
     targetId?: string;
     profile?: string;
+    approvedOrigin?: string;
   },
 ): Promise<BrowserActionTabResult> {
   const q = buildProfileQuery(opts.profile);
   return await fetchBrowserJson<BrowserActionTabResult>(withBaseUrl(baseUrl, `/navigate${q}`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(opts.approvedOrigin
+        ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin }
+        : {}),
+    },
     body: JSON.stringify({ url: opts.url, targetId: opts.targetId }),
     timeoutMs: 20000,
   });
@@ -85,12 +92,18 @@ export async function browserArmDialog(
     targetId?: string;
     timeoutMs?: number;
     profile?: string;
+    approvedOrigin?: string;
   },
 ): Promise<BrowserActionOk> {
   const q = buildProfileQuery(opts.profile);
   return await fetchBrowserJson<BrowserActionOk>(withBaseUrl(baseUrl, `/hooks/dialog${q}`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(opts.approvedOrigin
+        ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin }
+        : {}),
+    },
     body: JSON.stringify({
       accept: opts.accept,
       promptText: opts.promptText,
@@ -113,12 +126,18 @@ export async function browserArmFileChooser(
     targetId?: string;
     timeoutMs?: number;
     profile?: string;
+    approvedOrigin?: string;
   },
 ): Promise<BrowserActionOk> {
   const q = buildProfileQuery(opts.profile);
   return await fetchBrowserJson<BrowserActionOk>(withBaseUrl(baseUrl, `/hooks/file-chooser${q}`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(opts.approvedOrigin
+        ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin }
+        : {}),
+    },
     body: JSON.stringify({
       paths: opts.paths,
       ref: opts.ref,
@@ -135,12 +154,17 @@ export async function browserArmFileChooser(
 export async function browserAct(
   baseUrl: string | undefined,
   req: BrowserActRequest,
-  opts?: { profile?: string; timeoutMs?: number },
+  opts?: { profile?: string; timeoutMs?: number; approvedOrigin?: string },
 ): Promise<BrowserActResponse> {
   const q = buildProfileQuery(opts?.profile);
   return await fetchBrowserJson<BrowserActResponse>(withBaseUrl(baseUrl, `/act${q}`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(opts?.approvedOrigin
+        ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin }
+        : {}),
+    },
     body: JSON.stringify(req),
     timeoutMs: resolveTimerTimeoutMs(opts?.timeoutMs, resolveBrowserActRequestTimeoutMs(req)),
   });
@@ -158,6 +182,7 @@ export async function browserScreenshotAction(
     labels?: boolean;
     timeoutMs?: number;
     profile?: string;
+    approvedOrigin?: string;
   },
 ): Promise<BrowserActionPathResult> {
   const q = buildProfileQuery(opts.profile);
@@ -165,7 +190,12 @@ export async function browserScreenshotAction(
   const effectiveTimeoutMs = timeoutMs ?? DEFAULT_BROWSER_SCREENSHOT_TIMEOUT_MS;
   return await fetchBrowserJson<BrowserActionPathResult>(withBaseUrl(baseUrl, `/screenshot${q}`), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(opts.approvedOrigin
+        ? { [BROWSER_STEWARD_APPROVED_ORIGIN_HEADER]: opts.approvedOrigin }
+        : {}),
+    },
     body: JSON.stringify({
       targetId: opts.targetId,
       fullPage: opts.fullPage,

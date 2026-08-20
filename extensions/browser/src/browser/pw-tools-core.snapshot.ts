@@ -24,6 +24,8 @@ import {
   type RoleRefMap,
 } from "./pw-role-snapshot.js";
 import {
+  assertBrowserPageOrigin,
+  assertBrowserPageFramesOrigin,
   assertPageNavigationCompletedSafely,
   closeBlockedNavigationTarget,
   ensurePageState,
@@ -161,12 +163,14 @@ async function prepareSnapshotPageViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
 }): Promise<Page> {
   const page = await getPageForTargetId({
     cdpUrl: opts.cdpUrl,
     targetId: opts.targetId,
   });
   ensurePageState(page);
+  await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
   if (opts.ssrfPolicy) {
     await assertPageNavigationCompletedSafely({
       cdpUrl: opts.cdpUrl,
@@ -186,12 +190,14 @@ export async function snapshotAriaViaPlaywright(opts: {
   limit?: number;
   timeoutMs?: number;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
 }): Promise<{ nodes: AriaSnapshotNode[] }> {
   const limit = resolveIntegerOption(opts.limit, 500, { min: 1, max: 2000 });
   const page = await prepareSnapshotPageViaPlaywright({
     cdpUrl: opts.cdpUrl,
     targetId: opts.targetId,
     ssrfPolicy: opts.ssrfPolicy,
+    approvedOrigin: opts.approvedOrigin,
   });
   const ariaTimeoutMs =
     typeof opts.timeoutMs === "number" && Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0
@@ -226,6 +232,7 @@ export async function snapshotAriaViaPlaywright(opts: {
       })())) as {
     nodes?: RawAXNode[];
   };
+  await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
   const nodes = Array.isArray(res?.nodes) ? res.nodes : [];
   const formatted = formatAriaSnapshot(nodes, limit);
   await storeAriaSnapshotRefsViaPlaywright({
@@ -245,11 +252,13 @@ export async function snapshotAiViaPlaywright(opts: {
   maxChars?: number;
   urls?: boolean;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
 }): Promise<{ snapshot: string; truncated?: boolean; refs: RoleRefMap }> {
   const page = await prepareSnapshotPageViaPlaywright({
     cdpUrl: opts.cdpUrl,
     targetId: opts.targetId,
     ssrfPolicy: opts.ssrfPolicy,
+    approvedOrigin: opts.approvedOrigin,
   });
 
   let snapshot = await page.ariaSnapshot({
@@ -259,6 +268,7 @@ export async function snapshotAiViaPlaywright(opts: {
   if (opts.urls) {
     snapshot = appendSnapshotUrls(snapshot, await collectSnapshotUrls(page));
   }
+  await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
   const maxChars = opts.maxChars;
   const limit =
     typeof maxChars === "number" && Number.isFinite(maxChars) && maxChars > 0
@@ -289,6 +299,7 @@ async function finalizeRoleSnapshotViaPlaywright(params: {
   mode: "aria" | "role";
   built: { snapshot: string; refs: RoleRefMap };
   urls?: boolean;
+  approvedOrigin?: string;
 }): Promise<{
   snapshot: string;
   refs: RoleRefMap;
@@ -297,6 +308,7 @@ async function finalizeRoleSnapshotViaPlaywright(params: {
   const snapshot = params.urls
     ? appendSnapshotUrls(params.built.snapshot, await collectSnapshotUrls(params.page))
     : params.built.snapshot;
+  await assertBrowserPageFramesOrigin(params.page, params.approvedOrigin);
   storeRoleRefsForTarget({
     page: params.page,
     cdpUrl: params.cdpUrl,
@@ -323,6 +335,7 @@ export async function snapshotRoleViaPlaywright(opts: {
   urls?: boolean;
   timeoutMs?: number;
   ssrfPolicy?: SsrFPolicy;
+  approvedOrigin?: string;
 }): Promise<{
   snapshot: string;
   refs: Record<string, { role: string; name?: string; nth?: number }>;
@@ -332,6 +345,7 @@ export async function snapshotRoleViaPlaywright(opts: {
     cdpUrl: opts.cdpUrl,
     targetId: opts.targetId,
     ssrfPolicy: opts.ssrfPolicy,
+    approvedOrigin: opts.approvedOrigin,
   });
 
   const ariaSnapshotTimeout = resolveSnapshotTimeoutMs(opts.timeoutMs);
@@ -344,6 +358,7 @@ export async function snapshotRoleViaPlaywright(opts: {
       mode: "ai",
       timeout: ariaSnapshotTimeout,
     });
+    await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
     const built = buildRoleSnapshotFromAiSnapshot(snapshot, opts.options);
     return await finalizeRoleSnapshotViaPlaywright({
       page,
@@ -352,6 +367,7 @@ export async function snapshotRoleViaPlaywright(opts: {
       built,
       mode: "aria",
       urls: opts.urls,
+      approvedOrigin: opts.approvedOrigin,
     });
   }
 
@@ -366,6 +382,7 @@ export async function snapshotRoleViaPlaywright(opts: {
       : page.locator(":root");
 
   const ariaSnapshot = await locator.ariaSnapshot({ timeout: ariaSnapshotTimeout });
+  await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
   const built = buildRoleSnapshotFromAriaSnapshot(ariaSnapshot ?? "", opts.options);
   return await finalizeRoleSnapshotViaPlaywright({
     page,
@@ -375,6 +392,7 @@ export async function snapshotRoleViaPlaywright(opts: {
     built,
     mode: "role",
     urls: opts.urls,
+    approvedOrigin: opts.approvedOrigin,
   });
 }
 
@@ -484,9 +502,11 @@ export async function resizeViewportViaPlaywright(opts: {
 export async function closePageViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
+  approvedOrigin?: string;
 }): Promise<void> {
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
+  assertBrowserPageOrigin(page, opts.approvedOrigin);
   await page.close();
 }
 
@@ -494,9 +514,12 @@ export async function closePageViaPlaywright(opts: {
 export async function pdfViaPlaywright(opts: {
   cdpUrl: string;
   targetId?: string;
+  approvedOrigin?: string;
 }): Promise<{ buffer: Buffer }> {
   const page = await getPageForTargetId(opts);
   ensurePageState(page);
+  await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
   const buffer = await page.pdf({ printBackground: true });
+  await assertBrowserPageFramesOrigin(page, opts.approvedOrigin);
   return { buffer };
 }

@@ -3,6 +3,7 @@
 import crypto from "node:crypto";
 import { runBeforeToolCallHook, type HookContext } from "../agents/agent-tools.before-tool-call.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { getTrustedPolicyRegistryForTool } from "../plugins/tools.js";
 import {
   MCP_LOOPBACK_SERVER_NAME,
   MCP_LOOPBACK_SERVER_VERSION,
@@ -100,12 +101,14 @@ export async function handleMcpJsonRpc(params: {
       try {
         // Gateway before-tool hooks still run for loopback MCP calls so policy
         // and audit behavior matches native tool calls from normal chat runs.
+        const trustedPolicyRegistry = getTrustedPolicyRegistryForTool(tool);
         const hookResult = await runBeforeToolCallHook({
           toolName,
           params: toolArgs,
           toolCallId,
           ctx: params.hookContext,
           signal: params.signal,
+          ...(trustedPolicyRegistry ? { trustedPolicyRegistry } : {}),
         });
         if (hookResult.blocked) {
           return jsonRpcResult(id, {

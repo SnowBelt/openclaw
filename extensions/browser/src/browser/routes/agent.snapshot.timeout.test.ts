@@ -65,6 +65,7 @@ vi.mock("../../media/store.js", () => ({
 }));
 
 vi.mock("./agent.shared.js", () => ({
+  assertBrowserStewardApprovedTabOrigin: vi.fn(),
   browserNavigationPolicyForProfile: vi.fn(() => ({})),
   getPwAiModule: vi.fn(async () => null),
   handleRouteError: vi.fn((_ctx, _res, err) => {

@@ -14,6 +14,7 @@ type BrowserDispatchRequest = {
   path: string;
   query?: Record<string, unknown>;
   body?: unknown;
+  headers?: Record<string, string | string[] | undefined>;
   signal?: AbortSignal;
 };
 
@@ -76,6 +77,7 @@ export function createBrowserRouteDispatcher(ctx: BrowserRouteContext) {
       const path = normalizePath(req.path);
       const query = req.query ?? {};
       const body = req.body;
+      const headers = req.headers;
       const signal = req.signal;
 
       const match = registry.routes.find((route) => {
@@ -124,6 +126,7 @@ export function createBrowserRouteDispatcher(ctx: BrowserRouteContext) {
             params,
             query,
             body,
+            headers,
             signal,
           },
           res,

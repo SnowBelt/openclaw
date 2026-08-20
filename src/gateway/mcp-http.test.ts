@@ -2,6 +2,7 @@
 // JSON-RPC surface, including hook filtering and context propagation.
 import { request } from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setPluginToolMeta } from "../plugins/tools.js";
 import { getFreePortBlockWithPermissionFallback } from "../test-utils/ports.js";
 import { buildMcpToolSchema } from "./mcp-http.schema.js";
 
@@ -45,6 +46,7 @@ type BeforeToolCallHookInput = {
     sessionKey?: string;
   };
   signal?: unknown;
+  trustedPolicyRegistry?: unknown;
 };
 
 type McpToolResultPayload = {
@@ -1002,6 +1004,26 @@ describe("mcp loopback server", () => {
     expect(hookInput.signal).toBeInstanceOf(AbortSignal);
     expect(execute).not.toHaveBeenCalled();
     expectMcpResultText(payload, "blocked by hook", true);
+  });
+
+  it("forwards a tool's request-scoped trusted policy registry to loopback hooks", async () => {
+    const tool = makeMessageTool();
+    const trustedPolicyRegistry = {
+      trustedToolPolicies: [],
+    } as unknown as import("../plugins/registry-types.js").PluginRegistry;
+    setPluginToolMeta(tool as never, {
+      pluginId: "test-plugin",
+      optional: false,
+      trustedPolicyRegistry,
+    });
+    mockScopedTools([tool]);
+
+    mockScopedTools([tool]);
+    const { runtime } = await startLoopbackServerForTest();
+    const payload = await callMainSessionTool({ token: runtime?.ownerToken });
+
+    expectMcpResultText(payload, "ok", false);
+    expect(getBeforeToolCallHookInput(0).trustedPolicyRegistry).toBe(trustedPolicyRegistry);
   });
 
   it("forwards the request abort signal to loopback tool execution", async () => {

@@ -20,7 +20,7 @@ import { resetDiagnosticSessionStateForTest } from "../logging/diagnostic-sessio
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
-import { setPluginToolMeta } from "../plugins/tools.js";
+import { setPluginToolMeta, setTrustedPolicyRegistryForTool } from "../plugins/tools.js";
 import { createCanonicalFixtureSkill } from "../skills/test-support/test-helpers.js";
 import {
   getBeforeToolCallPolicyDiagnosticState,
@@ -30,6 +30,26 @@ import {
 import { CRITICAL_THRESHOLD } from "./tool-loop-detection.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { callGatewayTool } from "./tools/gateway.js";
+
+const subsystemLoggerMocks = vi.hoisted(() => ({ warn: vi.fn() }));
+
+vi.mock("../logging/subsystem.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("../logging/subsystem.js")>("../logging/subsystem.js");
+  const makeLogger = (subsystem: string) => ({
+    subsystem,
+    isEnabled: () => false,
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: subsystemLoggerMocks.warn,
+    error: vi.fn(),
+    fatal: vi.fn(),
+    raw: vi.fn(),
+    child: (name: string) => makeLogger(`${subsystem}/${name}`),
+  });
+  return { ...actual, createSubsystemLogger: makeLogger };
+});
 
 vi.mock("../plugins/hook-runner-global.js", async () => {
   const actual = await vi.importActual<typeof import("../plugins/hook-runner-global.js")>(
@@ -1020,6 +1040,42 @@ describe("before_tool_call requireApproval handling", () => {
     expect(mockCallGateway).not.toHaveBeenCalled();
   });
 
+  it("pins request-scoped trusted policies to core tools", async () => {
+    const requestRegistry = createEmptyPluginRegistry();
+    requestRegistry.trustedToolPolicies = [
+      {
+        pluginId: "browser-policy",
+        source: "test",
+        policy: {
+          id: "block-core-browser-proxy",
+          description: "Blocks the synthetic core browser proxy call",
+          evaluate: (event) =>
+            event.toolName === "nodes"
+              ? { block: true, blockReason: "blocked by request policy" }
+              : undefined,
+        },
+      },
+    ];
+    const execute = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "executed" }] });
+    const sourceTool = { name: "nodes", execute } as unknown as AnyAgentTool;
+    setTrustedPolicyRegistryForTool(sourceTool, requestRegistry);
+    const tool = wrapToolWithBeforeToolCallHook(sourceTool, {
+      agentId: "main",
+      sessionKey: "agent:main:direct",
+      loopDetection: { enabled: false },
+    });
+
+    const result = await tool.execute("core-policy-call", { action: "invoke" });
+
+    expect(result).toMatchObject({
+      details: {
+        status: "blocked",
+        reason: "blocked by request policy",
+      },
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("blocks when before_tool_call hook execution throws", async () => {
     hookRunner.runBeforeToolCall.mockRejectedValueOnce(new Error("hook crashed"));
 
@@ -1773,6 +1829,7 @@ describe("before_tool_call tool content private-data capture", () => {
   beforeEach(() => {
     resetDiagnosticSessionStateForTest();
     resetDiagnosticEventsForTest();
+    subsystemLoggerMocks.warn.mockReset();
   });
 
   async function withTrustedToolEvents(
@@ -1836,6 +1893,166 @@ describe("before_tool_call tool content private-data capture", () => {
       expect(JSON.stringify(completed?.event)).not.toContain("/etc/secret");
       expect(JSON.stringify(completed?.event)).not.toContain("file body");
     });
+  });
+
+  it("uses a tool-owned redactor for private diagnostic input without changing execution", async () => {
+    const rawSecret = "raw-private-diagnostic-secret-123456";
+    const rawOutputSecret = "raw-private-output-secret-123456";
+    const execute = vi.fn().mockResolvedValue({ password: rawOutputSecret });
+    const tool = wrapToolWithBeforeToolCallHook(
+      {
+        name: "browser",
+        execute,
+        redactBeforeToolCallDiagnosticParams: (params: unknown) => ({
+          ...(params as Record<string, unknown>),
+          password: "REDACTED",
+        }),
+        redactBeforeToolCallDiagnosticResult: () => ({ password: "REDACTED" }),
+      } as unknown as AnyAgentTool,
+      {
+        agentId: "main",
+        sessionKey: "session-key",
+        runId: "run-redacted",
+        loopDetection: { enabled: false },
+        config: configWithToolContent({ toolInputs: true, toolOutputs: true }),
+      },
+    );
+
+    await withTrustedToolEvents(async (emitted, flush) => {
+      await tool.execute("call-redacted", { action: "act", password: rawSecret });
+      await flush();
+
+      expect(execute).toHaveBeenCalledWith(
+        "call-redacted",
+        { action: "act", password: rawSecret },
+        undefined,
+        undefined,
+      );
+      const completed = emitted.find((entry) => entry.event.type === "tool.execution.completed");
+      expect(completed?.privateData.toolContent?.toolInput).toEqual({
+        action: "act",
+        password: "REDACTED",
+      });
+      expect(completed?.privateData.toolContent?.toolOutput).toEqual({ password: "REDACTED" });
+      expect(JSON.stringify(completed)).not.toContain(rawSecret);
+      expect(JSON.stringify(completed)).not.toContain(rawOutputSecret);
+    });
+  });
+
+  it("isolates execution input and output from mutating diagnostic redactors", async () => {
+    const rawInputSecret = "raw-mutating-input-secret-123456";
+    const rawOutputSecret = "raw-mutating-output-secret-123456";
+    const result = { nested: { password: rawOutputSecret } };
+    const execute = vi.fn().mockResolvedValue(result);
+    const tool = wrapToolWithBeforeToolCallHook(
+      {
+        name: "browser",
+        execute,
+        redactBeforeToolCallDiagnosticParams: (value: unknown) => {
+          const cloned = value as { nested: { password: string } };
+          cloned.nested.password = "REDACTED";
+          return cloned;
+        },
+        redactBeforeToolCallDiagnosticResult: (value: unknown) => {
+          const cloned = value as { nested: { password: string } };
+          cloned.nested.password = "REDACTED";
+          return cloned;
+        },
+      } as unknown as AnyAgentTool,
+      {
+        agentId: "main",
+        sessionKey: "session-key",
+        runId: "run-mutating-redactor",
+        loopDetection: { enabled: false },
+        config: configWithToolContent(),
+      },
+    );
+    const params = { nested: { password: rawInputSecret } };
+
+    await withTrustedToolEvents(async (emitted, flush) => {
+      const returned = await tool.execute("call-mutating-redactor", params);
+      await flush();
+
+      expect(params.nested.password).toBe(rawInputSecret);
+      expect(execute).toHaveBeenCalledWith(
+        "call-mutating-redactor",
+        { nested: { password: rawInputSecret } },
+        undefined,
+        undefined,
+      );
+      expect(returned).toBe(result);
+      expect(result.nested.password).toBe(rawOutputSecret);
+      const completed = emitted.find((entry) => entry.event.type === "tool.execution.completed");
+      expect(completed?.privateData.toolContent).toMatchObject({
+        toolInput: { nested: { password: "REDACTED" } },
+        toolOutput: { nested: { password: "REDACTED" } },
+      });
+    });
+  });
+
+  it("fails diagnostic redaction closed without logging thrown secret values", async () => {
+    const rawSecret = "raw-redactor-error-secret-123456";
+    const execute = vi.fn().mockResolvedValue({ password: rawSecret });
+    const tool = wrapToolWithBeforeToolCallHook(
+      {
+        name: "browser",
+        execute,
+        redactBeforeToolCallDiagnosticParams: () => {
+          throw new Error(rawSecret);
+        },
+        redactBeforeToolCallDiagnosticResult: () => {
+          throw new Error(rawSecret);
+        },
+      } as unknown as AnyAgentTool,
+      {
+        agentId: "main",
+        sessionKey: "session-key",
+        runId: "run-redactor-error",
+        loopDetection: { enabled: false },
+        config: configWithToolContent(),
+      },
+    );
+
+    await withTrustedToolEvents(async (emitted, flush) => {
+      await tool.execute("call-redactor-error", { password: rawSecret });
+      await flush();
+
+      const completed = emitted.find((entry) => entry.event.type === "tool.execution.completed");
+      expect(completed?.privateData.toolContent).toEqual({
+        toolInput: { redacted: true },
+        toolOutput: { redacted: true },
+      });
+      expect(subsystemLoggerMocks.warn).toHaveBeenCalledWith(
+        "tool diagnostic input redaction failed: tool=browser",
+      );
+      expect(subsystemLoggerMocks.warn).toHaveBeenCalledWith(
+        "tool diagnostic output redaction failed: tool=browser",
+      );
+      expect(JSON.stringify(subsystemLoggerMocks.warn.mock.calls)).not.toContain(rawSecret);
+    });
+  });
+
+  it("does not run tool-owned redactors when private content capture is disabled", async () => {
+    const redactInput = vi.fn((value: unknown) => value);
+    const redactResult = vi.fn((value: unknown) => value);
+    const tool = wrapToolWithBeforeToolCallHook(
+      {
+        name: "browser",
+        execute: vi.fn().mockResolvedValue({ content: [{ type: "text", text: "ok" }] }),
+        redactBeforeToolCallDiagnosticParams: redactInput,
+        redactBeforeToolCallDiagnosticResult: redactResult,
+      } as unknown as AnyAgentTool,
+      {
+        agentId: "main",
+        sessionKey: "session-key",
+        loopDetection: { enabled: false },
+      },
+    );
+
+    await tool.execute("call-no-capture", { action: "snapshot" });
+
+    expect(redactInput).not.toHaveBeenCalled();
+    expect(redactResult).not.toHaveBeenCalled();
   });
 
   it("omits tool content from private data when capture is not configured", async () => {
