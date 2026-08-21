@@ -186,6 +186,19 @@ runtime_home="${OPENCLAW_CUSTOM_RUNTIME_HOME:-$HOME/.openclaw-custom-runtime}"
 
 If the new candidate is restored after a rollback drill, run `apply`, validate the config, and restart once more. Never bypass a helper refusal: inspect the current config and its backup/state receipts, reconcile the out-of-band edit, and then retry.
 
+When an explicitly authorized operator change has left the controlled role fields
+different from both the recorded baseline and applied contract, use the helper's
+auditable reconciliation operation instead of editing the config or state file:
+
+```bash
+"$runtime_home/bin/control-director-role-config.py" reconcile
+```
+
+`reconcile` snapshots the stale state, records the current controlled fields as
+the rollback baseline, reapplies the role contract, and preserves all unrelated
+configuration. It refuses to run when there is no state record or no actual
+controlled-field drift.
+
 ## Verification and readiness
 
 Source acceptance from a clean immutable checkout:

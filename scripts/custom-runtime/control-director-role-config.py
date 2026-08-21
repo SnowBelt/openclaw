@@ -178,7 +178,7 @@ def sorted_union(values: list[str], additions: tuple[str, ...]) -> list[str]:
     return sorted({value for value in [*values, *additions] if isinstance(value, str)})
 
 
-def apply_contract(config: dict) -> None:
+def apply_contract(config: dict, *, allow_role_replacement: bool = False) -> None:
     by_id = required_agents(config)
     agents_config = config.setdefault("agents", {})
     defaults = agents_config.setdefault("defaults", {})
@@ -197,7 +197,7 @@ def apply_contract(config: dict) -> None:
 
     for agent_id, expected in ROLES.items():
         current = by_id[agent_id].get("role")
-        if current not in (None, expected):
+        if not allow_role_replacement and current not in (None, expected):
             fail(f"unexpected role for {agent_id}: {current!r}")
         by_id[agent_id]["role"] = expected
 
@@ -238,8 +238,8 @@ def apply_contract(config: dict) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2 or sys.argv[1] not in {"apply", "remove"}:
-        fail("usage: control-director-role-config.py apply|remove")
+    if len(sys.argv) != 2 or sys.argv[1] not in {"apply", "remove", "reconcile"}:
+        fail("usage: control-director-role-config.py apply|remove|reconcile")
     action = sys.argv[1]
     mode = stat.S_IMODE(CONFIG.stat().st_mode)
     config = read_json(CONFIG)
@@ -249,7 +249,11 @@ def main() -> None:
     if state is not None and state.get("version") != 1:
         fail("unsupported role config state version")
     current = capture_controlled(config)
-    if state is not None and current not in (state.get("baseline"), state.get("applied")):
+    if (
+        action != "reconcile"
+        and state is not None
+        and current not in (state.get("baseline"), state.get("applied"))
+    ):
         fail("controlled role configuration changed outside this helper; refusing to overwrite")
 
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -262,6 +266,7 @@ def main() -> None:
     backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     backup = backup_dir / f"openclaw.director.roles-{action}-{stamp}.json"
     shutil.copy2(CONFIG, backup)
+    state_backup = None
 
     if action == "apply":
         baseline = state["baseline"] if state is not None else current
@@ -269,6 +274,20 @@ def main() -> None:
         next_state = {
             "version": 1,
             "baseline": baseline,
+            "applied": capture_controlled(config),
+        }
+        write_atomic(STATE, next_state, 0o600)
+    elif action == "reconcile":
+        if state is None:
+            fail("role config state is unavailable; reconcile requires an existing state")
+        if current in (state.get("baseline"), state.get("applied")):
+            fail("reconcile requires controlled role configuration drift")
+        state_backup = backup_dir / f"control-director-role-config-state-{action}-{stamp}.json"
+        shutil.copy2(STATE, state_backup)
+        apply_contract(config, allow_role_replacement=True)
+        next_state = {
+            "version": 1,
+            "baseline": current,
             "applied": capture_controlled(config),
         }
         write_atomic(STATE, next_state, 0o600)
@@ -290,6 +309,7 @@ def main() -> None:
                 },
                 "programManagerWorkers": list(WORKER_IDS),
                 "state": str(STATE),
+                "stateBackup": str(state_backup) if state_backup is not None else None,
             },
             sort_keys=True,
         )

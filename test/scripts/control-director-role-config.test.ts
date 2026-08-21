@@ -57,7 +57,10 @@ function fixture() {
   return { backupDir, baseline, configPath, root, runtimeHome, statePath };
 }
 
-function runRoleConfig(input: ReturnType<typeof fixture>, action: "apply" | "remove") {
+function runRoleConfig(
+  input: ReturnType<typeof fixture>,
+  action: "apply" | "remove" | "reconcile",
+) {
   return spawnSync(
     "python3",
     [
@@ -217,5 +220,41 @@ describe("Control Director managed role configuration", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("changed outside this helper");
     expect(readFileSync(input.configPath, "utf8")).toBe(before);
+  });
+
+  it("reconciles explicit controlled drift without losing the rollback baseline", () => {
+    const input = fixture();
+    expect(runRoleConfig(input, "apply").status).toBe(0);
+    const drifted = readConfig(input);
+    const byId = agentsById(drifted);
+    byId.get("program-manager")!.role = "worker";
+    byId.get("program-manager")!.subagents = {
+      allowAgents: ["builder-agent"],
+      delegationMode: "suggest",
+      requireAgentId: true,
+    };
+    writeFileSync(input.configPath, `${JSON.stringify(drifted, null, 2)}\n`);
+
+    const reconciled = runRoleConfig(input, "reconcile");
+
+    expect(reconciled.status, reconciled.stderr).toBe(0);
+    const repaired = readConfig(input);
+    expect(agentsById(repaired).get("program-manager")?.role).toBe("program_manager");
+    expect(agentsById(repaired).get("program-manager")?.subagents).toEqual({
+      allowAgents: workerIds,
+      delegationMode: "prefer",
+      requireAgentId: true,
+    });
+    expect(reconciled.stdout).toContain("stateBackup");
+
+    const removed = runRoleConfig(input, "remove");
+    expect(removed.status, removed.stderr).toBe(0);
+    const restored = agentsById(readConfig(input)).get("program-manager");
+    expect(restored?.role).toBe("worker");
+    expect(restored?.subagents).toEqual({
+      allowAgents: ["builder-agent"],
+      delegationMode: "suggest",
+      requireAgentId: true,
+    });
   });
 });
