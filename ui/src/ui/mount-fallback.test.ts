@@ -98,6 +98,22 @@ describe("Control UI mount fallback", () => {
     expect(fallback.hidden).toBe(false);
   });
 
+  it("shows a non-blank loading surface before the app reports readiness", async () => {
+    const frameWindow = createIsolatedWindow();
+    installFallbackShell(frameWindow, await readIndexHtmlWithDelay(25));
+
+    const bootStatus = frameWindow.document.querySelector<HTMLElement>(
+      "[data-openclaw-boot-status]",
+    );
+    expect(bootStatus?.hidden).toBe(false);
+    expect(bootStatus?.textContent).toContain("Loading Dashboard");
+
+    const app = frameWindow.document.querySelector("openclaw-app");
+    app?.setAttribute("data-openclaw-app-ready", "true");
+    frameWindow.dispatchEvent(new frameWindow.Event("openclaw-app-ready"));
+    expect(bootStatus?.hidden).toBe(true);
+  });
+
   it("shows the fallback when the app registers but never completes its first render", async () => {
     const frameWindow = createIsolatedWindow();
     installFallbackShell(frameWindow, await readIndexHtmlWithDelay(1));

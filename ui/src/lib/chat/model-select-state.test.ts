@@ -8,6 +8,7 @@ import {
 } from "../../test-helpers/chat-model.ts";
 import {
   resolveChatFastModeSelectState,
+  isChatModelValueUnavailable,
   resolveChatModelOverrideValue,
   resolveChatModelSelectState,
 } from "./model-select-state.ts";
@@ -96,6 +97,8 @@ describe("chat-model-select-state", () => {
         modelProvider: "deepseek",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "deepseek-chat";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     expect(resolveChatModelOverrideValue(state)).toBe("deepseek/deepseek-chat");
   });
@@ -107,6 +110,8 @@ describe("chat-model-select-state", () => {
         modelProvider: "openai",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5-mini";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     expect(resolveChatModelOverrideValue(state)).toBe("openai/gpt-5-mini");
   });
@@ -116,6 +121,7 @@ describe("chat-model-select-state", () => {
       modelOverrides: { main: "gpt-5-mini" },
       chatModelCatalog: createModelCatalog(...DEFAULT_CHAT_MODEL_CATALOG),
     });
+    state.sessionsResult!.sessions = [];
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("openai/gpt-5-mini");
@@ -123,6 +129,39 @@ describe("chat-model-select-state", () => {
       { value: "openai/gpt-5", label: "GPT-5" },
       { value: "openai/gpt-5-mini", label: "GPT-5 Mini" },
     ]);
+  });
+
+  it("lets authoritative cleared or fallback rows supersede cached overrides", () => {
+    const state = createChatModelState({
+      modelOverrides: { main: "gpt-5-mini" },
+      chatModelCatalog: createModelCatalog(...DEFAULT_CHAT_MODEL_CATALOG),
+    });
+    const activeRow = state.sessionsResult!.sessions[0]!;
+    activeRow.modelOverride = "gpt-5-mini";
+    activeRow.modelOverrideSource = "auto";
+    activeRow.modelOverrideIsFallback = true;
+
+    expect(resolveChatModelOverrideValue(state)).toBe("");
+
+    activeRow.modelOverride = undefined;
+    activeRow.modelOverrideSource = undefined;
+    activeRow.modelOverrideIsFallback = undefined;
+    expect(resolveChatModelOverrideValue(state)).toBe("");
+  });
+
+  it("lets an authoritative explicit override supersede the optimistic cache", () => {
+    const state = createChatModelState({
+      modelOverrides: { main: "gpt-5-mini" },
+      chatModelCatalog: createModelCatalog(...DEFAULT_CHAT_MODEL_CATALOG),
+    });
+    const activeRow = state.sessionsResult!.sessions[0]!;
+    activeRow.model = "gpt-5-mini";
+    activeRow.modelProvider = "openai";
+    activeRow.modelOverride = "gpt-5";
+    activeRow.modelOverrideSource = "user";
+    activeRow.modelOverrideIsFallback = false;
+
+    expect(resolveChatModelOverrideValue(state)).toBe("openai/gpt-5");
   });
 
   it("prefers catalog provider matches over stale session providers", () => {
@@ -133,6 +172,8 @@ describe("chat-model-select-state", () => {
         modelProvider: "zai",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "deepseek-chat";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     expect(resolveChatModelSelectState(state).currentOverride).toBe("deepseek/deepseek-chat");
   });
@@ -144,6 +185,8 @@ describe("chat-model-select-state", () => {
         modelProvider: "zai",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5-mini";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("openai/gpt-5-mini");
@@ -161,6 +204,8 @@ describe("chat-model-select-state", () => {
         modelProvider: "openai",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5-mini";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("openai/gpt-5-mini");
@@ -222,6 +267,8 @@ describe("chat-model-select-state", () => {
         defaultsProvider: "codex",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("openai/gpt-5.5");
@@ -253,6 +300,8 @@ describe("chat-model-select-state", () => {
         defaultsProvider: "openai",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("openai/gpt-5.5");
@@ -286,6 +335,127 @@ describe("chat-model-select-state", () => {
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.defaultSelectable).toBe(false);
     expect(resolved.options).toEqual([{ value: "openai/gpt-5.5", label: "GPT-5.5" }]);
+    expect(resolved.currentModelAvailable).toBe(false);
+    expect(isChatModelValueUnavailable("openai/gpt-5.3-codex-spark", state.chatModelCatalog)).toBe(
+      true,
+    );
+  });
+
+  it("blocks an inherited session when its default model becomes unavailable", () => {
+    const state = createChatModelState({
+      chatModelCatalog: createModelCatalog(
+        {
+          id: "gpt-5.5",
+          name: "GPT-5.5",
+          provider: "openai",
+          available: true,
+        },
+        {
+          id: "gpt-5.3-codex-spark",
+          name: "GPT-5.3 Codex Spark",
+          provider: "openai",
+          available: false,
+        },
+      ),
+      sessionsResult: createSessionsListResult({
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        defaultsModel: "gpt-5.3-codex-spark",
+        defaultsProvider: "openai",
+      }),
+    });
+
+    const resolved = resolveChatModelSelectState(state);
+    expect(resolved.currentOverride).toBe("");
+    expect(resolved.currentModelAvailable).toBe(false);
+    expect(resolved.defaultSelectable).toBe(false);
+  });
+
+  it("restores an explicit persisted model override after a reload", () => {
+    const state = createChatModelState({
+      chatModelCatalog: createModelCatalog(
+        {
+          id: "gpt-5.5",
+          name: "GPT-5.5",
+          provider: "openai",
+          available: true,
+        },
+        {
+          id: "gpt-5.3-codex-spark",
+          name: "GPT-5.3 Codex Spark",
+          provider: "openai",
+          available: false,
+        },
+      ),
+      sessionsResult: createSessionsListResult({
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        defaultsModel: "gpt-5.3-codex-spark",
+        defaultsProvider: "openai",
+      }),
+    });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
+
+    const resolved = resolveChatModelSelectState(state);
+    expect(resolved.currentOverride).toBe("openai/gpt-5.5");
+    expect(resolved.currentModelAvailable).toBe(true);
+    expect(resolved.defaultSelectable).toBe(false);
+  });
+
+  it("does not treat an automatic fallback as a persisted user override", () => {
+    const state = createChatModelState({
+      chatModelCatalog: createModelCatalog(
+        {
+          id: "gpt-5.5",
+          name: "GPT-5.5",
+          provider: "openai",
+          available: true,
+        },
+        {
+          id: "gpt-5.3-codex-spark",
+          name: "GPT-5.3 Codex Spark",
+          provider: "openai",
+          available: false,
+        },
+      ),
+      sessionsResult: createSessionsListResult({
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        defaultsModel: "gpt-5.3-codex-spark",
+        defaultsProvider: "openai",
+      }),
+    });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "auto";
+
+    const resolved = resolveChatModelSelectState(state);
+    expect(resolved.currentOverride).toBe("");
+    expect(resolved.currentModelAvailable).toBe(false);
+  });
+
+  it("keeps a configured automatic override selectable when it is not an active fallback", () => {
+    const state = createChatModelState({
+      chatModelCatalog: createModelCatalog({
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        provider: "openai",
+        available: true,
+      }),
+      sessionsResult: createSessionsListResult({
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        defaultsModel: "gpt-5.3-codex-spark",
+        defaultsProvider: "openai",
+      }),
+    });
+    state.sessionsResult!.sessions[0]!.modelOverride = "gpt-5.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "auto";
+    state.sessionsResult!.sessions[0]!.modelOverrideIsFallback = false;
+
+    const resolved = resolveChatModelSelectState(state);
+    expect(resolved.currentOverride).toBe("openai/gpt-5.5");
+    expect(resolved.currentModelAvailable).toBe(true);
   });
 
   it("supports fast mode for a default legacy Codex provider", () => {
@@ -491,6 +661,8 @@ describe("chat-model-select-state", () => {
         defaultsProvider: "nvidia",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "moonshotai/kimi-k2.5";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("nvidia/moonshotai/kimi-k2.5");
@@ -552,6 +724,8 @@ describe("chat-model-select-state", () => {
         defaultsProvider: "openrouter",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "claude-3-7-sonnet";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("anthropic/claude-3-7-sonnet");
@@ -589,6 +763,8 @@ describe("chat-model-select-state", () => {
         defaultsProvider: "anthropic",
       }),
     });
+    state.sessionsResult!.sessions[0]!.modelOverride = "claude-3-7-sonnet";
+    state.sessionsResult!.sessions[0]!.modelOverrideSource = "user";
 
     const resolved = resolveChatModelSelectState(state);
     expect(resolved.currentOverride).toBe("anthropic/claude-3-7-sonnet");

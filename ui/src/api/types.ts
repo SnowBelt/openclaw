@@ -517,6 +517,11 @@ export type GatewaySessionRow = {
   childSessions?: string[];
   model?: string;
   modelProvider?: string;
+  /** Persisted model override provenance, distinct from the last runtime model identity. */
+  modelOverride?: string;
+  modelOverrideSource?: "auto" | "user";
+  /** True only while the runtime is actively using an automatic fallback override. */
+  modelOverrideIsFallback?: boolean;
   effectiveResponseUsage?: "on" | "off" | "tokens" | "full";
   agentRuntime?: GatewayAgentRuntime;
   contextTokens?: number;
@@ -834,8 +839,12 @@ export type ModelCatalogEntry = {
   alias?: string;
   available?: boolean;
   contextWindow?: number;
+  contextTokens?: number;
   reasoning?: boolean;
   input?: Array<"text" | "image" | "document">;
+  route?: "local" | "subscription" | "metered" | "unknown";
+  certification?: "candidate" | "certified" | "unlisted";
+  agentRuntime?: GatewayAgentRuntime;
 };
 
 export type ToolCatalogProfile =

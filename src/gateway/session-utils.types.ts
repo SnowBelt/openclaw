@@ -106,6 +106,12 @@ export type GatewaySessionRow = {
   responseUsage?: "on" | "off" | "tokens" | "full";
   /** Resolved effective usage mode (session override → channel config → default → off). Populated by surfaces that have config access; absent from the raw session store row. */
   effectiveResponseUsage?: "on" | "off" | "tokens" | "full";
+  /** Persisted model override, when present; unlike `model`, this is not runtime identity. */
+  modelOverride?: string;
+  /** Whether the persisted model override was user-selected or an automatic fallback. */
+  modelOverrideSource?: SessionEntry["modelOverrideSource"];
+  /** True only while the runtime is actively using an automatic fallback override. */
+  modelOverrideIsFallback?: boolean;
   modelProvider?: string;
   model?: string;
   agentRuntime?: GatewayAgentRuntime;

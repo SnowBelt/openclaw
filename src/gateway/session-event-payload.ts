@@ -1,12 +1,26 @@
 import type { GatewaySessionRow } from "./session-utils.js";
 
+type GatewaySessionEventRow = Omit<
+  GatewaySessionRow,
+  "modelOverride" | "modelOverrideSource" | "modelOverrideIsFallback"
+> & {
+  [key: string]: unknown;
+  modelOverride?: GatewaySessionRow["modelOverride"] | null;
+  modelOverrideSource?: GatewaySessionRow["modelOverrideSource"] | null;
+  modelOverrideIsFallback?: GatewaySessionRow["modelOverrideIsFallback"] | null;
+};
+
 /**
  * Project a catalog-less session row for websocket merge events.
  * Picker metadata comes from catalog-backed list/patch responses; emitting a
  * locally reconstructed subset here would replace richer client state.
  */
-export function buildGatewaySessionEventRow(sessionRow: GatewaySessionRow): GatewaySessionRow {
-  const session = { ...sessionRow };
+export function buildGatewaySessionEventRow(sessionRow: GatewaySessionRow): GatewaySessionEventRow {
+  const session: GatewaySessionEventRow = { ...sessionRow };
+  // Explicit nulls let clients clear provenance when a model override is reset.
+  session.modelOverride = sessionRow.modelOverride ?? null;
+  session.modelOverrideSource = sessionRow.modelOverrideSource ?? null;
+  session.modelOverrideIsFallback = sessionRow.modelOverrideIsFallback ?? null;
   delete session.thinkingLevels;
   delete session.thinkingOptions;
   delete session.thinkingDefault;
@@ -77,6 +91,10 @@ export function buildGatewaySessionEventFields(params: {
     estimatedCostUsd: sessionRow.estimatedCostUsd,
     responseUsage: sessionRow.responseUsage,
     effectiveResponseUsage: sessionRow.effectiveResponseUsage,
+    // Explicit nulls let subscribed clients replace stale persisted provenance.
+    modelOverride: sessionRow.modelOverride ?? null,
+    modelOverrideSource: sessionRow.modelOverrideSource ?? null,
+    modelOverrideIsFallback: sessionRow.modelOverrideIsFallback ?? null,
     modelProvider: sessionRow.modelProvider,
     model: sessionRow.model,
     agentRuntime: sessionRow.agentRuntime,

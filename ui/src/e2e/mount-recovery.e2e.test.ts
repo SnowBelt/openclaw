@@ -69,6 +69,9 @@ describeControlUiE2e("Control UI mount recovery E2E", () => {
       expect(
         (await page.goto(`${server.baseUrl}chat`, { waitUntil: "domcontentloaded" }))?.status(),
       ).toBe(200);
+      const bootStatus = page.locator("[data-openclaw-boot-status]");
+      await page.locator("#openclaw-mount-fallback").waitFor({ state: "visible" });
+      await bootStatus.waitFor({ state: "hidden" });
       await page.locator('openclaw-app[data-openclaw-app-ready="true"]').waitFor();
       await page.locator(".agent-chat__welcome").waitFor();
 

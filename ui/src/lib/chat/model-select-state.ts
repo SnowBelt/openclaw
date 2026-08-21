@@ -33,6 +33,7 @@ export type ChatModelSelectOption = {
 
 type ChatModelSelectState = {
   currentOverride: string;
+  currentModelAvailable: boolean;
   defaultSelectable: boolean;
   defaultModel: string;
   defaultDisplay: string;
@@ -75,8 +76,53 @@ function resolveActiveSessionRow(state: ChatModelSelectStateInput) {
   return state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
 }
 
+function resolvePersistedSessionOverrideValue(
+  row: GatewaySessionRow,
+  override: string,
+  catalog: ModelCatalogEntry[],
+): string {
+  const resolvedOverride = resolvePreferredServerChatModelValue(
+    override,
+    row.modelProvider,
+    catalog,
+  );
+  // A legacy row can expose only a bare override plus an already-qualified
+  // runtime model. With no catalog, keep that known qualified route instead
+  // of inventing a provider from a stale provider field.
+  if (!catalog.length && !override.includes("/") && row.model?.includes("/")) {
+    return resolvePreferredServerChatModelValue(row.model, row.modelProvider, catalog);
+  }
+  return resolvedOverride;
+}
+
+export function isChatModelOverrideActiveFallback(
+  row: Pick<GatewaySessionRow, "modelOverride" | "modelOverrideSource" | "modelOverrideIsFallback">,
+): boolean {
+  if (!row.modelOverride?.trim()) {
+    return false;
+  }
+  // Older Gateway rows do not carry the additive flag, so retain their
+  // established auto-source interpretation until the next refresh.
+  return row.modelOverrideIsFallback ?? row.modelOverrideSource === "auto";
+}
+
 export function resolveChatModelOverrideValue(state: ChatModelSelectStateInput): string {
   const catalog = state.chatModelCatalog ?? [];
+
+  const activeRow = resolveActiveSessionRow(state);
+  const activeOverride = activeRow?.modelOverride?.trim();
+  const hasAuthoritativeProvenance =
+    activeRow !== undefined &&
+    (Object.hasOwn(activeRow, "modelOverrideSource") ||
+      Object.hasOwn(activeRow, "modelOverrideIsFallback"));
+  if (activeRow && hasAuthoritativeProvenance) {
+    if (!activeOverride || isChatModelOverrideActiveFallback(activeRow)) {
+      return "";
+    }
+    // Once the Gateway has supplied provenance, its persisted override is the
+    // source of truth rather than the optimistic patch cache.
+    return resolvePersistedSessionOverrideValue(activeRow, activeOverride, catalog);
+  }
 
   const sharedOverrides = state.modelOverrides;
   if (Object.hasOwn(sharedOverrides, state.sessionKey)) {
@@ -86,8 +132,17 @@ export function resolveChatModelOverrideValue(state: ChatModelSelectStateInput):
       : normalizeChatModelOverrideValue(createChatModelOverride(shared), catalog);
   }
 
-  const activeRow = resolveActiveSessionRow(state);
-  return resolvePreferredServerChatModelValue(activeRow?.model, activeRow?.modelProvider, catalog);
+  const persistedOverride = activeOverride;
+  const persistedOverrideIsUserSelected =
+    Boolean(persistedOverride) && activeRow !== undefined
+      ? !isChatModelOverrideActiveFallback(activeRow)
+      : false;
+  if (persistedOverrideIsUserSelected && activeRow && activeOverride) {
+    // The row's model is runtime identity; persisted provenance is what proves
+    // that it represents a user-selected session override after reload.
+    return resolvePersistedSessionOverrideValue(activeRow, activeOverride, catalog);
+  }
+  return "";
 }
 
 function resolveDefaultModelValue(state: ChatModelSelectStateInput): string {
@@ -139,6 +194,18 @@ function buildUnavailableChatModelValues(
         ),
       )
       .filter((value) => !availableValues.has(value)),
+  );
+}
+
+export function isChatModelValueUnavailable(value: string, catalog: ModelCatalogEntry[]): boolean {
+  if (!value.trim()) {
+    return false;
+  }
+  const displayLookup = buildCatalogDisplayLookup(
+    catalog.filter((entry) => entry.available !== false),
+  );
+  return buildUnavailableChatModelValues(catalog, displayLookup).has(
+    normalizeChatModelAvailabilityKey(value),
   );
 }
 
@@ -236,9 +303,14 @@ export function resolveChatModelSelectState(
   const unavailableValues = buildUnavailableChatModelValues(catalog, displayLookup);
   const defaultSelectable =
     !defaultModel || !unavailableValues.has(normalizeChatModelAvailabilityKey(defaultModel));
+  const effectiveCurrentModel = currentOverride || defaultModel;
+  const currentModelAvailable =
+    !effectiveCurrentModel ||
+    !unavailableValues.has(normalizeChatModelAvailabilityKey(effectiveCurrentModel));
 
   return {
     currentOverride,
+    currentModelAvailable,
     defaultSelectable,
     defaultModel,
     defaultDisplay,

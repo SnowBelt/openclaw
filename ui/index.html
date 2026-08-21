@@ -107,6 +107,85 @@
         color-scheme: inherit;
       }
 
+      .boot-status {
+        box-sizing: border-box;
+        display: grid;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        min-height: 100vh;
+        min-height: 100dvh;
+        overflow: auto;
+        place-items: center;
+        padding: 24px;
+        color: #eef4f8;
+        background: #101418;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      .boot-status[hidden] {
+        display: none;
+      }
+
+      .boot-status__panel {
+        box-sizing: border-box;
+        width: min(100%, 420px);
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        border-radius: 8px;
+        padding: 24px;
+        text-align: center;
+        background: #151b21;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+      }
+
+      .boot-status__panel p {
+        margin: 0;
+        line-height: 1.5;
+      }
+
+      .boot-status__eyebrow {
+        margin-bottom: 8px !important;
+        color: #9fb0bd;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .boot-status__message {
+        font-size: 1rem;
+        font-weight: 650;
+      }
+
+      .boot-status__detail {
+        margin-top: 8px !important;
+        color: #c8d3da;
+        font-size: 0.9rem;
+      }
+
+      html[data-theme-mode="light"] .boot-status {
+        color: #151b21;
+        background: #f5f7fa;
+      }
+
+      html[data-theme-mode="light"] .boot-status__panel {
+        border-color: rgba(71, 85, 105, 0.22);
+        background: #ffffff;
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.14);
+      }
+
+      html[data-theme-mode="light"] .boot-status__eyebrow,
+      html[data-theme-mode="light"] .boot-status__detail {
+        color: #4b5963;
+      }
+
       body.openclaw-mount-fallback-active {
         margin: 0;
         min-width: 320px;
@@ -245,6 +324,13 @@
   </head>
   <body>
     <openclaw-app></openclaw-app>
+    <section class="boot-status" data-openclaw-boot-status role="status" aria-live="polite">
+      <div class="boot-status__panel">
+        <p class="boot-status__eyebrow">OpenClaw Control UI</p>
+        <p class="boot-status__message">Loading Dashboard…</p>
+        <p class="boot-status__detail">Preparing your secure connection.</p>
+      </div>
+    </section>
     <section
       id="openclaw-mount-fallback"
       class="mount-fallback"
@@ -291,8 +377,9 @@
       (function () {
         var tagName = "openclaw-app";
         var app = document.querySelector(tagName);
+        var bootStatus = document.querySelector("[data-openclaw-boot-status]");
         var fallback = document.getElementById("openclaw-mount-fallback");
-        if (!app || !fallback) return;
+        if (!app || !bootStatus || !fallback) return;
 
         var panel = fallback.querySelector(".mount-fallback__panel");
         var summary = document.getElementById("openclaw-mount-fallback-summary");
@@ -355,6 +442,7 @@
 
         function hideFallback() {
           fallback.hidden = true;
+          bootStatus.hidden = true;
           document.body.classList.remove("openclaw-mount-fallback-active");
         }
 
@@ -421,6 +509,7 @@
 
         function showFallback() {
           if (appMounted()) return;
+          bootStatus.hidden = true;
           retryCurrentDocument();
           fallback.hidden = false;
           document.body.classList.add("openclaw-mount-fallback-active");
@@ -468,6 +557,7 @@
         if (wait) {
           wait.addEventListener("click", function () {
             hideFallback();
+            bootStatus.hidden = false;
             recoveryAttempt = 0;
             retryCurrentDocument();
             armFallbackTimer();
