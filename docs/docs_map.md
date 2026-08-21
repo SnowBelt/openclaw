@@ -230,6 +230,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Task Admission And Coordination
   - H2: Stop, Fan-In, And Proof
   - H2: Learning Boundary
+  - H2: Legacy Metadata Repair
 
 ## automation/pcc-learning-loop.md
 
@@ -2500,6 +2501,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /concepts/control-director
 - Headings:
   - H2: Responsibility boundaries
+  - H3: Judge MVP contract
   - H3: Executable delegation handoffs
   - H3: Evidence-bound diagnostics
   - H2: Responsive Chat contract
