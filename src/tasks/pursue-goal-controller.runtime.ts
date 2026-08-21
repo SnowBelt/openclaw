@@ -21,7 +21,7 @@ import {
   JUDGE_LOCAL_BACKUP_WAIT_MS,
   JUDGE_LOCAL_PRIMARY_WAIT_MS,
 } from "../agents/judge-local-admission.js";
-import { resolveJudgeModelCandidates } from "../agents/judge-model-router.js";
+import { isJudgeLocalProvider, resolveJudgeModelCandidates } from "../agents/judge-model-router.js";
 import {
   prepareSimpleCompletionModelForAgent,
   resolveSimpleCompletionSelectionForAgent,
@@ -306,11 +306,7 @@ export async function runDirectJudgeModel(params: {
       route: params.route,
     });
   }
-  if (
-    params.route === "local" &&
-    selection.provider !== "ollama" &&
-    selection.provider !== "omlx"
-  ) {
+  if (params.route === "local" && !isJudgeLocalProvider(selection.provider)) {
     return undefined;
   }
   const prepared = await prepareSimpleCompletionModelForAgent({

@@ -237,4 +237,64 @@ describe("Pursue Goal direct hosted Judge route", () => {
     expect(mocks.completeSimple).toHaveBeenCalledOnce();
     expect(mocks.agentCommand).not.toHaveBeenCalled();
   });
+
+  it("uses the direct zero-tool transport for a deployment-specific OMLX Judge provider", async () => {
+    mocks.resolveSimpleCompletionSelectionForAgent.mockReturnValue({
+      provider: "omlx-qwen38-judge",
+      modelId: "openclaw-qwen38-judge-standard-q8",
+      agentDir: "/tmp/judge-agent",
+    });
+    mocks.prepareSimpleCompletionModelForAgent.mockResolvedValue({
+      model: {
+        provider: "omlx-qwen38-judge",
+        id: "openclaw-qwen38-judge-standard-q8",
+        api: "openai-completions",
+        name: "Qwen 3.8 Judge",
+        contextWindow: 262_144,
+        maxTokens: 8_192,
+      },
+      auth: { apiKey: "local", mode: "api-key" },
+    });
+    mocks.completeSimple.mockImplementationOnce(async (_model, context, options) => {
+      expect(context.tools).toEqual([]);
+      expect(await options.onPayload?.({ model: "openclaw-qwen38-judge-standard-q8" })).toEqual({
+        model: "openclaw-qwen38-judge-standard-q8",
+        tools: [],
+      });
+      return {
+        role: "assistant",
+        api: "openai-completions",
+        provider: "omlx-qwen38-judge",
+        model: "openclaw-qwen38-judge-standard-q8",
+        stopReason: "stop",
+        content: [{ type: "text", text: '{"verdict":"APPROVE"}' }],
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        timestamp: Date.now(),
+      };
+    });
+
+    const result = await runDirectJudgeModel({
+      cfg: {} as never,
+      agentId: "judge",
+      prompt: "Return the technical Judge JSON.",
+      abortSignal: new AbortController().signal,
+      modelRef: "omlx-qwen38-judge/openclaw-qwen38-judge-standard-q8",
+      route: "local",
+    });
+
+    expect(result?.executionEvidence).toEqual({
+      requestCount: 1,
+      modelVisibleTools: [],
+      route: "local",
+      model: "omlx-qwen38-judge/openclaw-qwen38-judge-standard-q8",
+    });
+    expect(mocks.completeSimple).toHaveBeenCalledOnce();
+  });
 });

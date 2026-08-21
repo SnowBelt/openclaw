@@ -11,7 +11,17 @@ export type JudgeModelCandidate = {
   route: "local" | "hosted";
 };
 
-const LOCAL_PROVIDER_PREFIXES = ["ollama/", "omlx/"] as const;
+const LOCAL_PROVIDER_NAMES = new Set(["ollama", "omlx"]);
+
+/** Local providers may be deployment-named (for example `omlx-qwen38-judge`). */
+export function isJudgeLocalProvider(provider: string): boolean {
+  const normalized = provider.trim().toLowerCase();
+  return (
+    LOCAL_PROVIDER_NAMES.has(normalized) ||
+    normalized.startsWith("ollama-") ||
+    normalized.startsWith("omlx-")
+  );
+}
 
 export function resolveJudgeModelCandidates(
   config: OpenClawConfig,
@@ -33,7 +43,8 @@ export function resolveJudgeModelCandidates(
       candidates.push({ ref, route: "hosted" });
       return candidates;
     }
-    if (LOCAL_PROVIDER_PREFIXES.some((prefix) => ref.startsWith(prefix))) {
+    const provider = ref.slice(0, ref.indexOf("/"));
+    if (provider && isJudgeLocalProvider(provider)) {
       candidates.push({ ref, route: "local" });
     }
     return candidates;

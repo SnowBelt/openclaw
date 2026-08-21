@@ -39,4 +39,25 @@ describe("Judge model candidate routing", () => {
     } satisfies OpenClawConfig;
     expect(resolveJudgeModelCandidates(cfg, "judge")).toEqual([]);
   });
+
+  it("admits deployment-specific Ollama and OMLX provider ids as local routes", () => {
+    const cfg = {
+      agents: {
+        list: [
+          {
+            id: "judge",
+            model: {
+              primary: "omlx-qwen38-judge/openclaw-qwen38-judge-standard-q8",
+              fallbacks: ["ollama-qwen35/qwen3.5:27b-q8_0", "openai/gpt-5.6"],
+            },
+          },
+        ],
+      },
+    } satisfies OpenClawConfig;
+    expect(resolveJudgeModelCandidates(cfg, "judge")).toEqual([
+      { ref: "omlx-qwen38-judge/openclaw-qwen38-judge-standard-q8", route: "local" },
+      { ref: "ollama-qwen35/qwen3.5:27b-q8_0", route: "local" },
+      { ref: "openai/gpt-5.6", route: "hosted" },
+    ]);
+  });
 });
