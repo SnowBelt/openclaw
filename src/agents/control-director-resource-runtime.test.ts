@@ -12,6 +12,7 @@ const LOCAL_SERVICE = {
   cwd: "/Users/openclaw/.openclaw/qwen38-mvp",
   args: ["--port", "18182"],
 };
+const LOCAL_MODELS_URL = "http://127.0.0.1:18182/v1/models";
 
 vi.mock("../plugins/provider-hook-runtime.js", () => ({
   resolveLoadedProviderRuntimePlugin,
@@ -71,6 +72,7 @@ describe("collectControlDirectorResidencyObservation", () => {
         JSON.stringify({ data: [{ id: "openclaw-qwen38-judge-standard-q8" }] }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
+      finalUrl: LOCAL_MODELS_URL,
       release,
     });
     const config = {
@@ -145,6 +147,23 @@ describe("collectControlDirectorResidencyObservation", () => {
     ["empty catalog", { data: [] }],
     ["different model", { data: [{ id: "other-model" }] }],
     [
+      "duplicate rows",
+      {
+        data: [
+          { id: "openclaw-qwen38-judge-standard-q8" },
+          { id: "openclaw-qwen38-judge-standard-q8" },
+        ],
+      },
+    ],
+    ["malformed second row", { data: [{ id: "openclaw-qwen38-judge-standard-q8" }, {}] }],
+    [
+      "duplicate model collections",
+      {
+        data: [{ id: "openclaw-qwen38-judge-standard-q8" }],
+        models: [{ id: "openclaw-qwen38-judge-standard-q8" }],
+      },
+    ],
+    [
       "multiple catalog models",
       { data: [{ id: "openclaw-qwen38-judge-standard-q8" }, { id: "other-model" }] },
     ],
@@ -152,6 +171,7 @@ describe("collectControlDirectorResidencyObservation", () => {
     resolveLoadedProviderRuntimePlugin.mockReturnValue(undefined);
     fetchWithSsrFGuard.mockResolvedValueOnce({
       response: new Response(JSON.stringify(payload), { status: 200 }),
+      finalUrl: LOCAL_MODELS_URL,
       release: vi.fn(async () => {}),
     });
     await expect(
@@ -198,6 +218,7 @@ describe("collectControlDirectorResidencyObservation", () => {
     for (const body of ["not-json", JSON.stringify({ data: [{ id: "x".repeat(300_000) }] })]) {
       fetchWithSsrFGuard.mockResolvedValueOnce({
         response: new Response(body, { status: 200 }),
+        finalUrl: LOCAL_MODELS_URL,
         release: vi.fn(async () => {}),
       });
       await expect(
@@ -251,6 +272,7 @@ describe("collectControlDirectorResidencyObservation", () => {
         JSON.stringify({ data: [{ id: "openclaw-qwen38-judge-standard-q8" }] }),
         { status: 200 },
       ),
+      finalUrl: LOCAL_MODELS_URL,
       release: vi.fn(async () => {}),
     });
     const observeLocalService = vi
@@ -281,10 +303,75 @@ describe("collectControlDirectorResidencyObservation", () => {
     expect(observeLocalService).toHaveBeenCalledTimes(2);
   });
 
+  it("fails closed when the guarded response changes origin", async () => {
+    resolveLoadedProviderRuntimePlugin.mockReturnValue(undefined);
+    fetchWithSsrFGuard.mockResolvedValueOnce({
+      response: new Response(
+        JSON.stringify({ data: [{ id: "openclaw-qwen38-judge-standard-q8" }] }),
+        { status: 200 },
+      ),
+      finalUrl: "https://public.example/models",
+      release: vi.fn(async () => {}),
+    });
+    await expect(
+      collectControlDirectorResidencyObservation({
+        config: {
+          models: {
+            providers: {
+              "omlx-qwen38-judge": {
+                baseUrl: "http://127.0.0.1:18182/v1",
+                api: "openai-completions",
+                apiKey: "local",
+                localService: LOCAL_SERVICE,
+                route: { location: "local", billing: "included" },
+                models: [],
+              },
+            },
+          },
+        } as never,
+        selectedModel: "omlx-qwen38-judge/openclaw-qwen38-judge-standard-q8",
+        activeLocalWork: false,
+        runtime: {
+          observeLocalService: async () => ({ available: true, processCount: 1, pid: 42 }),
+        },
+      }),
+    ).resolves.toMatchObject({ available: false, residentModels: [] });
+  });
+
+  it("bounds a stalled process observer to the aggregate probe deadline", async () => {
+    resolveLoadedProviderRuntimePlugin.mockReturnValue(undefined);
+    const started = Date.now();
+    await expect(
+      collectControlDirectorResidencyObservation({
+        config: {
+          models: {
+            providers: {
+              "omlx-qwen38-judge": {
+                baseUrl: "http://127.0.0.1:18182/v1",
+                api: "openai-completions",
+                localService: LOCAL_SERVICE,
+                route: { location: "local", billing: "included" },
+                models: [],
+              },
+            },
+          },
+        } as never,
+        selectedModel: "omlx-qwen38-judge/openclaw-qwen38-judge-standard-q8",
+        activeLocalWork: false,
+        timeoutMs: 100,
+        runtime: {
+          observeLocalService: () => new Promise(() => {}),
+        },
+      }),
+    ).resolves.toMatchObject({ available: false, residentModels: [] });
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
   it("fails closed for an HTTP error from the local service", async () => {
     resolveLoadedProviderRuntimePlugin.mockReturnValue(undefined);
     fetchWithSsrFGuard.mockResolvedValueOnce({
       response: new Response("unauthorized", { status: 401 }),
+      finalUrl: LOCAL_MODELS_URL,
       release: vi.fn(async () => {}),
     });
     await expect(

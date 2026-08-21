@@ -158,6 +158,17 @@ type LocalServiceObservation = {
   reason?: string;
 };
 
+async function readExecutableFirstLine(path: string): Promise<string> {
+  const handle = await fs.open(path, "r");
+  try {
+    const buffer = Buffer.alloc(4 * 1024);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead).toString("utf8").split("\n", 1)[0] ?? "";
+  } finally {
+    await handle.close();
+  }
+}
+
 function localServiceName(command: string): string {
   const normalized = command.trim().replaceAll("\\", "/");
   return normalized.slice(normalized.lastIndexOf("/") + 1).toLowerCase();
@@ -168,6 +179,7 @@ async function observeLocalServiceProcess(params: {
   command: string;
   cwd: string;
   timeoutMs: number;
+  signal?: AbortSignal;
 }): Promise<LocalServiceObservation> {
   let port: string;
   let hostname: string;
@@ -186,7 +198,11 @@ async function observeLocalServiceProcess(params: {
     const result = await execFile(
       lsof,
       ["-nP", `-iTCP@${hostname}:${port}`, "-sTCP:LISTEN", "-Fp"],
-      { timeout: Math.max(100, Math.min(5_000, params.timeoutMs)), maxBuffer: 64 * 1024 },
+      {
+        timeout: Math.max(100, Math.min(5_000, params.timeoutMs)),
+        maxBuffer: 64 * 1024,
+        signal: params.signal,
+      },
     );
     const expected = localServiceName(params.command);
     const pids = result.stdout
@@ -210,6 +226,7 @@ async function observeLocalServiceProcess(params: {
         const process = await execFile("/bin/ps", ["-p", listenerPid, "-o", "command="], {
           timeout: Math.max(100, Math.min(5_000, params.timeoutMs)),
           maxBuffer: 64 * 1024,
+          signal: params.signal,
         });
         return process.stdout.trim().toLowerCase();
       }),
@@ -228,6 +245,7 @@ async function observeLocalServiceProcess(params: {
     const cwdResult = await execFile(lsof, ["-nP", "-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
       timeout: Math.max(100, Math.min(5_000, params.timeoutMs)),
       maxBuffer: 64 * 1024,
+      signal: params.signal,
     });
     const observedCwd = cwdResult.stdout
       .split("\n")
@@ -241,8 +259,7 @@ async function observeLocalServiceProcess(params: {
         reason: "local service working directory drifted",
       };
     }
-    const commandText = await fs.readFile(params.command, "utf8");
-    const shebang = commandText.split("\n", 1)[0]?.match(/^#!\s*(\S+)/u)?.[1];
+    const shebang = (await readExecutableFirstLine(params.command)).match(/^#!\s*(\S+)/u)?.[1];
     const expectedExecutables = new Set<string>();
     for (const candidate of [params.command, shebang]) {
       if (!candidate) {
@@ -272,7 +289,11 @@ async function observeLocalServiceProcess(params: {
     const executableResult = await execFile(
       lsof,
       ["-nP", "-a", "-p", String(pid), "-d", "txt", "-Fn"],
-      { timeout: Math.max(100, Math.min(5_000, params.timeoutMs)), maxBuffer: 256 * 1024 },
+      {
+        timeout: Math.max(100, Math.min(5_000, params.timeoutMs)),
+        maxBuffer: 256 * 1024,
+        signal: params.signal,
+      },
     );
     const observedExecutables = executableResult.stdout
       .split("\n")
@@ -308,89 +329,134 @@ async function probeGenericLocalResidency(params: {
     command: string;
     cwd: string;
     timeoutMs: number;
+    signal?: AbortSignal;
   }) => Promise<LocalServiceObservation>;
 }): Promise<ProviderModelResidencySnapshot> {
   const observeProcess = params.observeProcess ?? observeLocalServiceProcess;
-  const initialProcess = await observeProcess({
-    baseUrl: params.providerConfig.baseUrl,
-    command: params.providerConfig.localService?.command ?? "",
-    cwd: params.providerConfig.localService?.cwd ?? "",
-    timeoutMs: params.timeoutMs,
-  });
-  if (
-    !initialProcess.available ||
-    initialProcess.processCount !== 1 ||
-    initialProcess.pid == null
-  ) {
-    throw new Error(initialProcess.reason ?? "local service process is not verified");
-  }
-  const baseUrl = params.providerConfig.baseUrl.replace(/\/+$/u, "");
-  const headers = new Headers({ accept: "application/json" });
-  const apiKey = params.providerConfig.apiKey;
-  if (typeof apiKey === "string" && apiKey.trim()) {
-    headers.set("authorization", `Bearer ${apiKey.trim()}`);
-  }
-  const guarded = await fetchWithSsrFGuard({
-    url: `${baseUrl}/models`,
-    init: {
-      headers,
-      signal: AbortSignal.timeout(Math.max(100, Math.min(5_000, params.timeoutMs))),
-    },
-    policy: { allowPrivateNetwork: true },
-    auditContext: `${params.provider}-generic-local-residency/models`,
-  });
+  const budgetMs = Math.max(100, Math.min(5_000, params.timeoutMs));
+  const deadline = Date.now() + budgetMs;
+  const abortController = new AbortController();
+  const deadlineTimer = setTimeout(() => abortController.abort(), budgetMs);
+  deadlineTimer.unref?.();
+  const remainingMs = (): number => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error("local residency probe deadline exceeded");
+    }
+    return remaining;
+  };
+  const observe = async (): Promise<LocalServiceObservation> => {
+    const timeoutMs = remainingMs();
+    return await withDeadline({
+      promise: observeProcess({
+        baseUrl: params.providerConfig.baseUrl,
+        command: params.providerConfig.localService?.command ?? "",
+        cwd: params.providerConfig.localService?.cwd ?? "",
+        timeoutMs,
+        signal: abortController.signal,
+      }),
+      timeoutMs,
+      timeoutMessage: "local service process observation deadline exceeded",
+    });
+  };
   try {
-    if (!guarded.response.ok) {
-      throw new Error(`HTTP ${guarded.response.status}`);
-    }
-    const payload = await readProviderJsonResponse<OpenAICompatibleModelsPayload>(
-      guarded.response,
-      `${params.provider} generic local residency`,
-      { maxBytes: 256 * 1024 },
-    );
-    const rows = [
-      ...(Array.isArray(payload.data) ? payload.data : []),
-      ...(Array.isArray(payload.models) ? payload.models : []),
-    ];
-    const modelIds = rows.flatMap((row) => {
-      const modelId = [row.id, row.model, row.name]
-        .find((value): value is string => typeof value === "string" && value.trim().length > 0)
-        ?.trim();
-      return modelId ? [modelId] : [];
-    });
-    const uniqueModelIds = [...new Set(modelIds)];
-    if (uniqueModelIds.length !== 1 || uniqueModelIds[0] !== params.modelId) {
-      throw new Error(
-        `local service model catalog is not an exact single-model match for ${params.provider}`,
-      );
-    }
-    const finalProcess = await observeProcess({
-      baseUrl: params.providerConfig.baseUrl,
-      command: params.providerConfig.localService?.command ?? "",
-      cwd: params.providerConfig.localService?.cwd ?? "",
-      timeoutMs: params.timeoutMs,
-    });
+    const initialProcess = await observe();
     if (
-      !finalProcess.available ||
-      finalProcess.processCount !== 1 ||
-      finalProcess.pid !== initialProcess.pid
+      !initialProcess.available ||
+      initialProcess.processCount !== 1 ||
+      initialProcess.pid == null
     ) {
-      throw new Error("local service process changed during residency probe");
+      throw new Error(initialProcess.reason ?? "local service process is not verified");
     }
-    return {
-      residentModels: [
-        {
-          modelId: uniqueModelIds[0],
-          state: params.activeLocalWork ? ("active" as const) : ("idle" as const),
-        },
-      ],
-      observedProcessCount: finalProcess.processCount,
-      warnings: [
-        "Local residency is trusted only when one configured local service process owns the private endpoint and its /models response contains exactly the configured model.",
-      ],
-    };
+    const baseUrl = params.providerConfig.baseUrl.replace(/\/+$/u, "");
+    const expectedModelsUrl = new URL(`${baseUrl}/models`);
+    const headers = new Headers({ accept: "application/json" });
+    const apiKey = params.providerConfig.apiKey;
+    if (typeof apiKey === "string" && apiKey.trim()) {
+      headers.set("authorization", `Bearer ${apiKey.trim()}`);
+    }
+    const guarded = await fetchWithSsrFGuard({
+      url: expectedModelsUrl.toString(),
+      init: {
+        headers,
+        signal: abortController.signal,
+      },
+      maxRedirects: 0,
+      timeoutMs: remainingMs(),
+      policy: { allowPrivateNetwork: true },
+      auditContext: `${params.provider}-generic-local-residency/models`,
+    });
+    try {
+      if (!guarded.response.ok) {
+        throw new Error(`HTTP ${guarded.response.status}`);
+      }
+      const finalUrl = new URL(guarded.finalUrl);
+      if (
+        finalUrl.origin !== expectedModelsUrl.origin ||
+        finalUrl.pathname !== expectedModelsUrl.pathname ||
+        finalUrl.search !== expectedModelsUrl.search
+      ) {
+        throw new Error("local service model catalog origin or path changed");
+      }
+      const payload = await withDeadline({
+        promise: readProviderJsonResponse<OpenAICompatibleModelsPayload>(
+          guarded.response,
+          `${params.provider} generic local residency`,
+          { maxBytes: 256 * 1024 },
+        ),
+        timeoutMs: remainingMs(),
+        timeoutMessage: "local service model catalog deadline exceeded",
+      });
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error("local service model catalog payload is not an object");
+      }
+      const hasData = Object.hasOwn(payload, "data");
+      const hasModels = Object.hasOwn(payload, "models");
+      if (hasData === hasModels) {
+        throw new Error("local service model catalog must contain exactly one model collection");
+      }
+      const rows = hasData ? payload.data : payload.models;
+      if (!Array.isArray(rows) || rows.length !== 1) {
+        throw new Error("local service model catalog must contain exactly one row");
+      }
+      const row = rows[0];
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        throw new Error("local service model catalog row is invalid");
+      }
+      const modelIds = [row.id, row.model, row.name].filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      );
+      if (modelIds.length !== 1 || modelIds[0] !== params.modelId) {
+        throw new Error(
+          `local service model catalog is not an exact single-model match for ${params.provider}`,
+        );
+      }
+      const finalProcess = await observe();
+      if (
+        !finalProcess.available ||
+        finalProcess.processCount !== 1 ||
+        finalProcess.pid !== initialProcess.pid
+      ) {
+        throw new Error("local service process changed during residency probe");
+      }
+      return {
+        residentModels: [
+          {
+            modelId: modelIds[0],
+            state: params.activeLocalWork ? ("active" as const) : ("idle" as const),
+          },
+        ],
+        observedProcessCount: finalProcess.processCount,
+        warnings: [
+          "Local residency is trusted only when one configured local service process owns the private endpoint and its /models response contains exactly the configured model.",
+        ],
+      };
+    } finally {
+      await guarded.release();
+    }
   } finally {
-    await guarded.release();
+    clearTimeout(deadlineTimer);
+    abortController.abort();
   }
 }
 
