@@ -18,6 +18,8 @@ export type JudgeLocalCapacityDecision =
 
 type QueueEntry = {
   ownerId: string;
+  priority: "judge" | "normal";
+  sequence: number;
   resolve: (value: JudgeLocalAdmissionResult) => void;
   timer: NodeJS.Timeout;
   signal?: AbortSignal;
@@ -40,6 +42,7 @@ type JudgeAdmissionState = {
 };
 
 const JUDGE_ADMISSION_STATE = Symbol.for("openclaw.local-inference-admission.v1");
+const HELD_ADMISSION = Symbol.for("openclaw.local-inference-admission-held.v1");
 const globalAdmission = globalThis as typeof globalThis & Record<symbol, unknown>;
 const existingState = globalAdmission[JUDGE_ADMISSION_STATE] as JudgeAdmissionState | undefined;
 const state: JudgeAdmissionState = existingState ?? {
@@ -47,6 +50,7 @@ const state: JudgeAdmissionState = existingState ?? {
   queue: [],
   queuedByOwner: new Map(),
 };
+let nextSequence = 0;
 globalAdmission[JUDGE_ADMISSION_STATE] = state;
 
 function decrementOwner(ownerId: string): void {
@@ -70,7 +74,15 @@ function grantNext(): void {
   if (state.active) {
     return;
   }
-  const entry = state.queue.shift();
+  const nextIndex = state.queue.reduce((best, entry, index, queue) => {
+    const current = queue[best];
+    return entry.priority === "judge" && current.priority !== "judge"
+      ? index
+      : entry.priority === current.priority && entry.sequence < current.sequence
+        ? index
+        : best;
+  }, 0);
+  const entry = state.queue.splice(nextIndex, 1)[0];
   if (!entry) {
     return;
   }
@@ -95,6 +107,7 @@ export async function acquireLocalInferenceAdmission(params: {
   ownerId: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  priority?: "judge" | "normal";
 }): Promise<JudgeLocalAdmissionResult> {
   const ownerId = params.ownerId.trim() || "unknown";
   if (params.signal?.aborted) {
@@ -125,6 +138,8 @@ export async function acquireLocalInferenceAdmission(params: {
     const timeoutMs = Math.max(0, Math.floor(params.timeoutMs));
     const entry: QueueEntry = {
       ownerId,
+      priority: params.priority ?? "normal",
+      sequence: nextSequence++,
       resolve,
       timer: undefined as unknown as NodeJS.Timeout,
       signal: params.signal,
@@ -149,6 +164,15 @@ export async function acquireLocalInferenceAdmission(params: {
 
 /** Backward-compatible name for Judge-specific callers. */
 export const acquireJudgeLocalAdmission = acquireLocalInferenceAdmission;
+
+/** Mark a model whose caller already owns the process-wide local lease. */
+export function markLocalInferenceAdmissionHeld<TModel extends object>(model: TModel): TModel {
+  return Object.assign({ ...model }, { [HELD_ADMISSION]: true }) as TModel;
+}
+
+export function hasLocalInferenceAdmissionHeld(model: object): boolean {
+  return (model as Record<PropertyKey, unknown>)[HELD_ADMISSION] === true;
+}
 
 /** Probe prepared provider residency plus host RAM/thermal headroom without mutating models. */
 export async function assessJudgeLocalCapacity(params: {

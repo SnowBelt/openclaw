@@ -128,6 +128,8 @@ describe("Judge receipt protocol", () => {
         route: "hosted",
         modelVisibleTools: [],
         requestCount: 1,
+        trustedEvidenceDigest: "d".repeat(64),
+        trustedEvidenceIds: ["runtime.completion"],
       }),
     ).toBe(true);
     expect(

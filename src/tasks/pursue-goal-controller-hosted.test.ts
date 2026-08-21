@@ -77,6 +77,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
         api: "openai-responses",
         provider: "openai",
         model: "gpt-5.6",
+        responseModel: "gpt-5.6",
         stopReason: "stop",
         content: [
           {
@@ -122,6 +123,9 @@ describe("Pursue Goal direct hosted Judge route", () => {
       maxRetries: 0,
       transport: "sse",
     });
+    expect(mocks.prepareSimpleCompletionModelForAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ skipProviderRuntimeAuth: true }),
+    );
   });
 
   it("fails closed instead of selecting a non-Responses hosted harness", async () => {
@@ -156,6 +160,50 @@ describe("Pursue Goal direct hosted Judge route", () => {
     });
     expect(result?.text).toContain("failed closed");
     expect(mocks.completeSimple).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the provider omits its observed model identity", async () => {
+    mocks.resolveSimpleCompletionSelectionForAgent.mockReturnValue({
+      provider: "openai",
+      modelId: "gpt-5.6",
+      agentDir: "/tmp/judge-agent",
+    });
+    mocks.prepareSimpleCompletionModelForAgent.mockResolvedValue({
+      model: {
+        provider: "openai",
+        id: "gpt-5.6",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+        name: "GPT-5.6",
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+      },
+      auth: { apiKey: "redacted-test-key", mode: "api-key" },
+    });
+    mocks.completeSimple.mockResolvedValue({
+      role: "assistant",
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.6",
+      stopReason: "stop",
+      content: [{ type: "text", text: "{}" }],
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      timestamp: Date.now(),
+    });
+    const result = await runDirectHostedJudgeModel({
+      cfg: {} as never,
+      agentId: "judge",
+      prompt: "Return the technical Judge JSON.",
+      abortSignal: new AbortController().signal,
+    });
+    expect(result?.executionEvidence.modelVisibleTools).toContain("model-identity-unobserved");
   });
 
   it("fails closed instead of silently selecting GPT-5.5", async () => {
@@ -207,6 +255,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
         api: "ollama",
         provider: "ollama",
         model: "qwen3.8:27b-q8_0",
+        responseModel: "qwen3.8:27b-q8_0",
         stopReason: "stop",
         content: [{ type: "text", text: '{"verdict":"APPROVE"}' }],
         usage: {
@@ -269,6 +318,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
         api: "openai-completions",
         provider: "omlx-qwen38-judge",
         model: "openclaw-qwen38-judge-standard-q8",
+        responseModel: "openclaw-qwen38-judge-standard-q8",
         stopReason: "stop",
         content: [{ type: "text", text: '{"verdict":"APPROVE"}' }],
         usage: {

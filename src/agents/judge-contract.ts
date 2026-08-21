@@ -102,10 +102,15 @@ export function judgeTrustedEvidenceReferenceList(
 
 const NEGATED_NORMATIVE_INSTRUCTION =
   /\b(?:never|not|don't|doesn't|cannot|can't|do not|must not|should not|without|prevent|avoid|keep)\b[^.?!\n]{0,120}\b(?:judge|decide|assess|evaluate|determine)\b[^.?!\n]{0,120}\b(?:ethical|ethics|moral|morality|right|wrong|values?)\b/i;
+const TECHNICAL_BOUNDARY_INSTRUCTION =
+  /\b(?:implement|add|write|test|verify|ensure|prevent|make|configure|build|fix|repair|guard|enforce|confirm|assert)\b[^.?!\n]{0,180}\b(?:judge|model|system|guard)\b[^.?!\n]{0,180}\b(?:never|not|doesn't|does not|refuse|refuses|reject|rejects|block|blocks|avoid|prevent)\b[^.?!\n]{0,180}\b(?:ethical|ethics|moral|morality|right|wrong|values?)\b/i;
 const OUT_OF_SCOPE_PATTERNS = [
   /^\s*(?:is|are|was|were|should|would)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b\s*\??\s*$/i,
   /\b(?:is this|was this|are these|should i|did i)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b/i,
   /\b(?:decid(?:e|ing)|tell me|assess|evaluat(?:e|ing)|determine|judg(?:e|ing))\s+(?:whether|if)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b/i,
+  /\b(?:evaluate|assess|judge|determine|decide|rank|compare|choose|recommend|provide|give|tell me|explain)\b[^.?!\n]{0,160}\b(?:the\s+)?(?:ethic(?:s|al)|unethical|moral(?:ity|ly)?|immoral|right|wrong|values?)\b/i,
+  /\bwhich\b[^.?!\n]{0,160}\b(?:more\s+)?(?:ethical|moral|right|wrong)\b/i,
+  /\b(?:what|who)\b[^.?!\n]{0,120}\b(?:is|are)\b[^.?!\n]{0,120}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong|values?)\b/i,
 ] as const;
 
 /** True only for explicit moral, ethical, political, or value-evaluation asks. */
@@ -118,6 +123,7 @@ export function isJudgeOutOfScopeText(...values: readonly unknown[]): boolean {
     .filter(Boolean);
   return clauses.some(
     (clause) =>
+      !TECHNICAL_BOUNDARY_INSTRUCTION.test(clause) &&
       !NEGATED_NORMATIVE_INSTRUCTION.test(clause) &&
       OUT_OF_SCOPE_PATTERNS.some((pattern) => pattern.test(clause)),
   );

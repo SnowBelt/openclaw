@@ -6011,6 +6011,13 @@ public struct PursueGoalJudgeReceipt: Codable, Sendable {
     public let judgeagentid: String
     public let model: String?
     public let issuedat: Int
+    public let prompthash: String?
+    public let responsehash: String?
+    public let route: AnyCodable?
+    public let modelvisibletools: [String]?
+    public let requestcount: Int?
+    public let trustedevidencedigest: String?
+    public let trustedevidenceids: [String]?
     public let signature: String?
     public let publickeyid: String?
 
@@ -6027,6 +6034,13 @@ public struct PursueGoalJudgeReceipt: Codable, Sendable {
         judgeagentid: String,
         model: String?,
         issuedat: Int,
+        prompthash: String? = nil,
+        responsehash: String? = nil,
+        route: AnyCodable? = nil,
+        modelvisibletools: [String]? = nil,
+        requestcount: Int? = nil,
+        trustedevidencedigest: String? = nil,
+        trustedevidenceids: [String]? = nil,
         signature: String?,
         publickeyid: String?)
     {
@@ -6042,6 +6056,13 @@ public struct PursueGoalJudgeReceipt: Codable, Sendable {
         self.judgeagentid = judgeagentid
         self.model = model
         self.issuedat = issuedat
+        self.prompthash = prompthash
+        self.responsehash = responsehash
+        self.route = route
+        self.modelvisibletools = modelvisibletools
+        self.requestcount = requestcount
+        self.trustedevidencedigest = trustedevidencedigest
+        self.trustedevidenceids = trustedevidenceids
         self.signature = signature
         self.publickeyid = publickeyid
     }
@@ -6059,6 +6080,13 @@ public struct PursueGoalJudgeReceipt: Codable, Sendable {
         case judgeagentid = "judgeAgentId"
         case model
         case issuedat = "issuedAt"
+        case prompthash = "promptHash"
+        case responsehash = "responseHash"
+        case route
+        case modelvisibletools = "modelVisibleTools"
+        case requestcount = "requestCount"
+        case trustedevidencedigest = "trustedEvidenceDigest"
+        case trustedevidenceids = "trustedEvidenceIds"
         case signature
         case publickeyid = "publicKeyId"
     }

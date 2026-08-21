@@ -46,6 +46,33 @@ describe("Judge local inference admission", () => {
     }
   });
 
+  it("promotes queued Judge work ahead of older normal work", async () => {
+    const active = await acquireJudgeLocalAdmission({ ownerId: "active", timeoutMs: 1_000 });
+    const normalPending = acquireJudgeLocalAdmission({
+      ownerId: "normal",
+      timeoutMs: 1_000,
+      priority: "normal",
+    });
+    const judgePending = acquireJudgeLocalAdmission({
+      ownerId: "judge",
+      timeoutMs: 1_000,
+      priority: "judge",
+    });
+    if (active.admitted) {
+      active.release();
+    }
+    const first = await judgePending;
+    expect(first.admitted).toBe(true);
+    if (first.admitted) {
+      first.release();
+    }
+    const second = await normalPending;
+    expect(second.admitted).toBe(true);
+    if (second.admitted) {
+      second.release();
+    }
+  });
+
   it("removes cancelled and expired requests without granting them later", async () => {
     vi.useFakeTimers();
     const active = await acquireJudgeLocalAdmission({ ownerId: "active", timeoutMs: 1_000 });

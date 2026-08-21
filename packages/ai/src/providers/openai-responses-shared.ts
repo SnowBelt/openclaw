@@ -708,8 +708,24 @@ export async function processResponsesStream<TApi extends Api>(
   for await (const event of guardedStream) {
     if (event.type === "response.created") {
       output.responseId = event.response.id;
+      const responseModel = (event.response as { model?: unknown }).model;
+      if (typeof responseModel === "string" && responseModel.trim()) {
+        output.responseModel = responseModel.trim();
+      }
     } else if (event.type === "response.output_item.added") {
       const item = event.item;
+      const itemType = (item as { type?: unknown }).type;
+      if (
+        typeof itemType === "string" &&
+        itemType !== "message" &&
+        itemType !== "reasoning" &&
+        itemType !== "function_call"
+      ) {
+        output.responseOutputItems ??= [];
+        if (!output.responseOutputItems.includes(itemType)) {
+          output.responseOutputItems.push(itemType.slice(0, 128));
+        }
+      }
       if (item.type !== "message") {
         // Snapshot collapse only applies to back-to-back message items; any
         // other item is a real boundary (see resolveResponsesMessageSnapshotCollapse).
@@ -1004,6 +1020,10 @@ export async function processResponsesStream<TApi extends Api>(
       const response = event.response;
       if (response?.id) {
         output.responseId = response.id;
+      }
+      const responseModel = (response as { model?: unknown } | undefined)?.model;
+      if (typeof responseModel === "string" && responseModel.trim()) {
+        output.responseModel = responseModel.trim();
       }
       if (response?.usage) {
         const inputTokenDetails = response.usage.input_tokens_details as

@@ -100,7 +100,14 @@ describe("judgeTaskCompletion", () => {
       userRequest: "Implement a guard so the Judge never evaluates whether work is ethical.",
       finalText: "Done — the guard is covered by tests.",
       status: "succeeded",
-      trustedEvidence,
+      trustedEvidence: [
+        ...trustedEvidence,
+        {
+          id: "source.judge-ethics-guard",
+          kind: "source_observation" as const,
+          summary: "controller verified the Judge technical-only guard and its tests",
+        },
+      ],
     });
 
     expect(result.verdict.verdict).toBe("APPROVE");

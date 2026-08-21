@@ -102,6 +102,59 @@ describe("Pursue Goal controller state", () => {
     ).toBeUndefined();
   });
 
+  it("persists the canonical trusted evidence packet and rejects corruption", () => {
+    const state = createPursueGoalControllerState({
+      flowId: "flow-evidence",
+      goal: "Verify durable evidence",
+      workerAgentId: "program-manager",
+      now: 100,
+    });
+    const evidence = [
+      {
+        id: "runtime.completion",
+        kind: "runtime_completion" as const,
+        summary: "controller observed a complete result",
+      },
+      {
+        id: "artifact.sha256",
+        kind: "artifact_digest" as const,
+        summary: "controller hashed the delivered artifact",
+      },
+    ];
+    const parsed = parsePursueGoalControllerState({
+      ...state,
+      judgeTrustedEvidence: evidence,
+      pendingTurn: {
+        runId: "run-evidence",
+        taskId: "task-evidence",
+        phase: "staged",
+        result: { status: "complete", text: "done", trustedEvidence: evidence },
+      },
+    });
+    expect(parsed?.judgeTrustedEvidence).toEqual(evidence);
+    expect(parsed?.pendingTurn?.result.trustedEvidence).toEqual(evidence);
+    expect(
+      parsePursueGoalControllerState({
+        ...state,
+        judgeTrustedEvidence: [{ id: "runtime.completion", kind: "unknown", summary: "x" }],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("fails closed instead of dropping malformed claim history", () => {
+    const state = createPursueGoalControllerState({
+      flowId: "flow-claims",
+      goal: "Keep claim fences",
+      workerAgentId: "program-manager",
+    });
+    expect(
+      parsePursueGoalControllerState({
+        ...state,
+        judgeClaims: [{ claimHash: "not-a-hash" }],
+      }),
+    ).toBeUndefined();
+  });
+
   it("round-trips only a hash-bound durable Judge execution fence", () => {
     const state = createPursueGoalControllerState({
       flowId: "flow-judge-fence",

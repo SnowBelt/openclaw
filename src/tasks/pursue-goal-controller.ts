@@ -2,7 +2,12 @@
 import crypto from "node:crypto";
 import { buildControlDirectorJudgeClaimHash } from "../agents/control-director-contract.js";
 import { verifyControlDirectorDiagnosticEvidence } from "../agents/control-director-diagnostic-evidence.js";
-import { JUDGE_EVIDENCE_MAX_CHARS } from "../agents/judge-contract.js";
+import {
+  JUDGE_EVIDENCE_MAX_CHARS,
+  JUDGE_HOSTED_MODEL,
+  judgeTrustedEvidenceDigest,
+  type JudgeTrustedEvidence,
+} from "../agents/judge-contract.js";
 import { verifyJudgeReceipt } from "../agents/judge-receipt-signer.js";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import {
@@ -72,6 +77,7 @@ export type PursueGoalTurnResult = {
   evidenceSummary?: string;
   artifactIds?: string[];
   judgeReceipt?: PursueGoalJudgeReceipt;
+  trustedEvidence?: JudgeTrustedEvidence[];
   model?: string;
 };
 
@@ -140,6 +146,7 @@ function pendingTurnResult(result: PursueGoalTurnResult): PursueGoalPendingTurnR
     ...(result.evidenceSummary ? { evidenceSummary: result.evidenceSummary } : {}),
     ...(result.artifactIds ? { artifactIds: [...result.artifactIds] } : {}),
     ...(result.judgeReceipt ? { judgeReceipt: structuredClone(result.judgeReceipt) } : {}),
+    ...(result.trustedEvidence ? { trustedEvidence: structuredClone(result.trustedEvidence) } : {}),
     ...(result.model ? { model: result.model } : {}),
   };
 }
@@ -147,9 +154,19 @@ function pendingTurnResult(result: PursueGoalTurnResult): PursueGoalPendingTurnR
 function appendJudgeClaimRecord(
   records: readonly PursueGoalJudgeClaimRecord[],
   record: PursueGoalJudgeClaimRecord,
-): PursueGoalJudgeClaimRecord[] {
-  const withoutClaim = records.filter((existing) => existing.claimHash !== record.claimHash);
-  return [...withoutClaim, record].slice(-PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT);
+): PursueGoalJudgeClaimRecord[] | undefined {
+  const existingIndex = records.findIndex((existing) => existing.claimHash === record.claimHash);
+  if (existingIndex < 0 && records.length >= PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT) {
+    // Never evict a settled claim: doing so would make an old exact claim
+    // eligible for a second model execution after restart.
+    return undefined;
+  }
+  if (existingIndex >= 0) {
+    const next = [...records];
+    next[existingIndex] = record;
+    return next;
+  }
+  return [...records, record];
 }
 
 /**
@@ -167,6 +184,9 @@ function judgeReceiptEvidenceSemanticallyValid(receipt: PursueGoalJudgeReceipt):
     !SHA256_HEX_RE.test(receipt.promptHash) ||
     !SHA256_HEX_RE.test(receipt.responseHash)
   ) {
+    return false;
+  }
+  if (receipt.route === "hosted" && receipt.model !== JUDGE_HOSTED_MODEL) {
     return false;
   }
   if (receipt.verdict === "APPROVE") {
@@ -193,6 +213,8 @@ function judgeReceiptApprovalSemanticallyValid(receipt: PursueGoalJudgeReceipt):
   return (
     receipt.verdict === "APPROVE" &&
     receipt.schemaVersion === 2 &&
+    receipt.scope.trim() === "exact Pursue Goal mission" &&
+    receipt.conditions.trim().toLowerCase() === "none" &&
     receipt.requestCount === 1 &&
     judgeReceiptEvidenceSemanticallyValid(receipt)
   );
@@ -702,6 +724,9 @@ function stageTurnResult(params: {
       return undefined;
     }
     const next = { ...state };
+    if (pendingResult.trustedEvidence) {
+      next.judgeTrustedEvidence = structuredClone(pendingResult.trustedEvidence);
+    }
     const receipt = params.result.judgeReceipt;
     const receiptSettlesReservedExecution = Boolean(
       state.judgeExecution &&
@@ -714,8 +739,7 @@ function stageTurnResult(params: {
         (params.result.status === "blocked" && receipt.verdict !== "APPROVE")),
     );
     if (receiptSettlesReservedExecution && receipt?.schemaVersion === 2) {
-      delete next.judgeExecution;
-      next.judgeClaims = appendJudgeClaimRecord(next.judgeClaims, {
+      const judgeClaims = appendJudgeClaimRecord(next.judgeClaims, {
         claimHash: receipt!.claimHash,
         promptHash: receipt!.promptHash,
         runId: params.runId,
@@ -724,6 +748,11 @@ function stageTurnResult(params: {
         receiptId: receipt!.receiptId,
         recordedAt: now,
       });
+      if (!judgeClaims) {
+        return undefined;
+      }
+      delete next.judgeExecution;
+      next.judgeClaims = judgeClaims;
     }
     return {
       state: {
@@ -895,6 +924,14 @@ function applyTurnResult(params: {
           receipt?.schemaVersion === 2 ? receipt.trustedEvidenceDigest : undefined,
       });
       const receiptCryptographicallyValid = Boolean(receipt && judgeReceiptVerifier(receipt));
+      const persistedEvidenceMatches = Boolean(
+        receipt?.schemaVersion === 2 &&
+        state.judgeTrustedEvidence &&
+        receipt.trustedEvidenceDigest === judgeTrustedEvidenceDigest(state.judgeTrustedEvidence) &&
+        receipt.trustedEvidenceIds &&
+        JSON.stringify([...receipt.trustedEvidenceIds].toSorted()) ===
+          JSON.stringify(state.judgeTrustedEvidence.map((record) => record.id).toSorted()),
+      );
       const receiptSemanticallyValid = Boolean(
         receipt && judgeReceiptApprovalSemanticallyValid(receipt),
       );
@@ -924,7 +961,7 @@ function applyTurnResult(params: {
           : undefined,
         now,
       });
-      const validApproval = completionEvidence.status === "supported";
+      const validApproval = completionEvidence.status === "supported" && persistedEvidenceMatches;
       if (!validApproval) {
         const diagnosticDetail =
           completionEvidence.status === "rejected"
@@ -957,6 +994,9 @@ function applyTurnResult(params: {
           actorId: receipt?.judgeAgentId ?? "judge-gate",
           summary: blocker,
           correlation,
+          payload: receipt
+            ? toJsonValue({ judgeReceiptId: receipt.receiptId, verdict: receipt.verdict })
+            : undefined,
           at: now,
         });
         return {
@@ -987,6 +1027,7 @@ function applyTurnResult(params: {
         actorId: receipt!.judgeAgentId,
         summary: "Independent Judge approved the exact completion claim and evidence.",
         correlation,
+        payload: toJsonValue({ judgeReceiptId: receipt!.receiptId, verdict: receipt!.verdict }),
         at: now,
       });
       next = withPursueGoalEvent(next, {
@@ -1061,6 +1102,7 @@ function applyTurnResult(params: {
             ? `Independent Judge rejected the completion: ${receipt.conditions}`
             : terminalBlocker,
           correlation,
+          payload: toJsonValue({ judgeReceiptId: receipt.receiptId, verdict: receipt.verdict }),
           at: now,
         });
         next = withPursueGoalEvent(next, {
@@ -1140,6 +1182,10 @@ function applyTurnResult(params: {
           actorId: result.judgeReceipt.judgeAgentId,
           summary: `Independent Judge requested more evidence: ${result.judgeReceipt.conditions}`,
           correlation,
+          payload: toJsonValue({
+            judgeReceiptId: result.judgeReceipt.receiptId,
+            verdict: result.judgeReceipt.verdict,
+          }),
           at: now,
         });
       }
@@ -2067,6 +2113,9 @@ export async function editPursueGoalFlow(params: {
           recordedAt: now,
         })
       : state.judgeClaims;
+    if (!judgeClaims) {
+      return undefined;
+    }
     let next: PursueGoalControllerState = {
       ...state,
       goalVersion: version,
@@ -2077,6 +2126,7 @@ export async function editPursueGoalFlow(params: {
       lastError: undefined,
       consecutiveBlockers: 0,
       judgeReceipt: undefined,
+      judgeTrustedEvidence: undefined,
       judgeExecution: undefined,
       judgeClaims,
       nextAction: stayPaused

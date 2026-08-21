@@ -89,6 +89,7 @@ vi.mock("../infra/net/proxy-env.js", () => ({
 
 vi.mock("./provider-local-service.js", () => ({
   ensureModelProviderLocalService: ensureModelProviderLocalServiceMock,
+  getModelProviderLocalService: vi.fn(() => undefined),
 }));
 
 vi.mock("./provider-request-config.js", () => ({

@@ -64,21 +64,15 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
   const requiresConcreteOutcomeEvidence = CONCRETE_OUTCOME_REQUEST_RE.test(
     `${params.userRequest} ${expectedDeliverable}`,
   );
-  const hasSuccessfulWorkerExecution = trustedEvidence.some(
+  // Tool activity is not an outcome. A successful read/update_goal call can
+  // never prove that an implementation, test, or deployment claim happened.
+  // Require a content-, source-, or configuration-bound observation instead.
+  const hasConcreteOutcomeEvidence = trustedEvidence.some(
     (record) =>
-      record.kind === "worker_execution" &&
-      /\bsuccessful\b/i.test(record.summary) &&
-      /\btoolCalls=[1-9]\d*\b/u.test(record.summary) &&
-      /\btoolFailures=0\b/u.test(record.summary),
+      record.kind === "artifact_digest" ||
+      record.kind === "source_observation" ||
+      record.kind === "config_observation",
   );
-  const hasConcreteOutcomeEvidence =
-    hasSuccessfulWorkerExecution ||
-    trustedEvidence.some(
-      (record) =>
-        record.kind === "artifact_digest" ||
-        record.kind === "source_observation" ||
-        record.kind === "config_observation",
-    );
   const evidence = [
     `runtime status: ${params.status}`,
     params.error ? `error: ${params.error}` : undefined,

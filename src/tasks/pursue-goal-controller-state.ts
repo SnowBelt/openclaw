@@ -6,6 +6,10 @@ import {
   JUDGE_EVIDENCE_MAX_CHARS,
   JUDGE_RESPONSE_FIELD_MAX_CHARS,
   JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS,
+  JUDGE_TRUSTED_EVIDENCE_MAX_COUNT,
+  JUDGE_TRUSTED_EVIDENCE_SUMMARY_MAX_CHARS,
+  JUDGE_TRUSTED_EVIDENCE_KINDS,
+  type JudgeTrustedEvidence,
 } from "../agents/judge-contract.js";
 import {
   parseDurableWorkerMailbox,
@@ -121,6 +125,7 @@ export type PursueGoalPendingTurnResult = {
   artifactIds?: string[];
   judgeReceipt?: PursueGoalJudgeReceipt;
   model?: string;
+  trustedEvidence?: JudgeTrustedEvidence[];
 };
 
 export type PursueGoalPendingTurn = {
@@ -185,6 +190,8 @@ export type PursueGoalControllerState = {
   staleGoalRepairAttempts: number;
   staleGoalRepairLastAt?: number;
   judgeReceipt?: PursueGoalJudgeReceipt;
+  /** Canonical controller evidence retained for post-restart receipt verification. */
+  judgeTrustedEvidence?: JudgeTrustedEvidence[];
   judgeExecution?: PursueGoalJudgeExecution;
   judgeClaims: PursueGoalJudgeClaimRecord[];
   pendingTurn?: PursueGoalPendingTurn;
@@ -370,14 +377,16 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
     return undefined;
   }
   if (
-    trustedEvidenceDigest !== undefined &&
-    (!SHA256_HEX_RE.test(trustedEvidenceDigest) ||
-      !Array.isArray(trustedEvidenceIds) ||
-      trustedEvidenceIds.length > 32 ||
-      trustedEvidenceIds.some(
-        (id) =>
-          typeof id !== "string" || !id.trim() || id.length > JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS,
-      ))
+    (trustedEvidenceDigest !== undefined) !== (trustedEvidenceIds !== undefined) ||
+    (trustedEvidenceDigest !== undefined &&
+      (!SHA256_HEX_RE.test(trustedEvidenceDigest) ||
+        !Array.isArray(trustedEvidenceIds) ||
+        trustedEvidenceIds.length > 32 ||
+        new Set(trustedEvidenceIds).size !== trustedEvidenceIds.length ||
+        trustedEvidenceIds.some(
+          (id) =>
+            typeof id !== "string" || !id.trim() || id.length > JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS,
+        )))
   ) {
     return undefined;
   }
@@ -456,6 +465,10 @@ function parsePendingTurn(value: unknown): PursueGoalPendingTurn | undefined {
   if (result.judgeReceipt !== undefined && !judgeReceipt) {
     return undefined;
   }
+  const trustedEvidence = parseJudgeTrustedEvidence(result.trustedEvidence);
+  if (result.trustedEvidence !== undefined && !trustedEvidence) {
+    return undefined;
+  }
   return {
     runId,
     taskId,
@@ -469,6 +482,7 @@ function parsePendingTurn(value: unknown): PursueGoalPendingTurn | undefined {
       ...(model ? { model } : {}),
       ...(artifactIds ? { artifactIds: [...artifactIds] as string[] } : {}),
       ...(judgeReceipt ? { judgeReceipt } : {}),
+      ...(trustedEvidence ? { trustedEvidence } : {}),
     },
   };
 }
@@ -494,13 +508,50 @@ function parseJudgeExecution(value: unknown): PursueGoalJudgeExecution | undefin
     : undefined;
 }
 
-function parseJudgeClaimRecords(value: unknown): PursueGoalJudgeClaimRecord[] {
-  if (!Array.isArray(value)) {
+function parseJudgeTrustedEvidence(value: unknown): JudgeTrustedEvidence[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.length > JUDGE_TRUSTED_EVIDENCE_MAX_COUNT) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const parsed: JudgeTrustedEvidence[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return undefined;
+    }
+    const record = entry as Record<string, unknown>;
+    const id = boundedRawString(record.id, JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS);
+    const summary = boundedRawString(record.summary, JUDGE_TRUSTED_EVIDENCE_SUMMARY_MAX_CHARS);
+    const kind = record.kind;
+    if (
+      !id ||
+      !summary ||
+      typeof kind !== "string" ||
+      !(JUDGE_TRUSTED_EVIDENCE_KINDS as readonly string[]).includes(kind) ||
+      seen.has(id)
+    ) {
+      return undefined;
+    }
+    seen.add(id);
+    parsed.push({ id, kind: kind as JudgeTrustedEvidence["kind"], summary });
+  }
+  return parsed;
+}
+
+function parseJudgeClaimRecords(value: unknown): PursueGoalJudgeClaimRecord[] | undefined {
+  if (value === undefined) {
     return [];
   }
-  return value.slice(-PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT).flatMap((entry) => {
+  if (!Array.isArray(value) || value.length > PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const parsed: PursueGoalJudgeClaimRecord[] = [];
+  for (const entry of value) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return [];
+      return undefined;
     }
     const record = entry as Record<string, unknown>;
     const claimHash = boundedString(record.claimHash, 64);
@@ -519,21 +570,24 @@ function parseJudgeClaimRecords(value: unknown): PursueGoalJudgeClaimRecord[] {
       recordedAt === undefined ||
       (status !== "settled" && status !== "indeterminate")
     ) {
-      return [];
+      return undefined;
     }
+    if (seen.has(claimHash)) {
+      return undefined;
+    }
+    seen.add(claimHash);
     const receiptId = boundedString(record.receiptId, 512);
-    return [
-      {
-        claimHash,
-        promptHash,
-        runId,
-        taskId,
-        status,
-        ...(receiptId ? { receiptId } : {}),
-        recordedAt,
-      },
-    ];
-  });
+    parsed.push({
+      claimHash,
+      promptHash,
+      runId,
+      taskId,
+      status,
+      ...(receiptId ? { receiptId } : {}),
+      recordedAt,
+    });
+  }
+  return parsed;
 }
 
 /** Build the initial state before any flow is allowed to report `running`. */
@@ -616,6 +670,7 @@ export function parsePursueGoalControllerState(
   const judgeExecution = parseJudgeExecution(record.judgeExecution);
   const pendingTurn = parsePendingTurn(record.pendingTurn);
   const judgeClaims = parseJudgeClaimRecords(record.judgeClaims);
+  const judgeTrustedEvidence = parseJudgeTrustedEvidence(record.judgeTrustedEvidence);
   if (record.judgeReceipt !== undefined && !judgeReceipt) {
     return undefined;
   }
@@ -623,6 +678,12 @@ export function parsePursueGoalControllerState(
     return undefined;
   }
   if (record.judgeExecution !== undefined && !judgeExecution) {
+    return undefined;
+  }
+  if (record.judgeClaims !== undefined && !judgeClaims) {
+    return undefined;
+  }
+  if (record.judgeTrustedEvidence !== undefined && !judgeTrustedEvidence) {
     return undefined;
   }
   return {
@@ -689,8 +750,9 @@ export function parsePursueGoalControllerState(
       ? { staleGoalRepairLastAt: finiteTimestamp(record.staleGoalRepairLastAt)! }
       : {}),
     ...(judgeReceipt ? { judgeReceipt } : {}),
+    ...(judgeTrustedEvidence ? { judgeTrustedEvidence } : {}),
     ...(judgeExecution ? { judgeExecution } : {}),
-    judgeClaims,
+    judgeClaims: judgeClaims ?? [],
     ...(pendingTurn ? { pendingTurn } : {}),
     mailbox: parseDurableWorkerMailbox(record.mailbox),
     events: parseExecutionEvents(record.events),

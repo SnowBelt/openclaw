@@ -254,6 +254,10 @@ const PursueGoalJudgeReceiptV2Schema = Type.Object(
       maxItems: 32,
     }),
     requestCount: Type.Integer({ minimum: 0 }),
+    trustedEvidenceDigest: Type.Optional(JudgeSha256HexSchema),
+    trustedEvidenceIds: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 32 }),
+    ),
     signature: Type.Optional(NonEmptyString),
     publicKeyId: Type.Optional(NonEmptyString),
   },

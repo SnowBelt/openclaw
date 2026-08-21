@@ -172,6 +172,7 @@ async function setRuntimeApiKeyForCompletion(params: {
   cfg?: OpenClawConfig;
   workspaceDir?: string;
   profileId?: string;
+  skipProviderRuntimeAuth?: boolean;
 }): Promise<CompletionRuntimeCredential> {
   if (params.model.provider === "github-copilot") {
     const { resolveCopilotApiToken } = await import("../plugin-sdk/provider-auth.js");
@@ -196,30 +197,32 @@ async function setRuntimeApiKeyForCompletion(params: {
       model: { ...params.model, baseUrl: copilotToken.baseUrl },
     };
   }
-  const preparedAuth = protectPreparedProviderRuntimeAuth({
-    sourceApiKey: params.apiKey,
-    provider: params.model.provider,
-    preparedAuth: await prepareProviderRuntimeAuth({
-      provider: params.model.provider,
-      config: params.cfg,
-      workspaceDir: params.workspaceDir,
-      env: process.env,
-      context: {
-        config: params.cfg,
-        workspaceDir: params.workspaceDir,
-        env: process.env,
+  const preparedAuth = params.skipProviderRuntimeAuth
+    ? undefined
+    : protectPreparedProviderRuntimeAuth({
+        sourceApiKey: params.apiKey,
         provider: params.model.provider,
-        modelId: params.model.id,
-        model: params.model,
-        apiKey: unwrapSecretSentinelsForProviderEgress(
-          params.apiKey,
-          "provider runtime auth exchange",
-        ),
-        authMode: params.authMode,
-        profileId: params.profileId,
-      },
-    }),
-  });
+        preparedAuth: await prepareProviderRuntimeAuth({
+          provider: params.model.provider,
+          config: params.cfg,
+          workspaceDir: params.workspaceDir,
+          env: process.env,
+          context: {
+            config: params.cfg,
+            workspaceDir: params.workspaceDir,
+            env: process.env,
+            provider: params.model.provider,
+            modelId: params.model.id,
+            model: params.model,
+            apiKey: unwrapSecretSentinelsForProviderEgress(
+              params.apiKey,
+              "provider runtime auth exchange",
+            ),
+            authMode: params.authMode,
+            profileId: params.profileId,
+          },
+        }),
+      });
   const runtimeApiKey = preparedAuth?.apiKey?.trim() || params.apiKey;
   params.authStorage.setRuntimeApiKey(params.model.provider, runtimeApiKey);
   return {
@@ -247,6 +250,7 @@ export async function prepareSimpleCompletionModel(params: {
   useAsyncModelResolution?: boolean;
   skipAgentDiscovery?: boolean;
   modelResolver?: typeof resolveModelAsync;
+  skipProviderRuntimeAuth?: boolean;
 }): Promise<PreparedSimpleCompletionModel> {
   const resolved =
     params.useAsyncModelResolution || params.skipAgentDiscovery
@@ -314,6 +318,7 @@ export async function prepareSimpleCompletionModel(params: {
       cfg: params.cfg,
       workspaceDir: params.agentDir,
       profileId: auth.profileId,
+      skipProviderRuntimeAuth: params.skipProviderRuntimeAuth,
     });
     resolvedApiKey = runtimeCredential.apiKey;
     resolvedModel = runtimeCredential.model;
@@ -345,6 +350,7 @@ export async function prepareSimpleCompletionModelForAgent(params: {
   useAsyncModelResolution?: boolean;
   skipAgentDiscovery?: boolean;
   modelResolver?: typeof resolveModelAsync;
+  skipProviderRuntimeAuth?: boolean;
 }): Promise<PreparedSimpleCompletionModelForAgent> {
   const selection = resolveSimpleCompletionSelectionForAgent({
     cfg: params.cfg,
@@ -372,6 +378,7 @@ export async function prepareSimpleCompletionModelForAgent(params: {
     useAsyncModelResolution: params.useAsyncModelResolution,
     skipAgentDiscovery: params.skipAgentDiscovery,
     modelResolver: params.modelResolver,
+    skipProviderRuntimeAuth: params.skipProviderRuntimeAuth,
   });
   if ("error" in prepared) {
     return {

@@ -34,11 +34,17 @@ import {
   SECRET_SENTINEL_PATTERN,
   swapSecretSentinelsInText,
 } from "../secrets/sentinel.js";
+import {
+  acquireLocalInferenceAdmission,
+  hasLocalInferenceAdmissionHeld,
+  JUDGE_LOCAL_PRIMARY_WAIT_MS,
+} from "./judge-local-admission.js";
 import { emitModelTransportDebug } from "./model-transport-debug.js";
 import { formatModelTransportDebugUrl } from "./model-transport-url.js";
 import { ProviderHttpError, readResponseTextLimited } from "./provider-http-errors.js";
 import {
   ensureModelProviderLocalService,
+  getModelProviderLocalService,
   type ProviderLocalServiceLease,
 } from "./provider-local-service.js";
 import {
@@ -387,6 +393,7 @@ async function normalizeOpenAISdkStreamContentType(params: {
   model: Model;
   release: () => Promise<void>;
   localServiceLease?: ProviderLocalServiceLease;
+  localInferenceRelease?: () => void;
 }): Promise<Response> {
   const contentType = params.response.headers.get("content-type") ?? "";
   if (!params.response.ok || !params.response.body) {
@@ -419,6 +426,7 @@ async function normalizeOpenAISdkStreamContentType(params: {
   const body = await readResponseTextLimited(params.response).catch(() => "");
   await params.release().catch(() => undefined);
   params.localServiceLease?.release();
+  params.localInferenceRelease?.();
   const hint =
     "OpenAI-compatible streamed responses must be text/event-stream or JSON; got " +
     `${contentType || "missing content-type"}. Check the provider baseUrl; ` +
@@ -587,9 +595,11 @@ function buildManagedResponse(
   release: () => Promise<void>,
   refreshTimeout?: () => void,
   localServiceLease?: ProviderLocalServiceLease,
+  localInferenceRelease?: () => void,
 ): Response {
   const finalizeLocalServiceLease = () => {
     localServiceLease?.release();
+    localInferenceRelease?.();
   };
   if (!response.body) {
     void release().finally(finalizeLocalServiceLease);
@@ -822,6 +832,17 @@ function swapSecretSentinelsForEgress(params: { url: string; headers?: HeadersIn
   return { url: urlSwap.text, ...(headers ? { headers } : {}) };
 }
 
+function isLocalInferenceModel(model: Model): boolean {
+  // The model resolver attaches this marker to every managed local provider
+  // (including OMLX/Ollama-compatible services). Do not infer locality from a
+  // loopback URL: local proxies and test endpoints are not necessarily model
+  // inference and must not consume the shared lease.
+  if (getModelProviderLocalService(model)) {
+    return true;
+  }
+  return false;
+}
+
 export function buildGuardedModelFetch(
   model: Model,
   timeoutMs?: number,
@@ -850,6 +871,7 @@ export function buildGuardedModelFetch(
   };
   return async (input, init) => {
     let localServiceLease: ProviderLocalServiceLease | undefined;
+    let localInferenceRelease: (() => void) | undefined;
     const request = input instanceof Request ? new Request(input, init) : undefined;
     const rawUrl =
       request?.url ??
@@ -893,6 +915,19 @@ export function buildGuardedModelFetch(
     const synthesizeJsonAsSse = await requestBodyHasStreamTrue(request, baseInit);
     const baseSignal = baseInit?.signal ?? undefined;
     const localServiceSignal = buildModelRequestSignal(baseSignal, requestTimeoutMs);
+    const localInferenceModel = isLocalInferenceModel(model);
+    if (localInferenceModel && !hasLocalInferenceAdmissionHeld(model)) {
+      const admission = await acquireLocalInferenceAdmission({
+        ownerId: `provider:${model.provider}/${model.id}`,
+        timeoutMs: JUDGE_LOCAL_PRIMARY_WAIT_MS,
+        signal: baseSignal,
+        priority: "normal",
+      });
+      if (!admission.admitted) {
+        throw new Error(`Local inference admission unavailable (${admission.reason})`);
+      }
+      localInferenceRelease = admission.release;
+    }
     const guardedFetchOptions = {
       url,
       init: baseInit,
@@ -939,6 +974,7 @@ export function buildGuardedModelFetch(
           `elapsedMs=${Date.now() - fetchStartedAt} ${summarizeError(error)}`,
       );
       localServiceLease?.release();
+      localInferenceRelease?.();
       throw error;
     }
     let response = result.response;
@@ -963,6 +999,7 @@ export function buildGuardedModelFetch(
         model,
         release: result.release,
         localServiceLease,
+        localInferenceRelease,
       });
     }
     response = buildManagedResponse(
@@ -970,6 +1007,7 @@ export function buildGuardedModelFetch(
       result.release,
       result.refreshTimeout,
       localServiceLease,
+      localInferenceRelease,
     );
     return options?.sanitizeSse === false || !shouldSanitizeOpenAISdkSseResponse(model)
       ? response

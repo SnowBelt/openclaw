@@ -42,6 +42,11 @@ const taskMocks = vi.hoisted(() => ({
   nextTaskId: 0,
 }));
 
+const TEST_TRUSTED_EVIDENCE = [
+  { id: "runtime.completion", kind: "runtime_completion" as const, summary: "completed" },
+  { id: "worker.execution", kind: "worker_execution" as const, summary: "tools succeeded" },
+];
+
 vi.mock("./task-executor.js", () => ({
   completeTaskRunByRunId: (...args: unknown[]) => taskMocks.complete(...args),
   failTaskRunByRunId: (...args: unknown[]) => taskMocks.fail(...args),
@@ -62,10 +67,7 @@ function approvedReceipt(params: {
   evidenceSummary?: string;
 }): PursueGoalJudgeReceipt {
   const evidenceSummary = params.evidenceSummary ?? params.text;
-  const trustedEvidence = [
-    { id: "runtime.completion", kind: "runtime_completion" as const, summary: "completed" },
-    { id: "worker.execution", kind: "worker_execution" as const, summary: "tools succeeded" },
-  ];
+  const trustedEvidence = TEST_TRUSTED_EVIDENCE;
   return {
     schemaVersion: 2,
     receiptId: "receipt-1",
@@ -254,6 +256,7 @@ describe("Pursue Goal controller", () => {
       status: "complete",
       text: "Implemented and verified.",
       evidenceSummary: "Tests passed.",
+      trustedEvidence: TEST_TRUSTED_EVIDENCE,
       judgeReceipt: approvedReceipt({
         missionId,
         goal: flow.goal,
@@ -273,6 +276,10 @@ describe("Pursue Goal controller", () => {
     expect(state.phase).toBe("succeeded");
     expect(state.lease).toBeUndefined();
     expect(state.judgeReceipt?.verdict).toBe("APPROVE");
+    expect(state.events.find((event) => event.name === "judge.approved")?.payload).toEqual({
+      judgeReceiptId: "receipt-1",
+      verdict: "APPROVE",
+    });
     expect(state.terminalDeliveryState).toBe("queued");
     expect(state.terminalQueuedAt).toEqual(expect.any(Number));
     expect(state.terminalDeliveredAt).toBeUndefined();
@@ -306,6 +313,7 @@ describe("Pursue Goal controller", () => {
             status: "complete" as const,
             text: "Implemented and verified after retry.",
             evidenceSummary: "Controller retried the premature blocker.",
+            trustedEvidence: TEST_TRUSTED_EVIDENCE,
             judgeReceipt: approvedReceipt({
               missionId,
               goal: flow.goal,
@@ -474,6 +482,7 @@ describe("Pursue Goal controller", () => {
         status: "complete",
         text: "Claimed complete with a clean tool trace.",
         evidenceSummary: "Claimed complete with a clean tool trace.",
+        trustedEvidence: TEST_TRUSTED_EVIDENCE,
         judgeReceipt: receipt,
       })),
     );
@@ -599,6 +608,7 @@ describe("Pursue Goal controller", () => {
       status: "complete" as const,
       text: "Claimed complete before the task registry interrupted finalization.",
       evidenceSummary: "Claimed complete before the task registry interrupted finalization.",
+      trustedEvidence: TEST_TRUSTED_EVIDENCE,
       judgeReceipt: receipt,
     }));
     setPursueGoalControllerRuntimeForTests(runtime);
@@ -683,6 +693,7 @@ describe("Pursue Goal controller", () => {
       status: "complete" as const,
       text: "Resumed and verified.",
       evidenceSummary: "Resumed and verified.",
+      trustedEvidence: TEST_TRUSTED_EVIDENCE,
       judgeReceipt: approvedReceipt({
         missionId,
         goal: flow.goal,
@@ -721,6 +732,7 @@ describe("Pursue Goal controller", () => {
       status: "complete",
       text: "Recovered after restart.",
       evidenceSummary: "Recovered after restart.",
+      trustedEvidence: TEST_TRUSTED_EVIDENCE,
       judgeReceipt: approvedReceipt({
         missionId: initial.missionId,
         goal: flow.goal,
@@ -759,6 +771,7 @@ describe("Pursue Goal controller", () => {
       status: "complete",
       text: "Delayed result completed and verified.",
       evidenceSummary: "Delayed Judge response was received.",
+      trustedEvidence: TEST_TRUSTED_EVIDENCE,
       judgeReceipt: approvedReceipt({
         missionId: state.missionId,
         goal: flow.goal,
