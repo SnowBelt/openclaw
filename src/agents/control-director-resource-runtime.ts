@@ -1,16 +1,26 @@
 // Runtime-only bridge from a prepared provider hook to the pure resource governor.
+import { execFile as execFileCallback } from "node:child_process";
+import fs from "node:fs/promises";
+import { isIP } from "node:net";
+import { promisify } from "node:util";
 import { parseModelCatalogRef } from "@openclaw/model-catalog-core/model-catalog-refs";
+import { findNormalizedProviderValue } from "@openclaw/model-catalog-core/provider-id";
+import type { ModelProviderConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { fetchWithSsrFGuard } from "../infra/net/fetch-guard.js";
+import { resolveLsofCommand } from "../infra/ports-lsof.js";
 import { resolveLoadedProviderRuntimePlugin } from "../plugins/provider-hook-runtime.js";
 import type {
   ProviderModelResidencySnapshot,
   ProviderModelWarmupResult,
 } from "../plugins/types.js";
 import type { ControlDirectorResidentModel } from "./control-director-resource-governor.js";
+import { readProviderJsonResponse } from "./provider-http-errors.js";
 
 const GIB = 1024 ** 3;
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_RESIDENT_MODELS = 32;
+const execFile = promisify(execFileCallback);
 
 export type ControlDirectorResidencyObservation = {
   available: boolean;
@@ -77,6 +87,313 @@ function unavailable(reason: string): ControlDirectorResidencyObservation {
   };
 }
 
+function isPrivateLocalEndpoint(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
+    if (hostname === "localhost" || hostname.endsWith(".local")) {
+      return true;
+    }
+    const version = isIP(hostname);
+    if (version === 6) {
+      return hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd");
+    }
+    if (version !== 4) {
+      return false;
+    }
+    const octets = hostname.split(".").map(Number);
+    return (
+      octets[0] === 10 ||
+      octets[0] === 127 ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && octets[1] === 168)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function configuredGenericLocalResidencyProvider(
+  config: OpenClawConfig | undefined,
+  provider: string,
+): ModelProviderConfig | undefined {
+  const configured = findNormalizedProviderValue(config?.models?.providers, provider);
+  if (
+    !configured ||
+    configured.route?.location !== "local" ||
+    configured.api !== "openai-completions" ||
+    !configured.localService?.command?.trim() ||
+    !configured.localService.cwd?.trim() ||
+    !configured.localService.args?.includes("--port") ||
+    !isPrivateLocalEndpoint(configured.baseUrl)
+  ) {
+    return undefined;
+  }
+  const port = new URL(configured.baseUrl).port;
+  const portIndex = configured.localService.args.indexOf("--port");
+  if (!port || configured.localService.args[portIndex + 1] !== port) {
+    return undefined;
+  }
+  return configured;
+}
+
+type OpenAICompatibleModelsPayload = {
+  data?: OpenAICompatibleModelRow[];
+  models?: OpenAICompatibleModelRow[];
+};
+
+type OpenAICompatibleModelRow = {
+  id?: unknown;
+  model?: unknown;
+  name?: unknown;
+};
+
+type LocalServiceObservation = {
+  available: boolean;
+  processCount: number;
+  pid?: number;
+  reason?: string;
+};
+
+function localServiceName(command: string): string {
+  const normalized = command.trim().replaceAll("\\", "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1).toLowerCase();
+}
+
+async function observeLocalServiceProcess(params: {
+  baseUrl: string;
+  command: string;
+  cwd: string;
+  timeoutMs: number;
+}): Promise<LocalServiceObservation> {
+  let port: string;
+  let hostname: string;
+  try {
+    const url = new URL(params.baseUrl);
+    port = url.port;
+    hostname = url.hostname;
+  } catch {
+    return { available: false, processCount: 0, reason: "local endpoint URL is invalid" };
+  }
+  if (!port) {
+    return { available: false, processCount: 0, reason: "local endpoint has no explicit port" };
+  }
+  try {
+    const lsof = await resolveLsofCommand();
+    const result = await execFile(
+      lsof,
+      ["-nP", `-iTCP@${hostname}:${port}`, "-sTCP:LISTEN", "-Fp"],
+      { timeout: Math.max(100, Math.min(5_000, params.timeoutMs)), maxBuffer: 64 * 1024 },
+    );
+    const expected = localServiceName(params.command);
+    const pids = result.stdout
+      .split("\n")
+      .filter((line) => line.startsWith("p"))
+      .map((line) => line.slice(1).trim())
+      .filter(Boolean);
+    if (pids.length !== 1) {
+      return {
+        available: false,
+        processCount: pids.length,
+        reason: `expected one listener on port ${port}, observed ${pids.length}`,
+      };
+    }
+    const pid = Number(pids[0]);
+    if (!Number.isSafeInteger(pid) || pid <= 0) {
+      return { available: false, processCount: 0, reason: "listener PID is invalid" };
+    }
+    const commands = await Promise.all(
+      pids.map(async (listenerPid) => {
+        const process = await execFile("/bin/ps", ["-p", listenerPid, "-o", "command="], {
+          timeout: Math.max(100, Math.min(5_000, params.timeoutMs)),
+          maxBuffer: 64 * 1024,
+        });
+        return process.stdout.trim().toLowerCase();
+      }),
+    );
+    const matching = commands.filter(
+      (command) => command === expected || command.startsWith(`${expected}-`),
+    );
+    if (matching.length !== 1 || commands.length !== 1) {
+      return {
+        available: false,
+        processCount: matching.length,
+        reason: `expected one ${expected} listener on port ${port}, observed ${commands.join(", ") || "none"}`,
+      };
+    }
+    const configuredCwd = await fs.realpath(params.cwd);
+    const cwdResult = await execFile(lsof, ["-nP", "-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+      timeout: Math.max(100, Math.min(5_000, params.timeoutMs)),
+      maxBuffer: 64 * 1024,
+    });
+    const observedCwd = cwdResult.stdout
+      .split("\n")
+      .find((line) => line.startsWith("n"))
+      ?.slice(1)
+      .trim();
+    if (!observedCwd || (await fs.realpath(observedCwd)) !== configuredCwd) {
+      return {
+        available: false,
+        processCount: 1,
+        reason: "local service working directory drifted",
+      };
+    }
+    const commandText = await fs.readFile(params.command, "utf8");
+    const shebang = commandText.split("\n", 1)[0]?.match(/^#!\s*(\S+)/u)?.[1];
+    const expectedExecutables = new Set<string>();
+    for (const candidate of [params.command, shebang]) {
+      if (!candidate) {
+        continue;
+      }
+      try {
+        const resolved = await fs.realpath(candidate);
+        expectedExecutables.add(resolved);
+        // On macOS, a framework-backed Python launched through a venv shebang
+        // reports its paired Python.app executable to lsof. Derive that one
+        // canonical sibling from the exact interpreter path; never accept a
+        // directory-wide or basename-only interpreter match.
+        const frameworkVersion = resolved.match(
+          /^(.*\/Python\.framework\/Versions\/[^/]+)\/bin\/python[^/]*$/u,
+        )?.[1];
+        if (frameworkVersion) {
+          expectedExecutables.add(`${frameworkVersion}/Resources/Python.app/Contents/MacOS/Python`);
+        }
+      } catch {
+        return {
+          available: false,
+          processCount: 1,
+          reason: "configured local executable cannot be resolved",
+        };
+      }
+    }
+    const executableResult = await execFile(
+      lsof,
+      ["-nP", "-a", "-p", String(pid), "-d", "txt", "-Fn"],
+      { timeout: Math.max(100, Math.min(5_000, params.timeoutMs)), maxBuffer: 256 * 1024 },
+    );
+    const observedExecutables = executableResult.stdout
+      .split("\n")
+      .filter((line) => line.startsWith("n"))
+      .map((line) => line.slice(1).trim())
+      .filter(Boolean);
+    if (!observedExecutables.some((path) => expectedExecutables.has(path))) {
+      return {
+        available: false,
+        processCount: 1,
+        reason: "local service executable identity drifted",
+      };
+    }
+    return { available: true, processCount: 1, pid };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      available: false,
+      processCount: 0,
+      reason: `local process observation failed: ${message}`,
+    };
+  }
+}
+
+async function probeGenericLocalResidency(params: {
+  provider: string;
+  modelId: string;
+  activeLocalWork: boolean;
+  timeoutMs: number;
+  providerConfig: ModelProviderConfig;
+  observeProcess?: (params: {
+    baseUrl: string;
+    command: string;
+    cwd: string;
+    timeoutMs: number;
+  }) => Promise<LocalServiceObservation>;
+}): Promise<ProviderModelResidencySnapshot> {
+  const observeProcess = params.observeProcess ?? observeLocalServiceProcess;
+  const initialProcess = await observeProcess({
+    baseUrl: params.providerConfig.baseUrl,
+    command: params.providerConfig.localService?.command ?? "",
+    cwd: params.providerConfig.localService?.cwd ?? "",
+    timeoutMs: params.timeoutMs,
+  });
+  if (
+    !initialProcess.available ||
+    initialProcess.processCount !== 1 ||
+    initialProcess.pid == null
+  ) {
+    throw new Error(initialProcess.reason ?? "local service process is not verified");
+  }
+  const baseUrl = params.providerConfig.baseUrl.replace(/\/+$/u, "");
+  const headers = new Headers({ accept: "application/json" });
+  const apiKey = params.providerConfig.apiKey;
+  if (typeof apiKey === "string" && apiKey.trim()) {
+    headers.set("authorization", `Bearer ${apiKey.trim()}`);
+  }
+  const guarded = await fetchWithSsrFGuard({
+    url: `${baseUrl}/models`,
+    init: {
+      headers,
+      signal: AbortSignal.timeout(Math.max(100, Math.min(5_000, params.timeoutMs))),
+    },
+    policy: { allowPrivateNetwork: true },
+    auditContext: `${params.provider}-generic-local-residency/models`,
+  });
+  try {
+    if (!guarded.response.ok) {
+      throw new Error(`HTTP ${guarded.response.status}`);
+    }
+    const payload = await readProviderJsonResponse<OpenAICompatibleModelsPayload>(
+      guarded.response,
+      `${params.provider} generic local residency`,
+      { maxBytes: 256 * 1024 },
+    );
+    const rows = [
+      ...(Array.isArray(payload.data) ? payload.data : []),
+      ...(Array.isArray(payload.models) ? payload.models : []),
+    ];
+    const modelIds = rows.flatMap((row) => {
+      const modelId = [row.id, row.model, row.name]
+        .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+        ?.trim();
+      return modelId ? [modelId] : [];
+    });
+    const uniqueModelIds = [...new Set(modelIds)];
+    if (uniqueModelIds.length !== 1 || uniqueModelIds[0] !== params.modelId) {
+      throw new Error(
+        `local service model catalog is not an exact single-model match for ${params.provider}`,
+      );
+    }
+    const finalProcess = await observeProcess({
+      baseUrl: params.providerConfig.baseUrl,
+      command: params.providerConfig.localService?.command ?? "",
+      cwd: params.providerConfig.localService?.cwd ?? "",
+      timeoutMs: params.timeoutMs,
+    });
+    if (
+      !finalProcess.available ||
+      finalProcess.processCount !== 1 ||
+      finalProcess.pid !== initialProcess.pid
+    ) {
+      throw new Error("local service process changed during residency probe");
+    }
+    return {
+      residentModels: [
+        {
+          modelId: uniqueModelIds[0],
+          state: params.activeLocalWork ? ("active" as const) : ("idle" as const),
+        },
+      ],
+      observedProcessCount: finalProcess.processCount,
+      warnings: [
+        "Local residency is trusted only when one configured local service process owns the private endpoint and its /models response contains exactly the configured model.",
+      ],
+    };
+  } finally {
+    await guarded.release();
+  }
+}
+
 async function withDeadline<T>(params: {
   promise: Promise<T>;
   timeoutMs: number;
@@ -104,6 +421,9 @@ export async function collectControlDirectorResidencyObservation(params: {
   selectedModel: string;
   activeLocalWork: boolean;
   timeoutMs?: number;
+  runtime?: {
+    observeLocalService?: typeof observeLocalServiceProcess;
+  };
 }): Promise<ControlDirectorResidencyObservation> {
   const parsed = parseModelCatalogRef(params.selectedModel);
   if (!parsed) {
@@ -117,6 +437,28 @@ export async function collectControlDirectorResidencyObservation(params: {
     config: params.config,
   });
   if (!plugin?.probeModelResidency) {
+    const genericProvider = configuredGenericLocalResidencyProvider(params.config, parsed.provider);
+    if (genericProvider) {
+      try {
+        return normalizeControlDirectorResidencyObservation({
+          provider: parsed.provider,
+          snapshot: await probeGenericLocalResidency({
+            provider: parsed.provider,
+            modelId: parsed.modelId,
+            activeLocalWork: params.activeLocalWork,
+            timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            providerConfig: genericProvider,
+            observeProcess: params.runtime?.observeLocalService,
+          }),
+          activeLocalWork: params.activeLocalWork,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return unavailable(
+          `Provider ${parsed.provider} generic local residency probe failed: ${message}`,
+        );
+      }
+    }
     return unavailable(
       `Provider ${parsed.provider} does not expose a loaded runtime residency probe; admission remains fail-safe.`,
     );

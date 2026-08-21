@@ -21,7 +21,11 @@ import {
   JUDGE_LOCAL_BACKUP_WAIT_MS,
   JUDGE_LOCAL_PRIMARY_WAIT_MS,
 } from "../agents/judge-local-admission.js";
-import { isJudgeLocalProvider, resolveJudgeModelCandidates } from "../agents/judge-model-router.js";
+import {
+  isJudgeLocalProvider,
+  isJudgePreparedLocalModel,
+  resolveJudgeModelCandidates,
+} from "../agents/judge-model-router.js";
 import {
   prepareSimpleCompletionModelForAgent,
   resolveSimpleCompletionSelectionForAgent,
@@ -306,7 +310,7 @@ export async function runDirectJudgeModel(params: {
       route: params.route,
     });
   }
-  if (params.route === "local" && !isJudgeLocalProvider(selection.provider)) {
+  if (params.route === "local" && !isJudgeLocalProvider(selection.provider, params.cfg)) {
     return undefined;
   }
   const prepared = await prepareSimpleCompletionModelForAgent({
@@ -332,6 +336,14 @@ export async function runDirectJudgeModel(params: {
       agentId: params.agentId,
       model: requestedModel,
       reason: "Judge model identity drifted",
+      route: params.route,
+    });
+  }
+  if (params.route === "local" && !isJudgePreparedLocalModel({ config: params.cfg, model })) {
+    return failedDirectJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "local Judge provider or endpoint is not explicitly trusted",
       route: params.route,
     });
   }
@@ -555,7 +567,7 @@ async function loadWorkerGoal(
   };
 }
 
-async function runIndependentJudge(params: {
+export async function runIndependentJudge(params: {
   input: PursueGoalTurnInput;
   finalText: string;
   evidenceSummary: string;

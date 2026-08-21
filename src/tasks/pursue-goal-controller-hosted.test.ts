@@ -188,6 +188,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
         provider: "ollama",
         id: "qwen3.8:27b-q8_0",
         api: "ollama",
+        baseUrl: "http://127.0.0.1:11434/v1",
         name: "Qwen 3.8 Judge",
         contextWindow: 32_768,
         maxTokens: 4_096,
@@ -249,6 +250,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
         provider: "omlx-qwen38-judge",
         id: "openclaw-qwen38-judge-standard-q8",
         api: "openai-completions",
+        baseUrl: "http://127.0.0.1:18182/v1",
         name: "Qwen 3.8 Judge",
         contextWindow: 262_144,
         maxTokens: 8_192,
@@ -281,7 +283,18 @@ describe("Pursue Goal direct hosted Judge route", () => {
     });
 
     const result = await runDirectJudgeModel({
-      cfg: {} as never,
+      cfg: {
+        models: {
+          providers: {
+            "omlx-qwen38-judge": {
+              baseUrl: "http://127.0.0.1:18182/v1",
+              api: "openai-completions",
+              route: { location: "local", billing: "included" },
+              models: [],
+            },
+          },
+        },
+      } as never,
       agentId: "judge",
       prompt: "Return the technical Judge JSON.",
       abortSignal: new AbortController().signal,
