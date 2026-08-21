@@ -58,41 +58,23 @@ describe("Pursue Goal governed model route", () => {
     expect(prompt).toContain("An unrun Judge is not a blocker");
   });
 
-  it("does not treat aggregate tool names as claim-bound evidence", () => {
-    expect(
-      collectObservedWorkerEvidence(
-        { meta: { toolSummary: { calls: 1, failures: 1, tools: ["write"] } } },
-        [],
-      ).observed,
-    ).toBe(false);
-    expect(
-      collectObservedWorkerEvidence(
-        {
-          meta: {
-            toolSummary: { calls: 2, failures: 1, tools: ["write", "update_goal"] },
-          },
-        },
-        [],
-      ).observed,
-    ).toBe(false);
-    expect(
-      collectObservedWorkerEvidence(
-        { meta: { toolSummary: { calls: 1, failures: 0, tools: ["functions.update_goal"] } } },
-        [],
-      ).observed,
-    ).toBe(false);
-    expect(
-      collectObservedWorkerEvidence(
-        { meta: { toolSummary: { calls: 2, failures: 0, tools: ["read", "update_goal"] } } },
-        [],
-      ).observed,
-    ).toBe(false);
-    expect(
-      collectObservedWorkerEvidence(
-        { meta: { toolSummary: { calls: 2, failures: 0, tools: ["write", "test"] } } },
-        ["artifact-sha256:" + "a".repeat(64)],
-      ).observed,
-    ).toBe(true);
+  it("emits typed controller evidence instead of trusting aggregate tool names", () => {
+    const withoutArtifact = collectObservedWorkerEvidence(
+      { meta: { toolSummary: { calls: 1, failures: 1, tools: ["write"] } } },
+      [],
+    );
+    expect(withoutArtifact.trustedEvidence.map((record) => record.kind)).toEqual([
+      "runtime_completion",
+      "worker_execution",
+    ]);
+    const withArtifact = collectObservedWorkerEvidence(
+      { meta: { toolSummary: { calls: 2, failures: 0, tools: ["write", "test"] } } },
+      ["artifact-sha256:" + "a".repeat(64)],
+    );
+    expect(withArtifact.trustedEvidence.at(-1)).toMatchObject({
+      id: "artifact-sha256:" + "a".repeat(64),
+      kind: "artifact_digest",
+    });
   });
 
   it("binds artifacts to guarded loaded bytes and omits unsafe references", async () => {

@@ -150,7 +150,18 @@ describe("Pursue Goal Judge local route integration", () => {
       finalText: "Completed with direct evidence.",
       evidenceSummary: "direct evidence",
       artifactIds: [],
-      observedEvidence: true,
+      trustedEvidence: [
+        {
+          id: "runtime.completion",
+          kind: "runtime_completion",
+          summary: "controller observed worker goal status=complete and a returned result",
+        },
+        {
+          id: "worker.execution",
+          kind: "worker_execution",
+          summary: "controller observed runtime=embedded, toolCalls=1, toolFailures=0",
+        },
+      ],
     });
 
     expect(result.approved).toBe(true);

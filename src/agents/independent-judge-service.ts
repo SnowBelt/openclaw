@@ -15,8 +15,12 @@ import {
   JUDGE_FINAL_TEXT_MAX_CHARS,
   JUDGE_PROMPT_MAX_BYTES,
   JUDGE_REQUEST_MAX_CHARS,
+  JUDGE_TRUSTED_EVIDENCE_KINDS,
+  JUDGE_TRUSTED_EVIDENCE_MAX_COUNT,
+  judgeTrustedEvidenceReferenceList,
   judgeV2ToolPolicyIsEmpty,
   parseJudgeV2ModelOutput,
+  type JudgeTrustedEvidence,
   type JudgeModelExecutionEvidence,
 } from "./judge-contract.js";
 import { formatJudgeVerdict, type JudgeGateVerdict } from "./judge-gate.js";
@@ -109,6 +113,7 @@ function buildJudgePrompt(params: {
   claimHash: string;
   deterministicVerdict: JudgeGateVerdict;
   artifactIds: readonly string[];
+  trustedEvidence: readonly JudgeTrustedEvidence[];
 }): string {
   const untrustedField = (label: string, value: string): string =>
     [
@@ -125,7 +130,8 @@ function buildJudgePrompt(params: {
     "Return exactly one JSON object with only these string fields: verdict, scope, evidence, risk, reason, conditions.",
     "verdict must be APPROVE, REJECT, NEEDS_EVIDENCE, OUT_OF_SCOPE, OWNER_APPROVAL_REQUIRED, or SYSTEM_ERROR.",
     "risk must be low, medium, high, prohibited, or unclear. Do not add fields, markdown, tools, or commentary.",
-    "Approve only when every requested outcome is supported by direct evidence.",
+    "Approve only when every requested outcome is supported by the supplied trusted evidence.",
+    "The evidence field must be exactly the comma-separated trusted evidence reference IDs, in any order.",
     "",
     `Mission id: ${params.missionId}`,
     `Claim hash: ${params.claimHash}`,
@@ -135,6 +141,12 @@ function buildJudgePrompt(params: {
     untrustedField(
       "Bound artifact references",
       params.artifactIds.length > 0 ? params.artifactIds.join("\n") : "none",
+    ),
+    untrustedField(
+      "Trusted evidence records",
+      params.trustedEvidence.length > 0
+        ? params.trustedEvidence.map((record) => `${record.id}: ${record.summary}`).join("\n")
+        : "none",
     ),
     untrustedField(
       "Deterministic packet preflight (not the final verdict)",
@@ -148,6 +160,7 @@ function judgeClaimBoundsError(params: {
   finalText: string;
   evidenceSummary: string;
   artifactIds: readonly string[];
+  trustedEvidence: readonly JudgeTrustedEvidence[];
 }): string | undefined {
   if (params.requestBody.length > JUDGE_REQUEST_MAX_CHARS) {
     return `request exceeds ${JUDGE_REQUEST_MAX_CHARS} characters`;
@@ -168,7 +181,50 @@ function judgeClaimBoundsError(params: {
   ) {
     return `artifact reference is empty or exceeds ${JUDGE_ARTIFACT_ID_MAX_CHARS} characters`;
   }
+  if (params.trustedEvidence.length === 0) {
+    return "trusted evidence record set is empty";
+  }
+  if (params.trustedEvidence.length > JUDGE_TRUSTED_EVIDENCE_MAX_COUNT) {
+    return `trusted evidence record count exceeds ${JUDGE_TRUSTED_EVIDENCE_MAX_COUNT}`;
+  }
+  if (
+    params.trustedEvidence.some(
+      (record) =>
+        !record.id.trim() ||
+        record.id.length > 128 ||
+        !record.summary.trim() ||
+        record.summary.length > 2_048 ||
+        !JUDGE_TRUSTED_EVIDENCE_KINDS.includes(record.kind),
+    )
+  ) {
+    return "trusted evidence record is empty or exceeds its bound";
+  }
+  const evidenceIds = params.trustedEvidence.map((record) => record.id);
+  if (new Set(evidenceIds).size !== evidenceIds.length) {
+    return "trusted evidence record IDs must be unique";
+  }
+  const artifactEvidenceIds = params.trustedEvidence
+    .filter((record) => record.kind === "artifact_digest")
+    .map((record) => record.id)
+    .toSorted();
+  if (artifactEvidenceIds.join("\n") !== [...params.artifactIds].toSorted().join("\n")) {
+    return "artifact references do not match trusted artifact evidence";
+  }
   return undefined;
+}
+
+function evidenceReferencesMatch(
+  value: string,
+  trustedEvidence: readonly JudgeTrustedEvidence[],
+): boolean {
+  const expected = judgeTrustedEvidenceReferenceList(trustedEvidence);
+  const actual = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .toSorted()
+    .join(", ");
+  return actual === expected;
 }
 
 function hashText(text: string): string {
@@ -226,7 +282,7 @@ export async function judgeCompletionIndependently(params: {
   finalText: string;
   evidenceSummary: string;
   artifactIds?: readonly string[];
-  observedEvidence?: boolean;
+  trustedEvidence?: readonly JudgeTrustedEvidence[];
   beforeModel?: (attempt: { claimHash: string; promptHash: string }) => boolean;
   runModel?: (prompt: string) => Promise<IndependentJudgeModelResult>;
   signingDirectory?: string;
@@ -263,7 +319,7 @@ async function runJudgeCompletionOnce(params: {
   finalText: string;
   evidenceSummary: string;
   artifactIds?: readonly string[];
-  observedEvidence?: boolean;
+  trustedEvidence?: readonly JudgeTrustedEvidence[];
   beforeModel?: (attempt: { claimHash: string; promptHash: string }) => boolean;
   runModel?: (prompt: string) => Promise<IndependentJudgeModelResult>;
   signingDirectory?: string;
@@ -278,13 +334,14 @@ async function runJudgeCompletionOnce(params: {
     expectedDeliverable: "exact Pursue Goal mission",
     artifactIds: params.artifactIds,
     status: "succeeded",
-    observedEvidence: params.observedEvidence,
+    trustedEvidence: params.trustedEvidence,
   });
   const boundsError = judgeClaimBoundsError({
     requestBody: params.requestBody,
     finalText: params.finalText,
     evidenceSummary: params.evidenceSummary,
     artifactIds,
+    trustedEvidence: [...(params.trustedEvidence ?? [])],
   });
   if (boundsError) {
     const responseText = `Judge claim rejected before model execution: ${boundsError}`;
@@ -351,6 +408,7 @@ async function runJudgeCompletionOnce(params: {
     claimHash: params.claimHash,
     deterministicVerdict: deterministic.verdict,
     artifactIds,
+    trustedEvidence: [...(params.trustedEvidence ?? [])],
   });
   if (Buffer.byteLength(prompt, "utf8") > JUDGE_PROMPT_MAX_BYTES) {
     const responseText = `Judge prompt exceeds ${JUDGE_PROMPT_MAX_BYTES} bytes`;
@@ -415,8 +473,9 @@ async function runJudgeCompletionOnce(params: {
   const approvalSemanticallyConsistent =
     parsed.ok &&
     parsed.value.verdict === "APPROVE" &&
-    parsed.value.risk !== "prohibited" &&
-    parsed.value.risk !== "unclear";
+    (parsed.value.risk === "low" || parsed.value.risk === "medium") &&
+    parsed.value.conditions.trim().toLowerCase() === "none" &&
+    evidenceReferencesMatch(parsed.value.evidence, params.trustedEvidence ?? []);
   const parsedVerdict = !toolPolicyValid
     ? "SYSTEM_ERROR"
     : parsed.ok
@@ -429,9 +488,7 @@ async function runJudgeCompletionOnce(params: {
     claimHash: params.claimHash,
     verdict: parsedVerdict,
     scope: parsed.ok ? parsed.value.scope : "exact Pursue Goal mission",
-    evidenceSummary: parsed.ok
-      ? parsed.value.evidence
-      : "Judge response did not match the strict JSON contract.",
+    evidenceSummary: params.evidenceSummary,
     conditions: parsed.ok
       ? parsed.value.conditions
       : parsed.errors.join("; ") || "rerun Judge with the exact technical-only contract",

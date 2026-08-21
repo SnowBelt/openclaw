@@ -71,15 +71,47 @@ export type JudgeModelExecutionEvidence = {
   model: string;
 };
 
+/** Evidence observed by the controller, never asserted by worker prose. */
+export const JUDGE_TRUSTED_EVIDENCE_KINDS = [
+  "runtime_completion",
+  "worker_execution",
+  "artifact_digest",
+  "source_observation",
+  "config_observation",
+] as const;
+export type JudgeTrustedEvidenceKind = (typeof JUDGE_TRUSTED_EVIDENCE_KINDS)[number];
+export type JudgeTrustedEvidence = {
+  id: string;
+  kind: JudgeTrustedEvidenceKind;
+  summary: string;
+};
+export const JUDGE_TRUSTED_EVIDENCE_MAX_COUNT = 32;
+export const JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS = 128;
+export const JUDGE_TRUSTED_EVIDENCE_SUMMARY_MAX_CHARS = 2_048;
+
+export function judgeTrustedEvidenceReferenceList(
+  records: readonly JudgeTrustedEvidence[],
+): string {
+  return records
+    .map((record) => record.id)
+    .toSorted()
+    .join(", ");
+}
+
+const NEGATED_NORMATIVE_INSTRUCTION =
+  /\b(?:never|not|don't|do not|must not|should not|without)\b[^.?!\n]{0,100}\b(?:judge|decide|assess|evaluate|determine)\b[^.?!\n]{0,100}\b(?:ethical|ethics|moral|morality|right|wrong|values?)\b/i;
 const OUT_OF_SCOPE_PATTERNS = [
-  /\b(?:morally|ethically)\s+(?:right|wrong|good|bad|acceptable|unacceptable|just|unjust)\b/i,
-  /\b(?:is|are|was|were)\s+[^.?!\n]{1,120}\s+(?:ethical|unethical|moral|immoral)\b/i,
-  /\b(?:judge|decide|tell me|assess|evaluate)\s+(?:whether|if)\s+[^.?!\n]{1,120}\s+(?:ethical|moral|right|wrong)\b/i,
+  /^\s*(?:is|are|was|were|should|would)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b\s*\??\s*$/i,
+  /\b(?:is this|was this|are these|should i|did i)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b/i,
+  /\b(?:decid(?:e|ing)|tell me|assess|evaluat(?:e|ing)|determine|judg(?:e|ing))\s+(?:whether|if)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b/i,
 ] as const;
 
 /** True only for explicit moral, ethical, political, or value-evaluation asks. */
 export function isJudgeOutOfScopeText(...values: readonly unknown[]): boolean {
   const haystack = values.filter((value): value is string => typeof value === "string").join(" ");
+  if (NEGATED_NORMATIVE_INSTRUCTION.test(haystack)) {
+    return false;
+  }
   return OUT_OF_SCOPE_PATTERNS.some((pattern) => pattern.test(haystack));
 }
 

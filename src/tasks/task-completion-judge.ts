@@ -1,4 +1,4 @@
-import { isJudgeOutOfScopeText } from "../agents/judge-contract.js";
+import { isJudgeOutOfScopeText, type JudgeTrustedEvidence } from "../agents/judge-contract.js";
 import {
   buildJudgeVerdict,
   formatJudgeVerdict,
@@ -12,7 +12,7 @@ type JudgeTaskCompletionParams = {
   artifactIds?: readonly string[];
   status: "succeeded" | "failed" | "timed_out" | "cancelled";
   error?: string;
-  observedEvidence?: boolean;
+  trustedEvidence?: readonly JudgeTrustedEvidence[];
 };
 
 export type TaskCompletionJudgeResult = {
@@ -28,8 +28,6 @@ const COMPLETION_RE =
   /\b(done|complete|completed|finished|ready|attached|created|built|delivered|here(?:'s| is))\b/i;
 const ARTIFACT_REQUEST_RE =
   /\b(video|game|rom|file|download|attachment|image|picture|photo|song|music|audio|pdf|docx|spreadsheet|presentation|app|project|artifact)\b/i;
-const VERIFICATION_CLAIM_RE =
-  /\b(test(?:s|ed|ing)?|pass(?:ed|es|ing)?|build|built|fix(?:ed|es)?|deploy(?:ed|ment)?|release(?:d)?|wrote|created|modified|updated|verified|validated)\b/i;
 
 function trimText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -50,13 +48,26 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
   const finalText = trimText(params.finalText);
   const expectedDeliverable = inferExpectedDeliverable(params);
   const artifactIds = [...new Set((params.artifactIds ?? []).map(trimText).filter(Boolean))];
+  const trustedEvidence = [...(params.trustedEvidence ?? [])].filter(
+    (record): record is JudgeTrustedEvidence =>
+      typeof record.id === "string" &&
+      Boolean(record.id.trim()) &&
+      typeof record.kind === "string" &&
+      typeof record.summary === "string" &&
+      Boolean(record.summary.trim()),
+  );
+  const trustedEvidenceProvided = params.trustedEvidence !== undefined;
   const wantsArtifact =
     ARTIFACT_REQUEST_RE.test(params.userRequest) || ARTIFACT_REQUEST_RE.test(expectedDeliverable);
   const evidence = [
     `runtime status: ${params.status}`,
     params.error ? `error: ${params.error}` : undefined,
-    finalText ? `final reply: ${finalText}` : "final reply: missing",
-    artifactIds.length ? `artifacts: ${artifactIds.join(", ")}` : "artifacts: none",
+    trustedEvidence.length
+      ? `trusted evidence: ${trustedEvidence
+          .map((record) => `${record.id}=${record.summary}`)
+          .join("; ")}`
+      : "trusted evidence: none",
+    artifactIds.length ? `artifact refs: ${artifactIds.join(", ")}` : "artifact refs: none",
   ]
     .filter(Boolean)
     .join("; ");
@@ -112,15 +123,19 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       conditions: "attach or link the requested artifact",
       gate: "task_completion",
     });
-  } else if (VERIFICATION_CLAIM_RE.test(finalText) && params.observedEvidence !== true) {
+  } else if (
+    trustedEvidenceProvided &&
+    (!trustedEvidence.some((record) => record.kind === "runtime_completion") ||
+      !trustedEvidence.some((record) => record.kind === "worker_execution") ||
+      (wantsArtifact && !trustedEvidence.some((record) => record.kind === "artifact_digest")))
+  ) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",
       scope: expectedDeliverable,
-      evidence:
-        "runtime status succeeded; no trusted execution or artifact observation was recorded",
+      evidence: "runtime status succeeded; required trusted execution evidence was not recorded",
       risk: "low",
-      reason: "The final reply makes an execution or verification claim using worker prose only.",
-      conditions: "record trusted runtime or artifact evidence and rerun verification",
+      reason: "The completion claim has no complete controller-observed evidence packet.",
+      conditions: "record trusted runtime, execution, and artifact evidence and rerun verification",
       gate: "task_completion",
     });
   }

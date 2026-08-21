@@ -46,6 +46,14 @@ describe("Judge V2 model contract", () => {
 
   it("identifies only explicit moral, ethical, political, or value requests", () => {
     expect(isJudgeOutOfScopeText("Is this morally right?")).toBe(true);
+    expect(
+      isJudgeOutOfScopeText("Create a report deciding whether this conduct is morally right."),
+    ).toBe(true);
+    expect(
+      isJudgeOutOfScopeText(
+        "Implement a guard so the Judge never evaluates whether work is ethical.",
+      ),
+    ).toBe(false);
     expect(isJudgeOutOfScopeText("Did the deployment complete with a valid receipt?")).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import { judgeCompletionIndependently } from "../agents/independent-judge-servic
 import {
   JUDGE_HOSTED_MODEL,
   JUDGE_MAX_OUTPUT_TOKENS,
+  type JudgeTrustedEvidence,
   type JudgeModelExecutionEvidence,
 } from "../agents/judge-contract.js";
 import {
@@ -226,9 +227,30 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
     tools.length > 0 ? `activity tools=${tools.join(",")}` : "activity tools=none",
     artifactIds.length > 0 ? `artifact digests=${artifactIds.join(",")}` : "artifacts=none",
   ];
+  const trustedEvidence: JudgeTrustedEvidence[] = [
+    {
+      id: "runtime.completion",
+      kind: "runtime_completion",
+      summary: "controller observed worker goal status=complete and a returned result",
+    },
+  ];
+  if (trace || toolSummary) {
+    trustedEvidence.push({
+      id: "worker.execution",
+      kind: "worker_execution",
+      summary: `controller observed runtime=${runner}, toolCalls=${calls}, toolFailures=${failures ?? "unknown"}`,
+    });
+  }
+  for (const artifactId of artifactIds) {
+    trustedEvidence.push({
+      id: artifactId,
+      kind: "artifact_digest",
+      summary: "controller loaded and hashed the referenced artifact bytes",
+    });
+  }
   return {
     summary: observations.join("; "),
-    observed: artifactIds.length > 0,
+    trustedEvidence,
   };
 }
 
@@ -572,7 +594,7 @@ export async function runIndependentJudge(params: {
   finalText: string;
   evidenceSummary: string;
   artifactIds: string[];
-  observedEvidence: boolean;
+  trustedEvidence: readonly JudgeTrustedEvidence[];
 }) {
   const cfg = getRuntimeConfig();
   const judgeAgentId = resolveJudgeAgentId(cfg);
@@ -582,7 +604,7 @@ export async function runIndependentJudge(params: {
     finalText: params.finalText,
     evidenceSummary: params.evidenceSummary,
     artifactIds: params.artifactIds,
-    observedEvidence: params.observedEvidence,
+    trustedEvidence: params.trustedEvidence,
     beforeModel: params.input.reserveJudgeExecution,
     runModel: judgeAgentId
       ? async (prompt) => {
@@ -688,7 +710,7 @@ async function runTurn(input: PursueGoalTurnInput): Promise<PursueGoalTurnResult
       finalText: text,
       evidenceSummary: observedEvidence.summary,
       artifactIds,
-      observedEvidence: observedEvidence.observed,
+      trustedEvidence: observedEvidence.trustedEvidence,
     });
     return {
       status: judge.approved ? "complete" : "blocked",
