@@ -42,9 +42,9 @@ function fixture() {
       list: requiredIds.map((id) => {
         const agent: JsonRecord = { id };
         if (id === "program-manager") {
-          agent.tools = { profile: "full", deny: ["browser", "get_goal"] };
+          agent.tools = { profile: "full", allow: ["write"], deny: ["browser", "get_goal"] };
         } else if (id === "judge") {
-          agent.tools = { profile: "full", deny: ["memory_search", "write"] };
+          agent.tools = { profile: "full", allow: ["write"], deny: ["memory_search", "write"] };
         }
         return agent;
       }),
@@ -128,6 +128,7 @@ describe("Control Director managed role configuration", () => {
       deny: string[];
     };
     expect(programManagerTools.profile).toBe("minimal");
+    expect((programManagerTools as JsonRecord).allow).toBeUndefined();
     expect(programManagerTools.alsoAllow).toEqual(
       expect.arrayContaining([
         "agents_list",
@@ -147,6 +148,7 @@ describe("Control Director managed role configuration", () => {
       deny: string[];
     };
     expect(judgeTools.profile).toBe("minimal");
+    expect((judgeTools as JsonRecord).allow).toBeUndefined();
     expect(judgeTools.alsoAllow).toEqual(
       expect.arrayContaining(["read", "memory_search", "sessions_history", "get_goal"]),
     );

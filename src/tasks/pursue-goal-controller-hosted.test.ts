@@ -47,6 +47,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
         provider: "openai",
         id: "gpt-5.6",
         api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
         name: "GPT-5.6",
         contextWindow: 128_000,
         maxTokens: 16_384,

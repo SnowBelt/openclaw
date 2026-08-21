@@ -17,6 +17,7 @@ import {
   JUDGE_REQUEST_MAX_CHARS,
   JUDGE_TRUSTED_EVIDENCE_KINDS,
   JUDGE_TRUSTED_EVIDENCE_MAX_COUNT,
+  judgeTrustedEvidenceDigest,
   judgeTrustedEvidenceReferenceList,
   judgeV2ToolPolicyIsEmpty,
   parseJudgeV2ModelOutput,
@@ -69,6 +70,9 @@ export type IndependentJudgeReceiptV2 = {
   route: JudgeModelExecutionEvidence["route"];
   modelVisibleTools: string[];
   requestCount: number;
+  /** Digest and ordered IDs of the exact controller-observed evidence packet. */
+  trustedEvidenceDigest: string;
+  trustedEvidenceIds: string[];
   signature?: string;
   publicKeyId?: string;
 };
@@ -245,6 +249,7 @@ function unsignedReceipt(params: {
   promptHash: string;
   responseHash: string;
   executionEvidence: JudgeModelExecutionEvidence;
+  trustedEvidence: readonly JudgeTrustedEvidence[];
 }): IndependentJudgeReceiptV2 {
   return {
     schemaVersion: JUDGE_CONTRACT_VERSION,
@@ -264,6 +269,8 @@ function unsignedReceipt(params: {
     route: params.executionEvidence.route,
     modelVisibleTools: [...params.executionEvidence.modelVisibleTools],
     requestCount: params.executionEvidence.requestCount,
+    trustedEvidenceDigest: judgeTrustedEvidenceDigest(params.trustedEvidence),
+    trustedEvidenceIds: params.trustedEvidence.map((record) => record.id).toSorted(),
   };
 }
 
@@ -294,6 +301,7 @@ export async function judgeCompletionIndependently(params: {
     finalText: params.finalText,
     evidenceSummary: params.evidenceSummary,
     artifactIds: params.artifactIds,
+    trustedEvidenceDigest: judgeTrustedEvidenceDigest(params.trustedEvidence ?? []),
   });
   const existing = inFlightJudgeClaims.get(claimHash);
   if (existing) {
@@ -365,6 +373,7 @@ async function runJudgeCompletionOnce(params: {
         promptHash: hashText("bounds-gate"),
         responseHash: hashText(responseText),
         executionEvidence,
+        trustedEvidence: [...(params.trustedEvidence ?? [])],
       }),
       { directory: params.signingDirectory },
     );
@@ -395,6 +404,7 @@ async function runJudgeCompletionOnce(params: {
       promptHash: hashText("deterministic-only"),
       responseHash: hashText(responseText),
       executionEvidence,
+      trustedEvidence: [...(params.trustedEvidence ?? [])],
     });
     const receipt = signJudgeReceipt(unsigned, { directory: params.signingDirectory });
     return { approved: false, receipt, deterministicVerdict: deterministic.verdict };
@@ -432,6 +442,7 @@ async function runJudgeCompletionOnce(params: {
         promptHash: hashText(prompt),
         responseHash: hashText(responseText),
         executionEvidence,
+        trustedEvidence: [...(params.trustedEvidence ?? [])],
       }),
       { directory: params.signingDirectory },
     );
@@ -460,6 +471,7 @@ async function runJudgeCompletionOnce(params: {
         promptHash,
         responseHash: hashText(responseText),
         executionEvidence,
+        trustedEvidence: [...(params.trustedEvidence ?? [])],
       }),
       { directory: params.signingDirectory },
     );
@@ -473,6 +485,7 @@ async function runJudgeCompletionOnce(params: {
   const approvalSemanticallyConsistent =
     parsed.ok &&
     parsed.value.verdict === "APPROVE" &&
+    parsed.value.scope.trim() === deterministic.verdict.scope.trim() &&
     (parsed.value.risk === "low" || parsed.value.risk === "medium") &&
     parsed.value.conditions.trim().toLowerCase() === "none" &&
     evidenceReferencesMatch(parsed.value.evidence, params.trustedEvidence ?? []);
@@ -499,6 +512,7 @@ async function runJudgeCompletionOnce(params: {
     promptHash,
     responseHash: hashText(modelResult.text),
     executionEvidence: modelResult.executionEvidence,
+    trustedEvidence: [...(params.trustedEvidence ?? [])],
   });
   const receipt = signJudgeReceipt(unsigned, { directory: params.signingDirectory });
   return {

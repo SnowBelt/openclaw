@@ -216,6 +216,9 @@ def apply_contract(config: dict, *, allow_role_replacement: bool = False) -> Non
     if not isinstance(program_manager_tools, dict):
         fail("program-manager tools must be an object")
     program_manager_tools["profile"] = "minimal"
+    # `allow` is a legacy broadening field.  Keeping it alongside the
+    # least-privilege `alsoAllow` contract can silently re-enable tools.
+    program_manager_tools.pop("allow", None)
     program_manager_tools["alsoAllow"] = list(PROGRAM_MANAGER_TOOLS)
     program_manager_deny = [
         tool
@@ -229,6 +232,7 @@ def apply_contract(config: dict, *, allow_role_replacement: bool = False) -> Non
     if not isinstance(judge_tools, dict):
         fail("judge tools must be an object")
     judge_tools["profile"] = "minimal"
+    judge_tools.pop("allow", None)
     judge_tools["alsoAllow"] = list(READ_EVIDENCE_TOOLS)
     judge_deny = [
         tool for tool in judge_tools.get("deny", []) if tool not in READ_EVIDENCE_TOOLS

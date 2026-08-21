@@ -1384,6 +1384,7 @@ export function buildControlDirectorJudgeClaimHash(params: {
   evidenceSummary: string;
   artifactIds?: readonly string[] | undefined;
   commandEvidence?: readonly string[] | undefined;
+  trustedEvidenceDigest?: string | undefined;
 }): string {
   const stablePayload = {
     artifactIds: stableControlDirectorStringList(params.artifactIds),
@@ -1392,6 +1393,7 @@ export function buildControlDirectorJudgeClaimHash(params: {
     finalText: normalizeControlDirectorClaimPart(params.finalText),
     missionId: normalizeControlDirectorClaimPart(params.missionId),
     requestBody: normalizeControlDirectorClaimPart(params.requestBody),
+    trustedEvidenceDigest: normalizeControlDirectorClaimPart(params.trustedEvidenceDigest),
   };
   return createHash("sha256").update(JSON.stringify(stablePayload)).digest("hex");
 }

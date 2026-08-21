@@ -54,6 +54,19 @@ describe("Judge V2 model contract", () => {
         "Implement a guard so the Judge never evaluates whether work is ethical.",
       ),
     ).toBe(false);
+    expect(
+      isJudgeOutOfScopeText(
+        "Do not evaluate whether conduct is moral. Also tell me whether theft is morally right.",
+      ),
+    ).toBe(true);
+    expect(
+      isJudgeOutOfScopeText(
+        "Do not evaluate whether conduct is moral, and tell me whether theft is morally right.",
+      ),
+    ).toBe(true);
+    expect(
+      isJudgeOutOfScopeText("Test that the Judge doesn't decide whether conduct is moral."),
+    ).toBe(false);
     expect(isJudgeOutOfScopeText("Did the deployment complete with a valid receipt?")).toBe(false);
   });
 });

@@ -27,10 +27,12 @@ import {
   PURSUE_GOAL_CONTROLLER_ID,
   PURSUE_GOAL_MAX_CHARS,
   PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS,
+  PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT,
   stateForPursueGoalFlow,
   withPursueGoalEvent,
   type PursueGoalControllerState,
   type PursueGoalJudgeReceipt,
+  type PursueGoalJudgeClaimRecord,
   type PursueGoalPendingTurnResult,
 } from "./pursue-goal-controller-state.js";
 import { completeTaskRunByRunId, failTaskRunByRunId, runTaskInFlow } from "./task-executor.js";
@@ -142,6 +144,14 @@ function pendingTurnResult(result: PursueGoalTurnResult): PursueGoalPendingTurnR
   };
 }
 
+function appendJudgeClaimRecord(
+  records: readonly PursueGoalJudgeClaimRecord[],
+  record: PursueGoalJudgeClaimRecord,
+): PursueGoalJudgeClaimRecord[] {
+  const withoutClaim = records.filter((existing) => existing.claimHash !== record.claimHash);
+  return [...withoutClaim, record].slice(-PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT);
+}
+
 /**
  * V2 approval receipts carry provider-observed proof, not just a signature.
  * Keep V1 readable, but never let a V2 receipt approve with an unknown route,
@@ -158,6 +168,16 @@ function judgeReceiptEvidenceSemanticallyValid(receipt: PursueGoalJudgeReceipt):
     !SHA256_HEX_RE.test(receipt.responseHash)
   ) {
     return false;
+  }
+  if (receipt.verdict === "APPROVE") {
+    if (
+      !receipt.trustedEvidenceDigest ||
+      !SHA256_HEX_RE.test(receipt.trustedEvidenceDigest) ||
+      !receipt.trustedEvidenceIds ||
+      new Set(receipt.trustedEvidenceIds).size !== receipt.trustedEvidenceIds.length
+    ) {
+      return false;
+    }
   }
   if (receipt.requestCount === 0) {
     return receipt.route === "unknown" && receipt.model === "none" && receipt.verdict !== "APPROVE";
@@ -664,7 +684,10 @@ function stageTurnResult(params: {
       return undefined;
     }
     if (state.pendingTurn) {
-      return state.pendingTurn.runId === params.runId && state.pendingTurn.taskId === params.taskId
+      if (state.pendingTurn.runId !== params.runId || state.pendingTurn.taskId !== params.taskId) {
+        return undefined;
+      }
+      return JSON.stringify(state.pendingTurn.result) === JSON.stringify(pendingResult)
         ? { state, patch: { updatedAt: now } }
         : undefined;
     }
@@ -690,8 +713,17 @@ function stageTurnResult(params: {
       ((params.result.status === "complete" && receipt.verdict === "APPROVE") ||
         (params.result.status === "blocked" && receipt.verdict !== "APPROVE")),
     );
-    if (receiptSettlesReservedExecution) {
+    if (receiptSettlesReservedExecution && receipt?.schemaVersion === 2) {
       delete next.judgeExecution;
+      next.judgeClaims = appendJudgeClaimRecord(next.judgeClaims, {
+        claimHash: receipt!.claimHash,
+        promptHash: receipt!.promptHash,
+        runId: params.runId,
+        taskId: params.taskId,
+        status: "settled",
+        receiptId: receipt!.receiptId,
+        recordedAt: now,
+      });
     }
     return {
       state: {
@@ -717,6 +749,9 @@ function reserveJudgeExecution(params: {
   claimHash: string;
   promptHash: string;
 }): boolean {
+  if (!SHA256_HEX_RE.test(params.claimHash) || !SHA256_HEX_RE.test(params.promptHash)) {
+    return false;
+  }
   const now = Date.now();
   return mutatePursueGoalFlow(params.flowId, (_flow, state) => {
     if (
@@ -726,7 +761,8 @@ function reserveJudgeExecution(params: {
         now,
       }) ||
       state.pendingTurn ||
-      state.judgeExecution
+      state.judgeExecution ||
+      state.judgeClaims.some((claim) => claim.claimHash === params.claimHash)
     ) {
       return undefined;
     }
@@ -846,6 +882,7 @@ function applyTurnResult(params: {
       ),
     };
     if (result.status === "complete") {
+      const receipt = result.judgeReceipt;
       const evidenceSummary =
         boundedEvidenceSummary(result.evidenceSummary) ?? "No completion evidence was recorded.";
       const expectedClaimHash = buildControlDirectorJudgeClaimHash({
@@ -854,8 +891,9 @@ function applyTurnResult(params: {
         finalText: result.text,
         evidenceSummary,
         artifactIds: result.artifactIds,
+        trustedEvidenceDigest:
+          receipt?.schemaVersion === 2 ? receipt.trustedEvidenceDigest : undefined,
       });
-      const receipt = result.judgeReceipt;
       const receiptCryptographicallyValid = Boolean(receipt && judgeReceiptVerifier(receipt));
       const receiptSemanticallyValid = Boolean(
         receipt && judgeReceiptApprovalSemanticallyValid(receipt),
@@ -987,6 +1025,8 @@ function applyTurnResult(params: {
           finalText: result.text,
           evidenceSummary,
           artifactIds: result.artifactIds,
+          trustedEvidenceDigest:
+            receipt.schemaVersion === 2 ? receipt.trustedEvidenceDigest : undefined,
         });
         const receiptValid =
           receipt.verdict !== "APPROVE" &&
@@ -1650,6 +1690,17 @@ export function reconcilePursueGoalControllers(): number {
       continue;
     }
     if (state.judgeExecution) {
+      const active = activeControllers.get(flow.flowId);
+      // A live controller owns this fence.  The reconciler runs more often
+      // than a bounded provider request and must not mistake an in-flight
+      // Judge call for a crash.  After restart, also wait for an unexpired
+      // persisted lease before converting the fence into a fail-closed block.
+      if (
+        active?.leaseId === state.lease?.leaseId ||
+        (state.lease !== undefined && state.lease.expiresAt > now)
+      ) {
+        continue;
+      }
       if (state.phase === "blocked" && flow.status === "blocked" && !state.lease) {
         // The indeterminate execution was already terminally handled. Keep its
         // no-replay marker without revising the flow or failing the task again.
@@ -2006,6 +2057,16 @@ export async function editPursueGoalFlow(params: {
     }
     const stayPaused = state.phase === "paused";
     const version = state.goalVersion + 1;
+    const judgeClaims = state.judgeExecution
+      ? appendJudgeClaimRecord(state.judgeClaims, {
+          claimHash: state.judgeExecution.claimHash,
+          promptHash: state.judgeExecution.promptHash,
+          runId: state.judgeExecution.runId,
+          taskId: state.judgeExecution.taskId,
+          status: "indeterminate",
+          recordedAt: now,
+        })
+      : state.judgeClaims;
     let next: PursueGoalControllerState = {
       ...state,
       goalVersion: version,
@@ -2017,6 +2078,7 @@ export async function editPursueGoalFlow(params: {
       consecutiveBlockers: 0,
       judgeReceipt: undefined,
       judgeExecution: undefined,
+      judgeClaims,
       nextAction: stayPaused
         ? "Resume the edited goal when ready."
         : "Acquire a new lease and execute the edited goal.",

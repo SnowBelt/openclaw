@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildControlDirectorJudgeClaimHash } from "../agents/control-director-contract.js";
+import { judgeTrustedEvidenceDigest } from "../agents/judge-contract.js";
 import { resetHeartbeatWakeStateForTests } from "../infra/heartbeat-wake.js";
 import {
   consumeSelectedSystemEventEntries,
@@ -25,6 +26,7 @@ import {
   startPursueGoalControllers,
   stopPursueGoalFlow,
   type PursueGoalControllerRuntime,
+  type PursueGoalTurnResult,
 } from "./pursue-goal-controller.js";
 import {
   createManagedTaskFlow,
@@ -60,6 +62,10 @@ function approvedReceipt(params: {
   evidenceSummary?: string;
 }): PursueGoalJudgeReceipt {
   const evidenceSummary = params.evidenceSummary ?? params.text;
+  const trustedEvidence = [
+    { id: "runtime.completion", kind: "runtime_completion" as const, summary: "completed" },
+    { id: "worker.execution", kind: "worker_execution" as const, summary: "tools succeeded" },
+  ];
   return {
     schemaVersion: 2,
     receiptId: "receipt-1",
@@ -69,9 +75,10 @@ function approvedReceipt(params: {
       requestBody: params.goal,
       finalText: params.text,
       evidenceSummary,
+      trustedEvidenceDigest: judgeTrustedEvidenceDigest(trustedEvidence),
     }),
     verdict: "APPROVE",
-    scope: "exact goal",
+    scope: "exact Pursue Goal mission",
     evidenceSummary,
     conditions: "none",
     judgeRunId: "judge-run-1",
@@ -83,6 +90,8 @@ function approvedReceipt(params: {
     route: "local",
     modelVisibleTools: [],
     requestCount: 1,
+    trustedEvidenceDigest: judgeTrustedEvidenceDigest(trustedEvidence),
+    trustedEvidenceIds: trustedEvidence.map((record) => record.id),
     signature: "signature",
     publicKeyId: "key-1",
   };
@@ -95,6 +104,10 @@ function approvedV2Receipt(params: {
   modelVisibleTools?: string[];
 }): PursueGoalJudgeReceiptV2 {
   const evidenceSummary = params.text;
+  const trustedEvidence = [
+    { id: "runtime.completion", kind: "runtime_completion" as const, summary: "completed" },
+    { id: "worker.execution", kind: "worker_execution" as const, summary: "tools succeeded" },
+  ];
   return {
     schemaVersion: 2,
     receiptId: "receipt-v2",
@@ -104,9 +117,10 @@ function approvedV2Receipt(params: {
       requestBody: params.goal,
       finalText: params.text,
       evidenceSummary,
+      trustedEvidenceDigest: judgeTrustedEvidenceDigest(trustedEvidence),
     }),
     verdict: "APPROVE",
-    scope: "exact goal",
+    scope: "exact Pursue Goal mission",
     evidenceSummary,
     conditions: "none",
     judgeRunId: "judge-run-v2",
@@ -118,6 +132,8 @@ function approvedV2Receipt(params: {
     route: "local",
     modelVisibleTools: params.modelVisibleTools ?? [],
     requestCount: 1,
+    trustedEvidenceDigest: judgeTrustedEvidenceDigest(trustedEvidence),
+    trustedEvidenceIds: trustedEvidence.map((record) => record.id),
     signature: "signature",
     publicKeyId: "key-1",
   };
@@ -141,6 +157,11 @@ function rejectedV2Receipt(params: {
       requestBody: params.goal,
       finalText: params.text,
       evidenceSummary: params.evidenceSummary,
+      trustedEvidenceDigest: approvedV2Receipt({
+        missionId: params.missionId,
+        goal: params.goal,
+        text: params.text,
+      }).trustedEvidenceDigest,
     }),
     verdict: "REQUEST_MORE_EVIDENCE",
     evidenceSummary: params.evidenceSummary,
@@ -714,6 +735,42 @@ describe("Pursue Goal controller", () => {
       (candidate) => candidate.status === "succeeded",
     );
     expect(stateForPursueGoalFlow(recovered)?.activationCount).toBe(1);
+  });
+
+  it("does not reconcile an active Judge call as an interrupted execution", async () => {
+    const flow = createGoalFlow("Finish after a delayed Judge response");
+    const state = stateForPursueGoalFlow(flow)!;
+    let resolveTurn: ((result: PursueGoalTurnResult) => void) | undefined;
+    const runtime = baseRuntime(
+      () =>
+        new Promise<PursueGoalTurnResult>((resolve) => {
+          resolveTurn = resolve;
+        }),
+    );
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const running = await waitForFlow(flow.flowId, (candidate) => candidate.status === "running");
+    expect(reconcilePursueGoalControllers()).toBe(0);
+    expect(getTaskFlowById(flow.flowId)?.status).toBe("running");
+    expect(stateForPursueGoalFlow(running)?.phase).toBe("running");
+
+    resolveTurn?.({
+      status: "complete",
+      text: "Delayed result completed and verified.",
+      evidenceSummary: "Delayed Judge response was received.",
+      judgeReceipt: approvedReceipt({
+        missionId: state.missionId,
+        goal: flow.goal,
+        text: "Delayed result completed and verified.",
+        evidenceSummary: "Delayed Judge response was received.",
+      }),
+    });
+    await waitForFlow(flow.flowId, (candidate) => candidate.status === "succeeded");
+    expect(runtime.runTurn).toHaveBeenCalledOnce();
+    expect(taskMocks.fail).not.toHaveBeenCalledWith(
+      expect.objectContaining({ terminalSummary: expect.stringContaining("interrupted") }),
+    );
   });
 
   it("quarantines persisted success when its V2 receipt is missing after restart", () => {

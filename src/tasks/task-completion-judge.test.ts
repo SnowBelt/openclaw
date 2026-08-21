@@ -10,7 +10,7 @@ const trustedEvidence = [
   {
     id: "worker.execution",
     kind: "worker_execution" as const,
-    summary: "controller observed runtime=embedded, toolCalls=1, toolFailures=0",
+    summary: "controller observed successful runtime=embedded, toolCalls=1, toolFailures=0",
   },
 ];
 

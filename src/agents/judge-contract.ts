@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 /**
  * The model-facing Judge contract.
  *
@@ -99,7 +101,7 @@ export function judgeTrustedEvidenceReferenceList(
 }
 
 const NEGATED_NORMATIVE_INSTRUCTION =
-  /\b(?:never|not|don't|do not|must not|should not|without)\b[^.?!\n]{0,100}\b(?:judge|decide|assess|evaluate|determine)\b[^.?!\n]{0,100}\b(?:ethical|ethics|moral|morality|right|wrong|values?)\b/i;
+  /\b(?:never|not|don't|doesn't|cannot|can't|do not|must not|should not|without|prevent|avoid|keep)\b[^.?!\n]{0,120}\b(?:judge|decide|assess|evaluate|determine)\b[^.?!\n]{0,120}\b(?:ethical|ethics|moral|morality|right|wrong|values?)\b/i;
 const OUT_OF_SCOPE_PATTERNS = [
   /^\s*(?:is|are|was|were|should|would)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b\s*\??\s*$/i,
   /\b(?:is this|was this|are these|should i|did i)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b/i,
@@ -108,11 +110,25 @@ const OUT_OF_SCOPE_PATTERNS = [
 
 /** True only for explicit moral, ethical, political, or value-evaluation asks. */
 export function isJudgeOutOfScopeText(...values: readonly unknown[]): boolean {
-  const haystack = values.filter((value): value is string => typeof value === "string").join(" ");
-  if (NEGATED_NORMATIVE_INSTRUCTION.test(haystack)) {
-    return false;
-  }
-  return OUT_OF_SCOPE_PATTERNS.some((pattern) => pattern.test(haystack));
+  const clauses = values
+    .filter((value): value is string => typeof value === "string")
+    .flatMap((value) => value.split(/[.!?;\n]+/u))
+    .flatMap((clause) => clause.split(/\b(?:and|but|also|however)\b/iu))
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  return clauses.some(
+    (clause) =>
+      !NEGATED_NORMATIVE_INSTRUCTION.test(clause) &&
+      OUT_OF_SCOPE_PATTERNS.some((pattern) => pattern.test(clause)),
+  );
+}
+
+/** Canonical digest for the controller-observed evidence packet. */
+export function judgeTrustedEvidenceDigest(records: readonly JudgeTrustedEvidence[]): string {
+  const canonical = records
+    .map((record) => ({ id: record.id, kind: record.kind, summary: record.summary }))
+    .toSorted((a, b) => a.id.localeCompare(b.id));
+  return crypto.createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

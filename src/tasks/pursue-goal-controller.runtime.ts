@@ -9,6 +9,8 @@ import { judgeCompletionIndependently } from "../agents/independent-judge-servic
 import {
   JUDGE_HOSTED_MODEL,
   JUDGE_MAX_OUTPUT_TOKENS,
+  parseJudgeV2ModelOutput,
+  judgeTrustedEvidenceReferenceList,
   type JudgeTrustedEvidence,
   type JudgeModelExecutionEvidence,
 } from "../agents/judge-contract.js";
@@ -17,7 +19,7 @@ import {
   buildJudgeZeroToolPayload,
 } from "../agents/judge-hosted-transport.js";
 import {
-  acquireJudgeLocalAdmission,
+  acquireLocalInferenceAdmission,
   assessJudgeLocalCapacity,
   JUDGE_LOCAL_BACKUP_WAIT_MS,
   JUDGE_LOCAL_PRIMARY_WAIT_MS,
@@ -235,11 +237,14 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
     },
   ];
   if (trace || toolSummary) {
-    trustedEvidence.push({
-      id: "worker.execution",
-      kind: "worker_execution",
-      summary: `controller observed runtime=${runner}, toolCalls=${calls}, toolFailures=${failures ?? "unknown"}`,
-    });
+    const successfulToolExecution = calls > 0 && failures === 0;
+    if (successfulToolExecution) {
+      trustedEvidence.push({
+        id: "worker.execution",
+        kind: "worker_execution",
+        summary: `controller observed successful runtime=${runner}, toolCalls=${calls}, toolFailures=0`,
+      });
+    }
   }
   for (const artifactId of artifactIds) {
     trustedEvidence.push({
@@ -263,6 +268,21 @@ function assistantMessageText(result: AssistantMessage): string {
 
 function directJudgeModelIdentity(result: AssistantMessage): string {
   return `${result.provider}/${result.model}`;
+}
+
+function isTrustedHostedJudgeEndpoint(model: {
+  provider: string;
+  api: string;
+  baseUrl?: string;
+}): boolean {
+  if (model.provider !== "openai" || !model.baseUrl?.trim()) {
+    return false;
+  }
+  return model.api === "openai-responses"
+    ? /^https:\/\/api\.openai\.com(?:\/v1)?\/?$/iu.test(model.baseUrl)
+    : model.api === "openai-chatgpt-responses"
+      ? /^https:\/\/chatgpt\.com\/backend-api(?:\/codex)?(?:\/v1)?\/?$/iu.test(model.baseUrl)
+      : false;
 }
 
 function failedDirectJudgeResult(params: {
@@ -381,6 +401,14 @@ export async function runDirectJudgeModel(params: {
       route: params.route,
     });
   }
+  if (params.route === "hosted" && !isTrustedHostedJudgeEndpoint(model)) {
+    return failedDirectJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "hosted Judge endpoint is not an official OpenAI or ChatGPT endpoint",
+      route: params.route,
+    });
+  }
 
   let requestPrepared = false;
   let modelVisibleTools: string[] = [];
@@ -436,7 +464,10 @@ export async function runDirectJudgeModel(params: {
   );
   modelVisibleTools = [...new Set([...modelVisibleTools, ...responseToolNames])];
   const modelIdentity = directJudgeModelIdentity(response);
-  if (modelIdentity !== requestedModel) {
+  if (
+    modelIdentity !== requestedModel ||
+    (params.route === "hosted" && response.provider !== "openai")
+  ) {
     modelVisibleTools = [...new Set([...modelVisibleTools, "model-identity-drift"])];
   }
   return {
@@ -609,6 +640,7 @@ export async function runIndependentJudge(params: {
     runModel: judgeAgentId
       ? async (prompt) => {
           const candidates = resolveJudgeModelCandidates(cfg, judgeAgentId);
+          let lastFailure: Awaited<ReturnType<typeof runDirectJudgeModel>> | undefined;
           for (const [index, candidate] of candidates.entries()) {
             let release: (() => void) | undefined;
             if (candidate.route === "local") {
@@ -619,7 +651,7 @@ export async function runIndependentJudge(params: {
               if (capacity.decision === "hosted_fallback") {
                 continue;
               }
-              const admission = await acquireJudgeLocalAdmission({
+              const admission = await acquireLocalInferenceAdmission({
                 ownerId: params.input.flowId,
                 timeoutMs: index === 0 ? JUDGE_LOCAL_PRIMARY_WAIT_MS : JUDGE_LOCAL_BACKUP_WAIT_MS,
                 signal: params.input.abortSignal,
@@ -656,17 +688,45 @@ export async function runIndependentJudge(params: {
               ) {
                 continue;
               }
+              const parsed = parseJudgeV2ModelOutput(result.text);
+              const expectedEvidence = judgeTrustedEvidenceReferenceList(params.trustedEvidence);
+              const returnedEvidence = parsed.ok
+                ? parsed.value.evidence
+                    .split(",")
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                    .toSorted()
+                    .join(", ")
+                : "";
+              const validApprovalShape =
+                parsed.ok &&
+                (parsed.value.verdict !== "APPROVE" ||
+                  (parsed.value.scope.trim() === "exact Pursue Goal mission" &&
+                    (parsed.value.risk === "low" || parsed.value.risk === "medium") &&
+                    parsed.value.conditions.trim().toLowerCase() === "none" &&
+                    returnedEvidence === expectedEvidence));
+              if (
+                !parsed.ok ||
+                !validApprovalShape ||
+                result.executionEvidence.modelVisibleTools.length
+              ) {
+                lastFailure = result;
+                continue;
+              }
               return result;
             } finally {
               release?.();
             }
           }
-          return failedDirectJudgeResult({
-            agentId: judgeAgentId,
-            model: "none",
-            reason: "all explicit Judge candidates were unavailable before request start",
-            route: "unknown",
-          });
+          return (
+            lastFailure ??
+            failedDirectJudgeResult({
+              agentId: judgeAgentId,
+              model: "none",
+              reason: "all explicit Judge candidates were unavailable before request start",
+              route: "unknown",
+            })
+          );
         }
       : undefined,
   });
@@ -682,23 +742,42 @@ async function runTurn(input: PursueGoalTurnInput): Promise<PursueGoalTurnResult
       blocker: `Pursue Goal routing failed closed: ${route.reason}`,
     };
   }
-  const result = await agentCommand({
-    message: buildPursueGoalWorkerPrompt(input, route.reason),
-    transcriptMessage: `Pursue Goal turn ${input.state.turnCount + 1}: ${input.goal}`,
-    agentId: input.state.workerAgentId,
-    sessionKey: input.state.workerSessionKey,
-    sessionId: input.state.workerSessionId,
-    runId: input.runId,
-    deliver: false,
-    abortSignal: input.abortSignal,
-    allowGatewaySubagentBinding: true,
-    disableMessageTool: true,
-    inputProvenance: {
-      kind: "internal_system",
-      sourceTool: "pursue_goal_controller",
-      sourceSessionKey: input.state.workerSessionKey,
-    },
+  const admission = await acquireLocalInferenceAdmission({
+    ownerId: input.flowId,
+    timeoutMs: JUDGE_LOCAL_PRIMARY_WAIT_MS,
+    signal: input.abortSignal,
   });
+  if (!admission.admitted) {
+    return {
+      status: input.abortSignal.aborted ? "paused" : "active",
+      text: "Pursue Goal is waiting for the shared local-inference admission lease.",
+      provisionalBlocker: input.abortSignal.aborted
+        ? "Local inference admission was cancelled."
+        : `Local inference admission was not available (${admission.reason}).`,
+    };
+  }
+  let result: unknown;
+  try {
+    result = await agentCommand({
+      message: buildPursueGoalWorkerPrompt(input, route.reason),
+      transcriptMessage: `Pursue Goal turn ${input.state.turnCount + 1}: ${input.goal}`,
+      agentId: input.state.workerAgentId,
+      sessionKey: input.state.workerSessionKey,
+      sessionId: input.state.workerSessionId,
+      runId: input.runId,
+      deliver: false,
+      abortSignal: input.abortSignal,
+      allowGatewaySubagentBinding: true,
+      disableMessageTool: true,
+      inputProvenance: {
+        kind: "internal_system",
+        sourceTool: "pursue_goal_controller",
+        sourceSessionKey: input.state.workerSessionKey,
+      },
+    });
+  } finally {
+    admission.release();
+  }
   const text = collectResultText(result);
   const artifactIds = await collectResultArtifactIds(result, loadWebMediaRaw, input.abortSignal);
   const workerGoal = await loadWorkerGoal(input);

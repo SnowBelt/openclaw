@@ -60,12 +60,19 @@ describe("Pursue Goal governed model route", () => {
 
   it("emits typed controller evidence instead of trusting aggregate tool names", () => {
     const withoutArtifact = collectObservedWorkerEvidence(
-      { meta: { toolSummary: { calls: 1, failures: 1, tools: ["write"] } } },
+      { meta: { toolSummary: { calls: 1, failures: 0, tools: ["write"] } } },
       [],
     );
     expect(withoutArtifact.trustedEvidence.map((record) => record.kind)).toEqual([
       "runtime_completion",
       "worker_execution",
+    ]);
+    const failedExecution = collectObservedWorkerEvidence(
+      { meta: { toolSummary: { calls: 1, failures: 1, tools: ["write"] } } },
+      [],
+    );
+    expect(failedExecution.trustedEvidence.map((record) => record.kind)).toEqual([
+      "runtime_completion",
     ]);
     const withArtifact = collectObservedWorkerEvidence(
       { meta: { toolSummary: { calls: 2, failures: 0, tools: ["write", "test"] } } },

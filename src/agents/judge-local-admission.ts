@@ -1,4 +1,6 @@
-// Process-wide admission for independent local Judge inference.
+// Process-wide admission for local inference.  Judge and Pursue Goal worker
+// turns share this lease so a foreground local task cannot be surprised by a
+// second resident model request.
 import { resolveSubagentMaxConcurrent } from "../config/agent-limits.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { collectPccExecutionCapacitySnapshot } from "../pcc/execution-capacity.js";
@@ -37,7 +39,7 @@ type JudgeAdmissionState = {
   queuedByOwner: Map<string, number>;
 };
 
-const JUDGE_ADMISSION_STATE = Symbol.for("openclaw.judge.local-inference-admission.v1");
+const JUDGE_ADMISSION_STATE = Symbol.for("openclaw.local-inference-admission.v1");
 const globalAdmission = globalThis as typeof globalThis & Record<symbol, unknown>;
 const existingState = globalAdmission[JUDGE_ADMISSION_STATE] as JudgeAdmissionState | undefined;
 const state: JudgeAdmissionState = existingState ?? {
@@ -88,8 +90,8 @@ function grantNext(): void {
   });
 }
 
-/** One active local Judge inference; bounded FIFO queue with per-owner fairness. */
-export async function acquireJudgeLocalAdmission(params: {
+/** One active local inference; bounded FIFO queue with per-owner fairness. */
+export async function acquireLocalInferenceAdmission(params: {
   ownerId: string;
   timeoutMs: number;
   signal?: AbortSignal;
@@ -144,6 +146,9 @@ export async function acquireJudgeLocalAdmission(params: {
     state.queuedByOwner.set(ownerId, (state.queuedByOwner.get(ownerId) ?? 0) + 1);
   });
 }
+
+/** Backward-compatible name for Judge-specific callers. */
+export const acquireJudgeLocalAdmission = acquireLocalInferenceAdmission;
 
 /** Probe prepared provider residency plus host RAM/thermal headroom without mutating models. */
 export async function assessJudgeLocalCapacity(params: {

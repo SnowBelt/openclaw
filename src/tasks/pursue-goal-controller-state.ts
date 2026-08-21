@@ -5,6 +5,7 @@ import {
   JUDGE_ARTIFACT_MAX_COUNT,
   JUDGE_EVIDENCE_MAX_CHARS,
   JUDGE_RESPONSE_FIELD_MAX_CHARS,
+  JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS,
 } from "../agents/judge-contract.js";
 import {
   parseDurableWorkerMailbox,
@@ -95,6 +96,9 @@ export type PursueGoalJudgeReceiptV2 = {
   modelVisibleTools: string[];
   /** Physical provider request count; the V2 contract requires exactly one. */
   requestCount: number;
+  /** Present on newly issued receipts; optional for historical V2 readability. */
+  trustedEvidenceDigest?: string;
+  trustedEvidenceIds?: string[];
   signature?: string;
   publicKeyId?: string;
 };
@@ -135,6 +139,18 @@ export type PursueGoalJudgeExecution = {
   reservedAt: number;
 };
 
+export type PursueGoalJudgeClaimRecord = {
+  claimHash: string;
+  promptHash: string;
+  runId: string;
+  taskId: string;
+  status: "settled" | "indeterminate";
+  receiptId?: string;
+  recordedAt: number;
+};
+
+export const PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT = 32;
+
 export const PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS = 64_000;
 
 export type PursueGoalControllerState = {
@@ -170,6 +186,7 @@ export type PursueGoalControllerState = {
   staleGoalRepairLastAt?: number;
   judgeReceipt?: PursueGoalJudgeReceipt;
   judgeExecution?: PursueGoalJudgeExecution;
+  judgeClaims: PursueGoalJudgeClaimRecord[];
   pendingTurn?: PursueGoalPendingTurn;
   mailbox: DurableWorkerMailboxMessage[];
   events: ExecutionEventV1[];
@@ -182,6 +199,11 @@ function nonEmptyString(value: unknown): string | undefined {
 function boundedString(value: unknown, maxChars: number): string | undefined {
   const parsed = nonEmptyString(value);
   return parsed && parsed.length <= maxChars ? parsed : undefined;
+}
+
+/** Validate a persisted signed field without changing the signed bytes. */
+function boundedRawString(value: unknown, maxChars: number): string | undefined {
+  return typeof value === "string" && value.trim() && value.length <= maxChars ? value : undefined;
 }
 
 function nonNegativeInteger(value: unknown, fallback = 0): number {
@@ -261,14 +283,14 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   ) {
     return undefined;
   }
-  const receiptId = nonEmptyString(record.receiptId);
-  const missionId = nonEmptyString(record.missionId);
-  const claimHash = boundedString(record.claimHash, 64);
-  const scope = boundedString(record.scope, JUDGE_RESPONSE_FIELD_MAX_CHARS);
-  const evidenceSummary = boundedString(record.evidenceSummary, JUDGE_EVIDENCE_MAX_CHARS);
-  const conditions = boundedString(record.conditions, JUDGE_RESPONSE_FIELD_MAX_CHARS);
-  const judgeRunId = boundedString(record.judgeRunId, 512);
-  const judgeAgentId = boundedString(record.judgeAgentId, 512);
+  const receiptId = boundedRawString(record.receiptId, 512);
+  const missionId = boundedRawString(record.missionId, 512);
+  const claimHash = boundedRawString(record.claimHash, 64);
+  const scope = boundedRawString(record.scope, JUDGE_RESPONSE_FIELD_MAX_CHARS);
+  const evidenceSummary = boundedRawString(record.evidenceSummary, JUDGE_EVIDENCE_MAX_CHARS);
+  const conditions = boundedRawString(record.conditions, JUDGE_RESPONSE_FIELD_MAX_CHARS);
+  const judgeRunId = boundedRawString(record.judgeRunId, 512);
+  const judgeAgentId = boundedRawString(record.judgeAgentId, 512);
   const issuedAt = finiteTimestamp(record.issuedAt);
   if (
     !receiptId ||
@@ -294,14 +316,14 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
     judgeRunId,
     judgeAgentId,
     issuedAt,
-    ...(boundedString(record.model, PURSUE_GOAL_MODEL_MAX_CHARS)
-      ? { model: boundedString(record.model, PURSUE_GOAL_MODEL_MAX_CHARS)! }
+    ...(boundedRawString(record.model, PURSUE_GOAL_MODEL_MAX_CHARS)
+      ? { model: boundedRawString(record.model, PURSUE_GOAL_MODEL_MAX_CHARS)! }
       : {}),
-    ...(boundedString(record.signature, 512)
-      ? { signature: boundedString(record.signature, 512)! }
+    ...(boundedRawString(record.signature, 512)
+      ? { signature: boundedRawString(record.signature, 512)! }
       : {}),
-    ...(boundedString(record.publicKeyId, 64)
-      ? { publicKeyId: boundedString(record.publicKeyId, 64)! }
+    ...(boundedRawString(record.publicKeyId, 64)
+      ? { publicKeyId: boundedRawString(record.publicKeyId, 64)! }
       : {}),
   };
   if (schemaVersion === 1) {
@@ -332,8 +354,10 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   ) {
     return undefined;
   }
-  const promptHash = boundedString(record.promptHash, 64);
-  const responseHash = boundedString(record.responseHash, 64);
+  const promptHash = boundedRawString(record.promptHash, 64);
+  const responseHash = boundedRawString(record.responseHash, 64);
+  const trustedEvidenceDigest = boundedRawString(record.trustedEvidenceDigest, 64);
+  const trustedEvidenceIds = record.trustedEvidenceIds;
   if (
     !promptHash ||
     !responseHash ||
@@ -345,6 +369,18 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   ) {
     return undefined;
   }
+  if (
+    trustedEvidenceDigest !== undefined &&
+    (!SHA256_HEX_RE.test(trustedEvidenceDigest) ||
+      !Array.isArray(trustedEvidenceIds) ||
+      trustedEvidenceIds.length > 32 ||
+      trustedEvidenceIds.some(
+        (id) =>
+          typeof id !== "string" || !id.trim() || id.length > JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS,
+      ))
+  ) {
+    return undefined;
+  }
   return {
     schemaVersion: 2,
     ...common,
@@ -353,6 +389,12 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
     route,
     requestCount,
     modelVisibleTools: [...modelVisibleTools],
+    ...(trustedEvidenceDigest
+      ? {
+          trustedEvidenceDigest,
+          trustedEvidenceIds: [...(trustedEvidenceIds as string[])],
+        }
+      : {}),
   } as PursueGoalJudgeReceiptV2;
 }
 
@@ -452,6 +494,48 @@ function parseJudgeExecution(value: unknown): PursueGoalJudgeExecution | undefin
     : undefined;
 }
 
+function parseJudgeClaimRecords(value: unknown): PursueGoalJudgeClaimRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.slice(-PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT).flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    const claimHash = boundedString(record.claimHash, 64);
+    const promptHash = boundedString(record.promptHash, 64);
+    const runId = boundedString(record.runId, 512);
+    const taskId = boundedString(record.taskId, 512);
+    const recordedAt = finiteTimestamp(record.recordedAt);
+    const status = record.status;
+    if (
+      !claimHash ||
+      !promptHash ||
+      !SHA256_HEX_RE.test(claimHash) ||
+      !SHA256_HEX_RE.test(promptHash) ||
+      !runId ||
+      !taskId ||
+      recordedAt === undefined ||
+      (status !== "settled" && status !== "indeterminate")
+    ) {
+      return [];
+    }
+    const receiptId = boundedString(record.receiptId, 512);
+    return [
+      {
+        claimHash,
+        promptHash,
+        runId,
+        taskId,
+        status,
+        ...(receiptId ? { receiptId } : {}),
+        recordedAt,
+      },
+    ];
+  });
+}
+
 /** Build the initial state before any flow is allowed to report `running`. */
 export function createPursueGoalControllerState(params: {
   flowId: string;
@@ -493,6 +577,7 @@ export function createPursueGoalControllerState(params: {
     consecutiveBlockers: 0,
     terminalDeliveryAttempts: 0,
     staleGoalRepairAttempts: 0,
+    judgeClaims: [],
     mailbox: [],
     nextAction: "Acquire a controller lease and start the first worker turn.",
     events: [event],
@@ -530,6 +615,7 @@ export function parsePursueGoalControllerState(
   const judgeReceipt = parseJudgeReceipt(record.judgeReceipt);
   const judgeExecution = parseJudgeExecution(record.judgeExecution);
   const pendingTurn = parsePendingTurn(record.pendingTurn);
+  const judgeClaims = parseJudgeClaimRecords(record.judgeClaims);
   if (record.judgeReceipt !== undefined && !judgeReceipt) {
     return undefined;
   }
@@ -604,6 +690,7 @@ export function parsePursueGoalControllerState(
       : {}),
     ...(judgeReceipt ? { judgeReceipt } : {}),
     ...(judgeExecution ? { judgeExecution } : {}),
+    judgeClaims,
     ...(pendingTurn ? { pendingTurn } : {}),
     mailbox: parseDurableWorkerMailbox(record.mailbox),
     events: parseExecutionEvents(record.events),

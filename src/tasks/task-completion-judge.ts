@@ -28,6 +28,8 @@ const COMPLETION_RE =
   /\b(done|complete|completed|finished|ready|attached|created|built|delivered|here(?:'s| is))\b/i;
 const ARTIFACT_REQUEST_RE =
   /\b(video|game|rom|file|download|attachment|image|picture|photo|song|music|audio|pdf|docx|spreadsheet|presentation|app|project|artifact)\b/i;
+const CONCRETE_OUTCOME_REQUEST_RE =
+  /\b(?:implement|fix|repair|change|modify|update|build|create|configure|install|remove|delete|deploy|write|edit|patch|test|verify|validate|audit|prove|run)\b/i;
 
 function trimText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -59,6 +61,24 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
   const trustedEvidenceProvided = params.trustedEvidence !== undefined;
   const wantsArtifact =
     ARTIFACT_REQUEST_RE.test(params.userRequest) || ARTIFACT_REQUEST_RE.test(expectedDeliverable);
+  const requiresConcreteOutcomeEvidence = CONCRETE_OUTCOME_REQUEST_RE.test(
+    `${params.userRequest} ${expectedDeliverable}`,
+  );
+  const hasSuccessfulWorkerExecution = trustedEvidence.some(
+    (record) =>
+      record.kind === "worker_execution" &&
+      /\bsuccessful\b/i.test(record.summary) &&
+      /\btoolCalls=[1-9]\d*\b/u.test(record.summary) &&
+      /\btoolFailures=0\b/u.test(record.summary),
+  );
+  const hasConcreteOutcomeEvidence =
+    hasSuccessfulWorkerExecution ||
+    trustedEvidence.some(
+      (record) =>
+        record.kind === "artifact_digest" ||
+        record.kind === "source_observation" ||
+        record.kind === "config_observation",
+    );
   const evidence = [
     `runtime status: ${params.status}`,
     params.error ? `error: ${params.error}` : undefined,
@@ -126,7 +146,7 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
   } else if (
     trustedEvidenceProvided &&
     (!trustedEvidence.some((record) => record.kind === "runtime_completion") ||
-      !trustedEvidence.some((record) => record.kind === "worker_execution") ||
+      (requiresConcreteOutcomeEvidence && !hasConcreteOutcomeEvidence) ||
       (wantsArtifact && !trustedEvidence.some((record) => record.kind === "artifact_digest")))
   ) {
     forcedVerdict = buildJudgeVerdict({

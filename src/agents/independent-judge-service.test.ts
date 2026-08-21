@@ -32,7 +32,7 @@ describe("independent Judge service", () => {
     const runModel = vi.fn(async (_prompt: string) => ({
       text: JSON.stringify({
         verdict: "APPROVE",
-        scope: "direct answer",
+        scope: "exact Pursue Goal mission",
         evidence: "runtime.completion, worker.execution",
         risk: "low",
         reason: "The request and evidence match.",
@@ -72,6 +72,8 @@ describe("independent Judge service", () => {
     if (result.receipt.schemaVersion === 2) {
       expect(result.receipt.modelVisibleTools).toEqual([]);
       expect(result.receipt.requestCount).toBe(1);
+      expect(result.receipt.trustedEvidenceIds).toEqual(["runtime.completion", "worker.execution"]);
+      expect(result.receipt.trustedEvidenceDigest).toMatch(/^[a-f0-9]{64}$/u);
     }
     expect(verifyJudgeReceipt(result.receipt, { directory })).toBe(true);
   });
@@ -144,7 +146,7 @@ describe("independent Judge service", () => {
     releaseModel?.({
       text: JSON.stringify({
         verdict: "APPROVE",
-        scope: "direct answer",
+        scope: "exact Pursue Goal mission",
         evidence: "runtime.completion, worker.execution",
         risk: "low",
         reason: "The claim is supported.",
@@ -199,7 +201,7 @@ describe("independent Judge service", () => {
       runModel: async () => ({
         text: JSON.stringify({
           verdict: "APPROVE",
-          scope: "technical completion",
+          scope: "exact Pursue Goal mission",
           evidence: "direct evidence",
           risk: "prohibited",
           reason: "contradictory model output",
@@ -236,7 +238,7 @@ describe("independent Judge service", () => {
       runModel: async () => ({
         text: JSON.stringify({
           verdict: "APPROVE",
-          scope: "technical completion",
+          scope: "exact Pursue Goal mission",
           evidence: "fabricated.test-result",
           risk: "low",
           reason: "unsupported",
@@ -256,6 +258,42 @@ describe("independent Judge service", () => {
       now: 100,
     });
 
+    expect(result.approved).toBe(false);
+    expect(result.receipt.verdict).toBe("SYSTEM_ERROR");
+  });
+
+  it("fails closed when the model narrows the deterministic mission scope", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-independent-judge-"));
+    directories.push(directory);
+    const result = await judgeCompletionIndependently({
+      missionId: "mission-scope-drift",
+      requestBody: "Explain the verified result",
+      finalText: "Complete. The result is verified by the passing test.",
+      evidenceSummary: "direct test passed and command exited 0",
+      trustedEvidence,
+      beforeModel: () => true,
+      runModel: async () => ({
+        text: JSON.stringify({
+          verdict: "APPROVE",
+          scope: "direct answer",
+          evidence: "runtime.completion, worker.execution",
+          risk: "low",
+          reason: "narrowed scope",
+          conditions: "none",
+        }),
+        runId: "judge-scope-drift",
+        agentId: "judge",
+        model: "local-judge",
+        executionEvidence: {
+          requestCount: 1,
+          modelVisibleTools: [],
+          route: "local" as const,
+          model: "local-judge",
+        },
+      }),
+      signingDirectory: directory,
+      now: 100,
+    });
     expect(result.approved).toBe(false);
     expect(result.receipt.verdict).toBe("SYSTEM_ERROR");
   });
