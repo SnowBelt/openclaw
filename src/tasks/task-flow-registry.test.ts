@@ -9,6 +9,7 @@ import {
   failFlow,
   getTaskFlowById,
   listTaskFlowRecords,
+  listTaskFlowRecordsPage,
   requestFlowCancel,
   resetTaskFlowRegistryForTests,
   resumeFlow,
@@ -176,6 +177,67 @@ describe("task-flow-registry", () => {
 
       expect(deleteTaskFlowRecordById(created.flowId)).toBe(true);
       expect(getTaskFlowById(created.flowId)).toBeUndefined();
+    });
+  });
+
+  it("serves six owners with bounded clones after filtering and paging", async () => {
+    await withFlowRegistryTempDir(async () => {
+      vi.useFakeTimers();
+      for (let ownerIndex = 0; ownerIndex < 6; ownerIndex += 1) {
+        const ownerKey = `agent:user-${ownerIndex}:main`;
+        vi.setSystemTime(1_000 + ownerIndex * 10);
+        createManagedTaskFlow({
+          ownerKey,
+          controllerId: "openclaw/pursue-goal-v1",
+          goal: `Active goal ${ownerIndex}`,
+          stateJson: { payload: `active-${ownerIndex}` },
+        });
+        vi.setSystemTime(1_001 + ownerIndex * 10);
+        const terminal = createManagedTaskFlow({
+          ownerKey,
+          controllerId: "openclaw/pursue-goal-v1",
+          goal: `Terminal goal ${ownerIndex}`,
+          stateJson: { payload: `terminal-${ownerIndex}` },
+        });
+        const failed = failFlow({
+          flowId: terminal.flowId,
+          expectedRevision: terminal.revision,
+          blockedSummary: "Expected terminal fixture",
+          endedAt: 2_000 + ownerIndex,
+        });
+        expect(failed.applied).toBe(true);
+        createManagedTaskFlow({
+          ownerKey,
+          controllerId: "tests/unrelated-controller",
+          goal: `Unrelated flow ${ownerIndex}`,
+          stateJson: { payload: "must-not-be-cloned" },
+        });
+      }
+
+      const cloneSpy = vi.spyOn(globalThis, "structuredClone");
+      cloneSpy.mockClear();
+      const pages = Array.from({ length: 6 }, (_, ownerIndex) => {
+        const ownerKey = `agent:user-${ownerIndex}:main`;
+        return [
+          listTaskFlowRecordsPage({
+            ownerKey,
+            controllerId: "openclaw/pursue-goal-v1",
+            statuses: ["queued", "running", "paused", "waiting", "blocked"],
+            limit: 1,
+          }),
+          listTaskFlowRecordsPage({
+            ownerKey,
+            controllerId: "openclaw/pursue-goal-v1",
+            statuses: ["succeeded", "failed", "cancelled", "lost"],
+            limit: 1,
+          }),
+        ];
+      }).flat();
+
+      expect(pages).toHaveLength(12);
+      expect(pages.every((page) => page.flows.length === 1 && page.total === 1)).toBe(true);
+      expect(cloneSpy.mock.calls.length).toBeLessThanOrEqual(24);
+      expect(cloneSpy).not.toHaveBeenCalledWith({ payload: "must-not-be-cloned" });
     });
   });
 

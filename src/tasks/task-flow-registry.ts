@@ -792,6 +792,42 @@ export function listTaskFlowRecords(): TaskFlowRecord[] {
     .toSorted((left, right) => right.createdAt - left.createdAt);
 }
 
+export type TaskFlowRecordPageQuery = {
+  ownerKey?: string;
+  controllerId?: string;
+  excludeControllerId?: string;
+  statuses?: readonly TaskFlowStatus[];
+  offset?: number;
+  limit?: number;
+};
+
+/** Filter and page internal records before cloning their potentially large state payloads. */
+export function listTaskFlowRecordsPage(query: TaskFlowRecordPageQuery = {}): {
+  flows: TaskFlowRecord[];
+  total: number;
+} {
+  ensureFlowRegistryReady();
+  const ownerKey = query.ownerKey?.trim();
+  const controllerId = query.controllerId?.trim();
+  const excludeControllerId = query.excludeControllerId?.trim();
+  const statuses = query.statuses ? new Set(query.statuses) : undefined;
+  const offset = Math.max(0, Math.floor(query.offset ?? 0));
+  const limit = Math.max(0, Math.floor(query.limit ?? Number.MAX_SAFE_INTEGER));
+  const selected = [...flows.values()]
+    .filter(
+      (flow) =>
+        (!ownerKey || flow.ownerKey.trim() === ownerKey) &&
+        (!controllerId || flow.controllerId === controllerId) &&
+        (!excludeControllerId || flow.controllerId !== excludeControllerId) &&
+        (!statuses || statuses.has(flow.status)),
+    )
+    .toSorted((left, right) => right.createdAt - left.createdAt);
+  return {
+    total: selected.length,
+    flows: selected.slice(offset, offset + limit).map(cloneFlowRecord),
+  };
+}
+
 export function deleteTaskFlowRecordById(flowId: string): boolean {
   if (!ensureFlowRegistryReady()) {
     return false;

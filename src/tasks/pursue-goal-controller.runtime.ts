@@ -4,9 +4,24 @@ import { agentCommand } from "../agents/agent-command.js";
 import { resolveJudgeAgentId } from "../agents/agent-scope-config.js";
 import { prepareGovernedControlDirectorCodexEscalation } from "../agents/control-director-codex-adapter.js";
 import { buildControlDirectorMissionEnvelope } from "../agents/control-director-contract.js";
+import { collectDeliveredMediaUrls } from "../agents/embedded-agent-runner/delivery-evidence.js";
 import { judgeCompletionIndependently } from "../agents/independent-judge-service.js";
-import { JUDGE_HOSTED_MODEL, type JudgeModelExecutionEvidence } from "../agents/judge-contract.js";
-import { buildJudgeHostedPayload } from "../agents/judge-hosted-transport.js";
+import {
+  JUDGE_HOSTED_MODEL,
+  JUDGE_MAX_OUTPUT_TOKENS,
+  type JudgeModelExecutionEvidence,
+} from "../agents/judge-contract.js";
+import {
+  buildJudgeHostedPayload,
+  buildJudgeZeroToolPayload,
+} from "../agents/judge-hosted-transport.js";
+import {
+  acquireJudgeLocalAdmission,
+  assessJudgeLocalCapacity,
+  JUDGE_LOCAL_BACKUP_WAIT_MS,
+  JUDGE_LOCAL_PRIMARY_WAIT_MS,
+} from "../agents/judge-local-admission.js";
+import { resolveJudgeModelCandidates } from "../agents/judge-model-router.js";
 import {
   prepareSimpleCompletionModelForAgent,
   resolveSimpleCompletionSelectionForAgent,
@@ -22,6 +37,7 @@ import { resolveStorePath } from "../config/sessions/paths.js";
 import type { SessionGoalStatus } from "../config/sessions/types.js";
 import { completeSimple } from "../llm/stream.js";
 import type { AssistantMessage } from "../llm/types.js";
+import { loadWebMediaRaw } from "../media/web-media.js";
 import { DEFAULT_PCC_EXECUTION_PROFILE } from "../pcc/execution-profile.js";
 import {
   nextPursueGoalBlockerCount,
@@ -53,24 +69,101 @@ function collectResultText(result: unknown): string {
     .trim();
 }
 
-function collectResultArtifactIds(result: unknown): string[] {
-  if (!result || typeof result !== "object") {
-    return [];
-  }
-  const payloads = (result as { payloads?: unknown }).payloads;
-  if (!Array.isArray(payloads)) {
-    return [];
-  }
-  const ids = payloads.flatMap((payload) => {
-    if (!payload || typeof payload !== "object") {
-      return [];
-    }
-    const record = payload as { mediaUrl?: unknown; mediaUrls?: unknown };
-    return [record.mediaUrl, ...(Array.isArray(record.mediaUrls) ? record.mediaUrls : [])].filter(
-      (value): value is string => typeof value === "string" && Boolean(value.trim()),
+const JUDGE_ARTIFACT_MAX_COUNT = 8;
+const JUDGE_ARTIFACT_MAX_BYTES = 16 * 1024 * 1024;
+const JUDGE_ARTIFACT_MAX_TOTAL_BYTES = 32 * 1024 * 1024;
+const JUDGE_ARTIFACT_DEADLINE_MS = 10_000;
+const JUDGE_ARTIFACT_READ_IDLE_MS = 5_000;
+
+type ArtifactCollectionLimits = {
+  maxCount: number;
+  maxBytes: number;
+  maxTotalBytes: number;
+  deadlineMs: number;
+  readIdleTimeoutMs: number;
+};
+
+const DEFAULT_ARTIFACT_COLLECTION_LIMITS: ArtifactCollectionLimits = {
+  maxCount: JUDGE_ARTIFACT_MAX_COUNT,
+  maxBytes: JUDGE_ARTIFACT_MAX_BYTES,
+  maxTotalBytes: JUDGE_ARTIFACT_MAX_TOTAL_BYTES,
+  deadlineMs: JUDGE_ARTIFACT_DEADLINE_MS,
+  readIdleTimeoutMs: JUDGE_ARTIFACT_READ_IDLE_MS,
+};
+
+async function loadArtifactBeforeDeadline(params: {
+  reference: string;
+  loadMedia: typeof loadWebMediaRaw;
+  parentSignal?: AbortSignal;
+  timeoutMs: number;
+  maxBytes: number;
+  readIdleTimeoutMs: number;
+}) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  params.parentSignal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(abort, params.timeoutMs);
+  const aborted = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener(
+      "abort",
+      () => reject(Object.assign(new Error("artifact load aborted"), { name: "AbortError" })),
+      { once: true },
     );
   });
-  return [...new Set(ids)];
+  try {
+    return await Promise.race([
+      params.loadMedia(params.reference, {
+        maxBytes: params.maxBytes,
+        readIdleTimeoutMs: params.readIdleTimeoutMs,
+        requestInit: { signal: controller.signal },
+      }),
+      aborted,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    params.parentSignal?.removeEventListener("abort", abort);
+  }
+}
+
+/** Resolve delivered media through the guarded loader and bind evidence to bytes, not a URL. */
+export async function collectResultArtifactIds(
+  result: unknown,
+  loadMedia: typeof loadWebMediaRaw = loadWebMediaRaw,
+  abortSignal?: AbortSignal,
+  limits: ArtifactCollectionLimits = DEFAULT_ARTIFACT_COLLECTION_LIMITS,
+): Promise<string[]> {
+  if (!result || typeof result !== "object" || abortSignal?.aborted) {
+    return [];
+  }
+  const startedAt = Date.now();
+  const references = collectDeliveredMediaUrls(result).slice(0, limits.maxCount);
+  const ids = new Set<string>();
+  let totalBytes = 0;
+  for (const reference of references) {
+    const remainingMs = limits.deadlineMs - (Date.now() - startedAt);
+    const remainingBytes = limits.maxTotalBytes - totalBytes;
+    if (abortSignal?.aborted || remainingMs <= 0 || remainingBytes <= 0) {
+      break;
+    }
+    try {
+      const media = await loadArtifactBeforeDeadline({
+        reference,
+        loadMedia,
+        parentSignal: abortSignal,
+        timeoutMs: remainingMs,
+        maxBytes: Math.min(limits.maxBytes, remainingBytes),
+        readIdleTimeoutMs: Math.min(limits.readIdleTimeoutMs, remainingMs),
+      });
+      if (totalBytes + media.buffer.byteLength > limits.maxTotalBytes) {
+        break;
+      }
+      totalBytes += media.buffer.byteLength;
+      ids.add(`artifact-sha256:${crypto.createHash("sha256").update(media.buffer).digest("hex")}`);
+    } catch {
+      // Unreadable, unsafe, oversized, or unavailable references are not evidence.
+    }
+  }
+  return [...ids];
 }
 
 function resultModel(result: unknown): string | undefined {
@@ -92,61 +185,46 @@ function resultModel(result: unknown): string | undefined {
     : undefined;
 }
 
-/** Extract transport facts from the embedded runner; missing facts fail closed. */
-function judgeExecutionEvidence(result: unknown): JudgeModelExecutionEvidence {
-  if (!result || typeof result !== "object") {
-    return { requestCount: 0, modelVisibleTools: ["unknown"], route: "unknown", model: "unknown" };
-  }
-  const meta = (result as { meta?: unknown }).meta;
-  if (!meta || typeof meta !== "object") {
-    return { requestCount: 0, modelVisibleTools: ["unknown"], route: "unknown", model: "unknown" };
-  }
-  const executionTrace = (meta as { executionTrace?: unknown }).executionTrace;
-  const toolSummary = (meta as { toolSummary?: unknown }).toolSummary;
-  const agentMeta = (meta as { agentMeta?: unknown }).agentMeta;
-  const model = resultModel(result) ?? "unknown";
-  const provider =
-    agentMeta &&
-    typeof agentMeta === "object" &&
-    typeof (agentMeta as { provider?: unknown }).provider === "string"
-      ? ((agentMeta as { provider: string }).provider ?? "")
-      : "";
-  const attempts =
-    executionTrace &&
-    typeof executionTrace === "object" &&
-    Array.isArray((executionTrace as { attempts?: unknown }).attempts)
-      ? ((executionTrace as { attempts: unknown[] }).attempts ?? [])
-      : [];
-  const tools =
-    toolSummary &&
-    typeof toolSummary === "object" &&
-    Array.isArray((toolSummary as { tools?: unknown }).tools)
-      ? ((toolSummary as { tools: unknown[] }).tools ?? []).filter(
-          (tool): tool is string => typeof tool === "string" && Boolean(tool.trim()),
-        )
-      : ["unknown"];
-  const toolCalls =
-    toolSummary &&
-    typeof toolSummary === "object" &&
-    typeof (toolSummary as { calls?: unknown }).calls === "number"
-      ? (toolSummary as { calls: number }).calls
-      : Number.NaN;
-  const runner =
-    executionTrace && typeof executionTrace === "object"
-      ? (executionTrace as { runner?: unknown }).runner
+/** Report tool activity, but authorize evidence only from content-bound artifact bytes. */
+export function collectObservedWorkerEvidence(result: unknown, artifactIds: readonly string[]) {
+  const meta =
+    result && typeof result === "object" && (result as { meta?: unknown }).meta
+      ? (result as { meta: Record<string, unknown> }).meta
       : undefined;
-  const route =
-    provider === "openai" || provider.startsWith("openai-")
-      ? "hosted"
-      : provider.startsWith("omlx") || provider === "ollama"
-        ? "local"
-        : "unknown";
+  const trace =
+    meta?.executionTrace && typeof meta.executionTrace === "object"
+      ? (meta.executionTrace as Record<string, unknown>)
+      : undefined;
+  const toolSummary =
+    meta?.toolSummary && typeof meta.toolSummary === "object"
+      ? (meta.toolSummary as Record<string, unknown>)
+      : undefined;
+  const calls =
+    typeof toolSummary?.calls === "number" && Number.isSafeInteger(toolSummary.calls)
+      ? Math.max(0, toolSummary.calls)
+      : 0;
+  const failures =
+    typeof toolSummary?.failures === "number" && Number.isSafeInteger(toolSummary.failures)
+      ? Math.max(0, toolSummary.failures)
+      : undefined;
+  const tools = Array.isArray(toolSummary?.tools)
+    ? toolSummary.tools
+        .filter((tool): tool is string => typeof tool === "string" && Boolean(tool.trim()))
+        .slice(0, 32)
+        .map((tool) => tool.slice(0, 128))
+    : [];
+  const runner =
+    typeof trace?.runner === "string" && trace.runner.trim() ? trace.runner.trim() : "unknown";
+  const observations = [
+    `worker runtime=${runner}`,
+    `observed tool calls=${calls}`,
+    failures === undefined ? "tool failures=unknown" : `tool failures=${failures}`,
+    tools.length > 0 ? `activity tools=${tools.join(",")}` : "activity tools=none",
+    artifactIds.length > 0 ? `artifact digests=${artifactIds.join(",")}` : "artifacts=none",
+  ];
   return {
-    requestCount: attempts.length,
-    modelVisibleTools:
-      runner === "embedded" && toolCalls === 0 ? tools : ["unverified-tool-surface", ...tools],
-    route,
-    model,
+    summary: observations.join("; "),
+    observed: artifactIds.length > 0,
   };
 }
 
@@ -157,15 +235,16 @@ function assistantMessageText(result: AssistantMessage): string {
     .trim();
 }
 
-function directHostedJudgeModel(result: AssistantMessage): string {
+function directJudgeModelIdentity(result: AssistantMessage): string {
   return `${result.provider}/${result.model}`;
 }
 
-function failedHostedJudgeResult(params: {
+function failedDirectJudgeResult(params: {
   agentId: string;
   model: string;
   reason: string;
   requestCount?: number;
+  route: JudgeModelExecutionEvidence["route"];
 }): {
   text: string;
   runId: string;
@@ -174,31 +253,32 @@ function failedHostedJudgeResult(params: {
   executionEvidence: JudgeModelExecutionEvidence;
 } {
   return {
-    text: `Hosted Judge request failed closed: ${params.reason}`,
-    runId: `judge-hosted-failed-${crypto.randomUUID()}`,
+    text: `Judge request failed closed: ${params.reason}`,
+    runId: `judge-failed-${crypto.randomUUID()}`,
     agentId: params.agentId,
     model: params.model,
     executionEvidence: {
       requestCount: params.requestCount ?? 0,
       modelVisibleTools: [],
-      route: "hosted",
+      route: params.route,
       model: params.model,
     },
   };
 }
 
 /**
- * Hosted Judge turns use the provider's direct Responses transport. This is
- * deliberately separate from agentCommand so a GPT route cannot silently
- * select the Codex app-server harness or inherit a workspace/tool surface.
- * Local models continue through agentCommand, which owns local admission.
+ * Every Judge candidate uses a direct simple-completion transport. This is
+ * deliberately separate from agentCommand so no candidate can inherit the
+ * generic fallback chain, workspace, session, or tool surface.
  */
 /** Provider-owned direct hosted transport; exported only for the focused contract test. */
-export async function runDirectHostedJudgeModel(params: {
+export async function runDirectJudgeModel(params: {
   cfg: ReturnType<typeof getRuntimeConfig>;
   agentId: string;
   prompt: string;
   abortSignal: AbortSignal;
+  modelRef: string;
+  route: "local" | "hosted";
 }): Promise<
   | {
       text: string;
@@ -212,17 +292,26 @@ export async function runDirectHostedJudgeModel(params: {
   const selection = resolveSimpleCompletionSelectionForAgent({
     cfg: params.cfg,
     agentId: params.agentId,
+    modelRef: params.modelRef,
   });
-  if (!selection || selection.provider !== "openai") {
+  if (!selection) {
     return undefined;
   }
   const requestedModel = `${selection.provider}/${selection.modelId}`;
-  if (requestedModel !== JUDGE_HOSTED_MODEL) {
-    return failedHostedJudgeResult({
+  if (params.route === "hosted" && requestedModel !== JUDGE_HOSTED_MODEL) {
+    return failedDirectJudgeResult({
       agentId: params.agentId,
       model: requestedModel,
       reason: "hosted Judge model is not the pinned GPT-5.6 route",
+      route: params.route,
     });
+  }
+  if (
+    params.route === "local" &&
+    selection.provider !== "ollama" &&
+    selection.provider !== "omlx"
+  ) {
+    return undefined;
   }
   const prepared = await prepareSimpleCompletionModelForAgent({
     cfg: params.cfg,
@@ -234,25 +323,32 @@ export async function runDirectHostedJudgeModel(params: {
     skipAgentDiscovery: true,
   });
   if ("error" in prepared) {
-    return failedHostedJudgeResult({
+    return failedDirectJudgeResult({
       agentId: params.agentId,
       model: requestedModel,
-      reason: "hosted model preparation failed",
+      reason: "model preparation failed",
+      route: params.route,
     });
   }
   const model = prepared.model;
-  if (`${model.provider}/${model.id}` !== JUDGE_HOSTED_MODEL) {
-    return failedHostedJudgeResult({
+  if (`${model.provider}/${model.id}` !== requestedModel) {
+    return failedDirectJudgeResult({
       agentId: params.agentId,
       model: requestedModel,
-      reason: "hosted Judge model identity drifted",
+      reason: "Judge model identity drifted",
+      route: params.route,
     });
   }
-  if (model.api !== "openai-responses" && model.api !== "openai-chatgpt-responses") {
-    return failedHostedJudgeResult({
+  if (
+    params.route === "hosted" &&
+    model.api !== "openai-responses" &&
+    model.api !== "openai-chatgpt-responses"
+  ) {
+    return failedDirectJudgeResult({
       agentId: params.agentId,
       model: requestedModel,
       reason: "hosted model does not expose a Responses transport",
+      route: params.route,
     });
   }
 
@@ -278,13 +374,17 @@ export async function runDirectHostedJudgeModel(params: {
         apiKey: prepared.auth.apiKey,
         signal: params.abortSignal,
         timeoutMs: 120_000,
+        maxTokens: JUDGE_MAX_OUTPUT_TOKENS,
         maxRetries: 0,
         transport: "sse",
         onPayload: (payload) => {
-          const observation = buildJudgeHostedPayload({
-            payload,
-            expectedModel: model.id,
-          });
+          if (requestPrepared) {
+            throw new Error("Judge transport prepared more than one physical request");
+          }
+          const observation =
+            params.route === "hosted"
+              ? buildJudgeHostedPayload({ payload, expectedModel: model.id })
+              : buildJudgeZeroToolPayload({ payload, expectedModel: model.id });
           requestPrepared = true;
           modelVisibleTools = observation.modelVisibleTools;
           return observation.payload;
@@ -292,11 +392,12 @@ export async function runDirectHostedJudgeModel(params: {
       },
     );
   } catch {
-    return failedHostedJudgeResult({
+    return failedDirectJudgeResult({
       agentId: params.agentId,
       model: requestedModel,
-      reason: "hosted provider invocation failed",
+      reason: "provider invocation failed",
       requestCount: requestPrepared ? 1 : 0,
+      route: params.route,
     });
   }
 
@@ -304,7 +405,7 @@ export async function runDirectHostedJudgeModel(params: {
     block.type === "toolCall" ? [block.name.trim() || "unknown-tool"] : [],
   );
   modelVisibleTools = [...new Set([...modelVisibleTools, ...responseToolNames])];
-  const modelIdentity = directHostedJudgeModel(response);
+  const modelIdentity = directJudgeModelIdentity(response);
   if (modelIdentity !== requestedModel) {
     modelVisibleTools = [...new Set([...modelVisibleTools, "model-identity-drift"])];
   }
@@ -312,17 +413,31 @@ export async function runDirectHostedJudgeModel(params: {
     text:
       response.stopReason === "stop" || response.stopReason === "length"
         ? assistantMessageText(response)
-        : "Hosted Judge provider returned an error.",
-    runId: `judge-hosted-${crypto.randomUUID()}`,
+        : "Judge provider returned an error.",
+    runId: `judge-${params.route}-${crypto.randomUUID()}`,
     agentId: params.agentId,
     model: modelIdentity,
     executionEvidence: {
       requestCount: requestPrepared ? 1 : 0,
       modelVisibleTools,
-      route: "hosted",
+      route: params.route,
       model: modelIdentity,
     },
   };
+}
+
+/** Backward-compatible focused entrypoint for hosted-only contract tests. */
+export async function runDirectHostedJudgeModel(params: {
+  cfg: ReturnType<typeof getRuntimeConfig>;
+  agentId: string;
+  prompt: string;
+  abortSignal: AbortSignal;
+}) {
+  return await runDirectJudgeModel({
+    ...params,
+    modelRef: JUDGE_HOSTED_MODEL,
+    route: "hosted",
+  });
 }
 
 function workerStorePath(input: PursueGoalTurnInput): string {
@@ -449,6 +564,7 @@ async function runIndependentJudge(params: {
   finalText: string;
   evidenceSummary: string;
   artifactIds: string[];
+  observedEvidence: boolean;
 }) {
   const cfg = getRuntimeConfig();
   const judgeAgentId = resolveJudgeAgentId(cfg);
@@ -458,41 +574,69 @@ async function runIndependentJudge(params: {
     finalText: params.finalText,
     evidenceSummary: params.evidenceSummary,
     artifactIds: params.artifactIds,
+    observedEvidence: params.observedEvidence,
+    beforeModel: params.input.reserveJudgeExecution,
     runModel: judgeAgentId
       ? async (prompt) => {
-          const hostedResult = await runDirectHostedJudgeModel({
-            cfg,
-            agentId: judgeAgentId,
-            prompt,
-            abortSignal: params.input.abortSignal,
-          });
-          if (hostedResult) {
-            return hostedResult;
+          const candidates = resolveJudgeModelCandidates(cfg, judgeAgentId);
+          for (const [index, candidate] of candidates.entries()) {
+            let release: (() => void) | undefined;
+            if (candidate.route === "local") {
+              const capacity = await assessJudgeLocalCapacity({
+                config: cfg,
+                selectedModel: candidate.ref,
+              });
+              if (capacity.decision === "hosted_fallback") {
+                continue;
+              }
+              const admission = await acquireJudgeLocalAdmission({
+                ownerId: params.input.flowId,
+                timeoutMs: index === 0 ? JUDGE_LOCAL_PRIMARY_WAIT_MS : JUDGE_LOCAL_BACKUP_WAIT_MS,
+                signal: params.input.abortSignal,
+              });
+              if (!admission.admitted) {
+                continue;
+              }
+              release = admission.release;
+              const recheck = await assessJudgeLocalCapacity({
+                config: cfg,
+                selectedModel: candidate.ref,
+                leaseHeld: true,
+              });
+              if (recheck.decision !== "admit") {
+                release();
+                continue;
+              }
+            }
+            try {
+              const result = await runDirectJudgeModel({
+                cfg,
+                agentId: judgeAgentId,
+                prompt,
+                abortSignal: params.input.abortSignal,
+                modelRef: candidate.ref,
+                route: candidate.route,
+              });
+              if (!result) {
+                continue;
+              }
+              if (
+                result.executionEvidence.requestCount === 0 &&
+                !params.input.abortSignal.aborted
+              ) {
+                continue;
+              }
+              return result;
+            } finally {
+              release?.();
+            }
           }
-          const runId = crypto.randomUUID();
-          const result = await agentCommand({
-            message: prompt,
-            transcriptMessage: "Independent Judge completion review.",
+          return failedDirectJudgeResult({
             agentId: judgeAgentId,
-            sessionKey: `agent:${judgeAgentId}:judge:${params.input.state.missionId}`,
-            sessionId: crypto.randomUUID(),
-            runId,
-            deliver: false,
-            modelRun: true,
-            promptMode: "none",
-            suppressPromptPersistence: true,
-            sessionEffects: "internal",
-            disableMessageTool: true,
-            toolsAllow: [],
-            abortSignal: params.input.abortSignal,
+            model: "none",
+            reason: "all explicit Judge candidates were unavailable before request start",
+            route: "unknown",
           });
-          return {
-            text: collectResultText(result),
-            runId,
-            agentId: judgeAgentId,
-            model: resultModel(result),
-            executionEvidence: judgeExecutionEvidence(result),
-          };
         }
       : undefined,
   });
@@ -526,22 +670,23 @@ async function runTurn(input: PursueGoalTurnInput): Promise<PursueGoalTurnResult
     },
   });
   const text = collectResultText(result);
-  const artifactIds = collectResultArtifactIds(result);
+  const artifactIds = await collectResultArtifactIds(result, loadWebMediaRaw, input.abortSignal);
   const workerGoal = await loadWorkerGoal(input);
   const goalStatus = workerGoal.status;
   if (goalStatus === "complete") {
-    const evidenceSummary = text || "Worker marked the goal complete without a visible summary.";
+    const observedEvidence = collectObservedWorkerEvidence(result, artifactIds);
     const judge = await runIndependentJudge({
       input,
       finalText: text,
-      evidenceSummary,
+      evidenceSummary: observedEvidence.summary,
       artifactIds,
+      observedEvidence: observedEvidence.observed,
     });
     return {
       status: judge.approved ? "complete" : "blocked",
       text,
       artifactIds,
-      evidenceSummary,
+      evidenceSummary: observedEvidence.summary,
       judgeReceipt: judge.receipt,
       blocker: judge.approved
         ? undefined

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildJudgeHostedPayload } from "./judge-hosted-transport.js";
+import { buildJudgeHostedPayload, buildJudgeZeroToolPayload } from "./judge-hosted-transport.js";
 
 describe("hosted Judge transport contract", () => {
   it("pins the model, zero tools, tool choice, parallelism, and strict JSON schema", () => {
@@ -50,5 +50,23 @@ describe("hosted Judge transport contract", () => {
         payload: { model: "gpt-5.6", tool_choice: { type: "function" } },
       }),
     ).toThrow("tool-choice drifted");
+  });
+
+  it("forces an empty tool list for direct local Judge requests", () => {
+    expect(
+      buildJudgeZeroToolPayload({
+        expectedModel: "qwen3.8:27b-q8_0",
+        payload: { model: "qwen3.8:27b-q8_0" },
+      }),
+    ).toMatchObject({
+      payload: { model: "qwen3.8:27b-q8_0", tools: [] },
+      modelVisibleTools: [],
+    });
+    expect(() =>
+      buildJudgeZeroToolPayload({
+        expectedModel: "qwen3.8:27b-q8_0",
+        payload: { model: "qwen3.8:27b-q8_0", tools: [{ name: "update_plan" }] },
+      }),
+    ).toThrow("model-visible tools");
   });
 });

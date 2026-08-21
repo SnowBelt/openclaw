@@ -1,7 +1,12 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { ProtocolSchemas, validateTaskFlowsControlParams, type TaskFlowStatus } from "../index.js";
-import { PursueGoalJudgeReceiptSchema, TaskFlowDetailSchema } from "./tasks.js";
+import {
+  PursueGoalJudgeReceiptSchema,
+  TaskFlowDetailSchema,
+  TaskFlowsCreateParamsSchema,
+  TaskFlowsEditParamsSchema,
+} from "./tasks.js";
 
 const detail = {
   id: "flow-1",
@@ -33,6 +38,33 @@ describe("TaskFlowDetailSchema", () => {
 });
 
 describe("task flow control protocol", () => {
+  it("preserves a 16,000-character goal and rejects larger input", () => {
+    expect(
+      Value.Check(TaskFlowsCreateParamsSchema, {
+        sessionKey: "main",
+        goal: "g".repeat(16_000),
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(TaskFlowsCreateParamsSchema, {
+        sessionKey: "main",
+        goal: "g".repeat(16_001),
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(TaskFlowsEditParamsSchema, {
+        flowId: "flow-1",
+        goal: "g".repeat(16_000),
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(TaskFlowsEditParamsSchema, {
+        flowId: "flow-1",
+        goal: "g".repeat(16_001),
+      }),
+    ).toBe(false);
+  });
+
   it("accepts each operator action and rejects unknown actions", () => {
     for (const action of ["pause", "resume", "retry", "stop"] as const) {
       expect(
@@ -63,7 +95,7 @@ describe("Judge receipt protocol", () => {
     const common = {
       receiptId: "receipt-1",
       missionId: "mission-1",
-      claimHash: "claim-hash",
+      claimHash: "a".repeat(64),
       scope: "technical completion",
       evidenceSummary: "direct evidence",
       conditions: "none",
@@ -81,10 +113,18 @@ describe("Judge receipt protocol", () => {
     expect(
       Value.Check(PursueGoalJudgeReceiptSchema, {
         ...common,
+        claimHash: "legacy-non-sha-claim",
+        schemaVersion: 1,
+        verdict: "REJECT",
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(PursueGoalJudgeReceiptSchema, {
+        ...common,
         schemaVersion: 2,
         verdict: "APPROVE",
-        promptHash: "prompt-hash",
-        responseHash: "response-hash",
+        promptHash: "b".repeat(64),
+        responseHash: "c".repeat(64),
         route: "hosted",
         modelVisibleTools: [],
         requestCount: 1,
@@ -95,8 +135,8 @@ describe("Judge receipt protocol", () => {
         ...common,
         schemaVersion: 2,
         verdict: "APPROVE",
-        promptHash: "prompt-hash",
-        responseHash: "response-hash",
+        promptHash: "b".repeat(64),
+        responseHash: "c".repeat(64),
         route: "hosted",
         modelVisibleTools: [],
       }),

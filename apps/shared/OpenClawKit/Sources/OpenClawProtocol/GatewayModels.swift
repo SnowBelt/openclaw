@@ -6343,6 +6343,7 @@ public struct TaskFlowDetail: Codable, Sendable {
 public struct TaskFlowsListParams: Codable, Sendable {
     public let sessionkey: String?
     public let ownerkey: String?
+    public let controllerid: String?
     public let status: AnyCodable?
     public let limit: Int?
     public let cursor: String?
@@ -6350,12 +6351,14 @@ public struct TaskFlowsListParams: Codable, Sendable {
     public init(
         sessionkey: String?,
         ownerkey: String?,
+        controllerid: String?,
         status: AnyCodable?,
         limit: Int?,
         cursor: String?)
     {
         self.sessionkey = sessionkey
         self.ownerkey = ownerkey
+        self.controllerid = controllerid
         self.status = status
         self.limit = limit
         self.cursor = cursor
@@ -6364,6 +6367,7 @@ public struct TaskFlowsListParams: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case sessionkey = "sessionKey"
         case ownerkey = "ownerKey"
+        case controllerid = "controllerId"
         case status
         case limit
         case cursor
@@ -6371,11 +6375,11 @@ public struct TaskFlowsListParams: Codable, Sendable {
 }
 
 public struct TaskFlowsListResult: Codable, Sendable {
-    public let flows: [TaskFlowSummary]
+    public let flows: [TaskFlowDetail]
     public let nextcursor: String?
 
     public init(
-        flows: [TaskFlowSummary],
+        flows: [TaskFlowDetail],
         nextcursor: String?)
     {
         self.flows = flows

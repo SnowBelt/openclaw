@@ -195,6 +195,10 @@ export const PursueGoalLeaseSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const JudgeSha256HexSchema = Type.String({ pattern: "^[a-f0-9]{64}$" });
+const JudgeFieldSchema = Type.String({ minLength: 1, maxLength: 4_096 });
+const JudgeEvidenceSchema = Type.String({ minLength: 1, maxLength: 32_000 });
+
 const PursueGoalJudgeReceiptV1Schema = Type.Object(
   {
     schemaVersion: Type.Literal(1),
@@ -225,7 +229,7 @@ const PursueGoalJudgeReceiptV2Schema = Type.Object(
     schemaVersion: Type.Literal(2),
     receiptId: NonEmptyString,
     missionId: NonEmptyString,
-    claimHash: NonEmptyString,
+    claimHash: JudgeSha256HexSchema,
     verdict: Type.Union([
       Type.Literal("APPROVE"),
       Type.Literal("REJECT"),
@@ -236,17 +240,19 @@ const PursueGoalJudgeReceiptV2Schema = Type.Object(
       Type.Literal("OWNER_APPROVAL_REQUIRED"),
       Type.Literal("SYSTEM_ERROR"),
     ]),
-    scope: NonEmptyString,
-    evidenceSummary: NonEmptyString,
-    conditions: NonEmptyString,
+    scope: JudgeFieldSchema,
+    evidenceSummary: JudgeEvidenceSchema,
+    conditions: JudgeFieldSchema,
     judgeRunId: NonEmptyString,
     judgeAgentId: NonEmptyString,
-    model: Type.Optional(NonEmptyString),
+    model: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
     issuedAt: Type.Integer({ minimum: 0 }),
-    promptHash: NonEmptyString,
-    responseHash: NonEmptyString,
+    promptHash: JudgeSha256HexSchema,
+    responseHash: JudgeSha256HexSchema,
     route: Type.Union([Type.Literal("local"), Type.Literal("hosted"), Type.Literal("unknown")]),
-    modelVisibleTools: Type.Array(NonEmptyString),
+    modelVisibleTools: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), {
+      maxItems: 32,
+    }),
     requestCount: Type.Integer({ minimum: 0 }),
     signature: Type.Optional(NonEmptyString),
     publicKeyId: Type.Optional(NonEmptyString),
@@ -355,7 +361,7 @@ export const TaskFlowSummarySchema = Type.Object(
     requesterOrigin: Type.Optional(Type.Unknown()),
     status: TaskFlowStatusSchema,
     notifyPolicy: TaskNotifyPolicySchema,
-    goal: Type.String(),
+    goal: Type.String({ maxLength: 16_000 }),
     currentStep: Type.Optional(Type.String()),
     blockedTaskId: Type.Optional(Type.String()),
     blockedSummary: Type.Optional(Type.String()),
@@ -388,7 +394,7 @@ export const TaskFlowSummarySchema = Type.Object(
 export const TaskFlowDetailSchema = Type.Object(
   {
     ...TaskFlowSummarySchema.properties,
-    tasks: Type.Array(TaskSummarySchema),
+    tasks: Type.Array(TaskSummarySchema, { maxItems: 50 }),
     taskSummary: Type.Object(
       {
         total: Type.Integer({ minimum: 0 }),
@@ -406,6 +412,7 @@ export const TaskFlowsListParamsSchema = Type.Object(
   {
     sessionKey: Type.Optional(NonEmptyString),
     ownerKey: Type.Optional(NonEmptyString),
+    controllerId: Type.Optional(NonEmptyString),
     status: Type.Optional(Type.Union([TaskFlowStatusSchema, Type.Array(TaskFlowStatusSchema)])),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
     cursor: Type.Optional(Type.String()),
@@ -415,7 +422,7 @@ export const TaskFlowsListParamsSchema = Type.Object(
 
 export const TaskFlowsListResultSchema = Type.Object(
   {
-    flows: Type.Array(TaskFlowSummarySchema),
+    flows: Type.Array(TaskFlowDetailSchema),
     nextCursor: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
@@ -439,7 +446,7 @@ export const TaskFlowsGetResultSchema = Type.Object(
 export const TaskFlowsCreateParamsSchema = Type.Object(
   {
     sessionKey: NonEmptyString,
-    goal: NonEmptyString,
+    goal: Type.String({ minLength: 1, maxLength: 16_000 }),
     currentStep: Type.Optional(Type.String()),
     idempotencyKey: Type.Optional(NonEmptyString),
   },
@@ -502,7 +509,7 @@ export const TaskFlowsStopParamsSchema = Type.Object(
 export const TaskFlowsEditParamsSchema = Type.Object(
   {
     ...TaskFlowRevisionedMutationParams,
-    goal: NonEmptyString,
+    goal: Type.String({ minLength: 1, maxLength: 16_000 }),
   },
   { additionalProperties: false },
 );
@@ -530,7 +537,7 @@ export const TaskFlowsControlParamsSchema = Type.Object(
   {
     ...TaskFlowRevisionedMutationParams,
     action: TaskFlowControlActionSchema,
-    goal: Type.Optional(NonEmptyString),
+    goal: Type.Optional(Type.String({ minLength: 1, maxLength: 16_000 })),
   },
   { additionalProperties: false },
 );

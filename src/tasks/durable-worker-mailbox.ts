@@ -4,6 +4,10 @@ import type { JsonValue } from "./task-flow-registry.types.js";
 
 export const DURABLE_WORKER_MAILBOX_VERSION = 1 as const;
 export const DURABLE_WORKER_MAILBOX_LIMIT = 128;
+const MAILBOX_ID_MAX_CHARS = 512;
+const MAILBOX_SUMMARY_MAX_CHARS = 8_000;
+const MAILBOX_EVIDENCE_REF_MAX_CHARS = 2_048;
+const MAILBOX_PAYLOAD_MAX_BYTES = 32 * 1_024;
 
 export type DurableWorkerMailboxMessage = {
   schemaVersion: typeof DURABLE_WORKER_MAILBOX_VERSION;
@@ -38,6 +42,19 @@ function nonEmpty(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function bounded(value: unknown, maxChars: number): string | undefined {
+  const parsed = nonEmpty(value);
+  return parsed && parsed.length <= maxChars ? parsed : undefined;
+}
+
+function jsonFits(value: unknown, maxBytes: number): boolean {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8") <= maxBytes;
+  } catch {
+    return false;
+  }
+}
+
 function parseMessage(value: unknown): DurableWorkerMailboxMessage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -50,19 +67,24 @@ function parseMessage(value: unknown): DurableWorkerMailboxMessage | null {
       ? (record.correlation as Record<string, unknown>)
       : {};
   const evidenceRefs = Array.isArray(record.evidenceRefs)
-    ? record.evidenceRefs.filter(
-        (entry): entry is string => typeof entry === "string" && Boolean(entry.trim()),
+    ? record.evidenceRefs.every(
+        (entry) =>
+          typeof entry === "string" &&
+          Boolean(entry.trim()) &&
+          entry.length <= MAILBOX_EVIDENCE_REF_MAX_CHARS,
       )
+      ? (record.evidenceRefs as string[])
+      : null
     : null;
   const direction = record.direction;
   const kind = record.kind;
-  const messageId = nonEmpty(record.messageId);
-  const idempotencyKey = nonEmpty(record.idempotencyKey);
-  const flowId = nonEmpty(record.flowId);
-  const missionId = nonEmpty(record.missionId);
-  const actorId = nonEmpty(record.actorId);
-  const recipientId = nonEmpty(record.recipientId);
-  const summary = nonEmpty(record.summary);
+  const messageId = bounded(record.messageId, MAILBOX_ID_MAX_CHARS);
+  const idempotencyKey = bounded(record.idempotencyKey, MAILBOX_ID_MAX_CHARS);
+  const flowId = bounded(record.flowId, MAILBOX_ID_MAX_CHARS);
+  const missionId = bounded(record.missionId, MAILBOX_ID_MAX_CHARS);
+  const actorId = bounded(record.actorId, MAILBOX_ID_MAX_CHARS);
+  const recipientId = bounded(record.recipientId, MAILBOX_ID_MAX_CHARS);
+  const summary = bounded(record.summary, MAILBOX_SUMMARY_MAX_CHARS);
   if (
     record.schemaVersion !== DURABLE_WORKER_MAILBOX_VERSION ||
     !messageId ||
@@ -81,7 +103,9 @@ function parseMessage(value: unknown): DurableWorkerMailboxMessage | null {
     !summary ||
     typeof record.createdAt !== "number" ||
     !Number.isFinite(record.createdAt) ||
-    evidenceRefs === null
+    evidenceRefs === null ||
+    evidenceRefs.length > 32 ||
+    (record.payload !== undefined && !jsonFits(record.payload, MAILBOX_PAYLOAD_MAX_BYTES))
   ) {
     return null;
   }
@@ -98,10 +122,16 @@ function parseMessage(value: unknown): DurableWorkerMailboxMessage | null {
     summary,
     createdAt: record.createdAt,
     correlation: {
-      ...(nonEmpty(correlation.runId) ? { runId: nonEmpty(correlation.runId)! } : {}),
-      ...(nonEmpty(correlation.taskId) ? { taskId: nonEmpty(correlation.taskId)! } : {}),
-      ...(nonEmpty(correlation.assignmentMessageId)
-        ? { assignmentMessageId: nonEmpty(correlation.assignmentMessageId)! }
+      ...(bounded(correlation.runId, MAILBOX_ID_MAX_CHARS)
+        ? { runId: bounded(correlation.runId, MAILBOX_ID_MAX_CHARS)! }
+        : {}),
+      ...(bounded(correlation.taskId, MAILBOX_ID_MAX_CHARS)
+        ? { taskId: bounded(correlation.taskId, MAILBOX_ID_MAX_CHARS)! }
+        : {}),
+      ...(bounded(correlation.assignmentMessageId, MAILBOX_ID_MAX_CHARS)
+        ? {
+            assignmentMessageId: bounded(correlation.assignmentMessageId, MAILBOX_ID_MAX_CHARS)!,
+          }
         : {}),
     },
     evidenceRefs: [...new Set(evidenceRefs.map((entry) => entry.trim()))].slice(0, 32),
@@ -115,7 +145,7 @@ export function parseDurableWorkerMailbox(value: unknown): DurableWorkerMailboxM
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.flatMap((entry) => {
+  return value.slice(-DURABLE_WORKER_MAILBOX_LIMIT).flatMap((entry) => {
     const parsed = parseMessage(entry);
     return parsed ? [parsed] : [];
   });
@@ -147,7 +177,7 @@ export function createDurableWorkerMailboxMessage(
     correlation: { ...params.correlation },
     evidenceRefs: [
       ...new Set((params.evidenceRefs ?? []).map((entry) => entry.trim()).filter(Boolean)),
-    ].slice(0, 32),
+    ],
     ...(params.payload !== undefined ? { payload: structuredClone(params.payload) } : {}),
   };
 }

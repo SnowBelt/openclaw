@@ -49,4 +49,27 @@ describe("judgeTaskCompletion", () => {
     expect(result.verdict.verdict).toBe("APPROVE");
     expect(result.artifactIds).toEqual(["artifact-game-1"]);
   });
+
+  it("returns out of scope before evaluating a moral or ethical request", () => {
+    const result = judgeTaskCompletion({
+      userRequest: "Create a report deciding whether this conduct is morally right.",
+      finalText: "Done — the report is attached.",
+      status: "succeeded",
+    });
+
+    expect(result.approved).toBe(false);
+    expect(result.verdict.verdict).toBe("OUT_OF_SCOPE");
+  });
+
+  it("does not accept worker prose as execution evidence", () => {
+    const result = judgeTaskCompletion({
+      userRequest: "Fix the failing test",
+      finalText: "Done. The test passed.",
+      status: "succeeded",
+      observedEvidence: false,
+    });
+
+    expect(result.approved).toBe(false);
+    expect(result.verdict.verdict).toBe("REQUEST_MORE_EVIDENCE");
+  });
 });

@@ -1,9 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  agentCommand: vi.fn(),
   completeSimple: vi.fn(),
   prepareSimpleCompletionModelForAgent: vi.fn(),
   resolveSimpleCompletionSelectionForAgent: vi.fn(),
+}));
+
+vi.mock("../agents/agent-command.js", () => ({
+  agentCommand: mocks.agentCommand,
 }));
 
 vi.mock("../agents/simple-completion-runtime.js", async () => ({
@@ -19,9 +24,18 @@ vi.mock("../llm/stream.js", async () => ({
   completeSimple: mocks.completeSimple,
 }));
 
-import { runDirectHostedJudgeModel } from "./pursue-goal-controller.runtime.js";
+import {
+  runDirectHostedJudgeModel,
+  runDirectJudgeModel,
+} from "./pursue-goal-controller.runtime.js";
 
 describe("Pursue Goal direct hosted Judge route", () => {
+  beforeEach(() => {
+    mocks.agentCommand.mockReset();
+    mocks.completeSimple.mockReset();
+    mocks.prepareSimpleCompletionModelForAgent.mockReset();
+    mocks.resolveSimpleCompletionSelectionForAgent.mockReset();
+  });
   it("uses one provider-owned GPT Responses request with no model-visible tools", async () => {
     mocks.resolveSimpleCompletionSelectionForAgent.mockReturnValue({
       provider: "openai",
@@ -102,6 +116,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
       model: "openai/gpt-5.6",
     });
     expect(mocks.completeSimple).toHaveBeenCalledOnce();
+    expect(mocks.agentCommand).not.toHaveBeenCalled();
     expect(mocks.completeSimple.mock.calls[0]?.[2]).toMatchObject({
       maxRetries: 0,
       transport: "sse",
@@ -109,7 +124,6 @@ describe("Pursue Goal direct hosted Judge route", () => {
   });
 
   it("fails closed instead of selecting a non-Responses hosted harness", async () => {
-    mocks.completeSimple.mockClear();
     mocks.resolveSimpleCompletionSelectionForAgent.mockReturnValue({
       provider: "openai",
       modelId: "gpt-5.6",
@@ -144,8 +158,6 @@ describe("Pursue Goal direct hosted Judge route", () => {
   });
 
   it("fails closed instead of silently selecting GPT-5.5", async () => {
-    mocks.completeSimple.mockClear();
-    mocks.prepareSimpleCompletionModelForAgent.mockClear();
     mocks.resolveSimpleCompletionSelectionForAgent.mockReturnValue({
       provider: "openai",
       modelId: "gpt-5.5",
@@ -163,5 +175,66 @@ describe("Pursue Goal direct hosted Judge route", () => {
     expect(result?.executionEvidence.model).toBe("openai/gpt-5.5");
     expect(mocks.prepareSimpleCompletionModelForAgent).not.toHaveBeenCalled();
     expect(mocks.completeSimple).not.toHaveBeenCalled();
+  });
+
+  it("uses the direct zero-tool transport for an explicit local Judge candidate", async () => {
+    mocks.resolveSimpleCompletionSelectionForAgent.mockReturnValue({
+      provider: "ollama",
+      modelId: "qwen3.8:27b-q8_0",
+      agentDir: "/tmp/judge-agent",
+    });
+    mocks.prepareSimpleCompletionModelForAgent.mockResolvedValue({
+      model: {
+        provider: "ollama",
+        id: "qwen3.8:27b-q8_0",
+        api: "ollama",
+        name: "Qwen 3.8 Judge",
+        contextWindow: 32_768,
+        maxTokens: 4_096,
+      },
+      auth: { apiKey: "redacted-test-key", mode: "api-key" },
+    });
+    mocks.completeSimple.mockImplementationOnce(async (_model, context, options) => {
+      expect(context.tools).toEqual([]);
+      expect(await options.onPayload?.({ model: "qwen3.8:27b-q8_0" })).toEqual({
+        model: "qwen3.8:27b-q8_0",
+        tools: [],
+      });
+      return {
+        role: "assistant",
+        api: "ollama",
+        provider: "ollama",
+        model: "qwen3.8:27b-q8_0",
+        stopReason: "stop",
+        content: [{ type: "text", text: '{"verdict":"APPROVE"}' }],
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        timestamp: Date.now(),
+      };
+    });
+
+    const result = await runDirectJudgeModel({
+      cfg: {} as never,
+      agentId: "judge",
+      prompt: "Return the technical Judge JSON.",
+      abortSignal: new AbortController().signal,
+      modelRef: "ollama/qwen3.8:27b-q8_0",
+      route: "local",
+    });
+
+    expect(result?.executionEvidence).toEqual({
+      requestCount: 1,
+      modelVisibleTools: [],
+      route: "local",
+      model: "ollama/qwen3.8:27b-q8_0",
+    });
+    expect(mocks.completeSimple).toHaveBeenCalledOnce();
+    expect(mocks.agentCommand).not.toHaveBeenCalled();
   });
 });

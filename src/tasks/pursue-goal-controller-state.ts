@@ -1,6 +1,12 @@
 // Durable state contract for the lease-driven Pursue Goal controller.
 import crypto from "node:crypto";
 import {
+  JUDGE_ARTIFACT_ID_MAX_CHARS,
+  JUDGE_ARTIFACT_MAX_COUNT,
+  JUDGE_EVIDENCE_MAX_CHARS,
+  JUDGE_RESPONSE_FIELD_MAX_CHARS,
+} from "../agents/judge-contract.js";
+import {
   parseDurableWorkerMailbox,
   type DurableWorkerMailboxMessage,
 } from "./durable-worker-mailbox.js";
@@ -17,6 +23,11 @@ import type { JsonValue, TaskFlowRecord } from "./task-flow-registry.types.js";
 
 export const PURSUE_GOAL_CONTROLLER_ID = "openclaw/pursue-goal-v1";
 export const PURSUE_GOAL_STATE_SCHEMA_VERSION = 1 as const;
+export const PURSUE_GOAL_MAX_CHARS = 16_000;
+export const PURSUE_GOAL_HISTORY_LIMIT = 20;
+const PURSUE_GOAL_SUMMARY_MAX_CHARS = 8_000;
+const PURSUE_GOAL_MODEL_MAX_CHARS = 512;
+const SHA256_HEX_RE = /^[a-f0-9]{64}$/u;
 
 export type PursueGoalPhase =
   | "queued"
@@ -115,6 +126,15 @@ export type PursueGoalPendingTurn = {
   result: PursueGoalPendingTurnResult;
 };
 
+/** Durable before-call fence. An abandoned fence is blocked, never replayed. */
+export type PursueGoalJudgeExecution = {
+  runId: string;
+  taskId: string;
+  claimHash: string;
+  promptHash: string;
+  reservedAt: number;
+};
+
 export const PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS = 64_000;
 
 export type PursueGoalControllerState = {
@@ -149,6 +169,7 @@ export type PursueGoalControllerState = {
   staleGoalRepairAttempts: number;
   staleGoalRepairLastAt?: number;
   judgeReceipt?: PursueGoalJudgeReceipt;
+  judgeExecution?: PursueGoalJudgeExecution;
   pendingTurn?: PursueGoalPendingTurn;
   mailbox: DurableWorkerMailboxMessage[];
   events: ExecutionEventV1[];
@@ -156,6 +177,11 @@ export type PursueGoalControllerState = {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function boundedString(value: unknown, maxChars: number): string | undefined {
+  const parsed = nonEmptyString(value);
+  return parsed && parsed.length <= maxChars ? parsed : undefined;
 }
 
 function nonNegativeInteger(value: unknown, fallback = 0): number {
@@ -198,13 +224,13 @@ function parseGoalHistory(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.flatMap((entry) => {
+  return value.slice(-PURSUE_GOAL_HISTORY_LIMIT).flatMap((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       return [];
     }
     const record = entry as Record<string, unknown>;
     const version = nonNegativeInteger(record.version, -1);
-    const goal = nonEmptyString(record.goal);
+    const goal = boundedString(record.goal, PURSUE_GOAL_MAX_CHARS);
     const editedAt = finiteTimestamp(record.editedAt);
     return version >= 0 && goal && editedAt !== undefined ? [{ version, goal, editedAt }] : [];
   });
@@ -216,7 +242,8 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   }
   const record = value as Record<string, unknown>;
   const verdict = record.verdict;
-  const supportedVerdicts = [
+  const v1Verdicts = ["APPROVE", "REJECT", "REQUEST_MORE_EVIDENCE", "ESCALATE_TO_HUMAN"] as const;
+  const v2Verdicts = [
     "APPROVE",
     "REJECT",
     "REQUEST_MORE_EVIDENCE",
@@ -226,20 +253,24 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
     "OWNER_APPROVAL_REQUIRED",
     "SYSTEM_ERROR",
   ] as const;
-  if (!supportedVerdicts.includes(verdict as (typeof supportedVerdicts)[number])) {
+  const schemaVersion = record.schemaVersion;
+  if (
+    (schemaVersion === 1 && !v1Verdicts.includes(verdict as (typeof v1Verdicts)[number])) ||
+    (schemaVersion === 2 && !v2Verdicts.includes(verdict as (typeof v2Verdicts)[number])) ||
+    (schemaVersion !== 1 && schemaVersion !== 2)
+  ) {
     return undefined;
   }
   const receiptId = nonEmptyString(record.receiptId);
   const missionId = nonEmptyString(record.missionId);
-  const claimHash = nonEmptyString(record.claimHash);
-  const scope = nonEmptyString(record.scope);
-  const evidenceSummary = nonEmptyString(record.evidenceSummary);
-  const conditions = nonEmptyString(record.conditions);
-  const judgeRunId = nonEmptyString(record.judgeRunId);
-  const judgeAgentId = nonEmptyString(record.judgeAgentId);
+  const claimHash = boundedString(record.claimHash, 64);
+  const scope = boundedString(record.scope, JUDGE_RESPONSE_FIELD_MAX_CHARS);
+  const evidenceSummary = boundedString(record.evidenceSummary, JUDGE_EVIDENCE_MAX_CHARS);
+  const conditions = boundedString(record.conditions, JUDGE_RESPONSE_FIELD_MAX_CHARS);
+  const judgeRunId = boundedString(record.judgeRunId, 512);
+  const judgeAgentId = boundedString(record.judgeAgentId, 512);
   const issuedAt = finiteTimestamp(record.issuedAt);
   if (
-    (record.schemaVersion !== 1 && record.schemaVersion !== 2) ||
     !receiptId ||
     !missionId ||
     !claimHash ||
@@ -252,7 +283,6 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   ) {
     return undefined;
   }
-  const schemaVersion = record.schemaVersion;
   const common = {
     receiptId,
     missionId,
@@ -264,14 +294,21 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
     judgeRunId,
     judgeAgentId,
     issuedAt,
-    ...(nonEmptyString(record.model) ? { model: nonEmptyString(record.model)! } : {}),
-    ...(nonEmptyString(record.signature) ? { signature: nonEmptyString(record.signature)! } : {}),
-    ...(nonEmptyString(record.publicKeyId)
-      ? { publicKeyId: nonEmptyString(record.publicKeyId)! }
+    ...(boundedString(record.model, PURSUE_GOAL_MODEL_MAX_CHARS)
+      ? { model: boundedString(record.model, PURSUE_GOAL_MODEL_MAX_CHARS)! }
+      : {}),
+    ...(boundedString(record.signature, 512)
+      ? { signature: boundedString(record.signature, 512)! }
+      : {}),
+    ...(boundedString(record.publicKeyId, 64)
+      ? { publicKeyId: boundedString(record.publicKeyId, 64)! }
       : {}),
   };
   if (schemaVersion === 1) {
     return { schemaVersion: 1, ...common } as PursueGoalJudgeReceiptV1;
+  }
+  if (!SHA256_HEX_RE.test(claimHash)) {
+    return undefined;
   }
   const route = record.route;
   if (route !== undefined && route !== "local" && route !== "hosted" && route !== "unknown") {
@@ -288,13 +325,24 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   if (
     modelVisibleTools !== undefined &&
     (!Array.isArray(modelVisibleTools) ||
-      modelVisibleTools.some((tool) => typeof tool !== "string" || !tool.trim()))
+      modelVisibleTools.length > 32 ||
+      modelVisibleTools.some(
+        (tool) => typeof tool !== "string" || !tool.trim() || tool.length > 128,
+      ))
   ) {
     return undefined;
   }
-  const promptHash = nonEmptyString(record.promptHash);
-  const responseHash = nonEmptyString(record.responseHash);
-  if (!promptHash || !responseHash || !route || requestCount === undefined || !modelVisibleTools) {
+  const promptHash = boundedString(record.promptHash, 64);
+  const responseHash = boundedString(record.responseHash, 64);
+  if (
+    !promptHash ||
+    !responseHash ||
+    !SHA256_HEX_RE.test(promptHash) ||
+    !SHA256_HEX_RE.test(responseHash) ||
+    !route ||
+    requestCount === undefined ||
+    !modelVisibleTools
+  ) {
     return undefined;
   }
   return {
@@ -333,18 +381,32 @@ function parsePendingTurn(value: unknown): PursueGoalPendingTurn | undefined {
   if (result.text.length > PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS) {
     return undefined;
   }
-  const optionalStrings = ["blocker", "provisionalBlocker", "evidenceSummary", "model"] as const;
-  const parsedOptionalStrings = Object.fromEntries(
-    optionalStrings.flatMap((key) => {
-      const optionalValue = nonEmptyString(result[key]);
-      return optionalValue ? [[key, optionalValue]] : [];
-    }),
-  ) as Partial<Pick<PursueGoalPendingTurnResult, (typeof optionalStrings)[number]>>;
+  const blocker = boundedString(result.blocker, PURSUE_GOAL_SUMMARY_MAX_CHARS);
+  const provisionalBlocker = boundedString(
+    result.provisionalBlocker,
+    PURSUE_GOAL_SUMMARY_MAX_CHARS,
+  );
+  const evidenceSummary = boundedString(result.evidenceSummary, JUDGE_EVIDENCE_MAX_CHARS);
+  const model = boundedString(result.model, PURSUE_GOAL_MODEL_MAX_CHARS);
+  if (
+    (result.blocker !== undefined && !blocker) ||
+    (result.provisionalBlocker !== undefined && !provisionalBlocker) ||
+    (result.evidenceSummary !== undefined && !evidenceSummary) ||
+    (result.model !== undefined && !model)
+  ) {
+    return undefined;
+  }
   const artifactIds = result.artifactIds;
   if (
     artifactIds !== undefined &&
     (!Array.isArray(artifactIds) ||
-      artifactIds.some((artifactId) => typeof artifactId !== "string" || !artifactId.trim()))
+      artifactIds.length > JUDGE_ARTIFACT_MAX_COUNT ||
+      artifactIds.some(
+        (artifactId) =>
+          typeof artifactId !== "string" ||
+          !artifactId.trim() ||
+          artifactId.length > JUDGE_ARTIFACT_ID_MAX_CHARS,
+      ))
   ) {
     return undefined;
   }
@@ -359,11 +421,35 @@ function parsePendingTurn(value: unknown): PursueGoalPendingTurn | undefined {
     result: {
       status,
       text: result.text,
-      ...parsedOptionalStrings,
+      ...(blocker ? { blocker } : {}),
+      ...(provisionalBlocker ? { provisionalBlocker } : {}),
+      ...(evidenceSummary ? { evidenceSummary } : {}),
+      ...(model ? { model } : {}),
       ...(artifactIds ? { artifactIds: [...artifactIds] as string[] } : {}),
       ...(judgeReceipt ? { judgeReceipt } : {}),
     },
   };
+}
+
+function parseJudgeExecution(value: unknown): PursueGoalJudgeExecution | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const runId = boundedString(record.runId, 512);
+  const taskId = boundedString(record.taskId, 512);
+  const claimHash = boundedString(record.claimHash, 64);
+  const promptHash = boundedString(record.promptHash, 64);
+  const reservedAt = finiteTimestamp(record.reservedAt);
+  return runId &&
+    taskId &&
+    claimHash &&
+    promptHash &&
+    SHA256_HEX_RE.test(claimHash) &&
+    SHA256_HEX_RE.test(promptHash) &&
+    reservedAt !== undefined
+    ? { runId, taskId, claimHash, promptHash, reservedAt }
+    : undefined;
 }
 
 /** Build the initial state before any flow is allowed to report `running`. */
@@ -442,8 +528,15 @@ export function parsePursueGoalControllerState(
   }
   const lease = parseLease(record.lease);
   const judgeReceipt = parseJudgeReceipt(record.judgeReceipt);
+  const judgeExecution = parseJudgeExecution(record.judgeExecution);
   const pendingTurn = parsePendingTurn(record.pendingTurn);
+  if (record.judgeReceipt !== undefined && !judgeReceipt) {
+    return undefined;
+  }
   if (record.pendingTurn !== undefined && !pendingTurn) {
+    return undefined;
+  }
+  if (record.judgeExecution !== undefined && !judgeExecution) {
     return undefined;
   }
   return {
@@ -463,13 +556,15 @@ export function parsePursueGoalControllerState(
     activationCount: nonNegativeInteger(record.activationCount),
     consecutiveFailures: nonNegativeInteger(record.consecutiveFailures),
     consecutiveBlockers: nonNegativeInteger(record.consecutiveBlockers),
-    ...(nonEmptyString(record.nextAction)
-      ? { nextAction: nonEmptyString(record.nextAction)! }
+    ...(boundedString(record.nextAction, PURSUE_GOAL_SUMMARY_MAX_CHARS)
+      ? { nextAction: boundedString(record.nextAction, PURSUE_GOAL_SUMMARY_MAX_CHARS)! }
       : {}),
-    ...(nonEmptyString(record.lastResult)
-      ? { lastResult: nonEmptyString(record.lastResult)! }
+    ...(boundedString(record.lastResult, PURSUE_GOAL_SUMMARY_MAX_CHARS)
+      ? { lastResult: boundedString(record.lastResult, PURSUE_GOAL_SUMMARY_MAX_CHARS)! }
       : {}),
-    ...(nonEmptyString(record.lastError) ? { lastError: nonEmptyString(record.lastError)! } : {}),
+    ...(boundedString(record.lastError, PURSUE_GOAL_SUMMARY_MAX_CHARS)
+      ? { lastError: boundedString(record.lastError, PURSUE_GOAL_SUMMARY_MAX_CHARS)! }
+      : {}),
     ...(finiteTimestamp(record.pauseRequestedAt) !== undefined
       ? { pauseRequestedAt: finiteTimestamp(record.pauseRequestedAt)! }
       : {}),
@@ -495,14 +590,20 @@ export function parsePursueGoalControllerState(
       ? { terminalDeliveryState: record.terminalDeliveryState }
       : {}),
     terminalDeliveryAttempts: nonNegativeInteger(record.terminalDeliveryAttempts),
-    ...(nonEmptyString(record.terminalDeliveryLastError)
-      ? { terminalDeliveryLastError: nonEmptyString(record.terminalDeliveryLastError)! }
+    ...(boundedString(record.terminalDeliveryLastError, PURSUE_GOAL_SUMMARY_MAX_CHARS)
+      ? {
+          terminalDeliveryLastError: boundedString(
+            record.terminalDeliveryLastError,
+            PURSUE_GOAL_SUMMARY_MAX_CHARS,
+          )!,
+        }
       : {}),
     staleGoalRepairAttempts: nonNegativeInteger(record.staleGoalRepairAttempts),
     ...(finiteTimestamp(record.staleGoalRepairLastAt) !== undefined
       ? { staleGoalRepairLastAt: finiteTimestamp(record.staleGoalRepairLastAt)! }
       : {}),
     ...(judgeReceipt ? { judgeReceipt } : {}),
+    ...(judgeExecution ? { judgeExecution } : {}),
     ...(pendingTurn ? { pendingTurn } : {}),
     mailbox: parseDurableWorkerMailbox(record.mailbox),
     events: parseExecutionEvents(record.events),

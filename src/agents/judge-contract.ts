@@ -12,6 +12,15 @@ export const JUDGE_CONTRACT_VERSION = 2 as const;
 export const JUDGE_HOSTED_MODEL = "openai/gpt-5.6" as const;
 export const JUDGE_MODEL_TOOL_ALLOWLIST = [] as const;
 export const JUDGE_MODEL_REQUEST_COUNT = 1 as const;
+export const JUDGE_REQUEST_MAX_CHARS = 16_000;
+export const JUDGE_FINAL_TEXT_MAX_CHARS = 64_000;
+export const JUDGE_EVIDENCE_MAX_CHARS = 32_000;
+export const JUDGE_ARTIFACT_MAX_COUNT = 32;
+export const JUDGE_ARTIFACT_ID_MAX_CHARS = 2_048;
+export const JUDGE_PROMPT_MAX_BYTES = 128 * 1024;
+export const JUDGE_RESPONSE_MAX_BYTES = 32 * 1024;
+export const JUDGE_RESPONSE_FIELD_MAX_CHARS = 4_096;
+export const JUDGE_MAX_OUTPUT_TOKENS = 4_096;
 
 export const JUDGE_V2_VERDICTS = [
   "APPROVE",
@@ -34,11 +43,11 @@ export const JUDGE_V2_RESPONSE_JSON_SCHEMA = {
   additionalProperties: false,
   properties: {
     verdict: { type: "string", enum: [...JUDGE_V2_VERDICTS] },
-    scope: { type: "string" },
-    evidence: { type: "string" },
+    scope: { type: "string", minLength: 1, maxLength: JUDGE_RESPONSE_FIELD_MAX_CHARS },
+    evidence: { type: "string", minLength: 1, maxLength: JUDGE_RESPONSE_FIELD_MAX_CHARS },
     risk: { type: "string", enum: [...JUDGE_V2_RISKS] },
-    reason: { type: "string" },
-    conditions: { type: "string" },
+    reason: { type: "string", minLength: 1, maxLength: JUDGE_RESPONSE_FIELD_MAX_CHARS },
+    conditions: { type: "string", minLength: 1, maxLength: JUDGE_RESPONSE_FIELD_MAX_CHARS },
   },
   required: ["verdict", "scope", "evidence", "risk", "reason", "conditions"],
 } as const;
@@ -63,9 +72,9 @@ export type JudgeModelExecutionEvidence = {
 };
 
 const OUT_OF_SCOPE_PATTERNS = [
-  /\b(?:evaluate|assess|decide|determine|judge|tell me|whether|is|was|are|were)\b[^.?!\n]{0,120}\b(?:moral(?:ity|ly)?|ethic(?:al|s)?|politic(?:al|s)?|value(?:s)?|social(?:ly)?|societal(?:ly)?)\b/i,
-  /\b(?:moral(?:ity|ly)?|ethic(?:al|s)?|politic(?:al|s)?|value(?:s)?|social(?:ly)?|societal(?:ly)?)\s+(?:right|wrong|good|bad|acceptable|unacceptable|just|unjust|evaluation|judgment|question|assessment)\b/i,
-  /\b(?:value judgment|social good|social consequences|moral consequences|ethical consequences)\b/i,
+  /\b(?:morally|ethically)\s+(?:right|wrong|good|bad|acceptable|unacceptable|just|unjust)\b/i,
+  /\b(?:is|are|was|were)\s+[^.?!\n]{1,120}\s+(?:ethical|unethical|moral|immoral)\b/i,
+  /\b(?:judge|decide|tell me|assess|evaluate)\s+(?:whether|if)\s+[^.?!\n]{1,120}\s+(?:ethical|moral|right|wrong)\b/i,
 ] as const;
 
 /** True only for explicit moral, ethical, political, or value-evaluation asks. */
@@ -98,6 +107,9 @@ function isKnownRisk(value: unknown): value is JudgeV2Risk {
 export function parseJudgeV2ModelOutput(
   text: string,
 ): { ok: true; value: JudgeV2ModelOutput } | { ok: false; errors: string[] } {
+  if (Buffer.byteLength(text, "utf8") > JUDGE_RESPONSE_MAX_BYTES) {
+    return { ok: false, errors: [`Judge V2 output exceeds ${JUDGE_RESPONSE_MAX_BYTES} bytes`] };
+  }
   const errors: string[] = [];
   let parsed: unknown;
   try {
@@ -128,6 +140,8 @@ export function parseJudgeV2ModelOutput(
   for (const field of ["scope", "evidence", "reason", "conditions"] as const) {
     if (!nonEmptyString(parsed[field])) {
       errors.push(`${field} must be a non-empty string`);
+    } else if (parsed[field].length > JUDGE_RESPONSE_FIELD_MAX_CHARS) {
+      errors.push(`${field} exceeds ${JUDGE_RESPONSE_FIELD_MAX_CHARS} characters`);
     }
   }
   if (errors.length > 0) {
@@ -157,9 +171,14 @@ export function parseJudgeV2ModelOutput(
 }
 
 export function judgeV2ToolPolicyIsEmpty(
-  evidence: Pick<JudgeModelExecutionEvidence, "modelVisibleTools" | "requestCount">,
+  evidence: JudgeModelExecutionEvidence,
+  expectedModel?: string,
 ): boolean {
   return (
-    evidence.requestCount === JUDGE_MODEL_REQUEST_COUNT && evidence.modelVisibleTools.length === 0
+    evidence.requestCount === JUDGE_MODEL_REQUEST_COUNT &&
+    evidence.modelVisibleTools.length === 0 &&
+    (evidence.route === "local" || evidence.route === "hosted") &&
+    Boolean(evidence.model.trim()) &&
+    (!expectedModel || evidence.model === expectedModel)
   );
 }

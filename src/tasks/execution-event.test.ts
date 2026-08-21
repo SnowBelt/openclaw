@@ -65,4 +65,18 @@ describe("execution event protocol", () => {
       "event-3",
     ]);
   });
+
+  it("rejects a present payload that cannot be represented as JSON", () => {
+    const event = createExecutionEvent({
+      flowId: "flow-1",
+      category: "run",
+      name: "run.heartbeat",
+      actorId: "controller",
+      summary: "Heartbeat",
+      eventId: "event-invalid-payload",
+      at: 10,
+    });
+
+    expect(parseExecutionEvent({ ...event, payload: Symbol("invalid") })).toBeUndefined();
+  });
 });

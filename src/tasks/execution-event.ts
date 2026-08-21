@@ -5,6 +5,9 @@ import type { JsonValue } from "./task-flow-registry.types.js";
 
 export const EXECUTION_EVENT_SCHEMA_VERSION = 1 as const;
 export const EXECUTION_EVENT_HISTORY_LIMIT = 200;
+const EXECUTION_EVENT_ID_MAX_CHARS = 512;
+const EXECUTION_EVENT_SUMMARY_MAX_CHARS = 8_000;
+const EXECUTION_EVENT_PAYLOAD_MAX_BYTES = 32 * 1_024;
 
 export type ExecutionEventCategory =
   | "run"
@@ -121,6 +124,19 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function boundedString(value: unknown, maxChars: number): string | undefined {
+  const parsed = nonEmptyString(value);
+  return parsed && parsed.length <= maxChars ? parsed : undefined;
+}
+
+function jsonFits(value: unknown, maxBytes: number): boolean {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8") <= maxBytes;
+  } catch {
+    return false;
+  }
+}
+
 function finiteNonNegativeInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
@@ -149,11 +165,11 @@ function parseCorrelation(value: unknown): ExecutionEventCorrelation | undefined
   }
   const record = value as Record<string, unknown>;
   const correlation = {
-    missionId: nonEmptyString(record.missionId),
-    runId: nonEmptyString(record.runId),
-    taskId: nonEmptyString(record.taskId),
-    sessionKey: nonEmptyString(record.sessionKey),
-    idempotencyKey: nonEmptyString(record.idempotencyKey),
+    missionId: boundedString(record.missionId, EXECUTION_EVENT_ID_MAX_CHARS),
+    runId: boundedString(record.runId, EXECUTION_EVENT_ID_MAX_CHARS),
+    taskId: boundedString(record.taskId, EXECUTION_EVENT_ID_MAX_CHARS),
+    sessionKey: boundedString(record.sessionKey, EXECUTION_EVENT_ID_MAX_CHARS),
+    idempotencyKey: boundedString(record.idempotencyKey, EXECUTION_EVENT_ID_MAX_CHARS),
   };
   const compact = Object.fromEntries(
     Object.entries(correlation).filter((entry): entry is [string, string] => Boolean(entry[1])),
@@ -170,12 +186,12 @@ export function parseExecutionEvent(value: unknown): ExecutionEventV1 | undefine
   if (record.schemaVersion !== EXECUTION_EVENT_SCHEMA_VERSION) {
     return undefined;
   }
-  const eventId = nonEmptyString(record.eventId);
+  const eventId = boundedString(record.eventId, EXECUTION_EVENT_ID_MAX_CHARS);
   const sequence = finiteNonNegativeInteger(record.sequence);
   const at = finiteNonNegativeInteger(record.at);
-  const flowId = nonEmptyString(record.flowId);
-  const actorId = nonEmptyString(record.actorId);
-  const summary = nonEmptyString(record.summary);
+  const flowId = boundedString(record.flowId, EXECUTION_EVENT_ID_MAX_CHARS);
+  const actorId = boundedString(record.actorId, EXECUTION_EVENT_ID_MAX_CHARS);
+  const summary = boundedString(record.summary, EXECUTION_EVENT_SUMMARY_MAX_CHARS);
   const category = nonEmptyString(record.category) as ExecutionEventCategory | undefined;
   const name = nonEmptyString(record.name) as ExecutionEventName | undefined;
   if (
@@ -194,6 +210,12 @@ export function parseExecutionEvent(value: unknown): ExecutionEventV1 | undefine
   }
   const correlation = parseCorrelation(record.correlation);
   const payload = isJsonValue(record.payload) ? record.payload : undefined;
+  if (
+    (record.payload !== undefined && payload === undefined) ||
+    (payload !== undefined && !jsonFits(payload, EXECUTION_EVENT_PAYLOAD_MAX_BYTES))
+  ) {
+    return undefined;
+  }
   return {
     schemaVersion: EXECUTION_EVENT_SCHEMA_VERSION,
     eventId,
@@ -213,7 +235,7 @@ export function parseExecutionEvents(value: unknown): ExecutionEventV1[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.flatMap((entry) => {
+  return value.slice(-EXECUTION_EVENT_HISTORY_LIMIT).flatMap((entry) => {
     const parsed = parseExecutionEvent(entry);
     return parsed ? [parsed] : [];
   });
@@ -245,7 +267,7 @@ export function createExecutionEvent(params: {
     category: params.category,
     name: params.name,
     actorId: params.actorId.trim(),
-    summary: params.summary.trim(),
+    summary: params.summary.trim().slice(0, EXECUTION_EVENT_SUMMARY_MAX_CHARS),
     ...(params.correlation ? { correlation: { ...params.correlation } } : {}),
     ...(params.payload !== undefined ? { payload: structuredClone(params.payload) } : {}),
   };

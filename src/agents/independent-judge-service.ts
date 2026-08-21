@@ -9,6 +9,12 @@ import {
 } from "./internal-runtime-context.js";
 import {
   JUDGE_CONTRACT_VERSION,
+  JUDGE_ARTIFACT_ID_MAX_CHARS,
+  JUDGE_ARTIFACT_MAX_COUNT,
+  JUDGE_EVIDENCE_MAX_CHARS,
+  JUDGE_FINAL_TEXT_MAX_CHARS,
+  JUDGE_PROMPT_MAX_BYTES,
+  JUDGE_REQUEST_MAX_CHARS,
   judgeV2ToolPolicyIsEmpty,
   parseJudgeV2ModelOutput,
   type JudgeModelExecutionEvidence,
@@ -102,6 +108,7 @@ function buildJudgePrompt(params: {
   evidenceSummary: string;
   claimHash: string;
   deterministicVerdict: JudgeGateVerdict;
+  artifactIds: readonly string[];
 }): string {
   const untrustedField = (label: string, value: string): string =>
     [
@@ -125,9 +132,43 @@ function buildJudgePrompt(params: {
     untrustedField("Original request", params.requestBody),
     untrustedField("Proposed final answer", params.finalText),
     untrustedField("Direct evidence", params.evidenceSummary),
-    "Deterministic packet preflight (not the final verdict):",
-    formatJudgeVerdict(params.deterministicVerdict),
+    untrustedField(
+      "Bound artifact references",
+      params.artifactIds.length > 0 ? params.artifactIds.join("\n") : "none",
+    ),
+    untrustedField(
+      "Deterministic packet preflight (not the final verdict)",
+      formatJudgeVerdict(params.deterministicVerdict),
+    ),
   ].join("\n");
+}
+
+function judgeClaimBoundsError(params: {
+  requestBody: string;
+  finalText: string;
+  evidenceSummary: string;
+  artifactIds: readonly string[];
+}): string | undefined {
+  if (params.requestBody.length > JUDGE_REQUEST_MAX_CHARS) {
+    return `request exceeds ${JUDGE_REQUEST_MAX_CHARS} characters`;
+  }
+  if (params.finalText.length > JUDGE_FINAL_TEXT_MAX_CHARS) {
+    return `final answer exceeds ${JUDGE_FINAL_TEXT_MAX_CHARS} characters`;
+  }
+  if (params.evidenceSummary.length > JUDGE_EVIDENCE_MAX_CHARS) {
+    return `evidence exceeds ${JUDGE_EVIDENCE_MAX_CHARS} characters`;
+  }
+  if (params.artifactIds.length > JUDGE_ARTIFACT_MAX_COUNT) {
+    return `artifact reference count exceeds ${JUDGE_ARTIFACT_MAX_COUNT}`;
+  }
+  if (
+    params.artifactIds.some(
+      (artifactId) => !artifactId.trim() || artifactId.length > JUDGE_ARTIFACT_ID_MAX_CHARS,
+    )
+  ) {
+    return `artifact reference is empty or exceeds ${JUDGE_ARTIFACT_ID_MAX_CHARS} characters`;
+  }
+  return undefined;
 }
 
 function hashText(text: string): string {
@@ -171,6 +212,7 @@ function unsignedReceipt(params: {
 }
 
 const inFlightJudgeClaims = new Map<string, Promise<IndependentJudgeResult>>();
+const MAX_IN_FLIGHT_JUDGE_CLAIMS = 32;
 
 /** Clear process-local claim deduplication between isolated tests. */
 export function resetIndependentJudgeClaimsForTests(): void {
@@ -184,6 +226,8 @@ export async function judgeCompletionIndependently(params: {
   finalText: string;
   evidenceSummary: string;
   artifactIds?: readonly string[];
+  observedEvidence?: boolean;
+  beforeModel?: (attempt: { claimHash: string; promptHash: string }) => boolean;
   runModel?: (prompt: string) => Promise<IndependentJudgeModelResult>;
   signingDirectory?: string;
   now?: number;
@@ -198,6 +242,9 @@ export async function judgeCompletionIndependently(params: {
   const existing = inFlightJudgeClaims.get(claimHash);
   if (existing) {
     return await existing;
+  }
+  if (inFlightJudgeClaims.size >= MAX_IN_FLIGHT_JUDGE_CLAIMS) {
+    return await runJudgeCompletionOnce({ ...params, claimHash, runModel: undefined });
   }
   const pending = runJudgeCompletionOnce({ ...params, claimHash });
   inFlightJudgeClaims.set(claimHash, pending);
@@ -216,19 +263,56 @@ async function runJudgeCompletionOnce(params: {
   finalText: string;
   evidenceSummary: string;
   artifactIds?: readonly string[];
+  observedEvidence?: boolean;
+  beforeModel?: (attempt: { claimHash: string; promptHash: string }) => boolean;
   runModel?: (prompt: string) => Promise<IndependentJudgeModelResult>;
   signingDirectory?: string;
   now?: number;
   claimHash: string;
 }): Promise<IndependentJudgeResult> {
   const now = params.now ?? Date.now();
+  const artifactIds = [...(params.artifactIds ?? [])];
   const deterministic = judgeTaskCompletion({
     userRequest: params.requestBody,
     finalText: params.finalText,
     expectedDeliverable: "exact Pursue Goal mission",
     artifactIds: params.artifactIds,
     status: "succeeded",
+    observedEvidence: params.observedEvidence,
   });
+  const boundsError = judgeClaimBoundsError({
+    requestBody: params.requestBody,
+    finalText: params.finalText,
+    evidenceSummary: params.evidenceSummary,
+    artifactIds,
+  });
+  if (boundsError) {
+    const responseText = `Judge claim rejected before model execution: ${boundsError}`;
+    const executionEvidence: JudgeModelExecutionEvidence = {
+      requestCount: 0,
+      modelVisibleTools: [],
+      route: "unknown",
+      model: "none",
+    };
+    const receipt = signJudgeReceipt(
+      unsignedReceipt({
+        missionId: params.missionId,
+        claimHash: params.claimHash,
+        verdict: "SYSTEM_ERROR",
+        scope: "exact Pursue Goal mission",
+        evidenceSummary: responseText,
+        conditions: "reduce the claim to the documented Judge MVP limits and retry",
+        judgeRunId: "not-run",
+        judgeAgentId: "bounds-gate",
+        now,
+        promptHash: hashText("bounds-gate"),
+        responseHash: hashText(responseText),
+        executionEvidence,
+      }),
+      { directory: params.signingDirectory },
+    );
+    return { approved: false, receipt, deterministicVerdict: deterministic.verdict };
+  }
   if (!deterministic.approved || !params.runModel) {
     const executionEvidence: JudgeModelExecutionEvidence = {
       requestCount: 0,
@@ -266,14 +350,79 @@ async function runJudgeCompletionOnce(params: {
     evidenceSummary: params.evidenceSummary,
     claimHash: params.claimHash,
     deterministicVerdict: deterministic.verdict,
+    artifactIds,
   });
+  if (Buffer.byteLength(prompt, "utf8") > JUDGE_PROMPT_MAX_BYTES) {
+    const responseText = `Judge prompt exceeds ${JUDGE_PROMPT_MAX_BYTES} bytes`;
+    const executionEvidence: JudgeModelExecutionEvidence = {
+      requestCount: 0,
+      modelVisibleTools: [],
+      route: "unknown",
+      model: "none",
+    };
+    const receipt = signJudgeReceipt(
+      unsignedReceipt({
+        missionId: params.missionId,
+        claimHash: params.claimHash,
+        verdict: "SYSTEM_ERROR",
+        scope: "exact Pursue Goal mission",
+        evidenceSummary: responseText,
+        conditions: "reduce the claim to the documented Judge MVP limits and retry",
+        judgeRunId: "not-run",
+        judgeAgentId: "bounds-gate",
+        now,
+        promptHash: hashText(prompt),
+        responseHash: hashText(responseText),
+        executionEvidence,
+      }),
+      { directory: params.signingDirectory },
+    );
+    return { approved: false, receipt, deterministicVerdict: deterministic.verdict };
+  }
+  const promptHash = hashText(prompt);
+  if (!params.beforeModel?.({ claimHash: params.claimHash, promptHash })) {
+    const responseText = "Judge execution was not durably reserved before model invocation.";
+    const executionEvidence: JudgeModelExecutionEvidence = {
+      requestCount: 0,
+      modelVisibleTools: [],
+      route: "unknown",
+      model: "none",
+    };
+    const receipt = signJudgeReceipt(
+      unsignedReceipt({
+        missionId: params.missionId,
+        claimHash: params.claimHash,
+        verdict: "SYSTEM_ERROR",
+        scope: "exact Pursue Goal mission",
+        evidenceSummary: responseText,
+        conditions: "repair the durable Judge reservation and explicitly retry",
+        judgeRunId: "not-run",
+        judgeAgentId: "durability-gate",
+        now,
+        promptHash,
+        responseHash: hashText(responseText),
+        executionEvidence,
+      }),
+      { directory: params.signingDirectory },
+    );
+    return { approved: false, receipt, deterministicVerdict: deterministic.verdict };
+  }
   const modelResult = await params.runModel(prompt);
   const parsed = parseJudgeV2ModelOutput(modelResult.text);
-  const toolPolicyValid = judgeV2ToolPolicyIsEmpty(modelResult.executionEvidence);
+  const toolPolicyValid =
+    Boolean(modelResult.model?.trim()) &&
+    judgeV2ToolPolicyIsEmpty(modelResult.executionEvidence, modelResult.model);
+  const approvalSemanticallyConsistent =
+    parsed.ok &&
+    parsed.value.verdict === "APPROVE" &&
+    parsed.value.risk !== "prohibited" &&
+    parsed.value.risk !== "unclear";
   const parsedVerdict = !toolPolicyValid
     ? "SYSTEM_ERROR"
     : parsed.ok
-      ? normalizeJudgeVerdict(parsed.value.verdict)
+      ? parsed.value.verdict === "APPROVE" && !approvalSemanticallyConsistent
+        ? "SYSTEM_ERROR"
+        : normalizeJudgeVerdict(parsed.value.verdict)
       : "SYSTEM_ERROR";
   const unsigned = unsignedReceipt({
     missionId: params.missionId,
@@ -290,13 +439,13 @@ async function runJudgeCompletionOnce(params: {
     judgeAgentId: modelResult.agentId,
     model: modelResult.model,
     now,
-    promptHash: hashText(prompt),
+    promptHash,
     responseHash: hashText(modelResult.text),
     executionEvidence: modelResult.executionEvidence,
   });
   const receipt = signJudgeReceipt(unsigned, { directory: params.signingDirectory });
   return {
-    approved: parsedVerdict === "APPROVE" && toolPolicyValid,
+    approved: parsedVerdict === "APPROVE" && toolPolicyValid && approvalSemanticallyConsistent,
     receipt,
     deterministicVerdict: deterministic.verdict,
     modelText: modelResult.text,

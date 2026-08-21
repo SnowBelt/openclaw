@@ -80,6 +80,10 @@ const STARTUP_CHAT_HISTORY_RETRY_TIMEOUT_MS = 60_000;
 const STARTUP_CHAT_HISTORY_DEFAULT_RETRY_MS = 500;
 const STARTUP_CHAT_HISTORY_MAX_RETRY_MS = 5_000;
 const chatHistoryRequestVersions = new WeakMap<object, number>();
+const chatGoalRefreshes = new WeakMap<
+  object,
+  { client: GatewayBrowserClient; sessionKey: string; promise: Promise<ChatGoalRefreshResult> }
+>();
 
 function beginChatHistoryRequest(state: ChatState): number {
   const key = state as object;
@@ -568,6 +572,39 @@ async function listPaginatedChatGoals(
   }
 }
 
+async function listCurrentChatGoals(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  allowLegacyMissingControllerId: boolean,
+): Promise<ChatGoalFlowSummary[]> {
+  if (allowLegacyMissingControllerId) {
+    return await listPaginatedChatGoals(client, sessionKey, true);
+  }
+  const [active, terminal] = await Promise.all([
+    client.request<ChatGoalFlowsResponse>("taskFlows.list", {
+      sessionKey,
+      controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
+      status: ["queued", "running", "paused", "waiting", "blocked"],
+      limit: 1,
+    }),
+    client.request<ChatGoalFlowsResponse>("taskFlows.list", {
+      sessionKey,
+      controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
+      status: ["succeeded", "failed", "cancelled", "lost"],
+      limit: 1,
+    }),
+  ]);
+  const seen = new Set<string>();
+  return [...(active.flows ?? []), ...(terminal.flows ?? [])].filter((flow) => {
+    const id = flow.flowId ?? flow.id;
+    if (!isChatPursueGoalFlow(flow) || !id || seen.has(id)) {
+      return false;
+    }
+    seen.add(id);
+    return true;
+  });
+}
+
 export async function loadChatProjects(state: ChatState): Promise<void> {
   if (!state.client || !state.connected) {
     return;
@@ -594,49 +631,71 @@ export async function loadChatProjects(state: ChatState): Promise<void> {
   }
 }
 
+async function performChatGoalRefresh(
+  state: ChatState,
+  client: GatewayBrowserClient,
+  sessionKey: string,
+): Promise<ChatGoalRefreshResult> {
+  const isCurrent = () => state.client === client && state.sessionKey === sessionKey;
+  try {
+    const allowLegacyMissingControllerId =
+      isGatewayMethodAdvertised(state, "taskFlows.list") !== true;
+    try {
+      const goals = await listCurrentChatGoals(client, sessionKey, allowLegacyMissingControllerId);
+      if (isCurrent()) {
+        state.chatGoalFlows = goals;
+        state.chatGoalError = null;
+        state.chatGoalUpdatedAt = Date.now();
+      }
+      return "authoritative";
+    } catch (listError) {
+      if (isGatewayMethodAdvertised(state, "executionState.get") !== true) {
+        throw listError;
+      }
+      const snapshot = await client.request<ExecutionStateSnapshot>("executionState.get", {
+        sessionKey,
+        includeTerminal: true,
+      });
+      if (isCurrent()) {
+        state.chatExecutionState = snapshot;
+        state.chatGoalFlows = (snapshot.flows ?? []).filter(isChatPursueGoalFlow).slice(0, 2);
+        state.chatGoalError = null;
+        state.chatGoalUpdatedAt = Date.now();
+      }
+      return "fallback";
+    }
+  } catch (err) {
+    if (isCurrent()) {
+      setChatGoalError(state, err);
+    }
+    return "failed";
+  } finally {
+    if (isCurrent()) {
+      state.chatGoalLoading = false;
+    }
+  }
+}
+
 export async function loadChatGoals(state: ChatState): Promise<ChatGoalRefreshResult> {
   if (!state.client || !state.connected) {
     return "failed";
   }
+  const key = state as object;
+  const client = state.client;
+  const sessionKey = state.sessionKey;
+  const existing = chatGoalRefreshes.get(key);
+  if (existing && existing.client === client && existing.sessionKey === sessionKey) {
+    return await existing.promise;
+  }
   state.chatGoalLoading = true;
+  const promise = performChatGoalRefresh(state, client, sessionKey);
+  chatGoalRefreshes.set(key, { client, sessionKey, promise });
   try {
-    let refreshResult: ChatGoalRefreshResult = "authoritative";
-    const allowLegacyMissingControllerId =
-      isGatewayMethodAdvertised(state, "taskFlows.list") !== true;
-    if (isGatewayMethodAdvertised(state, "executionState.get") === true) {
-      const [snapshotResult, goalsResult] = await Promise.allSettled([
-        state.client.request<ExecutionStateSnapshot>("executionState.get", {
-          sessionKey: state.sessionKey,
-          includeTerminal: true,
-        }),
-        listPaginatedChatGoals(state.client, state.sessionKey, allowLegacyMissingControllerId),
-      ]);
-      if (snapshotResult.status === "fulfilled") {
-        state.chatExecutionState = snapshotResult.value;
-      }
-      if (goalsResult.status === "fulfilled") {
-        state.chatGoalFlows = goalsResult.value;
-      } else if (snapshotResult.status === "fulfilled") {
-        state.chatGoalFlows = (snapshotResult.value.flows ?? []).filter(isChatPursueGoalFlow);
-        refreshResult = "fallback";
-      } else {
-        throw goalsResult.reason;
-      }
-    } else {
-      state.chatGoalFlows = await listPaginatedChatGoals(
-        state.client,
-        state.sessionKey,
-        allowLegacyMissingControllerId,
-      );
-    }
-    state.chatGoalError = null;
-    state.chatGoalUpdatedAt = Date.now();
-    return refreshResult;
-  } catch (err) {
-    setChatGoalError(state, err);
-    return "failed";
+    return await promise;
   } finally {
-    state.chatGoalLoading = false;
+    if (chatGoalRefreshes.get(key)?.promise === promise) {
+      chatGoalRefreshes.delete(key);
+    }
   }
 }
 

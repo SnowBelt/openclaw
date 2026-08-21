@@ -9,7 +9,6 @@ import {
   formatValidationErrors,
   type TaskFlowDetail,
   type TaskFlowControlAction,
-  type TaskFlowsListParams,
   type TaskSummary,
   type TasksListParams,
   validateTaskFlowsCancelParams,
@@ -40,6 +39,7 @@ import { cancelDetachedTaskRunById } from "../../tasks/detached-task-runtime.js"
 import {
   createPursueGoalControllerState,
   PURSUE_GOAL_CONTROLLER_ID,
+  PURSUE_GOAL_MAX_CHARS,
   stateForPursueGoalFlow,
 } from "../../tasks/pursue-goal-controller-state.js";
 import {
@@ -58,6 +58,7 @@ import {
   deleteTaskFlowRecordById,
   getTaskFlowById,
   listTaskFlowRecords,
+  listTaskFlowRecordsPage,
   updateFlowRecordByIdExpectedRevision,
 } from "../../tasks/task-flow-runtime-internal.js";
 import type { TaskRecord, TaskStatus } from "../../tasks/task-registry.types.js";
@@ -200,17 +201,6 @@ function isPursueGoalTaskFlow(flow: TaskFlowRecord): boolean {
   return flow.controllerId === PURSUE_GOAL_CONTROLLER_ID && stateForPursueGoalFlow(flow) != null;
 }
 
-function flowMatchesStatusFilter(
-  flow: TaskFlowRecord,
-  status: TaskFlowsListParams["status"],
-): boolean {
-  if (!status) {
-    return true;
-  }
-  const statuses = Array.isArray(status) ? status : [status];
-  return new Set<TaskFlowStatus>(statuses).has(flow.status);
-}
-
 function isActiveTaskStatus(status: TaskRecord["status"]): boolean {
   return status === "queued" || status === "running";
 }
@@ -255,7 +245,7 @@ export function mapTaskFlowDetail(flow: TaskFlowRecord): TaskFlowDetail {
     ...(flow.requesterOrigin ? { requesterOrigin: flow.requesterOrigin } : {}),
     status: flow.status,
     notifyPolicy: flow.notifyPolicy,
-    goal: sanitizeTaskStatusText(flow.goal, { maxChars: TASK_STATUS_DETAIL_MAX_CHARS }),
+    goal: flow.goal,
     ...(flow.currentStep
       ? {
           currentStep: sanitizeTaskStatusText(flow.currentStep, {
@@ -320,7 +310,7 @@ export function mapTaskFlowDetail(flow: TaskFlowRecord): TaskFlowDetail {
     createdAt: flow.createdAt,
     updatedAt: flow.updatedAt,
     ...(flow.endedAt !== undefined ? { endedAt: flow.endedAt } : {}),
-    tasks: tasks.map((task) => mapTaskSummary(task)),
+    tasks: tasks.slice(0, 50).map((task) => mapTaskSummary(task)),
     taskSummary: summarizeTaskFlowTasks(tasks),
   };
 }
@@ -574,17 +564,24 @@ export const tasksHandlers: GatewayRequestHandlers = {
       params.limit ?? DEFAULT_TASK_FLOWS_LIST_LIMIT,
       MAX_TASK_FLOWS_LIST_LIMIT,
     );
-    const filtered = listTaskFlowRecords().filter(
-      (flow) =>
-        flow.controllerId !== CHAT_TURN_INBOX_CONTROLLER_ID &&
-        flowMatchesOwner(flow, params) &&
-        flowMatchesStatusFilter(flow, params.status),
-    );
-    const page = filtered.slice(cursor, cursor + limit);
-    const nextOffset = cursor + page.length;
+    const ownerKey = normalizeOptionalString(params.ownerKey ?? params.sessionKey);
+    const statuses = params.status
+      ? Array.isArray(params.status)
+        ? params.status
+        : [params.status]
+      : undefined;
+    const filtered = listTaskFlowRecordsPage({
+      ...(ownerKey ? { ownerKey } : {}),
+      ...(params.controllerId ? { controllerId: params.controllerId } : {}),
+      excludeControllerId: CHAT_TURN_INBOX_CONTROLLER_ID,
+      ...(statuses ? { statuses } : {}),
+      offset: cursor,
+      limit,
+    });
+    const nextOffset = cursor + filtered.flows.length;
     respond(true, {
-      flows: page.map((flow) => mapTaskFlowDetail(flow)),
-      ...(nextOffset < filtered.length ? { nextCursor: String(nextOffset) } : {}),
+      flows: filtered.flows.map((flow) => mapTaskFlowDetail(flow)),
+      ...(nextOffset < filtered.total ? { nextCursor: String(nextOffset) } : {}),
     });
   },
   "taskFlows.get": ({ params, respond }) => {
@@ -623,18 +620,24 @@ export const tasksHandlers: GatewayRequestHandlers = {
       return;
     }
     const sessionKey = params.sessionKey.trim();
-    const goal = sanitizeTaskStatusText(params.goal, { maxChars: TASK_STATUS_DETAIL_MAX_CHARS });
-    if (!sessionKey || !goal) {
+    const goal = params.goal.trim();
+    if (!sessionKey || !goal || goal.length > PURSUE_GOAL_MAX_CHARS) {
       respond(
         false,
         undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "sessionKey and goal are required"),
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `sessionKey and a goal of at most ${PURSUE_GOAL_MAX_CHARS} characters are required`,
+        ),
       );
       return;
     }
     const idempotencyKey = normalizeOptionalString(params.idempotencyKey);
     if (idempotencyKey) {
-      const existing = listTaskFlowRecords().find((candidate) => {
+      const existing = listTaskFlowRecordsPage({
+        ownerKey: sessionKey,
+        controllerId: PURSUE_GOAL_CONTROLLER_ID,
+      }).flows.find((candidate) => {
         const state = stateForPursueGoalFlow(candidate);
         return candidate.ownerKey === sessionKey && state?.idempotencyKey === idempotencyKey;
       });
@@ -921,15 +924,23 @@ export const tasksHandlers: GatewayRequestHandlers = {
       });
       return;
     }
-    const goal =
-      params.action === "edit"
-        ? sanitizeTaskStatusText(params.goal ?? "", { maxChars: TASK_STATUS_DETAIL_MAX_CHARS })
-        : undefined;
+    const goal = params.action === "edit" ? (params.goal ?? "").trim() : undefined;
     if (params.action === "edit" && !goal) {
       respond(
         false,
         undefined,
         errorShape(ErrorCodes.INVALID_REQUEST, "goal is required when editing a task flow"),
+      );
+      return;
+    }
+    if (goal && goal.length > PURSUE_GOAL_MAX_CHARS) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `goal must be at most ${PURSUE_GOAL_MAX_CHARS} characters`,
+        ),
       );
       return;
     }

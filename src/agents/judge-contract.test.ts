@@ -29,9 +29,17 @@ describe("Judge V2 model contract", () => {
   });
 
   it("requires one request and an empty model-visible tool list", () => {
-    expect(judgeV2ToolPolicyIsEmpty({ requestCount: 1, modelVisibleTools: [] })).toBe(true);
-    expect(judgeV2ToolPolicyIsEmpty({ requestCount: 2, modelVisibleTools: [] })).toBe(false);
-    expect(judgeV2ToolPolicyIsEmpty({ requestCount: 1, modelVisibleTools: ["update_plan"] })).toBe(
+    const evidence = { route: "local" as const, model: "ollama/qwen", modelVisibleTools: [] };
+    expect(judgeV2ToolPolicyIsEmpty({ ...evidence, requestCount: 1 })).toBe(true);
+    expect(judgeV2ToolPolicyIsEmpty({ ...evidence, requestCount: 2 })).toBe(false);
+    expect(
+      judgeV2ToolPolicyIsEmpty({
+        ...evidence,
+        requestCount: 1,
+        modelVisibleTools: ["update_plan"],
+      }),
+    ).toBe(false);
+    expect(judgeV2ToolPolicyIsEmpty({ ...evidence, requestCount: 1 }, "ollama/another-model")).toBe(
       false,
     );
   });

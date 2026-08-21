@@ -136,7 +136,8 @@ async function runTaskFlowHandler(
     | "taskFlows.get"
     | "taskFlows.create"
     | "taskFlows.cancel"
-    | "taskFlows.control",
+    | "taskFlows.control"
+    | "taskFlows.edit",
   params: Record<string, unknown>,
 ) {
   const { calls, respond } = captureRespond();
@@ -162,6 +163,41 @@ async function getTaskPayload(taskId: string) {
 }
 
 describe("tasks gateway handlers", () => {
+  it("projects the complete long Pursue Goal without silent truncation", async () => {
+    const goal = "Complete verified step. ".repeat(180).trim();
+    const flow = createManagedTaskFlow({
+      ownerKey: "agent:main:main",
+      controllerId: PURSUE_GOAL_CONTROLLER_ID,
+      status: "queued",
+      goal,
+    });
+    if (!flow) {
+      throw new Error("expected managed flow");
+    }
+    expect(
+      updateFlowRecordByIdExpectedRevision({
+        flowId: flow.flowId,
+        expectedRevision: flow.revision,
+        patch: {
+          stateJson: structuredClone(
+            createPursueGoalControllerState({
+              flowId: flow.flowId,
+              goal,
+              workerAgentId: "program-manager",
+            }),
+          ),
+        },
+      }).applied,
+    ).toBe(true);
+
+    const result = await runTaskFlowHandler("taskFlows.get", {
+      flowId: flow.flowId,
+      sessionKey: "agent:main:main",
+    });
+    expect(result.calls[0]?.[0]).toBe(true);
+    expect(result.payload?.flow?.goal).toBe(goal);
+  });
+
   it("controls a session-owned managed flow through one canonical method", async () => {
     const flow = createManagedTaskFlow({
       ownerKey: "agent:main:main",
@@ -214,6 +250,28 @@ describe("tasks gateway handlers", () => {
       flow: { goal: "Finish the dashboard safely" },
     });
     expect(getTaskFlowById(flow.flowId)?.goal).toBe("Finish the dashboard safely");
+  });
+
+  it("rejects an oversized goal through the direct edit endpoint", async () => {
+    const flow = createManagedTaskFlow({
+      ownerKey: "agent:main:main",
+      controllerId: PURSUE_GOAL_CONTROLLER_ID,
+      status: "paused",
+      goal: "Keep the bounded goal",
+    });
+    if (!flow) {
+      throw new Error("expected managed flow");
+    }
+
+    const result = await runTaskFlowHandler("taskFlows.edit", {
+      flowId: flow.flowId,
+      sessionKey: "agent:main:main",
+      goal: "g".repeat(16_001),
+    });
+
+    expect(result.calls[0]?.[0]).toBe(false);
+    expect(result.calls[0]?.[2]).toMatchObject({ code: "INVALID_REQUEST" });
+    expect(getTaskFlowById(flow.flowId)?.goal).toBe("Keep the bounded goal");
   });
 
   it("returns a canonical revision conflict before applying stale goal controls", async () => {

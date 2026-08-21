@@ -3010,6 +3010,7 @@ function renderPursueGoal(props: ChatProps) {
               <span>Goal</span>
               <textarea
                 rows="2"
+                maxlength="16000"
                 placeholder="Describe what OpenClaw should pursue until verified."
                 .value=${props.goalDraft ?? ""}
                 @input=${(event: Event) =>

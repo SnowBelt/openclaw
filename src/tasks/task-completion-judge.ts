@@ -1,6 +1,6 @@
+import { isJudgeOutOfScopeText } from "../agents/judge-contract.js";
 import {
   buildJudgeVerdict,
-  evaluateJudgePacket,
   formatJudgeVerdict,
   type JudgeGateVerdict,
 } from "../agents/judge-gate.js";
@@ -12,6 +12,7 @@ type JudgeTaskCompletionParams = {
   artifactIds?: readonly string[];
   status: "succeeded" | "failed" | "timed_out" | "cancelled";
   error?: string;
+  observedEvidence?: boolean;
 };
 
 export type TaskCompletionJudgeResult = {
@@ -27,6 +28,8 @@ const COMPLETION_RE =
   /\b(done|complete|completed|finished|ready|attached|created|built|delivered|here(?:'s| is))\b/i;
 const ARTIFACT_REQUEST_RE =
   /\b(video|game|rom|file|download|attachment|image|picture|photo|song|music|audio|pdf|docx|spreadsheet|presentation|app|project|artifact)\b/i;
+const VERIFICATION_CLAIM_RE =
+  /\b(test(?:s|ed|ing)?|pass(?:ed|es|ing)?|build|built|fix(?:ed|es)?|deploy(?:ed|ment)?|release(?:d)?|wrote|created|modified|updated|verified|validated)\b/i;
 
 function trimText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -59,8 +62,6 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
     .join("; ");
 
   let forcedVerdict: JudgeGateVerdict | undefined;
-  let instructions =
-    "Approve only if the final reply directly satisfies the request and required artifacts are present.";
   if (params.status !== "succeeded") {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REJECT",
@@ -71,7 +72,6 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       conditions: "resolve the failed runtime status",
       gate: "task_completion",
     });
-    instructions = "Reject because the runtime did not finish successfully.";
   } else if (!finalText) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",
@@ -82,7 +82,6 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       conditions: "provide a final answer or explicit blocker",
       gate: "task_completion",
     });
-    instructions = "Reject because there is no final user-visible reply.";
   } else if (isWorkingOnlyFinal(finalText)) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",
@@ -93,7 +92,16 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       conditions: "finish the work or record a concrete blocker",
       gate: "task_completion",
     });
-    instructions = "Reject because the final reply only promises future work.";
+  } else if (isJudgeOutOfScopeText(params.userRequest)) {
+    forcedVerdict = buildJudgeVerdict({
+      verdict: "OUT_OF_SCOPE",
+      scope: expectedDeliverable,
+      evidence,
+      risk: "unclear",
+      reason: "The request asks for a normative moral or ethical judgment outside Judge scope.",
+      conditions: "restate the request as technical completion or operational verification",
+      gate: "task_completion",
+    });
   } else if (wantsArtifact && artifactIds.length === 0) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",
@@ -104,18 +112,29 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       conditions: "attach or link the requested artifact",
       gate: "task_completion",
     });
-    instructions = "Reject because the request expected an artifact but no artifact was recorded.";
+  } else if (VERIFICATION_CLAIM_RE.test(finalText) && params.observedEvidence !== true) {
+    forcedVerdict = buildJudgeVerdict({
+      verdict: "REQUEST_MORE_EVIDENCE",
+      scope: expectedDeliverable,
+      evidence:
+        "runtime status succeeded; no trusted execution or artifact observation was recorded",
+      risk: "low",
+      reason: "The final reply makes an execution or verification claim using worker prose only.",
+      conditions: "record trusted runtime or artifact evidence and rerun verification",
+      gate: "task_completion",
+    });
   }
 
   const verdict =
     forcedVerdict ??
-    evaluateJudgePacket({
-      claim_or_action: `Todd completed user request: ${params.userRequest}`,
+    buildJudgeVerdict({
+      verdict: "APPROVE",
       scope: expectedDeliverable,
       evidence,
-      instructions,
       risk: "low",
-      requested_verdict: "APPROVE",
+      reason:
+        "The runtime completed and the deliverable is ready for independent technical review.",
+      conditions: "independent model review must verify the exact claim",
       gate: "task_completion",
     });
   const approved = verdict.verdict === "APPROVE";

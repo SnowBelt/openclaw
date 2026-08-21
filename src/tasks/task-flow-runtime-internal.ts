@@ -8,6 +8,7 @@ export {
   getTaskFlowById,
   getTaskFlowRegistryRestoreFailure,
   listTaskFlowRecords,
+  listTaskFlowRecordsPage,
   reloadTaskFlowRegistryFromStore,
   requestFlowCancel,
   resolveTaskFlowForLookupToken,
@@ -19,4 +20,8 @@ export {
   updateFlowRecordByIdExpectedRevision,
 } from "./task-flow-registry.js";
 
-export type { TaskFlowSyncResult, TaskFlowUpdateResult } from "./task-flow-registry.js";
+export type {
+  TaskFlowRecordPageQuery,
+  TaskFlowSyncResult,
+  TaskFlowUpdateResult,
+} from "./task-flow-registry.js";

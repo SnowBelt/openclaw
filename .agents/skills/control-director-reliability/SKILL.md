@@ -13,21 +13,19 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 - Keep the Control Director conversational and responsive. It owns intake, clarification, status condensation, routing, and final delivery; it delegates mutating work by default.
 - The Program Manager owns executable decomposition, dependency-aware dispatch, worker fan-out, and evidence fan-in.
 - The Project Manager owns bounded project execution and milestone state inside an assigned project.
-- The independent Judge receives the immutable mission plus evidence, has read-only inspection capability, and signs a claim-bound receipt. It never performs the work it judges.
+- The independent Judge follows the short executable contract below.
 - SIG detects recurring systemic failures, routes recommendations, and governs proof-backed closure. It cannot silently modify, deploy, or close production work.
 - Chat owns conversation, input admission, inline activity, and compact controls. PCC owns explicit plan records and evidence. System Quality owns Judge, SIG, canary, and diagnostic detail. Never infer PCC state from assistant prose.
 - Use one production Chat implementation. Do not create a parallel Chat page or duplicate state store.
 
 ## Judge MVP quick contract
 
-Keep every Judge handoff on this short path; the executable contract in `src/agents/judge-contract.ts` is authoritative:
+`src/agents/judge-contract.ts` is authoritative:
 
-1. Judge only completion, direct evidence, authorization, integrity, and operational invariants. Moral, ethical, political, value, and social-good questions return `OUT_OF_SCOPE`.
-2. Run deterministic checks first. A deterministic block never invokes a model.
-3. Prefer the independently qualified local Judge route (Qwen 3.8 27B Q8, MTP off). Use GPT-5.6 as the hosted fallback; never route Judge work to GPT-5.5.
-4. A model turn is one request with `tools: []`, `tool_choice: "none"`, `parallel_tool_calls: false`, and the closed V2 JSON schema. Missing or drifted execution evidence fails closed.
-5. Issue V2 signed receipts for new decisions; keep V1 receipts readable. A completion needs a claim-bound signature plus one-request, known-route, zero-tool proof.
-6. The Judge reads evidence and inspects goal state only. It never executes, mutates, delegates, messages, approves tools, or declares completion from prose alone.
+1. Scope: technical completion, observed evidence, authorization, integrity, and operational invariants. Normative moral or ethical questions return `OUT_OF_SCOPE`.
+2. Gate deterministically first; a deterministic block uses no model. Never treat worker prose as direct evidence.
+3. Route only configured, qualified candidates: local Qwen 3.8 27B Q8 (MTP off), then GPT-5.6. Never use GPT-5.5.
+4. One zero-tool request; closed V2 JSON; signed claim-bound V2 receipt. Drift, missing evidence, duplicate/indeterminate execution, or exhaustion fails closed. V1 is read-only compatibility.
 
 ## Operations Room truth contract
 

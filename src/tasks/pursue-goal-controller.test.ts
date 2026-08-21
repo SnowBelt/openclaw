@@ -11,6 +11,7 @@ import {
   PURSUE_GOAL_CONTROLLER_ID,
   stateForPursueGoalFlow,
   type PursueGoalJudgeReceipt,
+  type PursueGoalJudgeReceiptV2,
 } from "./pursue-goal-controller-state.js";
 import {
   editPursueGoalFlow,
@@ -60,7 +61,7 @@ function approvedReceipt(params: {
 }): PursueGoalJudgeReceipt {
   const evidenceSummary = params.evidenceSummary ?? params.text;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     receiptId: "receipt-1",
     missionId: params.missionId,
     claimHash: buildControlDirectorJudgeClaimHash({
@@ -75,7 +76,13 @@ function approvedReceipt(params: {
     conditions: "none",
     judgeRunId: "judge-run-1",
     judgeAgentId: "judge",
+    model: "ollama/qwen3.8:27b-q8_0",
     issuedAt: Date.now(),
+    promptHash: "a".repeat(64),
+    responseHash: "b".repeat(64),
+    route: "local",
+    modelVisibleTools: [],
+    requestCount: 1,
     signature: "signature",
     publicKeyId: "key-1",
   };
@@ -86,7 +93,7 @@ function approvedV2Receipt(params: {
   goal: string;
   text: string;
   modelVisibleTools?: string[];
-}): PursueGoalJudgeReceipt {
+}): PursueGoalJudgeReceiptV2 {
   const evidenceSummary = params.text;
   return {
     schemaVersion: 2,
@@ -106,13 +113,38 @@ function approvedV2Receipt(params: {
     judgeAgentId: "judge",
     model: "ollama/qwen3.8:27b-q8_0",
     issuedAt: Date.now(),
-    promptHash: "prompt-hash",
-    responseHash: "response-hash",
+    promptHash: "a".repeat(64),
+    responseHash: "b".repeat(64),
     route: "local",
     modelVisibleTools: params.modelVisibleTools ?? [],
     requestCount: 1,
     signature: "signature",
     publicKeyId: "key-1",
+  };
+}
+
+function rejectedV2Receipt(params: {
+  missionId: string;
+  goal: string;
+  text: string;
+  evidenceSummary: string;
+}): PursueGoalJudgeReceiptV2 {
+  return {
+    ...approvedV2Receipt({
+      missionId: params.missionId,
+      goal: params.goal,
+      text: params.text,
+    }),
+    receiptId: "receipt-v2-rejected",
+    claimHash: buildControlDirectorJudgeClaimHash({
+      missionId: params.missionId,
+      requestBody: params.goal,
+      finalText: params.text,
+      evidenceSummary: params.evidenceSummary,
+    }),
+    verdict: "REQUEST_MORE_EVIDENCE",
+    evidenceSummary: params.evidenceSummary,
+    conditions: "Attach the missing verification evidence.",
   };
 }
 
@@ -420,6 +452,7 @@ describe("Pursue Goal controller", () => {
       baseRuntime(async () => ({
         status: "complete",
         text: "Claimed complete with a clean tool trace.",
+        evidenceSummary: "Claimed complete with a clean tool trace.",
         judgeReceipt: receipt,
       })),
     );
@@ -430,6 +463,104 @@ describe("Pursue Goal controller", () => {
       (candidate) => candidate.status === "succeeded",
     );
     expect(stateForPursueGoalFlow(succeeded)?.judgeReceipt?.schemaVersion).toBe(2);
+  });
+
+  it("terminally blocks a signed Judge rejection after one execution", async () => {
+    const flow = createGoalFlow("Finish once and accept the independent verdict");
+    const state = stateForPursueGoalFlow(flow)!;
+    const text = "The implementation claim is incomplete.";
+    const evidenceSummary = "Required verification evidence is absent.";
+    const receipt = rejectedV2Receipt({
+      missionId: state.missionId,
+      goal: flow.goal,
+      text,
+      evidenceSummary,
+    });
+    const runtime = baseRuntime(async ({ reserveJudgeExecution }) => {
+      expect(
+        reserveJudgeExecution?.({
+          claimHash: receipt.claimHash,
+          promptHash: receipt.promptHash,
+        }),
+      ).toBe(true);
+      return {
+        status: "blocked" as const,
+        text,
+        evidenceSummary,
+        judgeReceipt: receipt,
+        blocker: `Independent Judge ${receipt.verdict}: ${receipt.conditions}`,
+      };
+    });
+    setPursueGoalJudgeReceiptVerifierForTests(() => true);
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    const blockedState = stateForPursueGoalFlow(blocked)!;
+
+    expect(runtime.runTurn).toHaveBeenCalledTimes(1);
+    expect(taskMocks.complete).toHaveBeenCalledTimes(1);
+    expect(taskMocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalOutcome: "blocked", suppressDelivery: true }),
+    );
+    expect(blockedState.judgeReceipt).toEqual(receipt);
+    expect(blockedState.consecutiveBlockers).toBeGreaterThanOrEqual(3);
+    expect(blockedState.events.filter((event) => event.name === "judge.rejected")).toHaveLength(1);
+  });
+
+  it("fails closed without replay when a rejection receipt is invalid", async () => {
+    const flow = createGoalFlow("Do not replay an invalid Judge result");
+    const state = stateForPursueGoalFlow(flow)!;
+    const text = "The implementation claim is incomplete.";
+    const evidenceSummary = "Required verification evidence is absent.";
+    const receipt = rejectedV2Receipt({
+      missionId: state.missionId,
+      goal: flow.goal,
+      text,
+      evidenceSummary,
+    });
+    const runtime = baseRuntime(async ({ reserveJudgeExecution }) => {
+      expect(
+        reserveJudgeExecution?.({
+          claimHash: receipt.claimHash,
+          promptHash: receipt.promptHash,
+        }),
+      ).toBe(true);
+      return {
+        status: "blocked" as const,
+        text,
+        evidenceSummary,
+        judgeReceipt: receipt,
+        blocker: "Judge requested more evidence.",
+      };
+    });
+    setPursueGoalJudgeReceiptVerifierForTests(() => false);
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    const blockedState = stateForPursueGoalFlow(blocked)!;
+
+    expect(runtime.runTurn).toHaveBeenCalledTimes(1);
+    expect(blockedState.judgeReceipt).toBeUndefined();
+    expect(blockedState.judgeExecution).toMatchObject({
+      claimHash: receipt.claimHash,
+      promptHash: receipt.promptHash,
+    });
+    expect(blockedState.lastError).toContain("execution stopped to prevent replay");
+    const retry = await retryPursueGoalFlow({ flowId: flow.flowId });
+    expect(retry).toMatchObject({
+      applied: false,
+      reason: expect.stringContaining("cannot be replayed"),
+    });
+    expect(runtime.runTurn).toHaveBeenCalledTimes(1);
+
+    const revision = getTaskFlowById(flow.flowId)!.revision;
+    taskMocks.fail.mockClear();
+    expect(reconcilePursueGoalControllers()).toBe(0);
+    expect(reconcilePursueGoalControllers()).toBe(0);
+    expect(getTaskFlowById(flow.flowId)?.revision).toBe(revision);
+    expect(taskMocks.fail).not.toHaveBeenCalled();
   });
 
   it("recovers an applied result after task finalization fails without replaying the worker", async () => {
@@ -446,6 +577,7 @@ describe("Pursue Goal controller", () => {
     const runtime = baseRuntime(async () => ({
       status: "complete" as const,
       text: "Claimed complete before the task registry interrupted finalization.",
+      evidenceSummary: "Claimed complete before the task registry interrupted finalization.",
       judgeReceipt: receipt,
     }));
     setPursueGoalControllerRuntimeForTests(runtime);
@@ -463,6 +595,36 @@ describe("Pursue Goal controller", () => {
     expect(stateForPursueGoalFlow(recovered)?.pendingTurn).toBeUndefined();
     expect(taskMocks.complete).toHaveBeenCalledTimes(2);
     expect(runtime.runTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks an indeterminate reserved Judge call and refuses automatic replay", async () => {
+    const flow = createGoalFlow("Finish once without duplicate Judge execution");
+    const runtime = baseRuntime(async ({ reserveJudgeExecution }) => {
+      expect(
+        reserveJudgeExecution?.({
+          claimHash: "a".repeat(64),
+          promptHash: "b".repeat(64),
+        }),
+      ).toBe(true);
+      throw new Error("provider outcome became indeterminate after request dispatch");
+    });
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    const state = stateForPursueGoalFlow(blocked)!;
+    expect(state.judgeExecution).toMatchObject({
+      claimHash: "a".repeat(64),
+      promptHash: "b".repeat(64),
+    });
+    expect(runtime.runTurn).toHaveBeenCalledOnce();
+
+    const retry = await retryPursueGoalFlow({ flowId: flow.flowId });
+    expect(retry).toMatchObject({
+      applied: false,
+      reason: expect.stringContaining("cannot be replayed"),
+    });
+    expect(runtime.runTurn).toHaveBeenCalledOnce();
   });
 
   it("pauses a running goal, aborts its worker turn, and resumes durably", async () => {
@@ -499,6 +661,7 @@ describe("Pursue Goal controller", () => {
     runtime.runTurn = vi.fn(async () => ({
       status: "complete" as const,
       text: "Resumed and verified.",
+      evidenceSummary: "Resumed and verified.",
       judgeReceipt: approvedReceipt({
         missionId,
         goal: flow.goal,
@@ -536,6 +699,7 @@ describe("Pursue Goal controller", () => {
     const runtime = baseRuntime(async () => ({
       status: "complete",
       text: "Recovered after restart.",
+      evidenceSummary: "Recovered after restart.",
       judgeReceipt: approvedReceipt({
         missionId: initial.missionId,
         goal: flow.goal,
@@ -552,6 +716,28 @@ describe("Pursue Goal controller", () => {
     expect(stateForPursueGoalFlow(recovered)?.activationCount).toBe(1);
   });
 
+  it("quarantines persisted success when its V2 receipt is missing after restart", () => {
+    const flow = createGoalFlow();
+    const state = stateForPursueGoalFlow(flow)!;
+    const { judgeReceipt: _judgeReceipt, ...stateWithoutReceipt } = state;
+    const persisted = updateFlowRecordByIdExpectedRevision({
+      flowId: flow.flowId,
+      expectedRevision: flow.revision,
+      patch: {
+        status: "succeeded",
+        stateJson: structuredClone({ ...stateWithoutReceipt, phase: "succeeded" }),
+      },
+    });
+    expect(persisted.applied).toBe(true);
+
+    expect(reconcilePursueGoalControllers()).toBe(0);
+    const quarantined = getTaskFlowById(flow.flowId)!;
+    expect(quarantined.status).toBe("blocked");
+    expect(stateForPursueGoalFlow(quarantined)?.lastError).toContain(
+      "Persisted success was quarantined",
+    );
+  });
+
   it("supports revisioned edit, blocked retry, and sticky stop controls", async () => {
     const flow = createGoalFlow();
     const runtime = baseRuntime(async () => ({ status: "active", text: "Working." }));
@@ -565,6 +751,17 @@ describe("Pursue Goal controller", () => {
     expect(edited.applied).toBe(true);
     expect(edited.flow?.goal).toBe("Ship the edited verified work");
     expect(stateForPursueGoalFlow(edited.flow!)?.goalVersion).toBe(2);
+
+    const oversized = await editPursueGoalFlow({
+      flowId: flow.flowId,
+      goal: "g".repeat(16_001),
+    });
+    expect(oversized).toMatchObject({
+      found: true,
+      applied: false,
+      reason: expect.stringContaining("16000"),
+    });
+    expect(getTaskFlowById(flow.flowId)?.goal).toBe("Ship the edited verified work");
 
     const stopped = await stopPursueGoalFlow({ flowId: flow.flowId });
     expect(stopped.applied).toBe(true);

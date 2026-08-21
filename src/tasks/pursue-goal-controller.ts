@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import { buildControlDirectorJudgeClaimHash } from "../agents/control-director-contract.js";
 import { verifyControlDirectorDiagnosticEvidence } from "../agents/control-director-diagnostic-evidence.js";
+import { JUDGE_EVIDENCE_MAX_CHARS } from "../agents/judge-contract.js";
 import { verifyJudgeReceipt } from "../agents/judge-receipt-signer.js";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import {
@@ -23,6 +24,8 @@ import {
 } from "./pursue-goal-blocker.js";
 import {
   isPursueGoalLeaseCurrent,
+  PURSUE_GOAL_CONTROLLER_ID,
+  PURSUE_GOAL_MAX_CHARS,
   PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS,
   stateForPursueGoalFlow,
   withPursueGoalEvent,
@@ -34,7 +37,7 @@ import { completeTaskRunByRunId, failTaskRunByRunId, runTaskInFlow } from "./tas
 import type { JsonValue, TaskFlowRecord } from "./task-flow-registry.types.js";
 import {
   getTaskFlowById,
-  listTaskFlowRecords,
+  listTaskFlowRecordsPage,
   updateFlowRecordByIdExpectedRevision,
 } from "./task-flow-runtime-internal.js";
 
@@ -48,6 +51,7 @@ const PURSUE_GOAL_MAX_MUTATION_RETRIES = 8;
 const PURSUE_GOAL_MAX_FAILURES = 3;
 const PURSUE_GOAL_RETRY_BASE_MS = 1_000;
 const RESULT_SUMMARY_MAX_CHARS = 8_000;
+const SHA256_HEX_RE = /^[a-f0-9]{64}$/u;
 
 export type PursueGoalTurnInput = {
   flowId: string;
@@ -55,6 +59,7 @@ export type PursueGoalTurnInput = {
   state: PursueGoalControllerState;
   runId: string;
   abortSignal: AbortSignal;
+  reserveJudgeExecution?: (attempt: { claimHash: string; promptHash: string }) => boolean;
 };
 
 export type PursueGoalTurnResult = {
@@ -116,6 +121,11 @@ function boundedSummary(value: string | undefined): string | undefined {
   return normalized.slice(0, RESULT_SUMMARY_MAX_CHARS);
 }
 
+function boundedEvidenceSummary(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized.slice(0, JUDGE_EVIDENCE_MAX_CHARS) : undefined;
+}
+
 function pendingTurnResult(result: PursueGoalTurnResult): PursueGoalPendingTurnResult | undefined {
   if (result.text.length > PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS) {
     return undefined;
@@ -137,15 +147,34 @@ function pendingTurnResult(result: PursueGoalTurnResult): PursueGoalPendingTurnR
  * Keep V1 readable, but never let a V2 receipt approve with an unknown route,
  * a second request, or any model-visible tool.
  */
-function judgeReceiptApprovalSemanticallyValid(receipt: PursueGoalJudgeReceipt): boolean {
+function judgeReceiptEvidenceSemanticallyValid(receipt: PursueGoalJudgeReceipt): boolean {
   if (receipt.schemaVersion !== 2) {
-    return true;
+    return false;
+  }
+  if (
+    receipt.modelVisibleTools.length !== 0 ||
+    !SHA256_HEX_RE.test(receipt.claimHash) ||
+    !SHA256_HEX_RE.test(receipt.promptHash) ||
+    !SHA256_HEX_RE.test(receipt.responseHash)
+  ) {
+    return false;
+  }
+  if (receipt.requestCount === 0) {
+    return receipt.route === "unknown" && receipt.model === "none" && receipt.verdict !== "APPROVE";
   }
   return (
-    receipt.route !== "unknown" &&
     receipt.requestCount === 1 &&
-    receipt.modelVisibleTools.length === 0 &&
+    (receipt.route === "local" || receipt.route === "hosted") &&
     Boolean(receipt.model?.trim())
+  );
+}
+
+function judgeReceiptApprovalSemanticallyValid(receipt: PursueGoalJudgeReceipt): boolean {
+  return (
+    receipt.verdict === "APPROVE" &&
+    receipt.schemaVersion === 2 &&
+    receipt.requestCount === 1 &&
+    judgeReceiptEvidenceSemanticallyValid(receipt)
   );
 }
 
@@ -639,9 +668,34 @@ function stageTurnResult(params: {
         ? { state, patch: { updatedAt: now } }
         : undefined;
     }
+    if (
+      state.judgeExecution &&
+      (state.judgeExecution.runId !== params.runId ||
+        state.judgeExecution.taskId !== params.taskId ||
+        params.result.judgeReceipt?.schemaVersion !== 2 ||
+        state.judgeExecution.claimHash !== params.result.judgeReceipt.claimHash ||
+        state.judgeExecution.promptHash !== params.result.judgeReceipt.promptHash)
+    ) {
+      return undefined;
+    }
+    const next = { ...state };
+    const receipt = params.result.judgeReceipt;
+    const receiptSettlesReservedExecution = Boolean(
+      state.judgeExecution &&
+      receipt &&
+      receipt.schemaVersion === 2 &&
+      receipt.missionId === state.missionId &&
+      judgeReceiptVerifier(receipt) &&
+      judgeReceiptEvidenceSemanticallyValid(receipt) &&
+      ((params.result.status === "complete" && receipt.verdict === "APPROVE") ||
+        (params.result.status === "blocked" && receipt.verdict !== "APPROVE")),
+    );
+    if (receiptSettlesReservedExecution) {
+      delete next.judgeExecution;
+    }
     return {
       state: {
-        ...state,
+        ...next,
         pendingTurn: {
           runId: params.runId,
           taskId: params.taskId,
@@ -652,6 +706,44 @@ function stageTurnResult(params: {
       patch: { updatedAt: now },
     };
   });
+}
+
+/** Persist a no-replay fence before the independent Judge provider call. */
+function reserveJudgeExecution(params: {
+  flowId: string;
+  leaseId: string;
+  runId: string;
+  taskId: string;
+  claimHash: string;
+  promptHash: string;
+}): boolean {
+  const now = Date.now();
+  return mutatePursueGoalFlow(params.flowId, (_flow, state) => {
+    if (
+      !isPursueGoalLeaseCurrent(state, {
+        ownerId: controllerOwnerId,
+        leaseId: params.leaseId,
+        now,
+      }) ||
+      state.pendingTurn ||
+      state.judgeExecution
+    ) {
+      return undefined;
+    }
+    return {
+      state: {
+        ...state,
+        judgeExecution: {
+          runId: params.runId,
+          taskId: params.taskId,
+          claimHash: params.claimHash,
+          promptHash: params.promptHash,
+          reservedAt: now,
+        },
+      },
+      patch: { updatedAt: now },
+    };
+  }).applied;
 }
 
 /** Clear a handoff only after the task registry has acknowledged the result. */
@@ -755,8 +847,7 @@ function applyTurnResult(params: {
     };
     if (result.status === "complete") {
       const evidenceSummary =
-        boundedSummary(result.evidenceSummary ?? result.text) ??
-        "No completion evidence was recorded.";
+        boundedEvidenceSummary(result.evidenceSummary) ?? "No completion evidence was recorded.";
       const expectedClaimHash = buildControlDirectorJudgeClaimHash({
         missionId: state.missionId,
         requestBody: flow.goal,
@@ -819,7 +910,6 @@ function applyTurnResult(params: {
           lastError: blocker,
           nextAction:
             "Rerun independent verification and attach a valid signed claim-bound receipt.",
-          ...(receipt ? { judgeReceipt: receipt } : {}),
           terminalDeliveryState: "pending",
         };
         next = withPursueGoalEvent(next, {
@@ -887,6 +977,74 @@ function applyTurnResult(params: {
       const blocker =
         boundedSummary(result.blocker ?? result.text) ??
         "Execution is blocked pending evidence or external action.";
+      const receipt = result.judgeReceipt;
+      if (receipt) {
+        const evidenceSummary =
+          boundedEvidenceSummary(result.evidenceSummary) ?? "No completion evidence was recorded.";
+        const expectedClaimHash = buildControlDirectorJudgeClaimHash({
+          missionId: state.missionId,
+          requestBody: flow.goal,
+          finalText: result.text,
+          evidenceSummary,
+          artifactIds: result.artifactIds,
+        });
+        const receiptValid =
+          receipt.verdict !== "APPROVE" &&
+          receipt.missionId === state.missionId &&
+          receipt.claimHash === expectedClaimHash &&
+          judgeReceiptVerifier(receipt) &&
+          judgeReceiptEvidenceSemanticallyValid(receipt);
+        const terminalBlocker = receiptValid
+          ? blocker
+          : "Independent Judge rejection was invalid, unsigned, or not bound to the exact mission claim; execution stopped to prevent replay.";
+        next = {
+          ...next,
+          phase: "blocked",
+          lease: undefined,
+          consecutiveBlockers: Math.max(
+            consecutiveBlockers,
+            PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS,
+          ),
+          lastError: terminalBlocker,
+          nextAction: receiptValid
+            ? "Resolve the Judge conditions, then edit or retry the goal."
+            : "Review the invalid Judge evidence before creating a new claim.",
+          ...(receiptValid ? { judgeReceipt: receipt } : {}),
+          terminalDeliveryState: "pending",
+        };
+        next = withPursueGoalEvent(next, {
+          flowId: params.flowId,
+          category: "judge",
+          name: "judge.rejected",
+          actorId: receiptValid ? receipt.judgeAgentId : "judge-gate",
+          summary: receiptValid
+            ? `Independent Judge rejected the completion: ${receipt.conditions}`
+            : terminalBlocker,
+          correlation,
+          at: now,
+        });
+        next = withPursueGoalEvent(next, {
+          flowId: params.flowId,
+          category: "goal",
+          name: "goal.blocked",
+          actorId: controllerOwnerId,
+          summary: terminalBlocker,
+          correlation,
+          at: now,
+        });
+        return {
+          state: next,
+          patch: {
+            status: "blocked",
+            currentStep: "Blocked by independent completion verification.",
+            blockedTaskId: params.taskId,
+            blockedSummary: terminalBlocker,
+            waitJson: null,
+            endedAt: now,
+            updatedAt: now,
+          },
+        };
+      }
       const blockerBinding = crypto.createHash("sha256").update(blocker).digest("hex");
       const blockerEvidence = verifyControlDirectorDiagnosticEvidence({
         claim: {
@@ -1051,7 +1209,32 @@ function recordTurnFailure(params: {
     ) {
       return undefined;
     }
+    const abandonedJudge =
+      state.judgeExecution?.runId === params.runId && state.judgeExecution.taskId === params.taskId;
     const failures = state.consecutiveFailures + 1;
+    if (abandonedJudge) {
+      const blocker =
+        "Judge execution ended without a durably staged receipt; automatic replay is disabled to prevent duplicate decisions.";
+      return {
+        state: {
+          ...state,
+          lease: undefined,
+          phase: "blocked",
+          lastError: blocker,
+          nextAction: "Inspect the interrupted Judge attempt and explicitly retry the goal.",
+          terminalDeliveryState: "pending",
+        },
+        patch: {
+          status: "blocked",
+          currentStep: "Blocked after an interrupted Judge attempt.",
+          blockedTaskId: params.taskId,
+          blockedSummary: blocker,
+          waitJson: null,
+          endedAt: now,
+          updatedAt: now,
+        },
+      };
+    }
     const terminal = failures >= PURSUE_GOAL_MAX_FAILURES;
     const retryDelayMs = PURSUE_GOAL_RETRY_BASE_MS * 2 ** Math.max(0, failures - 1);
     let next: PursueGoalControllerState = {
@@ -1201,6 +1384,15 @@ async function runControllerActivation(params: {
           state: startedState,
           runId,
           abortSignal: params.abortController.signal,
+          reserveJudgeExecution: ({ claimHash, promptHash }) =>
+            reserveJudgeExecution({
+              flowId: params.flowId,
+              leaseId: params.leaseId,
+              runId,
+              taskId: taskResult.task!.taskId,
+              claimHash,
+              promptHash,
+            }),
         });
         const staged = stageTurnResult({
           flowId: params.flowId,
@@ -1432,9 +1624,23 @@ export function reconcilePursueGoalControllers(): number {
   }
   let kicked = 0;
   const now = Date.now();
-  for (const flow of listTaskFlowRecords()) {
+  for (const flow of listTaskFlowRecordsPage({ controllerId: PURSUE_GOAL_CONTROLLER_ID }).flows) {
     const state = stateForPursueGoalFlow(flow);
     if (!state) {
+      const blocker = "Pursue Goal state is malformed or exceeds its durable bounds.";
+      if (flow.status !== "blocked" || flow.blockedSummary !== blocker) {
+        updateFlowRecordByIdExpectedRevision({
+          flowId: flow.flowId,
+          expectedRevision: flow.revision,
+          patch: {
+            status: "blocked",
+            currentStep: "Blocked by invalid durable Pursue Goal state.",
+            blockedSummary: blocker,
+            endedAt: now,
+            updatedAt: now,
+          },
+        });
+      }
       continue;
     }
     if (state.pendingTurn) {
@@ -1442,6 +1648,86 @@ export function reconcilePursueGoalControllers(): number {
       // Never start a fresh worker turn while a prior result still has a
       // durable handoff outstanding.
       continue;
+    }
+    if (state.judgeExecution) {
+      if (state.phase === "blocked" && flow.status === "blocked" && !state.lease) {
+        // The indeterminate execution was already terminally handled. Keep its
+        // no-replay marker without revising the flow or failing the task again.
+        continue;
+      }
+      const interruptedJudge = state.judgeExecution;
+      const blocker =
+        "Judge execution was interrupted before its signed receipt was durably staged; automatic replay is disabled.";
+      failTaskRunByRunId({
+        runId: interruptedJudge.runId,
+        status: "failed",
+        endedAt: now,
+        terminalSummary: blocker,
+        suppressDelivery: true,
+      });
+      if (!isTerminalPhase(state)) {
+        mutatePursueGoalFlow(flow.flowId, (_latestFlow, latestState) => {
+          const currentExecution = latestState.judgeExecution;
+          if (
+            !currentExecution ||
+            currentExecution.runId !== interruptedJudge.runId ||
+            currentExecution.taskId !== interruptedJudge.taskId
+          ) {
+            return undefined;
+          }
+          return {
+            state: {
+              ...latestState,
+              phase: "blocked",
+              lease: undefined,
+              lastError: blocker,
+              nextAction: "Edit the goal or inspect the interrupted Judge attempt before retrying.",
+              terminalDeliveryState: "pending",
+            },
+            patch: {
+              status: "blocked",
+              currentStep: "Blocked after an interrupted Judge attempt.",
+              blockedTaskId: currentExecution.taskId,
+              blockedSummary: blocker,
+              waitJson: null,
+              endedAt: now,
+              updatedAt: now,
+            },
+          };
+        });
+        continue;
+      }
+    }
+    if (state.phase === "succeeded") {
+      const receipt = state.judgeReceipt;
+      if (
+        !receipt ||
+        receipt.missionId !== state.missionId ||
+        !judgeReceiptVerifier(receipt) ||
+        !judgeReceiptApprovalSemanticallyValid(receipt)
+      ) {
+        const blocker =
+          "Persisted success was quarantined because its signed V2 Judge receipt is missing, invalid, or bound to another mission.";
+        mutatePursueGoalFlow(flow.flowId, (_latestFlow, latestState) => ({
+          state: {
+            ...latestState,
+            phase: "blocked",
+            lease: undefined,
+            lastError: blocker,
+            nextAction:
+              "Inspect persisted evidence and explicitly retry with a new verified claim.",
+            terminalDeliveryState: "pending",
+          },
+          patch: {
+            status: "blocked",
+            currentStep: "Persisted completion receipt failed restart verification.",
+            blockedSummary: blocker,
+            endedAt: now,
+            updatedAt: now,
+          },
+        }));
+        continue;
+      }
     }
     if (isTerminalPhase(state) || state.phase === "blocked") {
       if (
@@ -1701,6 +1987,13 @@ export async function editPursueGoalFlow(params: {
   if (!goal) {
     return { found: true, applied: false, reason: "Goal is required." };
   }
+  if (goal.length > PURSUE_GOAL_MAX_CHARS) {
+    return {
+      found: true,
+      applied: false,
+      reason: `Goal must be at most ${PURSUE_GOAL_MAX_CHARS} characters.`,
+    };
+  }
   const now = Date.now();
   const wasActive = activeControllers.has(params.flowId);
   const result = mutatePursueGoalFlow(params.flowId, (flow, state) => {
@@ -1723,6 +2016,7 @@ export async function editPursueGoalFlow(params: {
       lastError: undefined,
       consecutiveBlockers: 0,
       judgeReceipt: undefined,
+      judgeExecution: undefined,
       nextAction: stayPaused
         ? "Resume the edited goal when ready."
         : "Acquire a new lease and execute the edited goal.",
@@ -1767,6 +2061,17 @@ export async function retryPursueGoalFlow(params: {
   flowId: string;
   expectedRevision?: number;
 }): Promise<PursueGoalMutationResult> {
+  const current = getTaskFlowById(params.flowId);
+  const currentState = current ? stateForPursueGoalFlow(current) : undefined;
+  if (currentState?.judgeExecution) {
+    return {
+      found: true,
+      applied: false,
+      reason:
+        "The prior Judge outcome is indeterminate and the same claim cannot be replayed automatically; edit the goal to create a new claim.",
+      flow: current,
+    };
+  }
   const now = Date.now();
   const result = mutatePursueGoalFlow(params.flowId, (flow, state) => {
     if (

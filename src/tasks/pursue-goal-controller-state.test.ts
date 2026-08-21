@@ -42,7 +42,7 @@ describe("Pursue Goal controller state", () => {
         schemaVersion: 2,
         receiptId: "receipt-v2",
         missionId: "mission-v2",
-        claimHash: "claim-v2",
+        claimHash: "a".repeat(64),
         verdict: "OUT_OF_SCOPE",
         scope: "technical completion only",
         evidenceSummary: "moral evaluation is outside scope",
@@ -50,8 +50,8 @@ describe("Pursue Goal controller state", () => {
         judgeRunId: "judge-v2",
         judgeAgentId: "judge",
         issuedAt: 100,
-        promptHash: "prompt-hash",
-        responseHash: "response-hash",
+        promptHash: "b".repeat(64),
+        responseHash: "c".repeat(64),
         route: "local",
         modelVisibleTools: [],
         requestCount: 1,
@@ -97,6 +97,41 @@ describe("Pursue Goal controller state", () => {
           taskId: "task-pending",
           phase: "staged",
           result: { status: "complete", text: "x".repeat(64_001) },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("round-trips only a hash-bound durable Judge execution fence", () => {
+    const state = createPursueGoalControllerState({
+      flowId: "flow-judge-fence",
+      goal: "Prevent duplicate Judge execution",
+      workerAgentId: "program-manager",
+      now: 100,
+    });
+    const parsed = parsePursueGoalControllerState({
+      ...state,
+      judgeExecution: {
+        runId: "run-judge-fence",
+        taskId: "task-judge-fence",
+        claimHash: "a".repeat(64),
+        promptHash: "b".repeat(64),
+        reservedAt: 101,
+      },
+    });
+    expect(parsed?.judgeExecution).toMatchObject({
+      claimHash: "a".repeat(64),
+      promptHash: "b".repeat(64),
+    });
+    expect(
+      parsePursueGoalControllerState({
+        ...state,
+        judgeExecution: {
+          runId: "run-judge-fence",
+          taskId: "task-judge-fence",
+          claimHash: "not-a-hash",
+          promptHash: "b".repeat(64),
+          reservedAt: 101,
         },
       }),
     ).toBeUndefined();

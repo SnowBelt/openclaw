@@ -8,12 +8,41 @@ export type JudgeHostedPayloadObservation = {
   modelVisibleTools: string[];
 };
 
+export type JudgeZeroToolPayloadObservation = {
+  payload: JudgeHostedPayload;
+  model: string;
+  modelVisibleTools: string[];
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+/** Enforce exact model identity and an empty tool surface for a local direct request. */
+export function buildJudgeZeroToolPayload(params: {
+  payload: unknown;
+  expectedModel: string;
+}): JudgeZeroToolPayloadObservation {
+  if (!isRecord(params.payload)) {
+    throw new Error("Judge provider payload is not an object");
+  }
+  const model = params.payload.model;
+  if (!nonEmptyString(model) || model !== params.expectedModel) {
+    throw new Error("Judge provider model identity drifted");
+  }
+  const tools = params.payload.tools;
+  if (tools !== undefined && (!Array.isArray(tools) || tools.length > 0)) {
+    throw new Error("Judge provider exposed model-visible tools");
+  }
+  return {
+    payload: { ...params.payload, tools: [] },
+    model,
+    modelVisibleTools: [],
+  };
 }
 
 /**
