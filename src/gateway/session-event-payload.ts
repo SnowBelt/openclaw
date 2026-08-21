@@ -1,14 +1,18 @@
 import type { GatewaySessionRow } from "./session-utils.js";
 
+type GatewaySessionEventRow = Omit<GatewaySessionRow, "modelOverride" | "modelOverrideSource"> & {
+  [key: string]: unknown;
+  modelOverride?: GatewaySessionRow["modelOverride"] | null;
+  modelOverrideSource?: GatewaySessionRow["modelOverrideSource"] | null;
+};
+
 /**
  * Project a catalog-less session row for websocket merge events.
  * Picker metadata comes from catalog-backed list/patch responses; emitting a
  * locally reconstructed subset here would replace richer client state.
  */
-export function buildGatewaySessionEventRow(
-  sessionRow: GatewaySessionRow,
-): Record<string, unknown> {
-  const session: Record<string, unknown> = { ...sessionRow };
+export function buildGatewaySessionEventRow(sessionRow: GatewaySessionRow): GatewaySessionEventRow {
+  const session: GatewaySessionEventRow = { ...sessionRow };
   // Explicit nulls let clients clear provenance when a model override is reset.
   session.modelOverride = sessionRow.modelOverride ?? null;
   session.modelOverrideSource = sessionRow.modelOverrideSource ?? null;
