@@ -11,6 +11,7 @@ import {
   extractOpenAICodexAccountId,
   parseSSEForTest,
   resetOpenAICodexWebSocketDebugStats,
+  resolveOpenAICodexResponseMaxRetries,
   streamSimpleOpenAICodexResponses,
   streamOpenAICodexResponses,
 } from "./openai-chatgpt-responses.js";
@@ -95,6 +96,16 @@ describe("extractOpenAICodexAccountId", () => {
     expect(() => extractOpenAICodexAccountId(createJwt({}))).toThrow(
       "Failed to extract accountId from token",
     );
+  });
+});
+
+describe("resolveOpenAICodexResponseMaxRetries", () => {
+  it("allows a bounded zero-retry Judge request and clamps invalid values", () => {
+    expect(resolveOpenAICodexResponseMaxRetries({ maxRetries: 0 })).toBe(0);
+    expect(resolveOpenAICodexResponseMaxRetries({ maxRetries: -1 })).toBe(0);
+    expect(resolveOpenAICodexResponseMaxRetries({ maxRetries: 2.8 })).toBe(2);
+    expect(resolveOpenAICodexResponseMaxRetries({ maxRetries: 99 })).toBe(3);
+    expect(resolveOpenAICodexResponseMaxRetries()).toBe(3);
   });
 });
 

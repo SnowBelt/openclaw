@@ -1,4 +1,5 @@
 import { normalizeAgentId } from "../routing/session-key.js";
+import { isJudgeOutOfScopeText } from "./judge-contract.js";
 
 export const JUDGE_AGENT_ID = "judge";
 
@@ -8,6 +9,7 @@ export const JUDGE_VERDICTS = [
   "ESCALATE_TO_HUMAN",
   "REQUEST_MORE_EVIDENCE",
   "SANDBOX_ONLY",
+  "OUT_OF_SCOPE",
 ] as const;
 
 export const JUDGE_RISKS = ["low", "medium", "high", "prohibited", "unclear"] as const;
@@ -186,7 +188,8 @@ function isBlockingJudgeVerdict(verdict: JudgeCompletionVerdict | undefined): bo
       verdict.verdict === "REJECT" ||
       verdict.verdict === "ESCALATE_TO_HUMAN" ||
       verdict.verdict === "REQUEST_MORE_EVIDENCE" ||
-      verdict.verdict === "SANDBOX_ONLY"),
+      verdict.verdict === "SANDBOX_ONLY" ||
+      verdict.verdict === "OUT_OF_SCOPE"),
   );
 }
 
@@ -213,7 +216,7 @@ function formatBlockingJudgeVerdictForUser(verdict: JudgeCompletionVerdict): str
       "",
       `VERDICT: INVALID`,
       `REASON: ${errorText}`,
-      "CONDITIONS: obtain a valid six-line Judge verdict before marking this complete, approved, verified, or safe.",
+      "CONDITIONS: obtain a valid Judge verdict before marking this complete, approved, verified, or safe.",
     ].join("\n");
   }
   return [
@@ -480,6 +483,26 @@ export function buildJudgeVerdict(params: {
 }
 
 export function evaluateJudgePacket(packet: JudgePacket): JudgeGateVerdict {
+  if (
+    isJudgeOutOfScopeText(
+      packet.claim_or_action,
+      packet.scope,
+      packet.instructions,
+      packet.requested_verdict,
+    )
+  ) {
+    return buildJudgeVerdict({
+      verdict: "OUT_OF_SCOPE",
+      scope: textOf(packet.scope) || "technical completion only",
+      evidence: "moral, ethical, political, or value evaluation is outside the Judge contract",
+      risk: "unclear",
+      reason:
+        "The Judge evaluates technical completion, evidence, authorization, and integrity only.",
+      conditions: "resubmit a technical completion or operational-invariant question",
+      evidenceTier: detectEvidenceTier(packet.evidence),
+      gate: packet.gate,
+    });
+  }
   const missing = findMissingJudgePacketFields(packet);
   const risk = classifyJudgeRisk(packet);
   const evidenceTier = detectEvidenceTier(packet.evidence);

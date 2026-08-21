@@ -1353,33 +1353,41 @@ async function agentCommandInternal(
         });
       }
 
-      const skillFilter = resolveEffectiveAgentSkillFilter(cfg, sessionAgentId);
       const currentSkillsSnapshot = sessionEntry?.skillsSnapshot;
-      const [
-        { getRemoteSkillEligibility, resolveReusableWorkspaceSkillSnapshot },
-        { canExecRequestNode },
-      ] = await Promise.all([loadSkillsRuntime(), loadExecDefaultsRuntime()]);
-      const skillSnapshotState = resolveReusableWorkspaceSkillSnapshot({
-        workspaceDir,
-        config: cfg,
-        agentId: sessionAgentId,
-        existingSnapshot: isNewSession ? undefined : currentSkillsSnapshot,
-        skillFilter,
-        eligibility: {
-          remote: getRemoteSkillEligibility({
-            advertiseExecNode: canExecRequestNode({
-              cfg,
-              sessionEntry,
-              sessionKey,
-              agentId: sessionAgentId,
+      let needsSkillsSnapshot = false;
+      // A raw Judge/model probe is not an agent turn. Do not discover or
+      // persist skills for it: a skill file is prompt/tool policy and would
+      // violate the model-facing zero-tool contract even when the allowlist is
+      // empty. Ordinary agent turns retain the existing snapshot behavior.
+      let skillsSnapshot = isRawModelRun ? undefined : currentSkillsSnapshot;
+      if (!isRawModelRun) {
+        const skillFilter = resolveEffectiveAgentSkillFilter(cfg, sessionAgentId);
+        const [
+          { getRemoteSkillEligibility, resolveReusableWorkspaceSkillSnapshot },
+          { canExecRequestNode },
+        ] = await Promise.all([loadSkillsRuntime(), loadExecDefaultsRuntime()]);
+        const skillSnapshotState = resolveReusableWorkspaceSkillSnapshot({
+          workspaceDir,
+          config: cfg,
+          agentId: sessionAgentId,
+          existingSnapshot: isNewSession ? undefined : currentSkillsSnapshot,
+          skillFilter,
+          eligibility: {
+            remote: getRemoteSkillEligibility({
+              advertiseExecNode: canExecRequestNode({
+                cfg,
+                sessionEntry,
+                sessionKey,
+                agentId: sessionAgentId,
+              }),
             }),
-          }),
-        },
-        watch: false,
-      });
-      const needsSkillsSnapshot =
-        isNewSession || !currentSkillsSnapshot || skillSnapshotState.shouldRefresh;
-      const skillsSnapshot = skillSnapshotState.snapshot;
+          },
+          watch: false,
+        });
+        needsSkillsSnapshot =
+          isNewSession || !currentSkillsSnapshot || skillSnapshotState.shouldRefresh;
+        skillsSnapshot = skillSnapshotState.snapshot;
+      }
 
       if (
         skillsSnapshot &&

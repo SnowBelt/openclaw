@@ -47,6 +47,20 @@ Each surface has one owner so status, authority, and proof do not drift:
 
 Chat and PCC are intentionally separate. Chat may attach to or open an explicit PCC plan, but ordinary assistant prose cannot create, complete, or rewrite PCC milestones. Execution state is a typed, read-only projection of the orchestrator rather than a second PCC state store.
 
+### Judge MVP contract
+
+The Judge is a technical verifier, not an ethics or morality reviewer. It evaluates only completion, direct evidence, authorization, integrity, and operational invariants. Requests to decide whether something is moral, ethical, political, value-based, socially good, or socially bad return `OUT_OF_SCOPE` and never become an approval decision.
+
+The executable contract is centralized in `src/agents/judge-contract.ts`:
+
+- deterministic gates run first; deterministic blocks do not invoke a model;
+- new decisions issue signed V2 receipts while V1 receipts remain readable;
+- a model turn uses one physical request with an empty tool list, `tool_choice: "none"`, `parallel_tool_calls: false`, and the closed V2 JSON schema;
+- the independently qualified local Judge is preferred (Qwen 3.8 27B Q8, MTP off); GPT-5.6 is the hosted fallback, and GPT-5.5 is not a Judge route;
+- missing route, model, request-count, or zero-tool evidence fails closed; completion requires the exact claim-bound signature and V2 execution proof.
+
+The Judge can read supplied evidence and inspect goal state, but it never executes work, mutates state, delegates, messages, grants approvals, or treats worker prose as proof.
+
 ### Executable delegation handoffs
 
 Operational delegation uses one fail-closed contract rather than role names in prose:
@@ -114,8 +128,8 @@ Use Codex as a governed implementation and review capability:
 - include the goal, constraints, approvals, state, evidence, acceptance criteria, and budget;
 - require explicit approval for hosted or otherwise paid execution;
 - attribute the route and fail closed when it is unavailable;
-- use GPT-5.5 with high reasoning for approved complex implementation;
-- reserve xhigh reasoning for difficult architecture, debugging, security, or final independent review;
+- use GPT-5.6 Luna with max reasoning for approved complex implementation;
+- escalate to GPT-5.6 Sol with high reasoning for difficult architecture, debugging, security, or final independent review;
 - use low reasoning only for deterministic runbooks with exhaustive automated verification.
 
 This hybrid pattern lets the local model remain responsive while Codex is used where its incremental quality is measurable.

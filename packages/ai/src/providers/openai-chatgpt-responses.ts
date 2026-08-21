@@ -130,6 +130,19 @@ interface RequestBody {
   [key: string]: unknown;
 }
 
+/** Resolve the provider retry budget, including the zero-retry Judge contract. */
+export function resolveOpenAICodexResponseMaxRetries(
+  options?: Pick<StreamOptions, "maxRetries">,
+): number {
+  if (options?.maxRetries === undefined) {
+    return MAX_RETRIES;
+  }
+  if (!Number.isFinite(options.maxRetries) || options.maxRetries < 0) {
+    return 0;
+  }
+  return Math.min(MAX_RETRIES, Math.floor(options.maxRetries));
+}
+
 // ============================================================================
 // Retry Helpers
 // ============================================================================
@@ -307,6 +320,7 @@ export const streamOpenAICodexResponses: StreamFunction<
       const requestOptions =
         activeSignal === options?.signal ? options : { ...options, signal: activeSignal };
       const transport = options?.transport || "auto";
+      const maxRetries = resolveOpenAICodexResponseMaxRetries(options);
       const websocketDisabledForSession =
         transport === "auto" && isWebSocketSseFallbackActive(options?.sessionId);
       if (websocketDisabledForSession) {
@@ -347,7 +361,12 @@ export const streamOpenAICodexResponses: StreamFunction<
             const aborted = activeSignal?.aborted;
             const connectionLimitBeforeStart =
               !websocketStarted && isWebSocketConnectionLimitReachedError(error);
-            if (!aborted && connectionLimitBeforeStart && !retriedWebSocketConnectionLimit) {
+            if (
+              !aborted &&
+              connectionLimitBeforeStart &&
+              maxRetries > 0 &&
+              !retriedWebSocketConnectionLimit
+            ) {
               retriedWebSocketConnectionLimit = true;
               continue;
             }
@@ -389,7 +408,7 @@ export const streamOpenAICodexResponses: StreamFunction<
       let response: Response | undefined;
       let lastError: Error | undefined;
 
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
         if (activeSignal?.aborted) {
           throw new Error("Request was aborted");
         }
@@ -411,7 +430,7 @@ export const streamOpenAICodexResponses: StreamFunction<
           }
 
           const errorText = await readChatGptResponsesErrorTextLimited(response);
-          if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
+          if (attempt < maxRetries && isRetryableError(response.status, errorText)) {
             let delayMs = BASE_DELAY_MS * 2 ** attempt;
 
             const retryAfterMs = response.headers.get("retry-after-ms");
@@ -470,7 +489,7 @@ export const streamOpenAICodexResponses: StreamFunction<
           }
           lastError = error instanceof Error ? error : new Error(String(error));
           // Network errors are retryable
-          if (attempt < MAX_RETRIES && !lastError.message.includes("usage limit")) {
+          if (attempt < maxRetries && !lastError.message.includes("usage limit")) {
             const delayMs = BASE_DELAY_MS * 2 ** attempt;
             await sleep(delayMs, activeSignal);
             continue;

@@ -27,6 +27,81 @@ describe("Pursue Goal controller state", () => {
     expect(parsePursueGoalControllerState({ schemaVersion: 1, kind: "other" })).toBeUndefined();
   });
 
+  it("reads V2 receipts while retaining the V1 state contract", () => {
+    const state = createPursueGoalControllerState({
+      flowId: "flow-v2",
+      goal: "Verify the V2 receipt",
+      workerAgentId: "program-manager",
+      missionId: "mission-v2",
+      workerSessionId: "session-v2",
+      now: 100,
+    });
+    const parsed = parsePursueGoalControllerState({
+      ...state,
+      judgeReceipt: {
+        schemaVersion: 2,
+        receiptId: "receipt-v2",
+        missionId: "mission-v2",
+        claimHash: "claim-v2",
+        verdict: "OUT_OF_SCOPE",
+        scope: "technical completion only",
+        evidenceSummary: "moral evaluation is outside scope",
+        conditions: "resubmit a technical question",
+        judgeRunId: "judge-v2",
+        judgeAgentId: "judge",
+        issuedAt: 100,
+        promptHash: "prompt-hash",
+        responseHash: "response-hash",
+        route: "local",
+        modelVisibleTools: [],
+        requestCount: 1,
+      },
+    });
+    expect(parsed?.judgeReceipt?.schemaVersion).toBe(2);
+    expect(parsed?.judgeReceipt?.verdict).toBe("OUT_OF_SCOPE");
+  });
+
+  it("round-trips a bounded pending result handoff", () => {
+    const state = createPursueGoalControllerState({
+      flowId: "flow-pending",
+      goal: "Recover without replaying the Judge",
+      workerAgentId: "program-manager",
+      missionId: "mission-pending",
+      workerSessionId: "session-pending",
+      now: 100,
+    });
+    const parsed = parsePursueGoalControllerState({
+      ...state,
+      pendingTurn: {
+        runId: "run-pending",
+        taskId: "task-pending",
+        phase: "staged",
+        result: {
+          status: "complete",
+          text: "The result is durable before task finalization.",
+          evidenceSummary: "The handoff is claim-bound.",
+        },
+      },
+    });
+    expect(parsed?.pendingTurn).toMatchObject({
+      runId: "run-pending",
+      taskId: "task-pending",
+      phase: "staged",
+      result: { status: "complete" },
+    });
+    expect(
+      parsePursueGoalControllerState({
+        ...state,
+        pendingTurn: {
+          runId: "run-pending",
+          taskId: "task-pending",
+          phase: "staged",
+          result: { status: "complete", text: "x".repeat(64_001) },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
   it("appends typed events and validates a live lease", () => {
     let state = createPursueGoalControllerState({
       flowId: "flow-1",

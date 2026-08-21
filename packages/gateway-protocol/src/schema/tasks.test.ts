@@ -1,7 +1,7 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { ProtocolSchemas, validateTaskFlowsControlParams, type TaskFlowStatus } from "../index.js";
-import { TaskFlowDetailSchema } from "./tasks.js";
+import { PursueGoalJudgeReceiptSchema, TaskFlowDetailSchema } from "./tasks.js";
 
 const detail = {
   id: "flow-1",
@@ -55,5 +55,51 @@ describe("task flow control protocol", () => {
     expect(status).toBe("paused");
     expect(ProtocolSchemas.TaskFlowStatus).toBeDefined();
     expect(ProtocolSchemas.TaskFlowsControlResult).toBeDefined();
+  });
+});
+
+describe("Judge receipt protocol", () => {
+  it("keeps V1 readable and requires the V2 execution proof fields", () => {
+    const common = {
+      receiptId: "receipt-1",
+      missionId: "mission-1",
+      claimHash: "claim-hash",
+      scope: "technical completion",
+      evidenceSummary: "direct evidence",
+      conditions: "none",
+      judgeRunId: "judge-run-1",
+      judgeAgentId: "judge",
+      issuedAt: 1,
+    };
+    expect(
+      Value.Check(PursueGoalJudgeReceiptSchema, {
+        ...common,
+        schemaVersion: 1,
+        verdict: "APPROVE",
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(PursueGoalJudgeReceiptSchema, {
+        ...common,
+        schemaVersion: 2,
+        verdict: "APPROVE",
+        promptHash: "prompt-hash",
+        responseHash: "response-hash",
+        route: "hosted",
+        modelVisibleTools: [],
+        requestCount: 1,
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(PursueGoalJudgeReceiptSchema, {
+        ...common,
+        schemaVersion: 2,
+        verdict: "APPROVE",
+        promptHash: "prompt-hash",
+        responseHash: "response-hash",
+        route: "hosted",
+        modelVisibleTools: [],
+      }),
+    ).toBe(false);
   });
 });

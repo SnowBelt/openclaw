@@ -1107,11 +1107,12 @@ export async function runEmbeddedAttempt(
       throw abortError;
     }
   };
+  const isRawModelRun = params.modelRun === true || params.promptMode === "none";
   try {
     const {
       skillsEligibility,
       skillsPromptWorkspaceDir: effectiveSkillsPromptWorkspace,
-      skillsSnapshot: skillsSnapshotForRun,
+      skillsSnapshot: resolvedSkillsSnapshot,
       skillsWorkspaceDir: effectiveSkillsWorkspace,
       workspaceOnly: loadSkillsWorkspaceOnly,
     } = resolveSandboxSkillRuntimeInputs({
@@ -1119,14 +1120,19 @@ export async function runEmbeddedAttempt(
       effectiveWorkspace,
       skillsSnapshot: params.skillsSnapshot,
     });
-    const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
-      workspaceDir: effectiveSkillsWorkspace,
-      config: params.config,
-      agentId: sessionAgentId,
-      eligibility: skillsEligibility,
-      skillsSnapshot: skillsSnapshotForRun,
-      workspaceOnly: loadSkillsWorkspaceOnly,
-    });
+    // Raw Judge/model probes must not inherit a prior session's skill snapshot;
+    // snapshots are prompt and tool policy, not harmless metadata.
+    const skillsSnapshotForRun = isRawModelRun ? undefined : resolvedSkillsSnapshot;
+    const { shouldLoadSkillEntries, skillEntries } = isRawModelRun
+      ? { shouldLoadSkillEntries: false, skillEntries: undefined }
+      : resolveEmbeddedRunSkillEntries({
+          workspaceDir: effectiveSkillsWorkspace,
+          config: params.config,
+          agentId: sessionAgentId,
+          eligibility: skillsEligibility,
+          skillsSnapshot: skillsSnapshotForRun,
+          workspaceOnly: loadSkillsWorkspaceOnly,
+        });
     restoreSkillEnv = skillsSnapshotForRun
       ? applySkillEnvOverridesFromSnapshot({
           snapshot: skillsSnapshotForRun,
@@ -1159,7 +1165,6 @@ export async function runEmbeddedAttempt(
 
     const sessionLabel = params.sessionKey ?? params.sessionId;
     const contextInjectionMode = resolveContextInjectionMode(params.config, sessionAgentId);
-    const isRawModelRun = params.modelRun === true || params.promptMode === "none";
     if (isRawModelRun && log.isEnabled("debug")) {
       log.debug(
         `raw model run enabled: modelRun=${params.modelRun === true} promptMode=${params.promptMode ?? "unset"}`,

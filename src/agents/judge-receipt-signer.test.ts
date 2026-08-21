@@ -2,7 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { signJudgeReceipt, verifyJudgeReceipt } from "./judge-receipt-signer.js";
+import {
+  loadJudgeSigningKey,
+  signJudgeReceipt,
+  verifyJudgeReceipt,
+} from "./judge-receipt-signer.js";
 
 const directories: string[] = [];
 
@@ -31,5 +35,21 @@ describe("Judge receipt signer", () => {
     expect(
       fs.statSync(path.join(directory, "judge-receipt-ed25519-private.pem")).mode & 0o777,
     ).toBe(0o600);
+  });
+
+  it("does not create signing state during read-only verification", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-judge-verify-only-"));
+    directories.push(directory);
+    const receipt = {
+      schemaVersion: 2,
+      missionId: "mission-1",
+      claimHash: "claim-1",
+      verdict: "APPROVE",
+      signature: "not-a-signature",
+      publicKeyId: "missing-key",
+    };
+    expect(loadJudgeSigningKey(directory)).toBeUndefined();
+    expect(verifyJudgeReceipt(receipt, { directory })).toBe(false);
+    expect(fs.readdirSync(directory)).toEqual([]);
   });
 });

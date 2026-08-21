@@ -81,6 +81,41 @@ function approvedReceipt(params: {
   };
 }
 
+function approvedV2Receipt(params: {
+  missionId: string;
+  goal: string;
+  text: string;
+  modelVisibleTools?: string[];
+}): PursueGoalJudgeReceipt {
+  const evidenceSummary = params.text;
+  return {
+    schemaVersion: 2,
+    receiptId: "receipt-v2",
+    missionId: params.missionId,
+    claimHash: buildControlDirectorJudgeClaimHash({
+      missionId: params.missionId,
+      requestBody: params.goal,
+      finalText: params.text,
+      evidenceSummary,
+    }),
+    verdict: "APPROVE",
+    scope: "exact goal",
+    evidenceSummary,
+    conditions: "none",
+    judgeRunId: "judge-run-v2",
+    judgeAgentId: "judge",
+    model: "ollama/qwen3.8:27b-q8_0",
+    issuedAt: Date.now(),
+    promptHash: "prompt-hash",
+    responseHash: "response-hash",
+    route: "local",
+    modelVisibleTools: params.modelVisibleTools ?? [],
+    requestCount: 1,
+    signature: "signature",
+    publicKeyId: "key-1",
+  };
+}
+
 function createGoalFlow(goal = "Ship verified work") {
   const flow = createManagedTaskFlow({
     ownerKey: "agent:main:dashboard:test",
@@ -347,6 +382,87 @@ describe("Pursue Goal controller", () => {
     expect(taskMocks.fail).toHaveBeenCalledWith(
       expect.objectContaining({ status: "cancelled", suppressDelivery: true }),
     );
+  });
+
+  it("rejects a V2 approval that reports any model-visible tool", async () => {
+    const flow = createGoalFlow();
+    const state = stateForPursueGoalFlow(flow)!;
+    const receipt = approvedV2Receipt({
+      missionId: state.missionId,
+      goal: flow.goal,
+      text: "Claimed complete with an unsafe tool trace.",
+      modelVisibleTools: ["update_plan"],
+    });
+    setPursueGoalJudgeReceiptVerifierForTests(() => true);
+    setPursueGoalControllerRuntimeForTests(
+      baseRuntime(async () => ({
+        status: "complete",
+        text: "Claimed complete with an unsafe tool trace.",
+        judgeReceipt: receipt,
+      })),
+    );
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    expect(stateForPursueGoalFlow(blocked)?.lastError).toContain("Completion was rejected");
+  });
+
+  it("accepts a V2 approval only when its observed route and one-request proof are clean", async () => {
+    const flow = createGoalFlow();
+    const state = stateForPursueGoalFlow(flow)!;
+    const receipt = approvedV2Receipt({
+      missionId: state.missionId,
+      goal: flow.goal,
+      text: "Claimed complete with a clean tool trace.",
+    });
+    setPursueGoalJudgeReceiptVerifierForTests(() => true);
+    setPursueGoalControllerRuntimeForTests(
+      baseRuntime(async () => ({
+        status: "complete",
+        text: "Claimed complete with a clean tool trace.",
+        judgeReceipt: receipt,
+      })),
+    );
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const succeeded = await waitForFlow(
+      flow.flowId,
+      (candidate) => candidate.status === "succeeded",
+    );
+    expect(stateForPursueGoalFlow(succeeded)?.judgeReceipt?.schemaVersion).toBe(2);
+  });
+
+  it("recovers an applied result after task finalization fails without replaying the worker", async () => {
+    const flow = createGoalFlow();
+    const state = stateForPursueGoalFlow(flow)!;
+    const receipt = approvedV2Receipt({
+      missionId: state.missionId,
+      goal: flow.goal,
+      text: "Claimed complete before the task registry interrupted finalization.",
+    });
+    taskMocks.complete.mockImplementationOnce(() => {
+      throw new Error("simulated task-registry interruption");
+    });
+    const runtime = baseRuntime(async () => ({
+      status: "complete" as const,
+      text: "Claimed complete before the task registry interrupted finalization.",
+      judgeReceipt: receipt,
+    }));
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const terminal = await waitForFlow(
+      flow.flowId,
+      (candidate) => candidate.status === "succeeded",
+    );
+    expect(stateForPursueGoalFlow(terminal)?.pendingTurn?.phase).toBe("applied");
+    expect(runtime.runTurn).toHaveBeenCalledTimes(1);
+
+    expect(reconcilePursueGoalControllers()).toBe(0);
+    const recovered = getTaskFlowById(flow.flowId)!;
+    expect(stateForPursueGoalFlow(recovered)?.pendingTurn).toBeUndefined();
+    expect(taskMocks.complete).toHaveBeenCalledTimes(2);
+    expect(runtime.runTurn).toHaveBeenCalledTimes(1);
   });
 
   it("pauses a running goal, aborts its worker turn, and resumes durably", async () => {

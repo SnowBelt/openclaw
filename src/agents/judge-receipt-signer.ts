@@ -61,6 +61,23 @@ function writePrivateKeyExclusive(filePath: string, pem: string): boolean {
   }
 }
 
+/** Read the existing signing identity without creating or repairing files. */
+export function loadJudgeSigningKey(directory?: string): JudgeSigningKey | undefined {
+  const keyDirectory = directory ?? path.join(resolveStateDir(), "credentials");
+  const paths = keyPaths(keyDirectory);
+  if (!fs.existsSync(paths.privatePath)) {
+    return undefined;
+  }
+  try {
+    const privatePem = fs.readFileSync(paths.privatePath, "utf8");
+    const privateKey = crypto.createPrivateKey(privatePem);
+    const publicKey = crypto.createPublicKey(privatePem);
+    return { privateKey, publicKey, publicKeyId: publicKeyId(publicKey) };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Load or atomically establish the process-independent Judge signing identity. */
 export function loadOrCreateJudgeSigningKey(directory?: string): JudgeSigningKey {
   const keyDirectory = directory ?? path.join(resolveStateDir(), "credentials");
@@ -109,7 +126,10 @@ export function verifyJudgeReceipt(
   try {
     const publicKey = options?.publicKeyPem
       ? crypto.createPublicKey(options.publicKeyPem)
-      : loadOrCreateJudgeSigningKey(options?.directory).publicKey;
+      : loadJudgeSigningKey(options?.directory)?.publicKey;
+    if (!publicKey) {
+      return false;
+    }
     if (publicKeyId(publicKey) !== receipt.publicKeyId) {
       return false;
     }

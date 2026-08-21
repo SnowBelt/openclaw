@@ -2,11 +2,14 @@
 import { buildControlDirectorJudgeClaimHash } from "../agents/control-director-contract.js";
 import type { IndependentJudgeReceipt } from "../agents/independent-judge-service.js";
 import { verifyJudgeReceipt } from "../agents/judge-receipt-signer.js";
+import type { PursueGoalJudgeReceipt } from "../tasks/pursue-goal-controller-state.js";
 import type { ControlDirectorJourneyClosure } from "./control-director-closure.types.js";
 import type { ControlDirectorJourneySignalCode } from "./control-director-journeys.js";
 import type { SelfImprovementProofReceipt } from "./proof-receipts.js";
 
 export type { ControlDirectorJourneyClosure } from "./control-director-closure.types.js";
+
+type JudgeClosureReceipt = IndependentJudgeReceipt | PursueGoalJudgeReceipt;
 
 export type ControlDirectorJourneyClosureDecision =
   | { ready: true; closure: ControlDirectorJourneyClosure }
@@ -35,8 +38,8 @@ export function evaluateControlDirectorJourneyClosure(params: {
   targetRecurrenceCount?: number;
   lastRecurrenceAt?: number;
   proofReceipt: SelfImprovementProofReceipt;
-  judgeReceipt: IndependentJudgeReceipt;
-  verifyJudge?: (receipt: IndependentJudgeReceipt) => boolean;
+  judgeReceipt: JudgeClosureReceipt;
+  verifyJudge?: (receipt: JudgeClosureReceipt) => boolean;
   now?: number;
 }): ControlDirectorJourneyClosureDecision {
   if (!params.owner.trim()) {

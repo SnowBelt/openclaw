@@ -18,6 +18,17 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 - Chat owns conversation, input admission, inline activity, and compact controls. PCC owns explicit plan records and evidence. System Quality owns Judge, SIG, canary, and diagnostic detail. Never infer PCC state from assistant prose.
 - Use one production Chat implementation. Do not create a parallel Chat page or duplicate state store.
 
+## Judge MVP quick contract
+
+Keep every Judge handoff on this short path; the executable contract in `src/agents/judge-contract.ts` is authoritative:
+
+1. Judge only completion, direct evidence, authorization, integrity, and operational invariants. Moral, ethical, political, value, and social-good questions return `OUT_OF_SCOPE`.
+2. Run deterministic checks first. A deterministic block never invokes a model.
+3. Prefer the independently qualified local Judge route (Qwen 3.8 27B Q8, MTP off). Use GPT-5.6 as the hosted fallback; never route Judge work to GPT-5.5.
+4. A model turn is one request with `tools: []`, `tool_choice: "none"`, `parallel_tool_calls: false`, and the closed V2 JSON schema. Missing or drifted execution evidence fails closed.
+5. Issue V2 signed receipts for new decisions; keep V1 receipts readable. A completion needs a claim-bound signature plus one-request, known-route, zero-tool proof.
+6. The Judge reads evidence and inspects goal state only. It never executes, mutates, delegates, messages, approves tools, or declares completion from prose alone.
+
 ## Operations Room truth contract
 
 - Treat activity, health, and attention as separate facts. An agent may be working and still need
@@ -55,7 +66,7 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 - Warm the selected local model only after Gateway readiness and shared resource admission. Use the provider-owned cancellable warmup hook, never evict or pull automatically, and verify exact residency afterward. The standard initial keep-alive is 15 minutes; ordinary inference retains its configured idle policy.
 - Inject bounded hot recent task/session state deterministically. Reserve model-backed Active Memory for explicit recall prompts so a second local-model request cannot delay every ordinary turn.
 - Escalate to Codex only through the governed adapter with an explicit mission packet, approval, budget, scope, attribution, and fail-closed behavior.
-- Recommended Codex route for approved complex implementation: `gpt-5.5` with high reasoning. Use xhigh only for architecture, difficult debugging, security, or final independent review where the incremental cost is justified. Use low only for a fully deterministic, mechanically verified runbook.
+- Recommended Codex route for approved complex implementation: `gpt-5.6-luna` with max reasoning. Escalate to `gpt-5.6-sol` with high reasoning for architecture, difficult debugging, security, or final independent review where the incremental cost is justified. Use low only for a fully deterministic, mechanically verified runbook.
 
 ## Subagent orchestration repair (M62-M68)
 

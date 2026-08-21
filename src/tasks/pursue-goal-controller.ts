@@ -23,10 +23,12 @@ import {
 } from "./pursue-goal-blocker.js";
 import {
   isPursueGoalLeaseCurrent,
+  PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS,
   stateForPursueGoalFlow,
   withPursueGoalEvent,
   type PursueGoalControllerState,
   type PursueGoalJudgeReceipt,
+  type PursueGoalPendingTurnResult,
 } from "./pursue-goal-controller-state.js";
 import { completeTaskRunByRunId, failTaskRunByRunId, runTaskInFlow } from "./task-executor.js";
 import type { JsonValue, TaskFlowRecord } from "./task-flow-registry.types.js";
@@ -112,6 +114,39 @@ function boundedSummary(value: string | undefined): string | undefined {
     return undefined;
   }
   return normalized.slice(0, RESULT_SUMMARY_MAX_CHARS);
+}
+
+function pendingTurnResult(result: PursueGoalTurnResult): PursueGoalPendingTurnResult | undefined {
+  if (result.text.length > PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS) {
+    return undefined;
+  }
+  return {
+    status: result.status,
+    text: result.text,
+    ...(result.blocker ? { blocker: result.blocker } : {}),
+    ...(result.provisionalBlocker ? { provisionalBlocker: result.provisionalBlocker } : {}),
+    ...(result.evidenceSummary ? { evidenceSummary: result.evidenceSummary } : {}),
+    ...(result.artifactIds ? { artifactIds: [...result.artifactIds] } : {}),
+    ...(result.judgeReceipt ? { judgeReceipt: structuredClone(result.judgeReceipt) } : {}),
+    ...(result.model ? { model: result.model } : {}),
+  };
+}
+
+/**
+ * V2 approval receipts carry provider-observed proof, not just a signature.
+ * Keep V1 readable, but never let a V2 receipt approve with an unknown route,
+ * a second request, or any model-visible tool.
+ */
+function judgeReceiptApprovalSemanticallyValid(receipt: PursueGoalJudgeReceipt): boolean {
+  if (receipt.schemaVersion !== 2) {
+    return true;
+  }
+  return (
+    receipt.route !== "unknown" &&
+    receipt.requestCount === 1 &&
+    receipt.modelVisibleTools.length === 0 &&
+    Boolean(receipt.model?.trim())
+  );
 }
 
 function assignmentMailboxId(runId: string): string {
@@ -572,13 +607,82 @@ function markTurnStarted(params: {
   return result.flow ? stateForPursueGoalFlow(result.flow) : undefined;
 }
 
+/** Persist a worker result before touching the separate task registry. */
+function stageTurnResult(params: {
+  flowId: string;
+  leaseId: string;
+  runId: string;
+  taskId: string;
+  result: PursueGoalTurnResult;
+}): PursueGoalMutationResult {
+  const pendingResult = pendingTurnResult(params.result);
+  if (!pendingResult) {
+    return {
+      found: true,
+      applied: false,
+      reason: "Worker result exceeded the durable handoff size limit.",
+    };
+  }
+  const now = Date.now();
+  return mutatePursueGoalFlow(params.flowId, (_flow, state) => {
+    if (
+      !isPursueGoalLeaseCurrent(state, {
+        ownerId: controllerOwnerId,
+        leaseId: params.leaseId,
+        now,
+      })
+    ) {
+      return undefined;
+    }
+    if (state.pendingTurn) {
+      return state.pendingTurn.runId === params.runId && state.pendingTurn.taskId === params.taskId
+        ? { state, patch: { updatedAt: now } }
+        : undefined;
+    }
+    return {
+      state: {
+        ...state,
+        pendingTurn: {
+          runId: params.runId,
+          taskId: params.taskId,
+          phase: "staged" as const,
+          result: pendingResult,
+        },
+      },
+      patch: { updatedAt: now },
+    };
+  });
+}
+
+/** Clear a handoff only after the task registry has acknowledged the result. */
+function acknowledgeTurnResult(params: {
+  flowId: string;
+  runId: string;
+  taskId: string;
+}): PursueGoalMutationResult {
+  return mutatePursueGoalFlow(params.flowId, (_flow, state) => {
+    const pending = state.pendingTurn;
+    if (
+      !pending ||
+      pending.runId !== params.runId ||
+      pending.taskId !== params.taskId ||
+      pending.phase !== "applied"
+    ) {
+      return undefined;
+    }
+    const next = { ...state };
+    delete next.pendingTurn;
+    return { state: next, patch: { updatedAt: Date.now() } };
+  });
+}
+
 function applyTurnResult(params: {
   flowId: string;
   leaseId: string;
   runId: string;
   taskId: string;
   result: PursueGoalTurnResult;
-}): { terminal: boolean; flow?: TaskFlowRecord } {
+}): { applied: boolean; terminal: boolean; flow?: TaskFlowRecord } {
   const now = Date.now();
   const mutation = mutatePursueGoalFlow(params.flowId, (flow, state) => {
     if (
@@ -590,12 +694,20 @@ function applyTurnResult(params: {
     ) {
       return undefined;
     }
-    const summary = boundedSummary(params.result.text);
+    const pending = state.pendingTurn;
+    if (
+      !pending ||
+      pending.runId !== params.runId ||
+      pending.taskId !== params.taskId ||
+      pending.phase !== "staged"
+    ) {
+      return undefined;
+    }
+    const result = pending.result;
+    const summary = boundedSummary(result.text);
     const observedBlocker = boundedSummary(
-      params.result.provisionalBlocker ??
-        (params.result.status === "blocked"
-          ? (params.result.blocker ?? params.result.text)
-          : undefined),
+      result.provisionalBlocker ??
+        (result.status === "blocked" ? (result.blocker ?? result.text) : undefined),
     );
     const consecutiveBlockers = observedBlocker
       ? nextPursueGoalBlockerCount({
@@ -606,13 +718,14 @@ function applyTurnResult(params: {
       : 0;
     const correlation = { runId: params.runId, taskId: params.taskId };
     const resultKind =
-      params.result.status === "complete"
+      result.status === "complete"
         ? "success"
-        : params.result.status === "blocked" || params.result.provisionalBlocker
+        : result.status === "blocked" || result.provisionalBlocker
           ? "blocked"
           : "progress";
     let next: PursueGoalControllerState = {
       ...state,
+      pendingTurn: { ...pending, phase: "applied" },
       turnCount: state.turnCount + 1,
       consecutiveFailures: 0,
       consecutiveBlockers,
@@ -629,30 +742,33 @@ function applyTurnResult(params: {
           kind: resultKind,
           actorId: state.workerAgentId,
           recipientId: "program-manager",
-          summary: summary ?? `Worker returned ${params.result.status}.`,
+          summary: summary ?? `Worker returned ${result.status}.`,
           correlation: {
             runId: params.runId,
             taskId: params.taskId,
             assignmentMessageId: assignmentMailboxId(params.runId),
           },
-          evidenceRefs: params.result.artifactIds,
+          evidenceRefs: result.artifactIds,
           createdAt: now,
         }),
       ),
     };
-    if (params.result.status === "complete") {
+    if (result.status === "complete") {
       const evidenceSummary =
-        boundedSummary(params.result.evidenceSummary ?? params.result.text) ??
+        boundedSummary(result.evidenceSummary ?? result.text) ??
         "No completion evidence was recorded.";
       const expectedClaimHash = buildControlDirectorJudgeClaimHash({
         missionId: state.missionId,
         requestBody: flow.goal,
-        finalText: params.result.text,
+        finalText: result.text,
         evidenceSummary,
-        artifactIds: params.result.artifactIds,
+        artifactIds: result.artifactIds,
       });
-      const receipt = params.result.judgeReceipt;
+      const receipt = result.judgeReceipt;
       const receiptCryptographicallyValid = Boolean(receipt && judgeReceiptVerifier(receipt));
+      const receiptSemanticallyValid = Boolean(
+        receipt && judgeReceiptApprovalSemanticallyValid(receipt),
+      );
       const completionEvidence = verifyControlDirectorDiagnosticEvidence({
         claim: {
           schemaVersion: 1,
@@ -670,7 +786,9 @@ function applyTurnResult(params: {
               observedAt: receipt.issuedAt,
               binding: receipt.claimHash,
               status:
-                receipt.verdict === "APPROVE" && receiptCryptographicallyValid
+                receipt.verdict === "APPROVE" &&
+                receiptCryptographicallyValid &&
+                receiptSemanticallyValid
                   ? "supported"
                   : "unsupported",
             }
@@ -765,9 +883,9 @@ function applyTurnResult(params: {
         },
       };
     }
-    if (params.result.status === "blocked") {
+    if (result.status === "blocked") {
       const blocker =
-        boundedSummary(params.result.blocker ?? params.result.text) ??
+        boundedSummary(result.blocker ?? result.text) ??
         "Execution is blocked pending evidence or external action.";
       const blockerBinding = crypto.createHash("sha256").update(blocker).digest("hex");
       const blockerEvidence = verifyControlDirectorDiagnosticEvidence({
@@ -813,16 +931,16 @@ function applyTurnResult(params: {
         lease: undefined,
         lastError: blocker,
         nextAction: "Resolve the recorded blocker, then retry the goal.",
-        ...(params.result.judgeReceipt ? { judgeReceipt: params.result.judgeReceipt } : {}),
+        ...(result.judgeReceipt ? { judgeReceipt: result.judgeReceipt } : {}),
         terminalDeliveryState: "pending",
       };
-      if (params.result.judgeReceipt) {
+      if (result.judgeReceipt) {
         next = withPursueGoalEvent(next, {
           flowId: params.flowId,
           category: "judge",
           name: "judge.rejected",
-          actorId: params.result.judgeReceipt.judgeAgentId,
-          summary: `Independent Judge requested more evidence: ${params.result.judgeReceipt.conditions}`,
+          actorId: result.judgeReceipt.judgeAgentId,
+          summary: `Independent Judge requested more evidence: ${result.judgeReceipt.conditions}`,
           correlation,
           at: now,
         });
@@ -849,7 +967,7 @@ function applyTurnResult(params: {
         },
       };
     }
-    if (params.result.status === "paused") {
+    if (result.status === "paused") {
       next = {
         ...next,
         phase: "paused",
@@ -880,16 +998,16 @@ function applyTurnResult(params: {
     next = {
       ...next,
       phase: "running",
-      nextAction: params.result.provisionalBlocker
+      nextAction: result.provisionalBlocker
         ? `Re-evaluate the same provisional blocker; confirmation ${consecutiveBlockers}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS} is not terminal.`
         : "Continue with the next delegated worker turn.",
     };
     next = withPursueGoalEvent(next, {
       flowId: params.flowId,
-      category: params.result.provisionalBlocker ? "activity" : "task",
-      name: params.result.provisionalBlocker ? "activity.waiting" : "task.completed",
+      category: result.provisionalBlocker ? "activity" : "task",
+      name: result.provisionalBlocker ? "activity.waiting" : "task.completed",
       actorId: state.workerAgentId,
-      summary: params.result.provisionalBlocker
+      summary: result.provisionalBlocker
         ? `Worker blocker is provisional (${consecutiveBlockers}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS}); the controller will retry before stopping.`
         : (summary ?? "Delegated worker turn completed and returned control."),
       correlation,
@@ -906,6 +1024,7 @@ function applyTurnResult(params: {
   });
   const state = mutation.flow ? stateForPursueGoalFlow(mutation.flow) : undefined;
   return {
+    applied: mutation.applied,
     terminal: Boolean(state && isTerminalPhase(state)) || state?.phase === "blocked",
     flow: mutation.flow,
   };
@@ -1074,6 +1193,7 @@ async function runControllerActivation(params: {
         }
         return;
       }
+      let resultApplied = false;
       try {
         const result = await runtime.runTurn({
           flowId: params.flowId,
@@ -1082,6 +1202,29 @@ async function runControllerActivation(params: {
           runId,
           abortSignal: params.abortController.signal,
         });
+        const staged = stageTurnResult({
+          flowId: params.flowId,
+          leaseId: params.leaseId,
+          runId,
+          taskId: taskResult.task.taskId,
+          result,
+        });
+        if (!staged.applied) {
+          throw new Error(staged.reason ?? "Unable to durably stage the worker result.");
+        }
+        const applied = applyTurnResult({
+          flowId: params.flowId,
+          leaseId: params.leaseId,
+          runId,
+          taskId: taskResult.task.taskId,
+          result,
+        });
+        if (!applied.applied) {
+          // Leave the staged result for lease-based recovery; replaying the
+          // provider call here would risk duplicate Judge execution.
+          return;
+        }
+        resultApplied = true;
         completeTaskRunByRunId({
           runId,
           endedAt: Date.now(),
@@ -1090,12 +1233,10 @@ async function runControllerActivation(params: {
           terminalOutcome: result.status === "blocked" ? "blocked" : "succeeded",
           suppressDelivery: true,
         });
-        const applied = applyTurnResult({
+        acknowledgeTurnResult({
           flowId: params.flowId,
-          leaseId: params.leaseId,
           runId,
           taskId: taskResult.task.taskId,
-          result,
         });
         if (applied.terminal) {
           if (applied.flow) {
@@ -1122,6 +1263,11 @@ async function runControllerActivation(params: {
           suppressDelivery: true,
         });
         if (isAbortError(error) || params.abortController.signal.aborted) {
+          return;
+        }
+        if (resultApplied) {
+          // The durable flow already contains the result; recovery will
+          // finalize/acknowledge the task without replaying the provider call.
           return;
         }
         const failed = recordTurnFailure({
@@ -1152,6 +1298,106 @@ async function runControllerActivation(params: {
   } finally {
     clearInterval(heartbeatTimer);
   }
+}
+
+function discardPendingTurn(
+  flowId: string,
+  pending: PursueGoalControllerState["pendingTurn"],
+): void {
+  if (!pending) {
+    return;
+  }
+  mutatePursueGoalFlow(flowId, (_flow, state) => {
+    if (
+      !state.pendingTurn ||
+      state.pendingTurn.runId !== pending.runId ||
+      state.pendingTurn.taskId !== pending.taskId
+    ) {
+      return undefined;
+    }
+    const next = { ...state };
+    delete next.pendingTurn;
+    return { state: next, patch: { updatedAt: Date.now() } };
+  });
+}
+
+function finalizeRecoveredPendingTurn(
+  flowId: string,
+  pending: NonNullable<PursueGoalControllerState["pendingTurn"]>,
+): boolean {
+  try {
+    completeTaskRunByRunId({
+      runId: pending.runId,
+      endedAt: Date.now(),
+      progressSummary: boundedSummary(pending.result.text),
+      terminalSummary: boundedSummary(pending.result.blocker ?? pending.result.text),
+      terminalOutcome: pending.result.status === "blocked" ? "blocked" : "succeeded",
+      suppressDelivery: true,
+    });
+    acknowledgeTurnResult({ flowId, runId: pending.runId, taskId: pending.taskId });
+    return true;
+  } catch (error) {
+    log.warn("Unable to finalize a durable Pursue Goal result handoff", {
+      flowId,
+      runId: pending.runId,
+      error,
+    });
+    return false;
+  }
+}
+
+/** Recover a staged/applied result without replaying the worker or Judge call. */
+function recoverPendingTurn(flow: TaskFlowRecord, state: PursueGoalControllerState): boolean {
+  const pending = state.pendingTurn;
+  if (!pending || activeControllers.has(flow.flowId)) {
+    return false;
+  }
+  if (isTerminalPhase(state) || state.phase === "blocked") {
+    if (pending.phase === "staged") {
+      failTaskRunByRunId({
+        runId: pending.runId,
+        status: "cancelled",
+        endedAt: Date.now(),
+        terminalSummary: "Pending worker result was discarded after terminal goal state.",
+        suppressDelivery: true,
+      });
+      discardPendingTurn(flow.flowId, pending);
+      return true;
+    }
+    return finalizeRecoveredPendingTurn(flow.flowId, pending);
+  }
+  if (pending.phase === "applied") {
+    return finalizeRecoveredPendingTurn(flow.flowId, pending);
+  }
+  const acquired = acquireLease(flow.flowId);
+  const leaseId = acquired?.state.lease?.leaseId;
+  if (!leaseId) {
+    return false;
+  }
+  const applied = applyTurnResult({
+    flowId: flow.flowId,
+    leaseId,
+    runId: pending.runId,
+    taskId: pending.taskId,
+    result: pending.result,
+  });
+  if (!applied.applied) {
+    return false;
+  }
+  if (!finalizeRecoveredPendingTurn(flow.flowId, pending)) {
+    return false;
+  }
+  if (applied.terminal && applied.flow) {
+    queueTerminalNotification({
+      flowId: flow.flowId,
+      flow: applied.flow,
+      status: applied.flow.status === "succeeded" ? "completed" : "blocked",
+      detail: pending.result.blocker ?? pending.result.text,
+    });
+  } else {
+    releaseLeaseForContinuation(flow.flowId, leaseId, PURSUE_GOAL_RETRY_BASE_MS);
+  }
+  return true;
 }
 
 /** Acquire a lease and start execution without blocking the gateway request. */
@@ -1189,6 +1435,12 @@ export function reconcilePursueGoalControllers(): number {
   for (const flow of listTaskFlowRecords()) {
     const state = stateForPursueGoalFlow(flow);
     if (!state) {
+      continue;
+    }
+    if (state.pendingTurn) {
+      recoverPendingTurn(flow, state);
+      // Never start a fresh worker turn while a prior result still has a
+      // durable handoff outstanding.
       continue;
     }
     if (isTerminalPhase(state) || state.phase === "blocked") {

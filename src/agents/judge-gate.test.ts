@@ -55,7 +55,7 @@ describe("Judge final output guard", () => {
 
     expect(guarded.changed).toBe(true);
     expect(guarded.payloads[0]?.text).toContain("VERDICT: INVALID");
-    expect(guarded.payloads[0]?.text).toContain("obtain a valid six-line Judge verdict");
+    expect(guarded.payloads[0]?.text).toContain("obtain a valid Judge verdict");
   });
 
   it("leaves already blocked wording alone", () => {
@@ -151,5 +151,43 @@ describe("Judge final output guard", () => {
     expect(final.payloads[0]?.text).toContain("Judge did not approve this yet.");
     expect(final.payloads[0]?.text).toContain("VERDICT: REJECT");
     expect(final.payloads[0]?.text).toContain("CONDITIONS: rerun build successfully");
+  });
+
+  it("keeps moral and ethical evaluation outside the technical Judge scope", () => {
+    const handoff = buildJudgeHandoffPreflight({
+      requestedAgentId: "judge",
+      task: [
+        'claim_or_action="Decide whether this is morally right";',
+        'scope="ethical evaluation";',
+        'evidence="direct test output: passed";',
+        'instructions="evaluate the values and social consequences";',
+        'risk="low";',
+        'requested_verdict="approve";',
+      ].join(" "),
+    });
+    expect(handoff.status).toBe("ready");
+    if (handoff.status !== "ready") {
+      throw new Error("expected ready Judge handoff");
+    }
+    expect(handoff.verdict.verdict).toBe("OUT_OF_SCOPE");
+  });
+
+  it("retains operational high-risk protections for technical actions", () => {
+    const handoff = buildJudgeHandoffPreflight({
+      requestedAgentId: "judge",
+      task: [
+        'claim_or_action="Production deployment completed";',
+        'scope="deployment readiness";',
+        'evidence="direct command output: deploy exited 0";',
+        'instructions="deployment requires direct evidence";',
+        'risk="high";',
+        'requested_verdict="approve";',
+      ].join(" "),
+    });
+    expect(handoff.status).toBe("ready");
+    if (handoff.status !== "ready") {
+      throw new Error("expected ready Judge handoff");
+    }
+    expect(handoff.verdict.verdict).toBe("ESCALATE_TO_HUMAN");
   });
 });

@@ -36,7 +36,7 @@ export type PursueGoalLease = {
   expiresAt: number;
 };
 
-export type PursueGoalJudgeReceipt = {
+export type PursueGoalJudgeReceiptV1 = {
   schemaVersion: 1;
   receiptId: string;
   missionId: string;
@@ -52,6 +52,70 @@ export type PursueGoalJudgeReceipt = {
   signature?: string;
   publicKeyId?: string;
 };
+
+export type PursueGoalJudgeReceiptV2 = {
+  schemaVersion: 2;
+  receiptId: string;
+  missionId: string;
+  claimHash: string;
+  verdict:
+    | "APPROVE"
+    | "REJECT"
+    | "REQUEST_MORE_EVIDENCE"
+    | "ESCALATE_TO_HUMAN"
+    | "NEEDS_EVIDENCE"
+    | "OUT_OF_SCOPE"
+    | "OWNER_APPROVAL_REQUIRED"
+    | "SYSTEM_ERROR";
+  scope: string;
+  evidenceSummary: string;
+  conditions: string;
+  judgeRunId: string;
+  judgeAgentId: string;
+  model?: string;
+  issuedAt: number;
+  /** Hash of the exact technical-only prompt sent to the model. */
+  promptHash: string;
+  /** Hash of the model response used to issue this receipt. */
+  responseHash: string;
+  /** Provider/runtime route observed for this decision. */
+  route: "local" | "hosted" | "unknown";
+  /** V2 model-visible tool proof; this must be an empty list for Judge turns. */
+  modelVisibleTools: string[];
+  /** Physical provider request count; the V2 contract requires exactly one. */
+  requestCount: number;
+  signature?: string;
+  publicKeyId?: string;
+};
+
+/** V1 remains readable; newly issued controller receipts are V2. */
+export type PursueGoalJudgeReceipt = PursueGoalJudgeReceiptV1 | PursueGoalJudgeReceiptV2;
+
+/**
+ * Durable handoff for a worker result between the provider call and task
+ * registry finalization. Keeping this marker in the flow state closes the
+ * crash window where a completed Judge result could otherwise be lost after
+ * the task row was written but before the controller state was persisted.
+ */
+export type PursueGoalPendingTurnResult = {
+  status: "active" | "complete" | "blocked" | "paused";
+  text: string;
+  blocker?: string;
+  provisionalBlocker?: string;
+  evidenceSummary?: string;
+  artifactIds?: string[];
+  judgeReceipt?: PursueGoalJudgeReceipt;
+  model?: string;
+};
+
+export type PursueGoalPendingTurn = {
+  runId: string;
+  taskId: string;
+  phase: "staged" | "applied";
+  result: PursueGoalPendingTurnResult;
+};
+
+export const PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS = 64_000;
 
 export type PursueGoalControllerState = {
   schemaVersion: typeof PURSUE_GOAL_STATE_SCHEMA_VERSION;
@@ -85,6 +149,7 @@ export type PursueGoalControllerState = {
   staleGoalRepairAttempts: number;
   staleGoalRepairLastAt?: number;
   judgeReceipt?: PursueGoalJudgeReceipt;
+  pendingTurn?: PursueGoalPendingTurn;
   mailbox: DurableWorkerMailboxMessage[];
   events: ExecutionEventV1[];
 };
@@ -151,12 +216,17 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   }
   const record = value as Record<string, unknown>;
   const verdict = record.verdict;
-  if (
-    verdict !== "APPROVE" &&
-    verdict !== "REJECT" &&
-    verdict !== "REQUEST_MORE_EVIDENCE" &&
-    verdict !== "ESCALATE_TO_HUMAN"
-  ) {
+  const supportedVerdicts = [
+    "APPROVE",
+    "REJECT",
+    "REQUEST_MORE_EVIDENCE",
+    "ESCALATE_TO_HUMAN",
+    "NEEDS_EVIDENCE",
+    "OUT_OF_SCOPE",
+    "OWNER_APPROVAL_REQUIRED",
+    "SYSTEM_ERROR",
+  ] as const;
+  if (!supportedVerdicts.includes(verdict as (typeof supportedVerdicts)[number])) {
     return undefined;
   }
   const receiptId = nonEmptyString(record.receiptId);
@@ -169,7 +239,7 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   const judgeAgentId = nonEmptyString(record.judgeAgentId);
   const issuedAt = finiteTimestamp(record.issuedAt);
   if (
-    record.schemaVersion !== 1 ||
+    (record.schemaVersion !== 1 && record.schemaVersion !== 2) ||
     !receiptId ||
     !missionId ||
     !claimHash ||
@@ -182,12 +252,12 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
   ) {
     return undefined;
   }
-  return {
-    schemaVersion: 1,
+  const schemaVersion = record.schemaVersion;
+  const common = {
     receiptId,
     missionId,
     claimHash,
-    verdict,
+    verdict: verdict as PursueGoalJudgeReceipt["verdict"],
     scope,
     evidenceSummary,
     conditions,
@@ -199,6 +269,100 @@ function parseJudgeReceipt(value: unknown): PursueGoalJudgeReceipt | undefined {
     ...(nonEmptyString(record.publicKeyId)
       ? { publicKeyId: nonEmptyString(record.publicKeyId)! }
       : {}),
+  };
+  if (schemaVersion === 1) {
+    return { schemaVersion: 1, ...common } as PursueGoalJudgeReceiptV1;
+  }
+  const route = record.route;
+  if (route !== undefined && route !== "local" && route !== "hosted" && route !== "unknown") {
+    return undefined;
+  }
+  const requestCount = record.requestCount;
+  if (
+    requestCount !== undefined &&
+    (typeof requestCount !== "number" || !Number.isSafeInteger(requestCount) || requestCount < 0)
+  ) {
+    return undefined;
+  }
+  const modelVisibleTools = record.modelVisibleTools;
+  if (
+    modelVisibleTools !== undefined &&
+    (!Array.isArray(modelVisibleTools) ||
+      modelVisibleTools.some((tool) => typeof tool !== "string" || !tool.trim()))
+  ) {
+    return undefined;
+  }
+  const promptHash = nonEmptyString(record.promptHash);
+  const responseHash = nonEmptyString(record.responseHash);
+  if (!promptHash || !responseHash || !route || requestCount === undefined || !modelVisibleTools) {
+    return undefined;
+  }
+  return {
+    schemaVersion: 2,
+    ...common,
+    promptHash,
+    responseHash,
+    route,
+    requestCount,
+    modelVisibleTools: [...modelVisibleTools],
+  } as PursueGoalJudgeReceiptV2;
+}
+
+function parsePendingTurn(value: unknown): PursueGoalPendingTurn | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const runId = nonEmptyString(record.runId);
+  const taskId = nonEmptyString(record.taskId);
+  const phase = record.phase === "staged" || record.phase === "applied" ? record.phase : undefined;
+  if (!runId || !taskId || !phase || !record.result || typeof record.result !== "object") {
+    return undefined;
+  }
+  const result = record.result as Record<string, unknown>;
+  const status =
+    result.status === "active" ||
+    result.status === "complete" ||
+    result.status === "blocked" ||
+    result.status === "paused"
+      ? result.status
+      : undefined;
+  if (status === undefined || typeof result.text !== "string") {
+    return undefined;
+  }
+  if (result.text.length > PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS) {
+    return undefined;
+  }
+  const optionalStrings = ["blocker", "provisionalBlocker", "evidenceSummary", "model"] as const;
+  const parsedOptionalStrings = Object.fromEntries(
+    optionalStrings.flatMap((key) => {
+      const optionalValue = nonEmptyString(result[key]);
+      return optionalValue ? [[key, optionalValue]] : [];
+    }),
+  ) as Partial<Pick<PursueGoalPendingTurnResult, (typeof optionalStrings)[number]>>;
+  const artifactIds = result.artifactIds;
+  if (
+    artifactIds !== undefined &&
+    (!Array.isArray(artifactIds) ||
+      artifactIds.some((artifactId) => typeof artifactId !== "string" || !artifactId.trim()))
+  ) {
+    return undefined;
+  }
+  const judgeReceipt = parseJudgeReceipt(result.judgeReceipt);
+  if (result.judgeReceipt !== undefined && !judgeReceipt) {
+    return undefined;
+  }
+  return {
+    runId,
+    taskId,
+    phase,
+    result: {
+      status,
+      text: result.text,
+      ...parsedOptionalStrings,
+      ...(artifactIds ? { artifactIds: [...artifactIds] as string[] } : {}),
+      ...(judgeReceipt ? { judgeReceipt } : {}),
+    },
   };
 }
 
@@ -278,6 +442,10 @@ export function parsePursueGoalControllerState(
   }
   const lease = parseLease(record.lease);
   const judgeReceipt = parseJudgeReceipt(record.judgeReceipt);
+  const pendingTurn = parsePendingTurn(record.pendingTurn);
+  if (record.pendingTurn !== undefined && !pendingTurn) {
+    return undefined;
+  }
   return {
     schemaVersion: PURSUE_GOAL_STATE_SCHEMA_VERSION,
     kind: "pursue_goal",
@@ -335,6 +503,7 @@ export function parsePursueGoalControllerState(
       ? { staleGoalRepairLastAt: finiteTimestamp(record.staleGoalRepairLastAt)! }
       : {}),
     ...(judgeReceipt ? { judgeReceipt } : {}),
+    ...(pendingTurn ? { pendingTurn } : {}),
     mailbox: parseDurableWorkerMailbox(record.mailbox),
     events: parseExecutionEvents(record.events),
   };

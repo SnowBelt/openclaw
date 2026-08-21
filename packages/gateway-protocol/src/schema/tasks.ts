@@ -195,7 +195,7 @@ export const PursueGoalLeaseSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const PursueGoalJudgeReceiptSchema = Type.Object(
+const PursueGoalJudgeReceiptV1Schema = Type.Object(
   {
     schemaVersion: Type.Literal(1),
     receiptId: NonEmptyString,
@@ -219,6 +219,46 @@ export const PursueGoalJudgeReceiptSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
+const PursueGoalJudgeReceiptV2Schema = Type.Object(
+  {
+    schemaVersion: Type.Literal(2),
+    receiptId: NonEmptyString,
+    missionId: NonEmptyString,
+    claimHash: NonEmptyString,
+    verdict: Type.Union([
+      Type.Literal("APPROVE"),
+      Type.Literal("REJECT"),
+      Type.Literal("REQUEST_MORE_EVIDENCE"),
+      Type.Literal("ESCALATE_TO_HUMAN"),
+      Type.Literal("NEEDS_EVIDENCE"),
+      Type.Literal("OUT_OF_SCOPE"),
+      Type.Literal("OWNER_APPROVAL_REQUIRED"),
+      Type.Literal("SYSTEM_ERROR"),
+    ]),
+    scope: NonEmptyString,
+    evidenceSummary: NonEmptyString,
+    conditions: NonEmptyString,
+    judgeRunId: NonEmptyString,
+    judgeAgentId: NonEmptyString,
+    model: Type.Optional(NonEmptyString),
+    issuedAt: Type.Integer({ minimum: 0 }),
+    promptHash: NonEmptyString,
+    responseHash: NonEmptyString,
+    route: Type.Union([Type.Literal("local"), Type.Literal("hosted"), Type.Literal("unknown")]),
+    modelVisibleTools: Type.Array(NonEmptyString),
+    requestCount: Type.Integer({ minimum: 0 }),
+    signature: Type.Optional(NonEmptyString),
+    publicKeyId: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+/** V1 is readable; V2 is the additive format issued by the current Judge. */
+export const PursueGoalJudgeReceiptSchema = Type.Union([
+  PursueGoalJudgeReceiptV1Schema,
+  PursueGoalJudgeReceiptV2Schema,
+]);
 
 /** Public task summary returned by task list/get/cancel responses. */
 export const TaskSummarySchema = Type.Object(

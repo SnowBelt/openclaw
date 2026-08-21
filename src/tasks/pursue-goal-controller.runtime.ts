@@ -5,6 +5,12 @@ import { resolveJudgeAgentId } from "../agents/agent-scope-config.js";
 import { prepareGovernedControlDirectorCodexEscalation } from "../agents/control-director-codex-adapter.js";
 import { buildControlDirectorMissionEnvelope } from "../agents/control-director-contract.js";
 import { judgeCompletionIndependently } from "../agents/independent-judge-service.js";
+import { JUDGE_HOSTED_MODEL, type JudgeModelExecutionEvidence } from "../agents/judge-contract.js";
+import { buildJudgeHostedPayload } from "../agents/judge-hosted-transport.js";
+import {
+  prepareSimpleCompletionModelForAgent,
+  resolveSimpleCompletionSelectionForAgent,
+} from "../agents/simple-completion-runtime.js";
 import { getRuntimeConfig } from "../config/io.js";
 import {
   createSessionGoal,
@@ -14,6 +20,8 @@ import {
 } from "../config/sessions/goals.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
 import type { SessionGoalStatus } from "../config/sessions/types.js";
+import { completeSimple } from "../llm/stream.js";
+import type { AssistantMessage } from "../llm/types.js";
 import { DEFAULT_PCC_EXECUTION_PROFILE } from "../pcc/execution-profile.js";
 import {
   nextPursueGoalBlockerCount,
@@ -82,6 +90,239 @@ function resultModel(result: unknown): string | undefined {
   return typeof model === "string" && model.trim()
     ? `${typeof provider === "string" && provider.trim() ? `${provider}/` : ""}${model}`
     : undefined;
+}
+
+/** Extract transport facts from the embedded runner; missing facts fail closed. */
+function judgeExecutionEvidence(result: unknown): JudgeModelExecutionEvidence {
+  if (!result || typeof result !== "object") {
+    return { requestCount: 0, modelVisibleTools: ["unknown"], route: "unknown", model: "unknown" };
+  }
+  const meta = (result as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== "object") {
+    return { requestCount: 0, modelVisibleTools: ["unknown"], route: "unknown", model: "unknown" };
+  }
+  const executionTrace = (meta as { executionTrace?: unknown }).executionTrace;
+  const toolSummary = (meta as { toolSummary?: unknown }).toolSummary;
+  const agentMeta = (meta as { agentMeta?: unknown }).agentMeta;
+  const model = resultModel(result) ?? "unknown";
+  const provider =
+    agentMeta &&
+    typeof agentMeta === "object" &&
+    typeof (agentMeta as { provider?: unknown }).provider === "string"
+      ? ((agentMeta as { provider: string }).provider ?? "")
+      : "";
+  const attempts =
+    executionTrace &&
+    typeof executionTrace === "object" &&
+    Array.isArray((executionTrace as { attempts?: unknown }).attempts)
+      ? ((executionTrace as { attempts: unknown[] }).attempts ?? [])
+      : [];
+  const tools =
+    toolSummary &&
+    typeof toolSummary === "object" &&
+    Array.isArray((toolSummary as { tools?: unknown }).tools)
+      ? ((toolSummary as { tools: unknown[] }).tools ?? []).filter(
+          (tool): tool is string => typeof tool === "string" && Boolean(tool.trim()),
+        )
+      : ["unknown"];
+  const toolCalls =
+    toolSummary &&
+    typeof toolSummary === "object" &&
+    typeof (toolSummary as { calls?: unknown }).calls === "number"
+      ? (toolSummary as { calls: number }).calls
+      : Number.NaN;
+  const runner =
+    executionTrace && typeof executionTrace === "object"
+      ? (executionTrace as { runner?: unknown }).runner
+      : undefined;
+  const route =
+    provider === "openai" || provider.startsWith("openai-")
+      ? "hosted"
+      : provider.startsWith("omlx") || provider === "ollama"
+        ? "local"
+        : "unknown";
+  return {
+    requestCount: attempts.length,
+    modelVisibleTools:
+      runner === "embedded" && toolCalls === 0 ? tools : ["unverified-tool-surface", ...tools],
+    route,
+    model,
+  };
+}
+
+function assistantMessageText(result: AssistantMessage): string {
+  return result.content
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("\n")
+    .trim();
+}
+
+function directHostedJudgeModel(result: AssistantMessage): string {
+  return `${result.provider}/${result.model}`;
+}
+
+function failedHostedJudgeResult(params: {
+  agentId: string;
+  model: string;
+  reason: string;
+  requestCount?: number;
+}): {
+  text: string;
+  runId: string;
+  agentId: string;
+  model: string;
+  executionEvidence: JudgeModelExecutionEvidence;
+} {
+  return {
+    text: `Hosted Judge request failed closed: ${params.reason}`,
+    runId: `judge-hosted-failed-${crypto.randomUUID()}`,
+    agentId: params.agentId,
+    model: params.model,
+    executionEvidence: {
+      requestCount: params.requestCount ?? 0,
+      modelVisibleTools: [],
+      route: "hosted",
+      model: params.model,
+    },
+  };
+}
+
+/**
+ * Hosted Judge turns use the provider's direct Responses transport. This is
+ * deliberately separate from agentCommand so a GPT route cannot silently
+ * select the Codex app-server harness or inherit a workspace/tool surface.
+ * Local models continue through agentCommand, which owns local admission.
+ */
+/** Provider-owned direct hosted transport; exported only for the focused contract test. */
+export async function runDirectHostedJudgeModel(params: {
+  cfg: ReturnType<typeof getRuntimeConfig>;
+  agentId: string;
+  prompt: string;
+  abortSignal: AbortSignal;
+}): Promise<
+  | {
+      text: string;
+      runId: string;
+      agentId: string;
+      model: string;
+      executionEvidence: JudgeModelExecutionEvidence;
+    }
+  | undefined
+> {
+  const selection = resolveSimpleCompletionSelectionForAgent({
+    cfg: params.cfg,
+    agentId: params.agentId,
+  });
+  if (!selection || selection.provider !== "openai") {
+    return undefined;
+  }
+  const requestedModel = `${selection.provider}/${selection.modelId}`;
+  if (requestedModel !== JUDGE_HOSTED_MODEL) {
+    return failedHostedJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "hosted Judge model is not the pinned GPT-5.6 route",
+    });
+  }
+  const prepared = await prepareSimpleCompletionModelForAgent({
+    cfg: params.cfg,
+    agentId: params.agentId,
+    agentDir: selection.agentDir,
+    modelRef: requestedModel,
+    allowBundledStaticCatalogFallback: true,
+    useAsyncModelResolution: true,
+    skipAgentDiscovery: true,
+  });
+  if ("error" in prepared) {
+    return failedHostedJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "hosted model preparation failed",
+    });
+  }
+  const model = prepared.model;
+  if (`${model.provider}/${model.id}` !== JUDGE_HOSTED_MODEL) {
+    return failedHostedJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "hosted Judge model identity drifted",
+    });
+  }
+  if (model.api !== "openai-responses" && model.api !== "openai-chatgpt-responses") {
+    return failedHostedJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "hosted model does not expose a Responses transport",
+    });
+  }
+
+  let requestPrepared = false;
+  let modelVisibleTools: string[] = [];
+  let response: AssistantMessage;
+  try {
+    response = await completeSimple(
+      model,
+      {
+        systemPrompt:
+          "You are a technical-only Judge. Never evaluate ethics, morality, politics, values, or social good. Return only the requested JSON object.",
+        messages: [
+          {
+            role: "user",
+            content: params.prompt,
+            timestamp: Date.now(),
+          },
+        ],
+        tools: [],
+      },
+      {
+        apiKey: prepared.auth.apiKey,
+        signal: params.abortSignal,
+        timeoutMs: 120_000,
+        maxRetries: 0,
+        transport: "sse",
+        onPayload: (payload) => {
+          const observation = buildJudgeHostedPayload({
+            payload,
+            expectedModel: model.id,
+          });
+          requestPrepared = true;
+          modelVisibleTools = observation.modelVisibleTools;
+          return observation.payload;
+        },
+      },
+    );
+  } catch {
+    return failedHostedJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "hosted provider invocation failed",
+      requestCount: requestPrepared ? 1 : 0,
+    });
+  }
+
+  const responseToolNames = response.content.flatMap((block) =>
+    block.type === "toolCall" ? [block.name.trim() || "unknown-tool"] : [],
+  );
+  modelVisibleTools = [...new Set([...modelVisibleTools, ...responseToolNames])];
+  const modelIdentity = directHostedJudgeModel(response);
+  if (modelIdentity !== requestedModel) {
+    modelVisibleTools = [...new Set([...modelVisibleTools, "model-identity-drift"])];
+  }
+  return {
+    text:
+      response.stopReason === "stop" || response.stopReason === "length"
+        ? assistantMessageText(response)
+        : "Hosted Judge provider returned an error.",
+    runId: `judge-hosted-${crypto.randomUUID()}`,
+    agentId: params.agentId,
+    model: modelIdentity,
+    executionEvidence: {
+      requestCount: requestPrepared ? 1 : 0,
+      modelVisibleTools,
+      route: "hosted",
+      model: modelIdentity,
+    },
+  };
 }
 
 function workerStorePath(input: PursueGoalTurnInput): string {
@@ -219,6 +460,15 @@ async function runIndependentJudge(params: {
     artifactIds: params.artifactIds,
     runModel: judgeAgentId
       ? async (prompt) => {
+          const hostedResult = await runDirectHostedJudgeModel({
+            cfg,
+            agentId: judgeAgentId,
+            prompt,
+            abortSignal: params.input.abortSignal,
+          });
+          if (hostedResult) {
+            return hostedResult;
+          }
           const runId = crypto.randomUUID();
           const result = await agentCommand({
             message: prompt,
@@ -233,6 +483,7 @@ async function runIndependentJudge(params: {
             suppressPromptPersistence: true,
             sessionEffects: "internal",
             disableMessageTool: true,
+            toolsAllow: [],
             abortSignal: params.input.abortSignal,
           });
           return {
@@ -240,6 +491,7 @@ async function runIndependentJudge(params: {
             runId,
             agentId: judgeAgentId,
             model: resultModel(result),
+            executionEvidence: judgeExecutionEvidence(result),
           };
         }
       : undefined,
