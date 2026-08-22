@@ -800,6 +800,21 @@ function reserveJudgeExecution(params: {
     ) {
       return undefined;
     }
+    // Reserve claim-history capacity before invoking a provider. A bounded
+    // append failure after a successful external request would leave a valid
+    // Judge result without a durable fence and make retry safety unknowable.
+    const capacityProbe = appendJudgeClaimRecord(state.judgeClaims, {
+      claimHash: params.claimHash,
+      promptHash: params.promptHash,
+      runId: params.runId,
+      taskId: params.taskId,
+      status: "settled",
+      receiptId: "r".repeat(512),
+      recordedAt: now,
+    });
+    if (!capacityProbe) {
+      return undefined;
+    }
     return {
       state: {
         ...state,

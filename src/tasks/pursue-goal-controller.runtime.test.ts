@@ -130,6 +130,220 @@ describe("Pursue Goal governed model route", () => {
     );
   });
 
+  it("only promotes target-bound mutations and verified test commands to outcome evidence", () => {
+    const observed = collectObservedWorkerEvidence(
+      {
+        meta: {
+          toolSummary: {
+            calls: 5,
+            failures: 0,
+            observations: [
+              {
+                toolName: "write",
+                terminalStatus: "succeeded",
+                fileTarget: { path: "src/tasks/fixed.ts" },
+                actionFingerprint: "tool=write|path=src/tasks/fixed.ts",
+                resultDigest: "a".repeat(64),
+                postStateDigest: "b".repeat(64),
+              },
+              {
+                toolName: "exec",
+                terminalStatus: "succeeded",
+                actionFingerprint: "tool=exec|meta=pnpm test src/tasks/fixed.test.ts",
+                meta: "pnpm test src/tasks/fixed.test.ts",
+                resultDigest: "c".repeat(64),
+                exitCode: 0,
+              },
+              {
+                toolName: "read",
+                terminalStatus: "succeeded",
+                fileTarget: { path: "src/tasks/fixed.ts" },
+                actionFingerprint: "read:src/tasks/fixed.ts",
+              },
+              {
+                toolName: "exec",
+                terminalStatus: "succeeded",
+                actionFingerprint: "tool=exec|meta=cat src/tasks/fixed.ts",
+                meta: "cat src/tasks/fixed.ts",
+              },
+            ],
+          },
+        },
+      },
+      [],
+      "Fix src/tasks/fixed.ts",
+    );
+
+    expect(observed.trustedEvidence.map((record) => record.kind)).toEqual(
+      expect.arrayContaining(["source_mutation", "test_execution"]),
+    );
+    expect(observed.trustedEvidence).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "source_mutation",
+          summary: expect.stringContaining("cat"),
+        }),
+      ]),
+    );
+    expect(observed.trustedEvidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "source_observation" })]),
+    );
+  });
+
+  it("rejects unrelated mutations and help-only commands as mission evidence", () => {
+    const observed = collectObservedWorkerEvidence(
+      {
+        meta: {
+          toolSummary: {
+            calls: 4,
+            failures: 0,
+            observations: [
+              {
+                toolName: "apply_patch",
+                terminalStatus: "succeeded",
+                fileTarget: { paths: ["src/unrelated.ts"] },
+                actionFingerprint: "tool=apply_patch|paths=src/unrelated.ts",
+                resultDigest: "a".repeat(64),
+                postStateDigest: "b".repeat(64),
+              },
+              {
+                toolName: "exec",
+                terminalStatus: "succeeded",
+                actionFingerprint: "tool=exec|meta=pnpm test --help",
+                meta: "pnpm test --help",
+                resultDigest: "c".repeat(64),
+                exitCode: 0,
+              },
+            ],
+          },
+        },
+      },
+      [],
+      "Fix src/authentication.ts login bug",
+    );
+
+    expect(observed.trustedEvidence).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "source_mutation" }),
+        expect.objectContaining({ kind: "test_execution" }),
+      ]),
+    );
+  });
+
+  it("does not treat a shell echo of a test command as test execution", () => {
+    const observed = collectObservedWorkerEvidence(
+      {
+        meta: {
+          toolSummary: {
+            calls: 1,
+            failures: 0,
+            observations: [
+              {
+                toolName: "exec",
+                terminalStatus: "succeeded",
+                actionFingerprint: "tool=exec|meta=echo pnpm test authentication",
+                meta: "echo pnpm test authentication",
+                resultDigest: "c".repeat(64),
+                exitCode: 0,
+              },
+            ],
+          },
+        },
+      },
+      [],
+      "Fix src/authentication.ts login bug",
+    );
+
+    expect(observed.trustedEvidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "test_execution" })]),
+    );
+  });
+
+  it("does not treat node eval or masked shell commands as verification", () => {
+    const observations = [
+      "node -e \\\"console.log('test src/authentication.ts')\\\"",
+      "pnpm test src/authentication.test.ts || true",
+    ].map((meta) => ({
+      toolName: "exec",
+      terminalStatus: "succeeded" as const,
+      actionFingerprint: `tool=exec|meta=${meta}`,
+      meta,
+      resultDigest: "d".repeat(64),
+      exitCode: 0,
+    }));
+    const observed = collectObservedWorkerEvidence(
+      { meta: { toolSummary: { calls: observations.length, failures: 0, observations } } },
+      [],
+      "Fix src/authentication.ts login bug",
+    );
+    expect(observed.trustedEvidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "test_execution" })]),
+    );
+  });
+
+  it("links a background test exec to its terminal process poll", () => {
+    const observed = collectObservedWorkerEvidence(
+      {
+        meta: {
+          toolSummary: {
+            calls: 2,
+            failures: 0,
+            observations: [
+              {
+                toolName: "exec",
+                terminalStatus: "running",
+                asyncTaskId: "session-1",
+                meta: "pnpm test src/tasks/fixed.test.ts",
+              },
+              {
+                toolName: "process",
+                terminalStatus: "succeeded",
+                asyncTaskId: "session-1",
+                meta: "process poll session-1",
+                resultDigest: "e".repeat(64),
+                exitCode: 0,
+              },
+            ],
+          },
+        },
+      },
+      [],
+      "Fix src/tasks/fixed.ts",
+    );
+
+    expect(observed.trustedEvidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "test_execution" })]),
+    );
+  });
+
+  it("promotes only branded configuration post-state evidence", () => {
+    const observed = collectObservedWorkerEvidence(
+      {
+        meta: {
+          toolSummary: {
+            calls: 1,
+            failures: 0,
+            observations: [
+              {
+                toolName: "gateway",
+                terminalStatus: "succeeded",
+                actionFingerprint: "gateway:config.patch|path=agents.list[].model",
+                meta: "config.patch Judge route",
+                resultDigest: "a".repeat(64),
+                postStateDigest: "b".repeat(64),
+              },
+            ],
+          },
+        },
+      },
+      [],
+      "Configure the Judge route",
+    );
+    expect(observed.trustedEvidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "config_mutation" })]),
+    );
+  });
+
   it("binds artifacts to guarded loaded bytes and omits unsafe references", async () => {
     const loadMedia = async (reference: string) => {
       if (reference.includes("unsafe")) {

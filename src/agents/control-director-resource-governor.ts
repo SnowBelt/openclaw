@@ -9,6 +9,7 @@ export type ControlDirectorResidentModel = {
   ref: string;
   state: "active" | "idle";
   estimatedMemoryGb: number;
+  modelDigest?: string;
 };
 
 export type ControlDirectorResourceDecision =

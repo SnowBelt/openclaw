@@ -61,6 +61,9 @@ export function normalizeControlDirectorResidencyObservation(params: {
         ref,
         state: params.activeLocalWork ? ("active" as const) : entry.state,
         estimatedMemoryGb: bytes == null ? 0 : Math.round((bytes / GIB) * 10) / 10,
+        ...(typeof entry.modelDigest === "string" && entry.modelDigest.trim()
+          ? { modelDigest: entry.modelDigest.trim() }
+          : {}),
       },
     ];
   });

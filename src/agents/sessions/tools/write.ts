@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /**
  * Built-in write session tool.
  *
@@ -26,6 +27,7 @@ import {
   shortenPath,
   str,
 } from "./render-utils.js";
+import { markTrustedMutationDetails } from "./tool-contracts.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
 
 const writeSchema = Type.Object({
@@ -34,6 +36,7 @@ const writeSchema = Type.Object({
   }),
   content: Type.String({ description: "Content to write to the file" }),
 });
+type WriteToolDetails = { postStateDigest: string };
 export type { WriteToolInput } from "./tool-contracts.js";
 
 /**
@@ -366,6 +369,7 @@ async function recoverSuccessfulWrite(params: {
   if (currentContent !== params.content || !changed) {
     return null;
   }
+  const postStateDigest = createHash("sha256").update(currentContent, "utf8").digest("hex");
   return {
     content: [
       {
@@ -373,14 +377,14 @@ async function recoverSuccessfulWrite(params: {
         text: `Successfully wrote ${params.content.length} bytes to ${params.path}`,
       },
     ],
-    details: undefined,
+    details: markTrustedMutationDetails({ postStateDigest }) satisfies WriteToolDetails,
   };
 }
 
 export function createWriteToolDefinition(
   cwd: string,
   options?: WriteToolOptions,
-): ToolDefinition<typeof writeSchema, undefined> {
+): ToolDefinition<typeof writeSchema, WriteToolDetails | undefined> {
   const ops = options?.operations ?? defaultWriteOperations;
   return {
     name: "write",
@@ -426,6 +430,17 @@ export function createWriteToolDefinition(
           if (signal?.aborted) {
             throw new Error("Operation aborted");
           }
+          const readback = ops.readFile
+            ? await ops.readFile(absolutePath).catch(() => undefined)
+            : undefined;
+          const postStateContent = Buffer.isBuffer(readback)
+            ? readback.toString("utf8")
+            : typeof readback === "string"
+              ? readback
+              : undefined;
+          if (postStateContent !== undefined && postStateContent !== content) {
+            throw new Error("Write post-state readback did not match the requested content");
+          }
           return {
             content: [
               {
@@ -433,7 +448,15 @@ export function createWriteToolDefinition(
                 text: `Successfully wrote ${content.length} bytes to ${path}`,
               },
             ],
-            details: undefined,
+            ...(postStateContent !== undefined
+              ? {
+                  details: markTrustedMutationDetails({
+                    postStateDigest: createHash("sha256")
+                      .update(postStateContent, "utf8")
+                      .digest("hex"),
+                  }),
+                }
+              : { details: undefined }),
           };
         } catch (error: unknown) {
           const recovered = await recoverSuccessfulWrite({

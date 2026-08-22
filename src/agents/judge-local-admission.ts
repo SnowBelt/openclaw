@@ -42,7 +42,11 @@ type JudgeAdmissionState = {
 };
 
 const JUDGE_ADMISSION_STATE = Symbol.for("openclaw.local-inference-admission.v1");
+export const LOCAL_INFERENCE_ADMISSION_HOOKS = Symbol.for(
+  "openclaw.local-inference-admission-hooks.v1",
+);
 const HELD_ADMISSION = Symbol.for("openclaw.local-inference-admission-held.v1");
+const LOCAL_INFERENCE_OWNER = Symbol.for("openclaw.local-inference-owner.v1");
 const globalAdmission = globalThis as typeof globalThis & Record<symbol, unknown>;
 const existingState = globalAdmission[JUDGE_ADMISSION_STATE] as JudgeAdmissionState | undefined;
 const state: JudgeAdmissionState = existingState ?? {
@@ -174,10 +178,38 @@ export function hasLocalInferenceAdmissionHeld(model: object): boolean {
   return (model as Record<PropertyKey, unknown>)[HELD_ADMISSION] === true;
 }
 
+function localInferenceOwnerOf(model: object): string | undefined {
+  const owner = (model as Record<PropertyKey, unknown>)[LOCAL_INFERENCE_OWNER];
+  return typeof owner === "string" && owner.trim() ? owner.trim() : undefined;
+}
+
+// The Ollama extension is intentionally unable to import core admission code.
+// Register a narrow structural bridge so every native provider stream can use
+// the same process-wide lease without creating a core-to-extension dependency.
+const admissionHooks = Object.freeze({
+  acquire: acquireLocalInferenceAdmission,
+  hasHeld: hasLocalInferenceAdmissionHeld,
+  ownerOf: localInferenceOwnerOf,
+});
+const admissionHookDescriptor = Object.getOwnPropertyDescriptor(
+  globalAdmission,
+  LOCAL_INFERENCE_ADMISSION_HOOKS,
+);
+if (!admissionHookDescriptor || admissionHookDescriptor.configurable) {
+  Object.defineProperty(globalAdmission, LOCAL_INFERENCE_ADMISSION_HOOKS, {
+    value: admissionHooks,
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+}
+
 /** Probe prepared provider residency plus host RAM/thermal headroom without mutating models. */
 export async function assessJudgeLocalCapacity(params: {
   config: OpenClawConfig;
   selectedModel: string;
+  /** Require a configured and residency-confirmed immutable model digest. */
+  requireImmutableIdentity?: boolean;
   /** The caller already owns the sole Judge lease, so it is not contention. */
   leaseHeld?: boolean;
   runtime?: {
@@ -209,6 +241,39 @@ export async function assessJudgeLocalCapacity(params: {
       decision: "hosted_fallback",
       reason: `different local model ${differentResident.ref} is resident`,
     };
+  }
+  if (params.requireImmutableIdentity) {
+    const slash = params.selectedModel.indexOf("/");
+    const provider = slash > 0 ? params.selectedModel.slice(0, slash) : "";
+    const modelId = slash > 0 ? params.selectedModel.slice(slash + 1) : "";
+    const providerConfig = provider
+      ? (params.config.models?.providers?.[provider] ??
+        Object.entries(params.config.models?.providers ?? {}).find(
+          ([key]) => key.toLowerCase() === provider.toLowerCase(),
+        )?.[1])
+      : undefined;
+    const modelConfig = providerConfig?.models?.find((model) => model.id === modelId);
+    const expectedDigest =
+      typeof modelConfig?.params?.digest === "string"
+        ? modelConfig.params.digest.trim()
+        : typeof modelConfig?.params?.modelDigest === "string"
+          ? modelConfig.params.modelDigest.trim()
+          : "";
+    const selectedResident = residency.residentModels.find(
+      (model) => model.ref === params.selectedModel,
+    );
+    if (!expectedDigest || !selectedResident?.modelDigest) {
+      return {
+        decision: "hosted_fallback",
+        reason: "immutable local model identity is unavailable",
+      };
+    }
+    if (selectedResident.modelDigest !== expectedDigest) {
+      return {
+        decision: "hosted_fallback",
+        reason: "local model digest does not match the configured immutable identity",
+      };
+    }
   }
   const capacity = collectCapacity({
     activeOpenClawTaskCount: competingLocalWork ? 1 : 0,

@@ -136,10 +136,19 @@ export type ToolSummaryTrace = {
 
 export type ToolExecutionObservation = {
   toolName: string;
-  terminalStatus: "succeeded" | "failed";
+  terminalStatus: "succeeded" | "failed" | "running";
   actionFingerprint?: string;
-  fileTarget?: { path?: string; oldpath?: string };
+  fileTarget?: { path?: string; oldpath?: string; paths?: string[] };
   meta?: string;
+  /** SHA-256 of the redacted terminal result; content is never persisted. */
+  resultDigest?: string;
+  /** Framework-reported process exit code for executable verification evidence. */
+  exitCode?: number;
+  /** Optional SHA-256 supplied by a guarded mutating tool for its post-state. */
+  postStateDigest?: string;
+  /** Identity used to link a background command to its terminal process poll. */
+  asyncTaskId?: string;
+  asyncTaskRunId?: string;
 };
 
 type CompletionTrace = {

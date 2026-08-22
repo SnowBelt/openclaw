@@ -368,6 +368,7 @@ describe("gateway tool", () => {
           ok: true,
           path: "/tmp/openclaw.json",
           config: { agents: { defaults: { reasoningDefault: "medium" } } },
+          persistedHash: "a".repeat(64),
           restart: { ok: true, config: "nested field preserved" },
         };
       }
@@ -383,13 +384,16 @@ describe("gateway tool", () => {
       raw,
     });
 
-    expect(result.details).toEqual({
+    expect(result.details).toMatchObject({
       ok: true,
       result: {
         ok: true,
         path: "/tmp/openclaw.json",
         restart: { ok: true, config: "nested field preserved" },
       },
+    });
+    expect(result.details).toMatchObject({
+      postStateDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expectConfigMutationCall({
       callGatewayTool: vi.mocked(callGatewayTool),

@@ -1032,15 +1032,18 @@ export async function processResponsesStream<TApi extends Api>(
             item && typeof item === "object" && !Array.isArray(item)
               ? (item as { type?: unknown }).type
               : undefined;
-          if (
-            typeof itemType === "string" &&
-            itemType !== "message" &&
-            itemType !== "reasoning" &&
-            itemType !== "function_call"
-          ) {
+          if (typeof itemType === "string" && itemType !== "message" && itemType !== "reasoning") {
             output.responseOutputItems ??= [];
-            if (!output.responseOutputItems.includes(itemType)) {
-              output.responseOutputItems.push(itemType.slice(0, 128));
+            const itemName =
+              itemType === "function_call" && item && typeof item === "object"
+                ? (item as { name?: unknown }).name
+                : undefined;
+            const marker =
+              itemType === "function_call" && typeof itemName === "string" && itemName.trim()
+                ? `function_call:${itemName.trim()}`
+                : itemType;
+            if (!output.responseOutputItems.includes(marker)) {
+              output.responseOutputItems.push(marker.slice(0, 128));
             }
           }
         }

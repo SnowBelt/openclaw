@@ -9,6 +9,7 @@ import {
   JUDGE_TRUSTED_EVIDENCE_MAX_COUNT,
   JUDGE_TRUSTED_EVIDENCE_SUMMARY_MAX_CHARS,
   JUDGE_TRUSTED_EVIDENCE_KINDS,
+  isJudgeTrustedEvidenceComplete,
   type JudgeTrustedEvidence,
 } from "../agents/judge-contract.js";
 import {
@@ -530,18 +531,34 @@ function parseJudgeTrustedEvidence(value: unknown): JudgeTrustedEvidence[] | und
     const record = entry as Record<string, unknown>;
     const id = boundedRawString(record.id, JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS);
     const summary = boundedRawString(record.summary, JUDGE_TRUSTED_EVIDENCE_SUMMARY_MAX_CHARS);
+    const hasResultDigest = Object.hasOwn(record, "resultDigest");
+    const hasPostStateDigest = Object.hasOwn(record, "postStateDigest");
+    const resultDigest = boundedRawString(record.resultDigest, 64);
+    const postStateDigest = boundedRawString(record.postStateDigest, 64);
     const kind = record.kind;
     if (
       !id ||
       !summary ||
       typeof kind !== "string" ||
       !(JUDGE_TRUSTED_EVIDENCE_KINDS as readonly string[]).includes(kind) ||
+      (hasResultDigest && (!resultDigest || !SHA256_HEX_RE.test(resultDigest))) ||
+      (hasPostStateDigest && (!postStateDigest || !SHA256_HEX_RE.test(postStateDigest))) ||
       seen.has(id)
     ) {
       return undefined;
     }
+    const parsedRecord: JudgeTrustedEvidence = {
+      id,
+      kind: kind as JudgeTrustedEvidence["kind"],
+      summary,
+      ...(resultDigest ? { resultDigest } : {}),
+      ...(postStateDigest ? { postStateDigest } : {}),
+    };
+    if (!isJudgeTrustedEvidenceComplete(parsedRecord)) {
+      return undefined;
+    }
     seen.add(id);
-    parsed.push({ id, kind: kind as JudgeTrustedEvidence["kind"], summary });
+    parsed.push(parsedRecord);
   }
   return parsed;
 }

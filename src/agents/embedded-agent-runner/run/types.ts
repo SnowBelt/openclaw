@@ -212,6 +212,10 @@ export type EmbeddedRunAttemptResult = {
     asyncStarted?: boolean;
     asyncTaskRunId?: string;
     asyncTaskId?: string;
+    terminalStatus?: "succeeded" | "failed" | "running";
+    resultDigest?: string;
+    exitCode?: number;
+    postStateDigest?: string;
   }>;
   acceptedSessionSpawns?: AcceptedSessionSpawn[];
   lastAssistant: AssistantMessage | undefined;

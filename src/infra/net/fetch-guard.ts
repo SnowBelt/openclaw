@@ -93,6 +93,10 @@ export type GuardedFetchOptions = {
    */
   dangerouslyAllowEnvProxyWithoutPinnedDns?: boolean;
   auditContext?: string;
+  /** Called immediately before a physical network attempt, after SSRF/DNS validation. */
+  onDispatch?: () => void | Promise<void>;
+  /** Bypass ambient global fetch even when it resembles a test mock. */
+  forceRuntimeFetch?: boolean;
 };
 
 export type GuardedFetchResult = {
@@ -593,7 +597,9 @@ async function fetchWithSsrFGuardInternal(
       // Otherwise, fall back to undici's fetch whenever we attach a dispatcher,
       // because the default global fetch path will not honor per-request
       // dispatchers.
-      const shouldUseRuntimeFetch = Boolean(dispatcher) && !supportsDispatcherInit;
+      const shouldUseRuntimeFetch =
+        params.forceRuntimeFetch === true || (Boolean(dispatcher) && !supportsDispatcherInit);
+      await params.onDispatch?.();
       const response = shouldUseRuntimeFetch
         ? await fetchWithRuntimeDispatcher(parsedUrl.toString(), init)
         : await defaultFetch(parsedUrl.toString(), init);

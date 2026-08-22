@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /**
  * Handles embedded-agent tool execution events and turns them into channel UI,
  * replay state, hook calls, approval prompts, media queues, and agent-event
@@ -85,11 +86,17 @@ import {
 import { inferToolMetaFromArgs } from "./embedded-agent-utils.js";
 import { parseExecApprovalResultText } from "./exec-approval-result.js";
 import type { AgentEvent } from "./runtime/index.js";
+import { hasTrustedMutationDetails } from "./sessions/tools/tool-contracts.js";
+import { stableStringify } from "./stable-stringify.js";
 import {
   createToolValidationErrorSummary,
   summarizeToolValidationError,
 } from "./tool-error-summary.js";
-import { buildToolMutationState, isSameToolMutationAction } from "./tool-mutation.js";
+import {
+  buildToolMutationState,
+  isSameToolMutationAction,
+  type FileTarget,
+} from "./tool-mutation.js";
 import { normalizeToolName } from "./tool-policy.js";
 import { readToolResultDetails } from "./tool-result-error.js";
 
@@ -383,7 +390,12 @@ function isAsyncStartedToolResult(result: unknown): boolean {
   return details?.async === true && details.status === "started";
 }
 
-function readAsyncStartedTaskIds(result: unknown): {
+function isAsyncRunningToolResult(result: unknown): boolean {
+  const details = readToolResultDetails(result);
+  return details?.status === "running" || isAsyncStartedToolResult(result);
+}
+
+function readAsyncTaskIds(result: unknown): {
   asyncTaskRunId?: string;
   asyncTaskId?: string;
 } {
@@ -393,11 +405,23 @@ function readAsyncStartedTaskIds(result: unknown): {
   }
   const nestedTask = readRecordField(details.task);
   const asyncTaskRunId = readStringValue(details.runId) ?? readStringValue(nestedTask?.runId);
-  const asyncTaskId = readStringValue(details.taskId) ?? readStringValue(nestedTask?.taskId);
+  // Background exec/process sessions expose sessionId rather than taskId. It
+  // is safe to carry this identity through the trace because the controller
+  // only promotes a terminal process result when it matches a running exec.
+  const asyncTaskId =
+    readStringValue(details.taskId) ??
+    readStringValue(details.sessionId) ??
+    readStringValue(nestedTask?.taskId);
   return {
     ...(asyncTaskRunId ? { asyncTaskRunId } : {}),
     ...(asyncTaskId ? { asyncTaskId } : {}),
   };
+}
+
+function readFrameworkExitCode(result: unknown): number | undefined {
+  const details = readToolResultDetails(result);
+  const exitCode = details?.exitCode;
+  return typeof exitCode === "number" && Number.isSafeInteger(exitCode) ? exitCode : undefined;
 }
 
 function readExecToolDetails(result: unknown): ExecToolDetails | null {
@@ -1262,6 +1286,55 @@ export function handleToolExecutionUpdate(
   }
 }
 
+function readTrustedPostStateDigest(toolName: string, rawResult: unknown): string | undefined {
+  // Only framework-owned mutation tools may supply this attestation.
+  // Never scrape arbitrary nested result fields: exec, plugins, and custom
+  // tools can return user-controlled `digest`-looking data.
+  if (!new Set(["write", "edit", "apply_patch", "gateway"]).has(toolName)) {
+    return undefined;
+  }
+  if (!rawResult || typeof rawResult !== "object" || Array.isArray(rawResult)) {
+    return undefined;
+  }
+  const details = (rawResult as Record<string, unknown>).details;
+  if (!hasTrustedMutationDetails(details)) {
+    return undefined;
+  }
+  const digest = (details as Record<string, unknown>).postStateDigest;
+  return typeof digest === "string" && /^[a-f0-9]{64}$/iu.test(digest.trim())
+    ? digest.trim().toLowerCase()
+    : undefined;
+}
+
+function readTrustedMutationFileTarget(
+  toolName: string,
+  rawResult: unknown,
+): FileTarget | undefined {
+  if (toolName !== "apply_patch" || !rawResult || typeof rawResult !== "object") {
+    return undefined;
+  }
+  const details = (rawResult as Record<string, unknown>).details;
+  if (!hasTrustedMutationDetails(details)) {
+    return undefined;
+  }
+  const summary = (details as Record<string, unknown>).summary;
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
+    return undefined;
+  }
+  const paths = Object.values(summary as Record<string, unknown>)
+    .flatMap((value) => (Array.isArray(value) ? value : []))
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim())
+    .slice(0, 64);
+  if (paths.length === 0) {
+    return undefined;
+  }
+  return {
+    path: paths[0],
+    paths,
+  };
+}
+
 /** Handles a tool-execution result and commits replay, media, hook, and error state. */
 export async function handleToolExecutionEnd(
   ctx: ToolHandlerContext,
@@ -1277,10 +1350,14 @@ export async function handleToolExecutionEnd(
   const toolSendReceiptResult = ctx.consumeToolSendReceipt?.(toolCallId);
   const observerIsError = isError || isToolResultError(result);
   const sanitizedResult = sanitizeToolResult(result);
+  const resultDigest = createHash("sha256")
+    .update(stableStringify(sanitizedResult), "utf8")
+    .digest("hex");
+  const postStateDigest = readTrustedPostStateDigest(toolName, result);
   const approvalUnavailable =
     isExecToolName(toolName) &&
     readExecToolDetails(sanitizedResult)?.status === "approval-unavailable";
-  const isToolError = observerIsError && !approvalUnavailable;
+  const isToolError = observerIsError;
   try {
     ctx.params.onAgentToolResult?.({
       toolName,
@@ -1316,22 +1393,36 @@ export async function handleToolExecutionEnd(
     initialCallSummary?.instanceReplaySafe === true,
     structuredReplaySafe,
   );
+  const trustedFileTarget = readTrustedMutationFileTarget(toolName, result);
+  const fileTarget = callSummary.fileTarget ?? trustedFileTarget;
+  const actionFingerprint =
+    callSummary.actionFingerprint ??
+    (trustedFileTarget
+      ? `tool=apply_patch|paths=${trustedFileTarget.paths?.join(",") ?? trustedFileTarget.path}`
+      : undefined);
   // Older/custom event producers omit executionStarted. Treat omission as
   // executed; only an explicit false can prove preparation stopped the call.
   const executionStarted = evt.executionStarted !== false && !executionPrevented;
   const attemptedMutatingAction = callSummary.mutatingAction && executionStarted;
   const attemptedPotentialSideEffect = !callSummary.replaySafe && executionStarted;
   const meta = callSummary.meta;
-  const asyncStarted = !isToolError && isAsyncStartedToolResult(sanitizedResult);
-  const asyncTaskIds = asyncStarted ? readAsyncStartedTaskIds(sanitizedResult) : {};
+  const asyncStarted = !isToolError && isAsyncRunningToolResult(sanitizedResult);
+  const asyncTaskIds = readAsyncTaskIds(sanitizedResult);
+  const exitCode = readFrameworkExitCode(sanitizedResult);
   ctx.state.toolMetas.push({
     toolName,
     meta,
     replaySafe: callSummary.replaySafe,
-    ...(callSummary.actionFingerprint ? { actionFingerprint: callSummary.actionFingerprint } : {}),
-    ...(callSummary.fileTarget ? { fileTarget: callSummary.fileTarget } : {}),
-    terminalStatus: isToolError ? "failed" : "succeeded",
-    ...(asyncStarted ? { asyncStarted: true, ...asyncTaskIds } : {}),
+    ...(actionFingerprint ? { actionFingerprint } : {}),
+    ...(fileTarget ? { fileTarget } : {}),
+    terminalStatus:
+      isToolError || approvalUnavailable ? "failed" : asyncStarted ? "running" : "succeeded",
+    resultDigest,
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(postStateDigest ? { postStateDigest } : {}),
+    ...(asyncStarted ? { asyncStarted: true } : {}),
+    ...(asyncTaskIds.asyncTaskId ? { asyncTaskId: asyncTaskIds.asyncTaskId } : {}),
+    ...(asyncTaskIds.asyncTaskRunId ? { asyncTaskRunId: asyncTaskIds.asyncTaskRunId } : {}),
   });
   const acceptedSessionSpawn =
     toolName === "sessions_spawn" && !isToolError
@@ -1358,8 +1449,8 @@ export async function handleToolExecutionEnd(
       timedOut: isToolResultTimedOut(sanitizedResult) || undefined,
       middlewareError: isMiddlewareToolResultError(sanitizedResult) || undefined,
       mutatingAction: attemptedMutatingAction,
-      actionFingerprint: attemptedMutatingAction ? callSummary.actionFingerprint : undefined,
-      fileTarget: attemptedMutatingAction ? callSummary.fileTarget : undefined,
+      actionFingerprint: attemptedMutatingAction ? actionFingerprint : undefined,
+      fileTarget: attemptedMutatingAction ? fileTarget : undefined,
     };
   } else if (ctx.state.lastToolError) {
     // Keep unresolved mutating failures until the same action succeeds.
@@ -1368,8 +1459,8 @@ export async function handleToolExecutionEnd(
         isSameToolMutationAction(ctx.state.lastToolError, {
           toolName,
           meta,
-          actionFingerprint: callSummary?.actionFingerprint,
-          fileTarget: callSummary?.fileTarget,
+          actionFingerprint,
+          fileTarget,
         })
       ) {
         ctx.state.lastToolError = undefined;
@@ -1725,7 +1816,9 @@ export async function handleToolExecutionEnd(
     toolName,
     rawToolName,
     meta,
-    isToolError,
+    // Approval-unavailable is a failed execution for lifecycle/evidence
+    // purposes, but still needs its deterministic user-facing explanation.
+    isToolError: isToolError && !approvalUnavailable,
     result,
     sanitizedResult,
   });

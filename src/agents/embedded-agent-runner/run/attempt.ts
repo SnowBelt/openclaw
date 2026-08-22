@@ -5613,8 +5613,11 @@ export async function runEmbeddedAttempt(
             meta?: string;
             replaySafe?: boolean;
             actionFingerprint?: string;
-            fileTarget?: { path?: string; oldpath?: string };
-            terminalStatus?: "succeeded" | "failed";
+            fileTarget?: { path?: string; oldpath?: string; paths?: string[] };
+            terminalStatus?: "succeeded" | "failed" | "running";
+            resultDigest?: string;
+            exitCode?: number;
+            postStateDigest?: string;
             asyncStarted?: boolean;
             asyncTaskRunId?: string;
             asyncTaskId?: string;
@@ -5626,8 +5629,11 @@ export async function runEmbeddedAttempt(
             meta?: string;
             replaySafe: boolean;
             actionFingerprint?: string;
-            fileTarget?: { path?: string; oldpath?: string };
-            terminalStatus?: "succeeded" | "failed";
+            fileTarget?: { path?: string; oldpath?: string; paths?: string[] };
+            terminalStatus?: "succeeded" | "failed" | "running";
+            resultDigest?: string;
+            exitCode?: number;
+            postStateDigest?: string;
             asyncStarted?: true;
             asyncTaskRunId?: string;
             asyncTaskId?: string;
@@ -5646,6 +5652,15 @@ export async function runEmbeddedAttempt(
           }
           if (entry.terminalStatus) {
             normalized.terminalStatus = entry.terminalStatus;
+          }
+          if (entry.resultDigest) {
+            normalized.resultDigest = entry.resultDigest;
+          }
+          if (typeof entry.exitCode === "number" && Number.isSafeInteger(entry.exitCode)) {
+            normalized.exitCode = entry.exitCode;
+          }
+          if (entry.postStateDigest) {
+            normalized.postStateDigest = entry.postStateDigest;
           }
           if (entry.asyncStarted === true) {
             normalized.asyncStarted = true;

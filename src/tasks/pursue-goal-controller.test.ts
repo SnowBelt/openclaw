@@ -10,6 +10,7 @@ import {
 import {
   createPursueGoalControllerState,
   PURSUE_GOAL_CONTROLLER_ID,
+  PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES,
   stateForPursueGoalFlow,
   type PursueGoalJudgeReceipt,
   type PursueGoalJudgeReceiptV2,
@@ -656,6 +657,74 @@ describe("Pursue Goal controller", () => {
       reason: expect.stringContaining("cannot be replayed"),
     });
     expect(runtime.runTurn).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a Judge reservation before provider dispatch when claim history cannot fit", async () => {
+    const flow = createGoalFlow("Reserve only when the claim ledger has capacity");
+    const state = stateForPursueGoalFlow(flow)!;
+    const claims: Array<{
+      claimHash: string;
+      promptHash: string;
+      runId: string;
+      taskId: string;
+      status: "settled";
+      receiptId: string;
+      recordedAt: number;
+    }> = [];
+    while (
+      Buffer.byteLength(
+        JSON.stringify([
+          ...claims,
+          {
+            claimHash: claims.length.toString(16).padStart(64, "0"),
+            promptHash: (claims.length + 1).toString(16).padStart(64, "0"),
+            runId: `run-${claims.length}`,
+            taskId: `task-${claims.length}`,
+            status: "settled" as const,
+            receiptId: `receipt-${claims.length}-${"x".repeat(180)}`,
+            recordedAt: claims.length,
+          },
+        ]),
+        "utf8",
+      ) <
+      PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES - 64
+    ) {
+      claims.push({
+        claimHash: claims.length.toString(16).padStart(64, "0"),
+        promptHash: (claims.length + 1).toString(16).padStart(64, "0"),
+        runId: `run-${claims.length}`,
+        taskId: `task-${claims.length}`,
+        status: "settled",
+        receiptId: `receipt-${claims.length}-${"x".repeat(180)}`,
+        recordedAt: claims.length,
+      });
+    }
+    const persisted = updateFlowRecordByIdExpectedRevision({
+      flowId: flow.flowId,
+      expectedRevision: flow.revision,
+      patch: { stateJson: { ...state, judgeClaims: claims } },
+    });
+    expect(persisted.applied).toBe(true);
+    let providerInvoked = false;
+    const runtime = baseRuntime(async ({ reserveJudgeExecution }) => {
+      const reserved = reserveJudgeExecution?.({
+        claimHash: "f".repeat(64),
+        promptHash: "e".repeat(64),
+      });
+      if (reserved) {
+        providerInvoked = true;
+      }
+      return {
+        status: "blocked" as const,
+        text: "The Judge reservation was safely refused.",
+        evidenceSummary: "Claim ledger capacity is exhausted.",
+        blocker: "Claim ledger capacity is exhausted.",
+      };
+    });
+    setPursueGoalControllerRuntimeForTests(runtime);
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    expect(providerInvoked).toBe(false);
   });
 
   it("pauses a running goal, aborts its worker turn, and resumes durably", async () => {

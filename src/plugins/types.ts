@@ -1264,6 +1264,8 @@ export type ProviderResidentModel = {
   modelId: string;
   state: "active" | "idle";
   estimatedMemoryBytes?: number;
+  /** Immutable provider-native model identity when the provider exposes one. */
+  modelDigest?: string;
 };
 
 export type ProviderModelResidencySnapshot = {

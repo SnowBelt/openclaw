@@ -13,6 +13,7 @@ import { resolveConfiguredOllamaProviderConfig } from "./stream.js";
 type OllamaPsModel = {
   name?: unknown;
   model?: unknown;
+  digest?: unknown;
   size?: unknown;
   size_vram?: unknown;
 };
@@ -40,11 +41,13 @@ export function parseOllamaModelResidencyPayload(value: unknown): ProviderModelR
     }
     const estimatedMemoryBytes =
       finiteNonNegative(entry.size_vram) ?? finiteNonNegative(entry.size);
+    const modelDigest = nonEmptyString(entry.digest);
     return [
       {
         modelId,
         state: "idle" as const,
         ...(estimatedMemoryBytes == null ? {} : { estimatedMemoryBytes }),
+        ...(modelDigest ? { modelDigest } : {}),
       },
     ];
   });

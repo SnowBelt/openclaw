@@ -240,7 +240,12 @@ export async function commitGatewayConfigWrite(params: {
   nextConfig: OpenClawConfig;
   context?: GatewayRequestContext;
   disconnectSharedAuthClients?: boolean;
-}): Promise<{ path: string; config: OpenClawConfig; queueFollowUp: () => void }> {
+}): Promise<{
+  path: string;
+  config: OpenClawConfig;
+  persistedHash: string;
+  queueFollowUp: () => void;
+}> {
   const result = await replaceConfigFile({
     nextConfig: params.nextConfig,
     writeOptions: {
@@ -252,9 +257,13 @@ export async function commitGatewayConfigWrite(params: {
     },
     afterWrite: { mode: "auto" },
   });
+  if (!result.persistedHash) {
+    throw new Error("Gateway config write completed without a persisted snapshot hash");
+  }
   return {
     path: resolveGatewayConfigPath(params.snapshot),
     config: result.nextConfig,
+    persistedHash: result.persistedHash,
     queueFollowUp: () => {
       // Defer generation refresh/disconnect until after the RPC response so
       // the writer receives the success payload before its connection is closed.

@@ -145,6 +145,8 @@ const SHELL_EXPANSION_CHARS = new Set(["$", "*", "?", "[", "]", "{", "}", "~"]);
 export type FileTarget = {
   path?: string;
   oldpath?: string;
+  /** Verified affected paths emitted by the framework-owned apply_patch tool. */
+  paths?: string[];
 };
 
 type ToolMutationState = {
@@ -530,7 +532,11 @@ function extractFileTarget(toolName: string, args: unknown): FileTarget | undefi
 }
 
 function fileTargetsEqual(a: FileTarget, b: FileTarget): boolean {
-  return (a.path ?? "") === (b.path ?? "") && (a.oldpath ?? "") === (b.oldpath ?? "");
+  return (
+    (a.path ?? "") === (b.path ?? "") &&
+    (a.oldpath ?? "") === (b.oldpath ?? "") &&
+    JSON.stringify(a.paths ?? []) === JSON.stringify(b.paths ?? [])
+  );
 }
 
 export function buildToolMutationState(

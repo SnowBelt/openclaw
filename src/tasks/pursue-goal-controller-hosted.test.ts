@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   agentCommand: vi.fn(),
+  completeJudgeSimple: vi.fn(),
   completeSimple: vi.fn(),
   prepareSimpleCompletionModelForAgent: vi.fn(),
   resolveSimpleCompletionSelectionForAgent: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("../agents/simple-completion-runtime.js", async () => ({
 
 vi.mock("../llm/stream.js", async () => ({
   ...(await vi.importActual<typeof import("../llm/stream.js")>("../llm/stream.js")),
+  completeJudgeSimple: mocks.completeJudgeSimple,
   completeSimple: mocks.completeSimple,
 }));
 
@@ -47,6 +49,7 @@ import {
 describe("Pursue Goal direct hosted Judge route", () => {
   beforeEach(() => {
     mocks.agentCommand.mockReset();
+    mocks.completeJudgeSimple.mockReset();
     mocks.completeSimple.mockReset();
     mocks.prepareSimpleCompletionModelForAgent.mockReset();
     mocks.resolveSimpleCompletionSelectionForAgent.mockReset();
@@ -69,7 +72,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
       },
       auth: { apiKey: "redacted-test-key", mode: "api-key" },
     });
-    mocks.completeSimple.mockImplementationOnce(async (model, _context, options) => {
+    mocks.completeJudgeSimple.mockImplementationOnce(async (model, _context, options) => {
       const payload = await options.onPayload?.({
         model: "gpt-5.6",
         input: [],
@@ -133,9 +136,9 @@ describe("Pursue Goal direct hosted Judge route", () => {
       route: "hosted",
       model: "openai/gpt-5.6",
     });
-    expect(mocks.completeSimple).toHaveBeenCalledOnce();
+    expect(mocks.completeJudgeSimple).toHaveBeenCalledOnce();
     expect(mocks.agentCommand).not.toHaveBeenCalled();
-    expect(mocks.completeSimple.mock.calls[0]?.[2]).toMatchObject({
+    expect(mocks.completeJudgeSimple.mock.calls[0]?.[2]).toMatchObject({
       maxRetries: 0,
       transport: "sse",
     });
@@ -175,7 +178,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
       route: "hosted",
     });
     expect(result?.text).toContain("failed closed");
-    expect(mocks.completeSimple).not.toHaveBeenCalled();
+    expect(mocks.completeJudgeSimple).not.toHaveBeenCalled();
   });
 
   it("fails closed when the provider omits its observed model identity", async () => {
@@ -196,7 +199,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
       },
       auth: { apiKey: "redacted-test-key", mode: "api-key" },
     });
-    mocks.completeSimple.mockResolvedValue({
+    mocks.completeJudgeSimple.mockResolvedValue({
       role: "assistant",
       api: "openai-responses",
       provider: "openai",
@@ -239,7 +242,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
     expect(result?.text).toContain("pinned GPT-5.6 route");
     expect(result?.executionEvidence.model).toBe("openai/gpt-5.5");
     expect(mocks.prepareSimpleCompletionModelForAgent).not.toHaveBeenCalled();
-    expect(mocks.completeSimple).not.toHaveBeenCalled();
+    expect(mocks.completeJudgeSimple).not.toHaveBeenCalled();
   });
 
   it("uses the direct zero-tool transport for an explicit local Judge candidate", async () => {

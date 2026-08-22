@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   agentCommand: vi.fn(),
   assessJudgeLocalCapacity: vi.fn(),
-  completeSimple: vi.fn(),
+  completeJudgeSimple: vi.fn(),
   getRuntimeConfig: vi.fn(),
   judgeCompletionIndependently: vi.fn(),
   prepareSimpleCompletionModelForAgent: vi.fn(),
@@ -51,7 +51,8 @@ vi.mock("../config/io.js", async () => ({
 
 vi.mock("../llm/stream.js", async () => ({
   ...(await vi.importActual<typeof import("../llm/stream.js")>("../llm/stream.js")),
-  completeSimple: mocks.completeSimple,
+  completeJudgeSimple: mocks.completeJudgeSimple,
+  completeSimple: mocks.completeJudgeSimple,
 }));
 
 import {
@@ -115,7 +116,7 @@ describe("Pursue Goal Judge local route integration", () => {
       },
       auth: { apiKey: "local", mode: "api-key" },
     });
-    mocks.completeSimple.mockResolvedValue({
+    mocks.completeJudgeSimple.mockResolvedValue({
       role: "assistant",
       api: "openai-completions",
       provider: "omlx-qwen38-judge",
@@ -166,7 +167,7 @@ describe("Pursue Goal Judge local route integration", () => {
 
     expect(result.approved).toBe(true);
     expect(mocks.assessJudgeLocalCapacity).toHaveBeenCalledTimes(2);
-    expect(mocks.completeSimple).toHaveBeenCalledOnce();
+    expect(mocks.completeJudgeSimple).toHaveBeenCalledOnce();
     expect(mocks.judgeCompletionIndependently).toHaveBeenCalledOnce();
     expect(mocks.agentCommand).not.toHaveBeenCalled();
     expect(getJudgeLocalAdmissionSnapshotForTests()).toEqual({

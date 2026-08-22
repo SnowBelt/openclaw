@@ -30,6 +30,7 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { collectEnabledInsecureOrDangerousFlags } from "../../security/dangerous-config-flags.js";
 import { parseConfigPathArrayIndex } from "../../shared/path-array-index.js";
 import { optionalNonNegativeIntegerSchema, stringEnum } from "../schema/typebox.js";
+import { markTrustedMutationDetails } from "../sessions/tools/tool-contracts.js";
 import {
   type AnyAgentTool,
   jsonResult,
@@ -183,6 +184,30 @@ function stripConfigWriteResultPayload(result: unknown): unknown {
   const stripped = { ...result };
   delete stripped.config;
   return stripped;
+}
+
+function configWritePostStateDigest(result: unknown): string | undefined {
+  if (!isPlainObject(result) || result.noop === true) {
+    return undefined;
+  }
+  const persistedHash = result.persistedHash;
+  if (typeof persistedHash === "string" && /^[a-f0-9]{64}$/iu.test(persistedHash)) {
+    return persistedHash.toLowerCase();
+  }
+  return undefined;
+}
+
+function trustedConfigWriteToolPayload(result: unknown): Record<string, unknown> {
+  const stripped = stripConfigWriteResultPayload(result);
+  const payload = {
+    ok: true,
+    result: stripped,
+  } as Record<string, unknown>;
+  const postStateDigest = configWritePostStateDigest(result);
+  if (postStateDigest) {
+    payload.postStateDigest = postStateDigest;
+  }
+  return markTrustedMutationDetails(payload);
 }
 
 function isConfigSchemaPathNotFoundError(error: unknown): boolean {
@@ -605,7 +630,7 @@ export function createGatewayTool(opts?: {
           note,
           restartDelayMs,
         });
-        return jsonResult({ ok: true, result: stripConfigWriteResultPayload(result) });
+        return jsonResult(trustedConfigWriteToolPayload(result));
       }
       if (action === "config.patch") {
         const { raw, baseHash, snapshotConfig, sessionKey, note, restartDelayMs, replacePaths } =
@@ -624,7 +649,7 @@ export function createGatewayTool(opts?: {
           restartDelayMs,
           ...(replacePaths ? { replacePaths } : {}),
         });
-        return jsonResult({ ok: true, result: stripConfigWriteResultPayload(result) });
+        return jsonResult(trustedConfigWriteToolPayload(result));
       }
       if (action === "update.run") {
         const { sessionKey, note, restartDelayMs } = resolveGatewayWriteMeta();

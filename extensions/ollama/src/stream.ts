@@ -61,6 +61,30 @@ const GARBLED_VISIBLE_TEXT_MODEL_RE = /\b(?:glm|kimi)\b/i;
 const GARBLED_VISIBLE_TEXT_MIN_CHARS = 80;
 const GARBLED_VISIBLE_TEXT_SYMBOL_RE = /[$#%&="'_~`^|\\/*+\-[\]{}()<>:;,.!?]/gu;
 const LETTER_OR_DIGIT_RE = /[\p{L}\p{N}]/gu;
+const LOCAL_INFERENCE_ADMISSION_HOOKS = Symbol.for("openclaw.local-inference-admission-hooks.v1");
+const JUDGE_TRANSPORT_OPTIONS = Symbol.for("openclaw.judge-transport-options.v1");
+type LocalAdmissionHooks = {
+  acquire: (params: {
+    ownerId: string;
+    timeoutMs: number;
+    signal?: AbortSignal;
+    priority?: "judge" | "normal";
+  }) => Promise<{ admitted: true; release: () => void } | { admitted: false; reason: string }>;
+  hasHeld: (model: object) => boolean;
+  ownerOf: (model: object) => string | undefined;
+};
+
+function getLocalAdmissionHooks(): LocalAdmissionHooks | undefined {
+  const hooks = (globalThis as typeof globalThis & Record<symbol, unknown>)[
+    LOCAL_INFERENCE_ADMISSION_HOOKS
+  ];
+  return hooks && typeof hooks === "object" ? (hooks as LocalAdmissionHooks) : undefined;
+}
+
+function isMarkedJudgeModel(model: object): boolean {
+  const marker = (model as Record<PropertyKey, unknown>)[JUDGE_TRANSPORT_OPTIONS];
+  return Boolean(marker && typeof marker === "object");
+}
 
 type OllamaStreamCooperativeScheduler = {
   afterEvent: () => Promise<void>;
@@ -1120,7 +1144,26 @@ function createRawOllamaStreamFn(
     const stream = createAssistantMessageEventStream();
 
     const run = async () => {
+      let localAdmissionRelease: (() => void) | undefined;
       try {
+        const admissionHooks = getLocalAdmissionHooks();
+        if (!admissionHooks && isMarkedJudgeModel(model)) {
+          throw new Error(
+            "Judge local inference admission hook is unavailable; refusing inference",
+          );
+        }
+        if (admissionHooks && !admissionHooks.hasHeld(model)) {
+          const admission = await admissionHooks.acquire({
+            ownerId: admissionHooks.ownerOf(model) || `provider:${model.provider}/${model.id}`,
+            timeoutMs: 30_000,
+            signal: options?.signal,
+            priority: "normal",
+          });
+          if (!admission.admitted) {
+            throw new Error(`Local inference admission unavailable (${admission.reason})`);
+          }
+          localAdmissionRelease = admission.release;
+        }
         const availableToolNames = buildOllamaToolNameSet(context.tools);
         const toolCallNameOptions: OllamaToolCallNameOptions = availableToolNames
           ? { availableToolNames }
@@ -1150,7 +1193,8 @@ function createRawOllamaStreamFn(
           options: ollamaOptions,
           requestParams: resolveOllamaTopLevelParams(model),
         });
-        options?.onPayload?.(body, model);
+        const nextBody = await options?.onPayload?.(body, model);
+        const requestBody = (nextBody ?? body) as typeof body;
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
           ...defaultHeaders,
@@ -1168,7 +1212,7 @@ function createRawOllamaStreamFn(
           init: {
             method: "POST",
             headers,
-            body: JSON.stringify(body),
+            body: JSON.stringify(requestBody),
           },
           policy: ssrfPolicy,
           ...(options?.signal ? { signal: options.signal } : {}),
@@ -1177,6 +1221,8 @@ function createRawOllamaStreamFn(
             options as { requestTimeoutMs?: unknown; timeoutMs?: unknown } | undefined,
           ),
           auditContext: "ollama-stream.chat",
+          maxRedirects: 0,
+          ...(options?.onDispatch ? { onDispatch: () => options.onDispatch?.(model) } : {}),
         });
 
         try {
@@ -1440,6 +1486,7 @@ function createRawOllamaStreamFn(
           }),
         });
       } finally {
+        localAdmissionRelease?.();
         stream.end();
       }
     };

@@ -403,6 +403,18 @@ export const streamOpenAICodexResponses: StreamFunction<
         sseHeaders.set("content-encoding", "zstd");
       }
       const sseBody: BodyInit = compressedBody ?? bodyJson;
+      const guardedSseFetch = getAiTransportHost().buildModelFetch(model, requestTimeoutMs, {
+        sanitizeSse: true,
+      });
+      const judgeTransportHook = (
+        model as Model & {
+          [key: symbol]: { onDispatch?: () => void } | undefined;
+        }
+      )[Symbol.for("openclaw.judge-transport-options.v1")];
+      if (judgeTransportHook && !guardedSseFetch) {
+        throw new Error("Judge transport requires the host guarded fetch; refusing ambient fetch");
+      }
+      const hostOwnsJudgeDispatch = Boolean(guardedSseFetch && judgeTransportHook?.onDispatch);
 
       // Fetch with retry logic for rate limits and transient errors
       let response: Response | undefined;
@@ -414,11 +426,15 @@ export const streamOpenAICodexResponses: StreamFunction<
         }
 
         try {
-          response = await fetch(resolveCodexUrl(model.baseUrl), {
+          if (!hostOwnsJudgeDispatch) {
+            await options?.onDispatch?.(model);
+          }
+          response = await (guardedSseFetch ?? fetch)(resolveCodexUrl(model.baseUrl), {
             method: "POST",
             headers: sseHeaders,
             body: sseBody,
             signal: activeSignal,
+            redirect: "error",
           });
           await options?.onResponse?.(
             { status: response.status, headers: headersToRecord(response.headers) },
@@ -1614,6 +1630,7 @@ async function processWebSocketStream(
     if (options?.signal?.aborted) {
       throw new Error("Request was aborted");
     }
+    await options?.onDispatch?.(model);
     socket.send(JSON.stringify({ type: "response.create", ...requestBody }));
     await processResponsesStream(
       startWebSocketOutputOnFirstEvent(

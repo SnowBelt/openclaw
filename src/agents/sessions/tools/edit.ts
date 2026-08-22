@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /**
  * Built-in edit session tool.
  *
@@ -35,7 +36,11 @@ import {
 import { withFileMutationQueue } from "./file-mutation-queue.js";
 import { resolveToCwd } from "./path-utils.js";
 import { invalidArgText, shortenPath, str } from "./render-utils.js";
-import type { EditToolDetails, EditToolInput } from "./tool-contracts.js";
+import {
+  markTrustedMutationDetails,
+  type EditToolDetails,
+  type EditToolInput,
+} from "./tool-contracts.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
 
 type EditPreview = EditDiffResult | EditDiffError;
@@ -461,6 +466,11 @@ export function createEditToolDefinition(
           if (signal?.aborted) {
             throw new Error("Operation aborted");
           }
+          const readback = await ops.readFile(absolutePath);
+          const readbackContent = readback.toString("utf-8");
+          if (readbackContent !== finalContent) {
+            throw new Error("Edit post-state readback did not match the requested content");
+          }
 
           const diffResult = generateDiffString(baseContent, newContent);
           const patch = generateUnifiedPatch(path, baseContent, newContent);
@@ -471,19 +481,19 @@ export function createEditToolDefinition(
                 text: `Successfully replaced ${realEdits.length} block(s) in ${path}.`,
               },
             ],
-            details: {
+            details: markTrustedMutationDetails({
               diff: diffResult.diff,
               patch,
               firstChangedLine: diffResult.firstChangedLine,
-            },
+              postStateDigest: createHash("sha256").update(readbackContent, "utf8").digest("hex"),
+            }),
           };
         } catch (error: unknown) {
           const normalizedError = error instanceof Error ? error : new Error(String(error));
-          const currentContent = await ops
-            .readFile(absolutePath)
-            .then((current) => current.toString("utf-8"))
-            .catch(() => rawContent);
+          const currentReadback = await ops.readFile(absolutePath).catch(() => undefined);
+          const currentContent = currentReadback?.toString("utf-8");
           if (
+            currentContent !== undefined &&
             didEditLikelyApply({
               originalContent: rawContent,
               currentContent,
@@ -497,11 +507,15 @@ export function createEditToolDefinition(
                   text: `Successfully replaced ${realEdits.length} block(s) in ${path}.`,
                 },
               ],
-              details: { diff: "", patch: "" },
+              details: markTrustedMutationDetails({
+                diff: "",
+                patch: "",
+                postStateDigest: createHash("sha256").update(currentContent, "utf8").digest("hex"),
+              }),
             };
           }
           if (normalizedError.message.includes(EDIT_MISMATCH_MESSAGE)) {
-            throw appendMismatchHint(normalizedError, currentContent);
+            throw appendMismatchHint(normalizedError, currentContent ?? rawContent);
           }
           // Terminal no-op: the edit matched but produced identical content.
           if (normalizedError instanceof EditNoChangeError) {

@@ -610,6 +610,31 @@ describe("streamOpenAICodexResponses transport", () => {
     expect(capturedPayload).not.toHaveProperty("parallel_tool_calls");
   });
 
+  it("refuses ambient fetch when a Judge transport has no guarded host fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    configureAiTransportHost({ buildModelFetch: () => undefined });
+    const judgeModel = {
+      ...model,
+      [Symbol.for("openclaw.judge-transport-options.v1")]: {
+        onDispatch: () => {},
+      },
+    };
+
+    const result = await streamOpenAICodexResponses(judgeModel as never, context, {
+      apiKey: createJwt({
+        "https://api.openai.com/auth": {
+          chatgpt_account_id: "acct-judge",
+        },
+      }),
+      transport: "sse",
+    }).result();
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toContain("requires the host guarded fetch");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("caps oversized timeoutMs before creating request abort signals", async () => {
     stubHangingFetch(MAX_TIMER_TIMEOUT_MS);
 

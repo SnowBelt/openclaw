@@ -95,6 +95,12 @@ export function markLocalInferenceOwner<TModel extends object>(
   return normalized ? Object.assign({ ...model }, { [LOCAL_INFERENCE_OWNER]: normalized }) : model;
 }
 
+/** Read the owner bound to a prepared local model without exposing the symbol. */
+export function getLocalInferenceOwner(model: object): string | undefined {
+  const owner = (model as LocalInferenceOwner)[LOCAL_INFERENCE_OWNER];
+  return typeof owner === "string" && owner.trim() ? owner.trim() : undefined;
+}
+
 /** Max bytes for an entire JSON body synthesized into SSE frames. Prevents OOM
  *  when a hostile streaming endpoint returns a never-ending JSON response
  *  without Content-Length. */
@@ -885,8 +891,22 @@ export function buildGuardedModelFetch(
   timeoutMs?: number,
   options?: { sanitizeSse?: boolean; maxRedirects?: number; ownerId?: string },
 ): typeof fetch {
+  const judgeTransportAtBuild = (
+    model as Model & {
+      [JUDGE_TRANSPORT_OPTIONS]?: JudgeTransportOptions;
+    }
+  )[JUDGE_TRANSPORT_OPTIONS];
+  if (judgeTransportAtBuild) {
+    const debugProxy = resolveDebugProxySettings();
+    if (debugProxy.enabled) {
+      throw new Error("Judge transport refuses debug proxy and capture interception");
+    }
+  }
   const requestConfig = resolveModelRequestPolicy(model);
   const dispatcherPolicy = buildProviderRequestDispatcherPolicy(requestConfig);
+  if (judgeTransportAtBuild && dispatcherPolicy) {
+    throw new Error("Judge transport refuses configured proxy or TLS overrides");
+  }
   const requestTimeoutMs = resolveModelRequestTimeoutMs(model, timeoutMs);
   const summarizeError = (error: unknown): string => {
     if (!error || typeof error !== "object") {
@@ -957,6 +977,26 @@ export function buildGuardedModelFetch(
     const judgeTransport = (model as Model & { [JUDGE_TRANSPORT_OPTIONS]?: JudgeTransportOptions })[
       JUDGE_TRANSPORT_OPTIONS
     ];
+    const useEnvProxy = !dispatcherPolicy && shouldUseEnvHttpProxyForUrl(url);
+    if (judgeTransport && useEnvProxy) {
+      throw new Error("Judge transport refuses ambient HTTP proxy routing");
+    }
+    if (judgeTransport && resolveDebugProxySettings().enabled) {
+      throw new Error("Judge transport refuses debug proxy and capture interception");
+    }
+    if (
+      judgeTransport &&
+      (process.env.SSLKEYLOGFILE?.trim() ||
+        process.env.NODE_EXTRA_CA_CERTS?.trim() ||
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0" ||
+        /(?:^|\s)--tls-keylog(?:=|\s|$)/u.test(process.env.NODE_OPTIONS ?? "") ||
+        process.execArgv.some((arg) =>
+          /^(?:--tls-keylog(?:=|$)|--inspect(?:=|$)|--debug(?:=|$))/u.test(arg),
+        ) ||
+        /(?:^|[,\s:])(?:tls|http|https)(?:$|[,\s:])/iu.test(process.env.NODE_DEBUG ?? ""))
+    ) {
+      throw new Error("Judge transport refuses ambient TLS/debug interception");
+    }
     if (localInferenceModel && !hasLocalInferenceAdmissionHeld(model)) {
       const ownerId =
         options?.ownerId?.trim() ||
@@ -990,11 +1030,12 @@ export function buildGuardedModelFetch(
       // Provider transport intentionally keeps the secure default and never
       // replays unsafe request bodies across cross-origin redirects.
       allowCrossOriginUnsafeRedirectReplay: false,
+      ...(judgeTransport?.onDispatch ? { onDispatch: judgeTransport.onDispatch } : {}),
+      ...(judgeTransport ? { forceRuntimeFetch: true } : {}),
       ...(policy ? { policy } : {}),
     };
     let result: Awaited<ReturnType<typeof fetchWithSsrFGuard>>;
     const fetchStartedAt = Date.now();
-    const useEnvProxy = !dispatcherPolicy && shouldUseEnvHttpProxyForUrl(url);
     emitModelTransportDebug(
       log,
       `[model-fetch] start provider=${model.provider} api=${model.api} model=${model.id} ` +
@@ -1009,10 +1050,6 @@ export function buildGuardedModelFetch(
         rawHeaders,
         localServiceSignal,
       );
-      // Count the request only after local-service preparation succeeds and
-      // immediately before the guarded network dispatch. This keeps Judge
-      // receipts truthful when service startup fails before any HTTP attempt.
-      judgeTransport?.onDispatch?.();
       result = await fetchWithSsrFGuard(
         useEnvProxy
           ? withTrustedEnvProxyGuardedFetchMode(guardedFetchOptions)

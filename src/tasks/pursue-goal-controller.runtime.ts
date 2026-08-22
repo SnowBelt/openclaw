@@ -8,6 +8,7 @@ import { collectDeliveredMediaUrls } from "../agents/embedded-agent-runner/deliv
 import { judgeCompletionIndependently } from "../agents/independent-judge-service.js";
 import {
   JUDGE_HOSTED_MODEL,
+  JUDGE_MODEL_REQUEST_COUNT,
   JUDGE_MAX_OUTPUT_TOKENS,
   parseJudgeV2ModelOutput,
   judgeTrustedEvidenceReferenceList,
@@ -35,6 +36,7 @@ import {
   prepareSimpleCompletionModelForAgent,
   resolveSimpleCompletionSelectionForAgent,
 } from "../agents/simple-completion-runtime.js";
+import { prepareModelForSimpleCompletion } from "../agents/simple-completion-transport.js";
 import { getRuntimeConfig } from "../config/io.js";
 import {
   createSessionGoal,
@@ -44,7 +46,7 @@ import {
 } from "../config/sessions/goals.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
 import type { SessionGoalStatus } from "../config/sessions/types.js";
-import { completeSimple } from "../llm/stream.js";
+import { completeJudgeSimple, completeSimple } from "../llm/stream.js";
 import type { AssistantMessage } from "../llm/types.js";
 import { loadWebMediaRaw } from "../media/web-media.js";
 import { DEFAULT_PCC_EXECUTION_PROFILE } from "../pcc/execution-profile.js";
@@ -195,7 +197,63 @@ function resultModel(result: unknown): string | undefined {
 }
 
 /** Report tool activity, but authorize evidence only from content-bound artifact bytes. */
-export function collectObservedWorkerEvidence(result: unknown, artifactIds: readonly string[]) {
+function goalEvidenceExplicitTargets(request: string | undefined): string[] {
+  if (!request?.trim()) {
+    return [];
+  }
+  const targets = request.match(
+    /(?:[a-z0-9_.-]+\/[a-z0-9_./-]+|[a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+){1,})/giu,
+  );
+  return [...new Set((targets ?? []).map((target) => target.toLowerCase()))].slice(0, 16);
+}
+
+function evidenceMatchesExplicitTarget(evidenceText: string, target: string): boolean {
+  const normalizedTarget = target.toLowerCase().replaceAll("\\", "/");
+  if (evidenceText.includes(normalizedTarget)) {
+    return true;
+  }
+  // A source target such as foo.ts is normally verified by foo.test.ts or
+  // foo.spec.ts. Treat those sibling test suffixes as the same target while
+  // retaining directory binding; do not accept an unrelated basename.
+  const extensionless = normalizedTarget.replace(/\.[a-z0-9]+$/iu, "");
+  return [".test", ".spec", "/test/", "/tests/", "/spec/", "/specs/"].some((suffix) =>
+    evidenceText.includes(`${extensionless}${suffix}`),
+  );
+}
+
+function isVerifiedTestCommand(command: string): boolean {
+  const normalized = command.trim();
+  if (!normalized) {
+    return false;
+  }
+  const withoutEnvironment = normalized.replace(
+    /^(?:env\s+)?(?:[A-Z_][A-Z0-9_]*=(?:"[^"]*"|'[^']*'|\S+)\s+)*/u,
+    "",
+  );
+  if (/(?:^|\s)(?:\|\||&&|;|\|)(?:\s|$)/u.test(withoutEnvironment)) {
+    return false;
+  }
+  if (
+    /^(?:pnpm|npm|yarn|bun)\s+(?:exec\s+)?(?:node|python3?|py)\s+(?:-e|--eval|-p|--print|-c|--command)\b/iu.test(
+      withoutEnvironment,
+    ) ||
+    /^(?:node|python3?|py)\s+(?:-e|--eval|-p|--print|-c|--command)\b/iu.test(withoutEnvironment) ||
+    /^(?:pnpm|npm|yarn|bun)\s+(?:exec|dlx|x)(?:\s+--\S+)*\s+(?:echo|printf|true|false|sh|bash|zsh|cmd|powershell)\b/iu.test(
+      withoutEnvironment,
+    )
+  ) {
+    return false;
+  }
+  return /^(?:pnpm|npm|yarn|bun|node|python3?|pytest|vitest|cargo|go|swift)(?:\s|$)/iu.test(
+    withoutEnvironment,
+  );
+}
+
+export function collectObservedWorkerEvidence(
+  result: unknown,
+  artifactIds: readonly string[],
+  goalRequest?: string,
+) {
   const meta =
     result && typeof result === "object" && (result as { meta?: unknown }).meta
       ? (result as { meta: Record<string, unknown> }).meta
@@ -238,7 +296,7 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
     artifactIds.length > 0 ? `artifact digests=${artifactIds.join(",")}` : "artifacts=none",
   ];
   const trustedObservationEvidence: JudgeTrustedEvidence[] = [];
-  for (const observation of toolObservations.slice(0, 32)) {
+  for (const observation of toolObservations.slice(0, 128)) {
     const toolName = typeof observation.toolName === "string" ? observation.toolName.trim() : "";
     const terminalStatus =
       observation.terminalStatus === "succeeded" || observation.terminalStatus === "failed"
@@ -250,6 +308,28 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
     const actionFingerprint =
       typeof observation.actionFingerprint === "string" ? observation.actionFingerprint.trim() : "";
     const observationMeta = typeof observation.meta === "string" ? observation.meta.trim() : "";
+    const resultDigest =
+      typeof observation.resultDigest === "string" &&
+      /^[a-f0-9]{64}$/iu.test(observation.resultDigest)
+        ? observation.resultDigest.toLowerCase()
+        : "";
+    const exitCode =
+      typeof observation.exitCode === "number" && Number.isSafeInteger(observation.exitCode)
+        ? observation.exitCode
+        : undefined;
+    const asyncTaskId =
+      typeof observation.asyncTaskId === "string" && observation.asyncTaskId.trim()
+        ? observation.asyncTaskId.trim()
+        : undefined;
+    const asyncTaskRunId =
+      typeof observation.asyncTaskRunId === "string" && observation.asyncTaskRunId.trim()
+        ? observation.asyncTaskRunId.trim()
+        : undefined;
+    const postStateDigest =
+      typeof observation.postStateDigest === "string" &&
+      /^[a-f0-9]{64}$/iu.test(observation.postStateDigest)
+        ? observation.postStateDigest.toLowerCase()
+        : "";
     const fileTarget =
       observation.fileTarget &&
       typeof observation.fileTarget === "object" &&
@@ -258,56 +338,151 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
         : undefined;
     const path = typeof fileTarget?.path === "string" ? fileTarget.path.trim() : "";
     const oldpath = typeof fileTarget?.oldpath === "string" ? fileTarget.oldpath.trim() : "";
+    const affectedPaths = Array.isArray(fileTarget?.paths)
+      ? fileTarget.paths.filter((value): value is string => typeof value === "string").slice(0, 64)
+      : [];
     const identity = actionFingerprint || path || oldpath || observationMeta;
     if (!identity) {
       continue;
     }
     const digest = crypto
       .createHash("sha256")
-      .update(JSON.stringify({ toolName, terminalStatus, identity }), "utf8")
+      .update(
+        JSON.stringify({ toolName, terminalStatus, identity, resultDigest, postStateDigest }),
+        "utf8",
+      )
       .digest("hex");
     const detail = [
       `tool=${toolName}`,
       path ? `path=${path}` : undefined,
       oldpath ? `oldpath=${oldpath}` : undefined,
+      affectedPaths.length ? `paths=${affectedPaths.join(",")}` : undefined,
       actionFingerprint ? `action=${actionFingerprint}` : undefined,
       !actionFingerprint && observationMeta ? `command=${observationMeta}` : undefined,
       `status=${terminalStatus}`,
+      resultDigest ? `resultDigest=sha256:${resultDigest}` : "resultDigest=missing",
+      postStateDigest ? `postStateDigest=sha256:${postStateDigest}` : undefined,
     ]
       .filter(Boolean)
       .join(" ");
     const normalizedTool = toolName.toLowerCase();
+    const actionText = `${actionFingerprint} ${observationMeta}`.toLowerCase();
+    const readOnlyAction =
+      /(?:^|[|:=\s])(?:read|get|list|status|show|fetch|search|query|view|inspect|check|probe|poll|schema\.lookup)\b/u.test(
+        actionText,
+      );
     const isConfigObservation =
       normalizedTool === "config" ||
       normalizedTool === "gateway" ||
       normalizedTool.startsWith("config_") ||
       actionFingerprint.includes("config");
-    const isSourceOrTestObservation =
-      Boolean(path || oldpath) ||
-      normalizedTool === "read" ||
-      normalizedTool === "write" ||
-      normalizedTool === "edit" ||
-      normalizedTool === "apply_patch" ||
-      normalizedTool === "exec" ||
-      normalizedTool === "bash" ||
-      normalizedTool === "process";
-    if (isConfigObservation) {
+    const isFileMutation =
+      (normalizedTool === "write" ||
+        normalizedTool === "edit" ||
+        normalizedTool === "apply_patch") &&
+      Boolean(actionFingerprint && (path || oldpath || affectedPaths.length));
+    const pairedBackgroundExec =
+      normalizedTool === "process" &&
+      terminalStatus === "succeeded" &&
+      exitCode === 0 &&
+      (asyncTaskId || asyncTaskRunId)
+        ? toolObservations.find((candidate) => {
+            if (!candidate || typeof candidate !== "object") {
+              return false;
+            }
+            const candidateTool =
+              typeof candidate.toolName === "string" ? candidate.toolName.trim().toLowerCase() : "";
+            if (
+              (candidateTool !== "exec" && candidateTool !== "bash") ||
+              candidate.terminalStatus !== "running"
+            ) {
+              return false;
+            }
+            const candidateId =
+              typeof candidate.asyncTaskId === "string" && candidate.asyncTaskId.trim()
+                ? candidate.asyncTaskId.trim()
+                : undefined;
+            const candidateRunId =
+              typeof candidate.asyncTaskRunId === "string" && candidate.asyncTaskRunId.trim()
+                ? candidate.asyncTaskRunId.trim()
+                : undefined;
+            return Boolean(
+              (asyncTaskId && candidateId === asyncTaskId) ||
+              (asyncTaskRunId && candidateRunId === asyncTaskRunId),
+            );
+          })
+        : undefined;
+    const pairedCommand =
+      pairedBackgroundExec && typeof pairedBackgroundExec.meta === "string"
+        ? pairedBackgroundExec.meta.trim()
+        : "";
+    const verificationCommand =
+      normalizedTool === "exec" || normalizedTool === "bash" ? observationMeta : pairedCommand;
+    const isTestExecution =
+      (normalizedTool === "exec" || normalizedTool === "bash" || Boolean(pairedBackgroundExec)) &&
+      exitCode === 0 &&
+      isVerifiedTestCommand(verificationCommand) &&
+      /\b(?:test|check|lint|typecheck|build|verify|validate)\b/u.test(verificationCommand) &&
+      !/(?:^|\s)(?:--help|-h|help|--version)\b/u.test(verificationCommand);
+    const explicitTargets = goalEvidenceExplicitTargets(goalRequest);
+    const evidenceText = `${detail} ${observationMeta} ${pairedCommand}`.toLowerCase();
+    const targetRelevant =
+      explicitTargets.length === 0 ||
+      explicitTargets.some((target) => evidenceMatchesExplicitTarget(evidenceText, target));
+    if (
+      isConfigObservation &&
+      !readOnlyAction &&
+      Boolean(actionFingerprint) &&
+      resultDigest &&
+      postStateDigest &&
+      targetRelevant
+    ) {
+      trustedObservationEvidence.push({
+        id: `config.mutation:${digest}`,
+        kind: "config_mutation",
+        summary: `controller observed successful configuration mutation ${detail}`.slice(0, 2_048),
+        resultDigest,
+        postStateDigest,
+      });
+    } else if (isConfigObservation) {
       trustedObservationEvidence.push({
         id: `config.observation:${digest}`,
         kind: "config_observation",
-        summary: `controller observed ${detail}`.slice(0, 2_048),
+        summary: `controller observed configuration read ${detail}`.slice(0, 2_048),
       });
-    } else if (isSourceOrTestObservation) {
+    } else if (isFileMutation && resultDigest && postStateDigest && targetRelevant) {
+      trustedObservationEvidence.push({
+        id: `source.mutation:${digest}`,
+        kind: "source_mutation",
+        summary: `controller observed successful source mutation ${detail}`.slice(0, 2_048),
+        resultDigest,
+        postStateDigest,
+      });
+    } else if (isTestExecution && resultDigest && targetRelevant) {
+      trustedObservationEvidence.push({
+        id: `test.execution:${digest}`,
+        kind: "test_execution",
+        summary: `controller observed successful test or verification command ${detail}`.slice(
+          0,
+          2_048,
+        ),
+        resultDigest,
+      });
+    } else if (path || oldpath || normalizedTool === "read") {
       trustedObservationEvidence.push({
         id: `source.observation:${digest}`,
         kind: "source_observation",
-        summary: `controller observed ${detail}`.slice(0, 2_048),
+        summary: `controller observed source read ${detail}`.slice(0, 2_048),
       });
     }
   }
   const uniqueObservationEvidence = [
     ...new Map(trustedObservationEvidence.map((record) => [record.id, record] as const)).values(),
-  ];
+  ].toSorted((a, b) => {
+    const priority = (kind: JudgeTrustedEvidence["kind"]) =>
+      kind === "source_mutation" || kind === "config_mutation" || kind === "test_execution" ? 0 : 1;
+    return priority(a.kind) - priority(b.kind) || a.id.localeCompare(b.id);
+  });
   const observationBudget = Math.max(
     0,
     32 - 1 - (trace || toolSummary ? 1 : 0) - Math.min(artifactIds.length, 32),
@@ -458,27 +633,37 @@ export async function runDirectJudgeModel(params: {
       route: params.route,
     });
   }
-  let requestDispatched = false;
+  if (
+    params.route === "local" &&
+    !isJudgePreparedLocalModel({ config: params.cfg, model: prepared.model })
+  ) {
+    return failedDirectJudgeResult({
+      agentId: params.agentId,
+      model: requestedModel,
+      reason: "local Judge provider or endpoint is not explicitly trusted",
+      route: params.route,
+    });
+  }
+  let physicalRequestCount = 0;
   let model =
-    params.route === "local" && params.localAdmissionHeld
-      ? markLocalInferenceAdmissionHeld(prepared.model)
+    params.route === "local"
+      ? prepareModelForSimpleCompletion({ model: prepared.model, cfg: params.cfg })
       : prepared.model;
+  model =
+    params.route === "local" && params.localAdmissionHeld
+      ? markLocalInferenceAdmissionHeld(model)
+      : model;
   model = markJudgeTransportModel(model, () => {
-    requestDispatched = true;
+    if (physicalRequestCount >= JUDGE_MODEL_REQUEST_COUNT) {
+      throw new Error("Judge transport attempted more than one physical request");
+    }
+    physicalRequestCount += 1;
   });
   if (`${model.provider}/${model.id}` !== requestedModel) {
     return failedDirectJudgeResult({
       agentId: params.agentId,
       model: requestedModel,
       reason: "Judge model identity drifted",
-      route: params.route,
-    });
-  }
-  if (params.route === "local" && !isJudgePreparedLocalModel({ config: params.cfg, model })) {
-    return failedDirectJudgeResult({
-      agentId: params.agentId,
-      model: requestedModel,
-      reason: "local Judge provider or endpoint is not explicitly trusted",
       route: params.route,
     });
   }
@@ -507,7 +692,8 @@ export async function runDirectJudgeModel(params: {
   let modelVisibleTools: string[] = [];
   let response: AssistantMessage;
   try {
-    response = await completeSimple(
+    const completeModel = params.route === "hosted" ? completeJudgeSimple : completeSimple;
+    response = await completeModel(
       model,
       {
         systemPrompt:
@@ -547,7 +733,7 @@ export async function runDirectJudgeModel(params: {
       agentId: params.agentId,
       model: requestedModel,
       reason: "provider invocation failed",
-      requestCount: requestDispatched ? 1 : 0,
+      requestCount: physicalRequestCount,
       route: params.route,
     });
   }
@@ -582,7 +768,7 @@ export async function runDirectJudgeModel(params: {
     agentId: params.agentId,
     model: modelIdentity,
     executionEvidence: {
-      requestCount: requestDispatched ? 1 : 0,
+      requestCount: physicalRequestCount,
       modelVisibleTools,
       route: params.route,
       model: modelIdentity,
@@ -750,6 +936,7 @@ export async function runIndependentJudge(params: {
               const capacity = await assessJudgeLocalCapacity({
                 config: cfg,
                 selectedModel: candidate.ref,
+                requireImmutableIdentity: true,
               });
               if (capacity.decision === "hosted_fallback") {
                 continue;
@@ -768,6 +955,7 @@ export async function runIndependentJudge(params: {
                 config: cfg,
                 selectedModel: candidate.ref,
                 leaseHeld: true,
+                requireImmutableIdentity: true,
               });
               if (recheck.decision !== "admit") {
                 release();
@@ -877,7 +1065,7 @@ async function runTurn(input: PursueGoalTurnInput): Promise<PursueGoalTurnResult
   const workerGoal = await loadWorkerGoal(input);
   const goalStatus = workerGoal.status;
   if (goalStatus === "complete") {
-    const observedEvidence = collectObservedWorkerEvidence(result, artifactIds);
+    const observedEvidence = collectObservedWorkerEvidence(result, artifactIds, input.goal);
     const judge = await runIndependentJudge({
       input,
       finalText: text,

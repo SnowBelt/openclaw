@@ -503,14 +503,20 @@ function buildTraceToolSummary(params: {
     meta?: string;
     asyncStarted?: boolean;
     actionFingerprint?: string;
-    fileTarget?: { path?: string; oldpath?: string };
-    terminalStatus?: "succeeded" | "failed";
+    fileTarget?: { path?: string; oldpath?: string; paths?: string[] };
+    terminalStatus?: "succeeded" | "failed" | "running";
+    resultDigest?: string;
+    exitCode?: number;
+    postStateDigest?: string;
+    asyncTaskId?: string;
+    asyncTaskRunId?: string;
   }>;
   hadFailure: boolean;
 }): ToolSummaryTrace | undefined {
   if (!params.toolMetas?.length) {
     return undefined;
   }
+  type ToolMeta = NonNullable<typeof params.toolMetas>[number];
   const tools: string[] = [];
   const seen = new Set<string>();
   for (const entry of params.toolMetas) {
@@ -523,11 +529,34 @@ function buildTraceToolSummary(params: {
   }
   const observations: ToolExecutionObservation[] = params.toolMetas
     .filter((entry) => entry.toolName.trim())
+    .toSorted((a, b) => {
+      const priority = (entry: ToolMeta) => {
+        const toolName = entry.toolName.trim().toLowerCase();
+        if (
+          entry.terminalStatus === "succeeded" &&
+          (toolName === "write" ||
+            toolName === "edit" ||
+            toolName === "apply_patch" ||
+            toolName === "config" ||
+            toolName === "gateway")
+        ) {
+          return 0;
+        }
+        if (
+          entry.terminalStatus === "succeeded" &&
+          (toolName === "exec" || toolName === "bash" || toolName === "process")
+        ) {
+          return 1;
+        }
+        return entry.terminalStatus === "running" ? 2 : 3;
+      };
+      return priority(a) - priority(b);
+    })
     .slice(0, 32)
     .map((entry) => {
       const observation: ToolExecutionObservation = {
         toolName: entry.toolName.slice(0, 128),
-        terminalStatus: entry.terminalStatus ?? (params.hadFailure ? "failed" : "succeeded"),
+        terminalStatus: entry.terminalStatus ?? (params.hadFailure ? "failed" : "running"),
       };
       if (entry.actionFingerprint) {
         observation.actionFingerprint = entry.actionFingerprint.slice(0, 512);
@@ -540,9 +569,29 @@ function buildTraceToolSummary(params: {
         if (entry.fileTarget.oldpath) {
           observation.fileTarget.oldpath = entry.fileTarget.oldpath.slice(0, 512);
         }
+        if (entry.fileTarget.paths?.length) {
+          observation.fileTarget.paths = entry.fileTarget.paths
+            .slice(0, 64)
+            .map((path) => path.slice(0, 512));
+        }
       }
       if (entry.meta) {
         observation.meta = entry.meta.slice(0, 512);
+      }
+      if (entry.resultDigest) {
+        observation.resultDigest = entry.resultDigest.slice(0, 64);
+      }
+      if (typeof entry.exitCode === "number" && Number.isSafeInteger(entry.exitCode)) {
+        observation.exitCode = entry.exitCode;
+      }
+      if (entry.postStateDigest) {
+        observation.postStateDigest = entry.postStateDigest.slice(0, 64);
+      }
+      if (entry.asyncTaskId) {
+        observation.asyncTaskId = entry.asyncTaskId.slice(0, 256);
+      }
+      if (entry.asyncTaskRunId) {
+        observation.asyncTaskRunId = entry.asyncTaskRunId.slice(0, 256);
       }
       return observation;
     });

@@ -102,6 +102,13 @@ export interface StreamOptions {
    */
   onPayload?: (payload: unknown, model: Model) => MaybePromise<unknown>;
   /**
+   * Optional callback invoked immediately before the provider performs its
+   * physical network dispatch. Providers that use a transport outside the
+   * shared guarded fetch (for example native local adapters) must invoke it
+   * at their own egress boundary.
+   */
+  onDispatch?: (model: Model) => MaybePromise<void>;
+  /**
    * Optional callback invoked after an HTTP response is received and before
    * its body stream is consumed.
    */

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { OpenClawConfig } from "../config/types.js";
 import {
   acquireJudgeLocalAdmission,
   assessJudgeLocalCapacity,
@@ -152,5 +153,84 @@ describe("Judge local inference admission", () => {
         },
       }),
     ).resolves.toMatchObject({ decision: "queue" });
+  });
+
+  it("requires a configured resident digest when immutable local identity is requested", async () => {
+    const capacity = {
+      totalRamGb: 128,
+      freeRamGb: 64,
+      logicalCpuCount: 16,
+      performanceCpuCount: 12,
+      load1: 1,
+      load5: 1,
+      load15: 1,
+      memoryPressure: "low" as const,
+      thermalPressure: "nominal" as const,
+      activeOpenClawTaskCount: 0,
+      configuredSubagentLimit: 8,
+      observedLocalModelProcessCount: 1,
+      localModelObservationAvailable: true,
+      safeLocalAgentSlots: 1,
+      timestamp: "2026-08-21T00:00:00.000Z",
+      warnings: [],
+    };
+    const selectedModel = "ollama/qwen-primary";
+    const config = {
+      models: {
+        providers: {
+          ollama: {
+            baseUrl: "http://127.0.0.1:11434",
+            models: [{ id: "qwen-primary", params: { digest: "sha256:expected" } }],
+          },
+        },
+      },
+    } as unknown as OpenClawConfig;
+    const residentModel = {
+      ref: selectedModel,
+      state: "idle" as const,
+      estimatedMemoryGb: 36,
+      modelDigest: "sha256:expected",
+    };
+    const collectResidency = async () => ({
+      available: true,
+      residentModels: [residentModel],
+      observedProcessCount: 1,
+      warnings: [],
+    });
+
+    await expect(
+      assessJudgeLocalCapacity({
+        config,
+        selectedModel,
+        requireImmutableIdentity: true,
+        runtime: { collectResidency, collectCapacity: () => capacity },
+      }),
+    ).resolves.toMatchObject({ decision: "admit" });
+
+    await expect(
+      assessJudgeLocalCapacity({
+        config,
+        selectedModel,
+        requireImmutableIdentity: true,
+        runtime: {
+          collectResidency: async () => ({
+            available: true,
+            residentModels: [{ ...residentModel, modelDigest: "sha256:other" }],
+            observedProcessCount: 1,
+            warnings: [],
+          }),
+          collectCapacity: () => capacity,
+        },
+      }),
+    ).resolves.toMatchObject({ decision: "hosted_fallback" });
+
+    await expect(
+      assessJudgeLocalCapacity({
+        config: {},
+        selectedModel,
+        requireImmutableIdentity: true,
+        runtime: { collectResidency, collectCapacity: () => capacity },
+      }),
+    ).resolves.toMatchObject({ decision: "hosted_fallback" });
   });
 });

@@ -157,11 +157,16 @@ function openResponseStreamText(text: string): {
 describe("buildGuardedModelFetch", () => {
   beforeEach(() => {
     managedStreamCleanupRegistrations.length = 0;
-    fetchWithSsrFGuardMock.mockReset().mockResolvedValue({
-      response: new Response("ok", { status: 200 }),
-      finalUrl: "https://api.openai.com/v1/responses",
-      release: vi.fn(async () => undefined),
-    });
+    fetchWithSsrFGuardMock
+      .mockReset()
+      .mockImplementation(async (params: { onDispatch?: () => unknown }) => {
+        await params.onDispatch?.();
+        return {
+          response: new Response("ok", { status: 200 }),
+          finalUrl: "https://api.openai.com/v1/responses",
+          release: vi.fn(async () => undefined),
+        };
+      });
     ensureModelProviderLocalServiceMock.mockReset().mockResolvedValue(undefined);
     buildProviderRequestDispatcherPolicyMock.mockClear().mockReturnValue(undefined);
     mergeModelProviderRequestOverridesMock.mockClear();
@@ -177,6 +182,7 @@ describe("buildGuardedModelFetch", () => {
 
   afterEach(() => {
     delete process.env.OPENCLAW_SDK_RETRY_MAX_WAIT_SECONDS;
+    vi.unstubAllEnvs();
   });
 
   function sentinelModel(): Model<"openai-responses"> {
@@ -327,7 +333,63 @@ describe("buildGuardedModelFetch", () => {
     await response.text();
 
     expect(latestGuardedFetchParams().maxRedirects).toBe(0);
+    expect(latestGuardedFetchParams().forceRuntimeFetch).toBe(true);
     expect(onDispatch).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed if a guarded seam attempts a second Judge dispatch", async () => {
+    let dispatches = 0;
+    const onDispatch = vi.fn(() => {
+      dispatches += 1;
+      if (dispatches > 1) {
+        throw new Error("Judge transport attempted more than one physical request");
+      }
+    });
+    fetchWithSsrFGuardMock.mockImplementationOnce(
+      async (params: { onDispatch?: () => unknown }) => {
+        await params.onDispatch?.();
+        await params.onDispatch?.();
+        return {
+          response: new Response("unreachable", { status: 200 }),
+          finalUrl: "https://api.openai.com/v1/responses",
+          release: vi.fn(async () => undefined),
+        };
+      },
+    );
+    const model = markJudgeTransportModel(
+      {
+        id: "gpt-5.6",
+        provider: "openai",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+      } as unknown as Model<"openai-responses">,
+      onDispatch,
+    );
+
+    await expect(
+      buildGuardedModelFetch(model)("https://api.openai.com/v1/responses", { method: "POST" }),
+    ).rejects.toThrow(/more than one physical request/i);
+    expect(onDispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails Judge transport closed before acquiring admission when ambient proxy routing is present", async () => {
+    shouldUseEnvHttpProxyForUrlMock.mockReturnValueOnce(true);
+    const model = markJudgeTransportModel(sentinelModel());
+
+    await expect(
+      buildGuardedModelFetch(model)("https://api.openai.com/v1/responses", { method: "POST" }),
+    ).rejects.toThrow("ambient HTTP proxy");
+    expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
+  });
+
+  it("fails Judge transport closed when ambient TLS or debug interception is enabled", async () => {
+    vi.stubEnv("NODE_DEBUG", "tls");
+    const model = markJudgeTransportModel(sentinelModel());
+
+    await expect(
+      buildGuardedModelFetch(model)("https://api.openai.com/v1/responses", { method: "POST" }),
+    ).rejects.toThrow("ambient TLS/debug interception");
+    expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
   });
 
   it("rejects successful streamed OpenAI-compatible responses with HTML content", async () => {

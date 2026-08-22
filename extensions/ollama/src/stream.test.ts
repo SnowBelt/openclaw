@@ -143,9 +143,12 @@ describe("createOllamaStreamFn thinking events", () => {
     } as never,
   ): Promise<Array<{ type: string; [key: string]: unknown }>> {
     const body = makeNdjsonBody(chunks);
-    fetchWithSsrFGuardMock.mockResolvedValue({
-      response: new Response(body, { status: 200 }),
-      release: vi.fn(async () => undefined),
+    fetchWithSsrFGuardMock.mockImplementation(async (params: { onDispatch?: () => unknown }) => {
+      await params.onDispatch?.();
+      return {
+        response: new Response(body, { status: 200 }),
+        release: vi.fn(async () => undefined),
+      };
     });
 
     const streamFn = createOllamaStreamFn("http://localhost:11434");
@@ -164,6 +167,48 @@ describe("createOllamaStreamFn thinking events", () => {
     }
     return events;
   }
+
+  it("fails closed when a marked Judge has no admission hook", async () => {
+    const hooksKey = Symbol.for("openclaw.local-inference-admission-hooks.v1");
+    const globals = globalThis as typeof globalThis & Record<symbol, unknown>;
+    const previous = globals[hooksKey];
+    delete globals[hooksKey];
+    try {
+      const streamFn = createOllamaStreamFn("http://localhost:11434");
+      const stream = streamFn(
+        {
+          api: "ollama",
+          provider: "ollama",
+          id: "qwen3.5",
+          contextWindow: 65_536,
+          [Symbol.for("openclaw.judge-transport-options.v1")]: {},
+        } as never,
+        { messages: [{ role: "user", content: "test" }] } as never,
+        {},
+      );
+      const events: Array<Record<string, unknown>> = [];
+      for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
+        events.push(event);
+      }
+      expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "error",
+            error: expect.objectContaining({
+              errorMessage: expect.stringContaining("admission hook is unavailable"),
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete globals[hooksKey];
+      } else {
+        globals[hooksKey] = previous;
+      }
+    }
+  });
 
   it("emits thinking_start, thinking_delta, and thinking_end events for thinking content", async () => {
     const thinkingChunks = [
@@ -334,8 +379,18 @@ describe("createOllamaStreamFn thinking events", () => {
         hostnameAllowlist: ["localhost"],
       },
       timeoutMs: 2500,
+      maxRedirects: 0,
       auditContext: "ollama-stream.chat",
     });
+  });
+
+  it("attests the native dispatch boundary exactly once", async () => {
+    const onDispatch = vi.fn();
+    await streamOllamaEvents([makeOllamaResponse({ content: "ok" })], { onDispatch });
+    expect(onDispatch).toHaveBeenCalledOnce();
+    expect(onDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ api: "ollama", provider: "ollama", id: "qwen3.5" }),
+    );
   });
 
   it("promotes standalone bracketed local-model tool text to a structured tool call", async () => {

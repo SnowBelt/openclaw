@@ -1,4 +1,9 @@
-import { isJudgeOutOfScopeText, type JudgeTrustedEvidence } from "../agents/judge-contract.js";
+import {
+  isJudgeOutOfScopeText,
+  isJudgeTrustedEvidenceComplete,
+  JUDGE_TRUSTED_EVIDENCE_KINDS,
+  type JudgeTrustedEvidence,
+} from "../agents/judge-contract.js";
 import {
   buildJudgeVerdict,
   formatJudgeVerdict,
@@ -26,10 +31,18 @@ const WORKING_ONLY_RE =
   /\b(i'?m|i am|we'?re|we are|still|will|going to|let me|checking|working|started|starting|in progress|look into|follow up)\b/i;
 const COMPLETION_RE =
   /\b(done|complete|completed|finished|ready|attached|created|built|delivered|here(?:'s| is))\b/i;
+// Media/export deliverables need an attached byte-level artifact. Software,
+// source files, apps, games, and projects instead require mutation plus
+// behavioral verification; a generic noun must never turn into an artifact
+// bypass.
 const ARTIFACT_REQUEST_RE =
-  /\b(video|game|rom|file|download|attachment|image|picture|photo|song|music|audio|pdf|docx|spreadsheet|presentation|app|project|artifact)\b/i;
+  /\b(?:video(?!\s+game\b)|image|picture|photo|song|music|audio|pdf|docx|spreadsheet|presentation)\b|\b(?:file|app|project|artifact|rom|game)\b[^.?!\n]{0,80}\b(?:attach|attached|download|downloadable|deliver|delivered|export|provide|return|send|upload)\b|\b(?:attach|attached|download|downloadable|deliver|delivered|export|provide|return|send|upload)\b[^.?!\n]{0,80}\b(?:file|app|project|artifact|rom|game)\b/i;
 const CONCRETE_OUTCOME_REQUEST_RE =
   /\b(?:implement|fix|repair|change|modify|update|build|create|configure|install|remove|delete|deploy|write|edit|patch|test|verify|validate|audit|prove|run)\b/i;
+const INSPECTION_REQUEST_RE =
+  /\b(?:audit|inspect|review|analy[sz]e|check|assess|evaluate|verify|validate|prove)\b/i;
+const MUTATION_REQUEST_RE =
+  /\b(?:implement|fix|repair|change|modify|update|build|create|configure|install|remove|delete|deploy|write|edit|patch)\b/i;
 
 function trimText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -55,23 +68,63 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       typeof record.id === "string" &&
       Boolean(record.id.trim()) &&
       typeof record.kind === "string" &&
+      JUDGE_TRUSTED_EVIDENCE_KINDS.includes(
+        record.kind as (typeof JUDGE_TRUSTED_EVIDENCE_KINDS)[number],
+      ) &&
       typeof record.summary === "string" &&
-      Boolean(record.summary.trim()),
+      Boolean(record.summary.trim()) &&
+      isJudgeTrustedEvidenceComplete(record),
   );
   const trustedEvidenceProvided = params.trustedEvidence !== undefined;
   const wantsArtifact =
     ARTIFACT_REQUEST_RE.test(params.userRequest) || ARTIFACT_REQUEST_RE.test(expectedDeliverable);
-  const requiresConcreteOutcomeEvidence = CONCRETE_OUTCOME_REQUEST_RE.test(
+  const artifactOnlyRequest =
+    wantsArtifact &&
+    !/\b(?:fix|repair|change|modify|update|configure|install|remove|delete|deploy|write|edit|patch|test|verify|validate|audit|prove)\b/i.test(
+      `${params.userRequest} ${expectedDeliverable}`,
+    );
+  const requiresArtifact = artifactOnlyRequest;
+  const hasMutationIntent = MUTATION_REQUEST_RE.test(
     `${params.userRequest} ${expectedDeliverable}`,
   );
+  const requiresInspectionEvidence =
+    !artifactOnlyRequest &&
+    !hasMutationIntent &&
+    INSPECTION_REQUEST_RE.test(`${params.userRequest} ${expectedDeliverable}`);
+  const requiresConcreteOutcomeEvidence =
+    !artifactOnlyRequest &&
+    !requiresInspectionEvidence &&
+    CONCRETE_OUTCOME_REQUEST_RE.test(`${params.userRequest} ${expectedDeliverable}`);
+  const requiresMutationAndVerification =
+    requiresConcreteOutcomeEvidence && !artifactOnlyRequest && hasMutationIntent;
   // Tool activity is not an outcome. A successful read/update_goal call can
   // never prove that an implementation, test, or deployment claim happened.
   // Require a content-, source-, or configuration-bound observation instead.
   const hasConcreteOutcomeEvidence = trustedEvidence.some(
     (record) =>
-      record.kind === "artifact_digest" ||
+      (artifactOnlyRequest && record.kind === "artifact_digest") ||
+      (record.kind === "source_mutation" && isJudgeTrustedEvidenceComplete(record)) ||
+      (record.kind === "test_execution" && isJudgeTrustedEvidenceComplete(record)) ||
+      (record.kind === "config_mutation" && isJudgeTrustedEvidenceComplete(record)),
+  );
+  const hasInspectionEvidence = trustedEvidence.some(
+    (record) =>
       record.kind === "source_observation" ||
-      record.kind === "config_observation",
+      record.kind === "config_observation" ||
+      record.kind === "test_execution",
+  );
+  const hasMutationEvidence =
+    trustedEvidence.some(
+      (record) =>
+        (record.kind === "source_mutation" || record.kind === "config_mutation") &&
+        isJudgeTrustedEvidenceComplete(record),
+    ) ||
+    (artifactOnlyRequest && trustedEvidence.some((record) => record.kind === "artifact_digest"));
+  const hasVerificationEvidence = trustedEvidence.some(
+    (record) =>
+      (record.kind === "test_execution" ||
+        (artifactOnlyRequest && record.kind === "artifact_digest")) &&
+      isJudgeTrustedEvidenceComplete(record),
   );
   const evidence = [
     `runtime status: ${params.status}`,
@@ -127,7 +180,7 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       conditions: "restate the request as technical completion or operational verification",
       gate: "task_completion",
     });
-  } else if (wantsArtifact && artifactIds.length === 0) {
+  } else if (requiresArtifact && artifactIds.length === 0) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",
       scope: expectedDeliverable,
@@ -138,10 +191,12 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       gate: "task_completion",
     });
   } else if (
-    trustedEvidenceProvided &&
+    (trustedEvidenceProvided || requiresConcreteOutcomeEvidence || requiresInspectionEvidence) &&
     (!trustedEvidence.some((record) => record.kind === "runtime_completion") ||
       (requiresConcreteOutcomeEvidence && !hasConcreteOutcomeEvidence) ||
-      (wantsArtifact && !trustedEvidence.some((record) => record.kind === "artifact_digest")))
+      (requiresInspectionEvidence && !hasInspectionEvidence) ||
+      (requiresMutationAndVerification && (!hasMutationEvidence || !hasVerificationEvidence)) ||
+      (requiresArtifact && !trustedEvidence.some((record) => record.kind === "artifact_digest")))
   ) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",

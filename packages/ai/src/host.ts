@@ -57,14 +57,24 @@ const inertAiTransportHost: AiTransportHost = {
 };
 
 let activeAiTransportHost = inertAiTransportHost;
+let aiTransportHostLocked = false;
 
 /** Installs host implementations for the transport policy ports. */
 export function configureAiTransportHost(host: Partial<AiTransportHost>): void {
+  if (aiTransportHostLocked) {
+    throw new Error("AI transport host is already locked by the embedding runtime");
+  }
   activeAiTransportHost = { ...inertAiTransportHost, ...host };
 }
 
+/** Prevents later plugins or providers from replacing the embedding policy host. */
+export function lockAiTransportHost(): void {
+  activeAiTransportHost = Object.freeze({ ...activeAiTransportHost });
+  aiTransportHostLocked = true;
+}
+
 /** Returns the active transport host (inert defaults unless configured). */
-export function getAiTransportHost(): AiTransportHost {
+export function getAiTransportHost(): Readonly<AiTransportHost> {
   return activeAiTransportHost;
 }
 

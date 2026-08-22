@@ -462,6 +462,43 @@ describe("handleToolExecutionStart read path checks", () => {
       true,
     );
   });
+
+  it("keeps a running exec out of terminal success evidence", async () => {
+    const { ctx } = createTestContext();
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "exec",
+      toolCallId: "tool-running-exec",
+      args: { command: "pnpm test src/tasks/foo.test.ts" },
+    });
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "exec",
+      toolCallId: "tool-running-exec",
+      isError: false,
+      result: {
+        details: {
+          status: "running",
+          runId: "run-child-1",
+        },
+      },
+    });
+
+    expect(ctx.state.toolMetas).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "exec",
+          terminalStatus: "running",
+          asyncStarted: true,
+          asyncTaskRunId: "run-child-1",
+        }),
+      ]),
+    );
+    expect(ctx.state.replayState).toEqual({
+      replayInvalid: true,
+      hadPotentialSideEffects: true,
+    });
+  });
 });
 
 describe("handleToolExecutionEnd cron mutation tracking", () => {

@@ -610,6 +610,7 @@ async function respondWithConfigRestartWrite(params: {
       ok: true,
       path: params.writeResult.path,
       config: redactConfigObject(params.writeResult.config, params.uiHints),
+      persistedHash: params.writeResult.persistedHash,
       restart,
       sentinel: {
         persisted: sentinelPersisted,
@@ -765,6 +766,7 @@ export const configHandlers: GatewayRequestHandlers = {
         ok: true,
         path: writeResult.path,
         config: redactConfigObject(writeResult.config, parsed.schema.uiHints),
+        persistedHash: writeResult.persistedHash,
       },
       undefined,
     );

@@ -20,6 +20,7 @@ import {
   judgeTrustedEvidenceDigest,
   judgeTrustedEvidenceReferenceList,
   judgeV2ToolPolicyIsEmpty,
+  isJudgeTrustedEvidenceComplete,
   parseJudgeV2ModelOutput,
   type JudgeTrustedEvidence,
   type JudgeModelExecutionEvidence,
@@ -198,7 +199,8 @@ function judgeClaimBoundsError(params: {
         record.id.length > 128 ||
         !record.summary.trim() ||
         record.summary.length > 2_048 ||
-        !JUDGE_TRUSTED_EVIDENCE_KINDS.includes(record.kind),
+        !JUDGE_TRUSTED_EVIDENCE_KINDS.includes(record.kind) ||
+        !isJudgeTrustedEvidenceComplete(record),
     )
   ) {
     return "trusted evidence record is empty or exceeds its bound";

@@ -26,6 +26,11 @@ import { DEFAULT_PROVIDER } from "./defaults.js";
 import { resolveModel, resolveModelAsync } from "./embedded-agent-runner/model.js";
 import { resolveAgentHarnessPolicy } from "./harness/policy.js";
 import {
+  acquireLocalInferenceAdmission,
+  hasLocalInferenceAdmissionHeld,
+  markLocalInferenceAdmissionHeld,
+} from "./judge-local-admission.js";
+import {
   applySecretRefHeaderSentinels,
   applyLocalNoAuthHeaderOverride,
   formatMissingAuthError,
@@ -39,12 +44,13 @@ import {
   resolveModelRefFromString,
 } from "./model-selection.js";
 import { OPENAI_PROVIDER_ID, isOpenAIProvider } from "./openai-routing.js";
+import { getModelProviderLocalService } from "./provider-local-service.js";
 import { applyPreparedRuntimeAuthToModel } from "./provider-request-config.js";
 import {
   protectPreparedProviderRuntimeAuth,
   unwrapSecretSentinelsForProviderEgress,
 } from "./provider-secret-egress.js";
-import { markLocalInferenceOwner } from "./provider-transport-fetch.js";
+import { getLocalInferenceOwner, markLocalInferenceOwner } from "./provider-transport-fetch.js";
 import { prepareModelForSimpleCompletion } from "./simple-completion-transport.js";
 
 type SimpleCompletionAuthStorage = {
@@ -401,14 +407,36 @@ export async function completeWithPreparedSimpleCompletionModel(params: {
   cfg?: OpenClawConfig;
   options?: SimpleCompletionModelOptions;
 }): Promise<AssistantMessage> {
-  const completionModel = prepareModelForSimpleCompletion({ model: params.model, cfg: params.cfg });
+  let completionModel = prepareModelForSimpleCompletion({ model: params.model, cfg: params.cfg });
   const { reasoning: rawReasoning, ...options } = params.options ?? {};
   const reasoning = normalizeSimpleCompletionReasoning(rawReasoning, completionModel);
-  return await completeSimple(completionModel, params.context, {
-    ...options,
-    ...(reasoning ? { reasoning } : {}),
-    apiKey: params.auth.apiKey,
-  });
+  const localModel =
+    completionModel.api === "ollama" || Boolean(getModelProviderLocalService(completionModel));
+  let localAdmissionRelease: (() => void) | undefined;
+  if (localModel && !hasLocalInferenceAdmissionHeld(completionModel)) {
+    const admission = await acquireLocalInferenceAdmission({
+      ownerId:
+        getLocalInferenceOwner(completionModel) ||
+        `provider:${completionModel.provider}/${completionModel.id}`,
+      timeoutMs: 30_000,
+      signal: options.signal,
+      priority: "normal",
+    });
+    if (!admission.admitted) {
+      throw new Error(`Local inference admission unavailable (${admission.reason})`);
+    }
+    localAdmissionRelease = admission.release;
+    completionModel = markLocalInferenceAdmissionHeld(completionModel);
+  }
+  try {
+    return await completeSimple(completionModel, params.context, {
+      ...options,
+      ...(reasoning ? { reasoning } : {}),
+      apiKey: params.auth.apiKey,
+    });
+  } finally {
+    localAdmissionRelease?.();
+  }
 }
 
 function normalizeSimpleCompletionReasoning(

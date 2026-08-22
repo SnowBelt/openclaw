@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /**
  * Runtime apply_patch tool and parser.
  * Parses OpenAI-style patch envelopes and applies add/update/delete/move hunks
@@ -16,6 +17,7 @@ import { toRelativeSandboxPath, resolvePathFromInput } from "./path-policy.js";
 import type { AgentTool } from "./runtime/index.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
+import { markTrustedMutationDetails } from "./sessions/tools/tool-contracts.js";
 
 const BEGIN_PATCH_MARKER = "*** Begin Patch";
 const END_PATCH_MARKER = "*** End Patch";
@@ -63,11 +65,13 @@ export type ApplyPatchSummary = {
 type ApplyPatchResult = {
   summary: ApplyPatchSummary;
   text: string;
+  postStateDigest?: string;
   noOp?: boolean;
 };
 
 type ApplyPatchToolDetails = {
   summary: ApplyPatchSummary;
+  postStateDigest?: string;
 };
 
 function normalizeUpdateComparison(content: string): string {
@@ -128,9 +132,14 @@ export function createApplyPatchTool(
         signal,
       });
 
+      const postStateDigest = result.postStateDigest;
+
       return {
         content: [{ type: "text", text: result.text }],
-        details: { summary: result.summary },
+        details: markTrustedMutationDetails({
+          summary: result.summary,
+          ...(postStateDigest ? { postStateDigest } : {}),
+        }),
         ...(result.noOp ? { terminate: true } : {}),
       };
     },
@@ -158,6 +167,11 @@ export async function applyPatch(
     deleted: new Set<string>(),
   };
   const noOpPaths = new Set<string>();
+  const movedSourcePaths: string[] = [];
+  const expectedPostState = new Map<
+    string,
+    { state: "present"; content: string } | { state: "absent" }
+  >();
   const fileOps = resolvePatchFileOps(options);
 
   for (const hunk of parsed.hunks) {
@@ -171,6 +185,7 @@ export async function applyPatch(
       await ensureDir(target.resolved, fileOps);
       await fileOps.writeFile(target.resolved, hunk.contents);
       recordSummary(summary, seen, "added", target.display);
+      expectedPostState.set(target.display, { state: "present", content: hunk.contents });
       continue;
     }
 
@@ -178,6 +193,7 @@ export async function applyPatch(
       const target = await resolvePatchPath(hunk.path, options, PATH_ALIAS_POLICIES.unlinkTarget);
       await fileOps.remove(target.resolved);
       recordSummary(summary, seen, "deleted", target.display);
+      expectedPostState.set(target.display, { state: "absent" });
       continue;
     }
 
@@ -207,7 +223,10 @@ export async function applyPatch(
       }
       if (!moveResolvesToSource) {
         await fileOps.remove(target.resolved);
+        movedSourcePaths.push(target.display);
+        expectedPostState.set(target.display, { state: "absent" });
       }
+      expectedPostState.set(moveTarget.display, { state: "present", content: applied });
       if (!noOpPaths.has(target.display)) {
         recordSummary(
           summary,
@@ -225,13 +244,82 @@ export async function applyPatch(
         await fileOps.writeFile(target.resolved, applied);
         recordSummary(summary, seen, "modified", target.display);
       }
+      expectedPostState.set(target.display, { state: "present", content: applied });
     }
   }
 
   const noOp = noOpPaths.size > 0 && Object.values(summary).every((paths) => paths.length === 0);
+  const digestEntries: Array<{ path: string; digest: string }> = [];
+  let postStateVerified = true;
+  for (const [bucket, paths] of Object.entries(summary) as Array<
+    [keyof ApplyPatchSummary, string[]]
+  >) {
+    for (const displayPath of paths) {
+      const target = await resolvePatchPath(displayPath, options).catch(() => undefined);
+      if (!target) {
+        postStateVerified = false;
+        continue;
+      }
+      if (bucket === "deleted") {
+        try {
+          await fileOps.readFile(target.resolved);
+          // A successful read proves the deletion did not persist.
+          postStateVerified = false;
+        } catch (error) {
+          const code = error as NodeJS.ErrnoException;
+          if (code.code !== "ENOENT") {
+            postStateVerified = false;
+          }
+        }
+        digestEntries.push({ path: `${bucket}:${displayPath}`, digest: "deleted" });
+        continue;
+      }
+      const bytes = await fileOps.readFile(target.resolved).catch(() => undefined);
+      if (bytes === undefined) {
+        postStateVerified = false;
+        continue;
+      }
+      const expected = expectedPostState.get(displayPath);
+      if (expected?.state !== "present" || bytes !== expected.content) {
+        postStateVerified = false;
+        continue;
+      }
+      digestEntries.push({
+        path: `${bucket}:${displayPath}`,
+        digest: createHash("sha256").update(bytes, "utf8").digest("hex"),
+      });
+    }
+  }
+  for (const displayPath of movedSourcePaths) {
+    const source = await resolvePatchPath(displayPath, options).catch(() => undefined);
+    if (!source) {
+      postStateVerified = false;
+      continue;
+    }
+    try {
+      await fileOps.readFile(source.resolved);
+      postStateVerified = false;
+    } catch (error) {
+      const code = error as NodeJS.ErrnoException;
+      if (code.code !== "ENOENT") {
+        postStateVerified = false;
+      }
+    }
+    digestEntries.push({ path: `move-source:${displayPath}`, digest: "deleted" });
+  }
   return {
     summary,
     text: noOp ? `No changes made to ${Array.from(noOpPaths).join(", ")}.` : formatSummary(summary),
+    ...(postStateVerified && digestEntries.length > 0
+      ? {
+          postStateDigest: createHash("sha256")
+            .update(
+              JSON.stringify(digestEntries.toSorted((a, b) => a.path.localeCompare(b.path))),
+              "utf8",
+            )
+            .digest("hex"),
+        }
+      : {}),
     ...(noOp ? { noOp: true } : {}),
   };
 }

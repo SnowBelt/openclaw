@@ -80,5 +80,18 @@ describe("Judge V2 model contract", () => {
       ),
     ).toBe(false);
     expect(isJudgeOutOfScopeText("Did the deployment complete with a valid receipt?")).toBe(false);
+    expect(isJudgeOutOfScopeText("Is the build good?")).toBe(false);
+    expect(isJudgeOutOfScopeText("Was the test result acceptable?")).toBe(false);
+    expect(isJudgeOutOfScopeText("Is the deployment status good or bad?")).toBe(false);
+    expect(isJudgeOutOfScopeText("Would this configuration be acceptable?")).toBe(false);
+    expect(isJudgeOutOfScopeText("Was lying good or bad?")).toBe(true);
+    expect(isJudgeOutOfScopeText("Was lying in the test good or bad?")).toBe(true);
+    expect(isJudgeOutOfScopeText("Was discrimination in the test good or bad?")).toBe(true);
+    expect(isJudgeOutOfScopeText("Was bribery in the test acceptable?")).toBe(true);
+    expect(isJudgeOutOfScopeText("Was firing an employee in the test fair?")).toBe(true);
+    expect(isJudgeOutOfScopeText("Was this conduct fair?")).toBe(true);
+    expect(isJudgeOutOfScopeText("Which political candidate should I support?")).toBe(true);
+    expect(isJudgeOutOfScopeText("Which model candidate should I support?")).toBe(false);
+    expect(isJudgeOutOfScopeText("Should I vote for Alice?")).toBe(true);
   });
 });

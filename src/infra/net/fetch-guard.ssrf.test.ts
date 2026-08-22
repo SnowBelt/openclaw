@@ -738,6 +738,45 @@ describe("fetchWithSsrFGuard hardening", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("does not report an egress dispatch when DNS or SSRF preflight rejects", async () => {
+    const lookupFn: LookupFn = vi.fn(async () => [
+      { address: "127.0.0.1", family: 4 },
+    ]) as unknown as LookupFn;
+    const fetchImpl = vi.fn(async () => okResponse());
+    const onDispatch = vi.fn();
+
+    await expect(
+      fetchWithSsrFGuard({
+        url: "https://public.example/blocked",
+        fetchImpl,
+        lookupFn,
+        onDispatch,
+      }),
+    ).rejects.toThrow(/private|internal|blocked/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(onDispatch).not.toHaveBeenCalled();
+  });
+
+  it("reports exactly one dispatch when a redirect is denied by the zero-redirect policy", async () => {
+    const lookupFn = createPublicLookup();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(redirectResponse("https://cdn.example.com/next"));
+    const onDispatch = vi.fn();
+
+    await expect(
+      fetchWithSsrFGuard({
+        url: "https://api.example.com/start",
+        fetchImpl,
+        lookupFn,
+        maxRedirects: 0,
+        onDispatch,
+      }),
+    ).rejects.toThrow(/too many redirects/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(onDispatch).toHaveBeenCalledOnce();
+  });
+
   it("does not carry exact-origin trust across private-host redirects to another port", async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(redirectResponse("http://127.0.0.1:11435/"));
 

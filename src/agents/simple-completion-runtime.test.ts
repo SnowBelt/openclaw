@@ -632,6 +632,50 @@ describe("prepareSimpleCompletionModelForAgent", () => {
 });
 
 describe("completeWithPreparedSimpleCompletionModel", () => {
+  it("serializes ordinary local completions through the shared admission lease", async () => {
+    const model = {
+      provider: "ollama",
+      id: "qwen3.8:27b-q8_0",
+      name: "qwen3.8:27b-q8_0",
+      api: "ollama",
+      baseUrl: "http://127.0.0.1:11434",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 32_768,
+      maxTokens: 1024,
+    } satisfies Model<"ollama">;
+    let releaseFirst!: () => void;
+    const firstFinished = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    hoisted.completeMock.mockImplementationOnce(async () => {
+      await firstFinished;
+      return { content: [{ type: "text", text: "first" }] };
+    });
+    hoisted.completeMock.mockResolvedValue({ content: [{ type: "text", text: "next" }] });
+
+    const first = completeWithPreparedSimpleCompletionModel({
+      model,
+      auth: { apiKey: "local", source: "local", mode: "api-key" },
+      context: { messages: [{ role: "user", content: "one", timestamp: 1 }] },
+    });
+    await vi.waitFor(() => expect(hoisted.completeMock).toHaveBeenCalledTimes(1));
+    const second = completeWithPreparedSimpleCompletionModel({
+      model,
+      auth: { apiKey: "local", source: "local", mode: "api-key" },
+      context: { messages: [{ role: "user", content: "two", timestamp: 2 }] },
+    });
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    expect(hoisted.completeMock).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    await first;
+    await second;
+    expect(hoisted.completeMock).toHaveBeenCalledTimes(2);
+  });
+
   it("prepares provider-owned stream APIs before running a completion", async () => {
     const model = {
       provider: "ollama",

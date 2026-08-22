@@ -6,6 +6,23 @@
 import type { Edit } from "./edit-diff.js";
 import type { TruncationResult } from "./truncate.js";
 
+const TRUSTED_MUTATION_DETAILS = Symbol("openclaw.trusted-mutation-details.v1");
+
+/** Brand framework-owned post-state attestations without exposing a forgeable field. */
+export function markTrustedMutationDetails<T extends object>(details: T): T {
+  Object.defineProperty(details, TRUSTED_MUTATION_DETAILS, { value: true });
+  return details;
+}
+
+export function hasTrustedMutationDetails(value: unknown): value is Record<string, unknown> {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as Record<PropertyKey, unknown>)[TRUSTED_MUTATION_DETAILS] === true,
+  );
+}
+
 export interface BashToolInput {
   command: string;
   timeout?: number;
@@ -32,6 +49,8 @@ export interface EditToolDetails {
   patch: string;
   /** Line number of the first change in the new file (for editor navigation) */
   firstChangedLine?: number;
+  /** SHA-256 of the resulting file bytes after the edit. */
+  postStateDigest?: string;
 }
 
 export interface FindToolInput {

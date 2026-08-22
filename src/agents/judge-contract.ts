@@ -79,17 +79,43 @@ export const JUDGE_TRUSTED_EVIDENCE_KINDS = [
   "worker_execution",
   "artifact_digest",
   "source_observation",
+  "source_mutation",
+  "test_execution",
   "config_observation",
+  "config_mutation",
 ] as const;
 export type JudgeTrustedEvidenceKind = (typeof JUDGE_TRUSTED_EVIDENCE_KINDS)[number];
 export type JudgeTrustedEvidence = {
   id: string;
   kind: JudgeTrustedEvidenceKind;
   summary: string;
+  /** SHA-256 of the redacted terminal result, when evidence came from a tool. */
+  resultDigest?: string;
+  /** SHA-256 of the guarded post-state for a mutation, when available. */
+  postStateDigest?: string;
 };
 export const JUDGE_TRUSTED_EVIDENCE_MAX_COUNT = 32;
 export const JUDGE_TRUSTED_EVIDENCE_ID_MAX_CHARS = 128;
 export const JUDGE_TRUSTED_EVIDENCE_SUMMARY_MAX_CHARS = 2_048;
+export const JUDGE_SHA256_HEX_RE = /^[a-f0-9]{64}$/iu;
+
+/**
+ * Evidence kinds that attest an effect have stronger requirements than a
+ * read-only observation. Keeping this predicate in the protocol module makes
+ * every ingress (runtime, persistence, and Judge request validation) use the
+ * same fail-closed rule.
+ */
+export function isJudgeTrustedEvidenceComplete(record: JudgeTrustedEvidence): boolean {
+  const validDigest = (value: unknown): value is string =>
+    typeof value === "string" && JUDGE_SHA256_HEX_RE.test(value);
+  if (record.kind === "source_mutation" || record.kind === "config_mutation") {
+    return validDigest(record.resultDigest) && validDigest(record.postStateDigest);
+  }
+  if (record.kind === "test_execution") {
+    return validDigest(record.resultDigest);
+  }
+  return true;
+}
 
 export function judgeTrustedEvidenceReferenceList(
   records: readonly JudgeTrustedEvidence[],
@@ -110,10 +136,21 @@ const OUT_OF_SCOPE_PATTERNS = [
   /\b(?:decid(?:e|ing)|tell me|assess|evaluat(?:e|ing)|determine|judg(?:e|ing))\s+(?:whether|if)\b[^.?!\n]{0,160}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong)\b/i,
   /\b(?:evaluate|assess|judge|determine|decide|rank|compare|choose|recommend|provide|give|tell me|explain)\b[^.?!\n]{0,160}\b(?:the\s+)?(?:ethic(?:s|al)|unethical|moral(?:ity|ly)?|immoral|right|wrong|values?)\b/i,
   /\bwhich\b[^.?!\n]{0,160}\b(?:more\s+)?(?:ethical|moral|right|wrong)\b/i,
+  /\b(?:should\s+i|should\s+we|who\s+should\s+i|which\s+candidate|which\s+party|what\s+party|how\s+should\s+i\s+vote|who\s+do\s+i\s+vote\s+for)\b[^.?!\n]{0,180}\b(?:politic(?:al|s)?|election|vote|voting|ballot|campaign|party|president|senator|governor|mayor|support|elect|choose)\b/i,
+  /\b(?:analy[sz]e|discuss|debate|explain|explore|evaluate|assess|judge|determine|decide|rank|compare|recommend|tell me)\b[^.?!\n]{0,180}\b(?:politic(?:al|s)?|election|vote|voting|ballot|campaign|party|president|senator|governor|mayor)\b/i,
+  /\b(?:which|who)\b[^.?!\n]{0,120}\bcandidate\b[^.?!\n]{0,80}\b(?:support|vote|elect|choose)\b/i,
   /\b(?:what|who)\b[^.?!\n]{0,120}\b(?:is|are)\b[^.?!\n]{0,120}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong|values?)\b/i,
   /\b(?:analy[sz]e|discuss|debate|explain|explore|evaluate|assess|judge|determine|decide|rank|compare|recommend|tell me)\b[^.?!\n]{0,180}\b(?:morality|moral(?:ity|ly)?|ethic(?:s|al(?:ly)?)|values?|justice|fairness|politic(?:s|al)|acceptable|unacceptable|good|bad|right|wrong|just|unjust)\b/i,
   /^\s*(?:is|are|was|were|should|would)\b[^.?!\n]{0,180}\b(?:good|bad|acceptable|unacceptable|fair|unfair|just|unjust)\b\s*\??\s*$/i,
 ] as const;
+const AMBIGUOUS_NORMATIVE_WORD_RE =
+  /\b(?:good|bad|acceptable|unacceptable|fair|unfair|just|unjust|right|wrong)\b/i;
+const EXPLICIT_NORMATIVE_WORD_RE =
+  /\b(?:ethical|unethical|ethics|moral|morality|immoral|values?|justice|fairness|politic(?:s|al)?)\b/i;
+const TECHNICAL_QUALITY_SUBJECT_RE =
+  /^\s*(?:is|are|was|were|does|do|did|can|could|will|would)\s+(?:(?:the|this|that|your|our)\s+)?(?:build|test|deployment|configuration|config|receipt|code|implementation|runtime|system|model|result|output|performance|reliability|correctness|status|feature|release|goal|task|patch|artifact|software|service|endpoint|request|response|schema|typecheck|lint|command|process|tool|file|app|project)\b/i;
+const TECHNICAL_CANDIDATE_CONTEXT_RE =
+  /\b(?:model|release|test|patch|design|job|role|software|implementation)\s+candidate\b/i;
 
 /** True only for explicit moral, ethical, political, or value-evaluation asks. */
 export function isJudgeOutOfScopeText(...values: readonly unknown[]): boolean {
@@ -127,14 +164,29 @@ export function isJudgeOutOfScopeText(...values: readonly unknown[]): boolean {
     (clause) =>
       !TECHNICAL_BOUNDARY_INSTRUCTION.test(clause) &&
       !NEGATED_NORMATIVE_INSTRUCTION.test(clause) &&
-      OUT_OF_SCOPE_PATTERNS.some((pattern) => pattern.test(clause)),
+      OUT_OF_SCOPE_PATTERNS.some((pattern) => pattern.test(clause)) &&
+      !(
+        /\bcandidate\b[^.?!\n]{0,80}\b(?:support|vote|elect|choose)\b/i.test(clause) &&
+        TECHNICAL_CANDIDATE_CONTEXT_RE.test(clause)
+      ) &&
+      !(
+        AMBIGUOUS_NORMATIVE_WORD_RE.test(clause) &&
+        !EXPLICIT_NORMATIVE_WORD_RE.test(clause) &&
+        TECHNICAL_QUALITY_SUBJECT_RE.test(clause)
+      ),
   );
 }
 
 /** Canonical digest for the controller-observed evidence packet. */
 export function judgeTrustedEvidenceDigest(records: readonly JudgeTrustedEvidence[]): string {
   const canonical = records
-    .map((record) => ({ id: record.id, kind: record.kind, summary: record.summary }))
+    .map((record) => ({
+      id: record.id,
+      kind: record.kind,
+      summary: record.summary,
+      ...(record.resultDigest ? { resultDigest: record.resultDigest } : {}),
+      ...(record.postStateDigest ? { postStateDigest: record.postStateDigest } : {}),
+    }))
     .toSorted((a, b) => a.id.localeCompare(b.id));
   return crypto.createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex");
 }
