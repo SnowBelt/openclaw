@@ -399,6 +399,48 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 describeBrowserLayout("chat responsive browser layout", () => {
+  it("keeps the open mobile navigation drawer above the sticky chat composer", async () => {
+    const page = await openBrowserPage(390, 844);
+    try {
+      await page.setContent(
+        `<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+          <div class="shell shell--chat shell--nav-drawer-open">
+            <button class="shell-nav-backdrop" type="button"></button>
+            <div class="shell-nav"><aside class="sidebar"><div class="sidebar-shell">Menu</div></aside></div>
+            <header class="topbar"></header>
+            <main class="content content--chat">
+              <div class="chat-compose">
+                <div class="agent-chat__input"><textarea>Keep composing</textarea></div>
+              </div>
+            </main>
+          </div>
+        </body></html>`,
+      );
+
+      const layers = await page.evaluate(() => {
+        const zIndex = (selector: string) => {
+          const node = document.querySelector<HTMLElement>(selector);
+          return node ? Number.parseInt(getComputedStyle(node).zIndex, 10) : Number.NaN;
+        };
+        const hit = document.elementFromPoint(20, window.innerHeight - 20);
+        return {
+          nav: zIndex(".shell-nav"),
+          backdrop: zIndex(".shell-nav-backdrop"),
+          composer: zIndex(".chat-compose"),
+          bottomHitIsNav: Boolean(hit?.closest(".shell-nav")),
+        };
+      });
+
+      expect(layers.nav).toBeGreaterThanOrEqual(100);
+      expect(layers.backdrop).toBeGreaterThanOrEqual(100);
+      expect(layers.nav).toBeGreaterThan(layers.backdrop);
+      expect(layers.composer).toBeLessThan(layers.backdrop);
+      expect(layers.bottomHitIsNav).toBe(true);
+    } finally {
+      await closeBrowserPage(page);
+    }
+  });
+
   it.each([
     [1120, 740],
     [1366, 900],
