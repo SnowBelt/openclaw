@@ -30,6 +30,7 @@ import {
   isJudgePreparedLocalModel,
   resolveJudgeModelCandidates,
 } from "../agents/judge-model-router.js";
+import { markJudgeTransportModel } from "../agents/provider-transport-fetch.js";
 import {
   prepareSimpleCompletionModelForAgent,
   resolveSimpleCompletionSelectionForAgent,
@@ -221,6 +222,12 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
         .slice(0, 32)
         .map((tool) => tool.slice(0, 128))
     : [];
+  const toolObservations = Array.isArray(toolSummary?.observations)
+    ? toolSummary.observations.filter(
+        (observation): observation is Record<string, unknown> =>
+          Boolean(observation) && typeof observation === "object" && !Array.isArray(observation),
+      )
+    : [];
   const runner =
     typeof trace?.runner === "string" && trace.runner.trim() ? trace.runner.trim() : "unknown";
   const observations = [
@@ -230,6 +237,81 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
     tools.length > 0 ? `activity tools=${tools.join(",")}` : "activity tools=none",
     artifactIds.length > 0 ? `artifact digests=${artifactIds.join(",")}` : "artifacts=none",
   ];
+  const trustedObservationEvidence: JudgeTrustedEvidence[] = [];
+  for (const observation of toolObservations.slice(0, 32)) {
+    const toolName = typeof observation.toolName === "string" ? observation.toolName.trim() : "";
+    const terminalStatus =
+      observation.terminalStatus === "succeeded" || observation.terminalStatus === "failed"
+        ? observation.terminalStatus
+        : undefined;
+    if (!toolName || terminalStatus !== "succeeded") {
+      continue;
+    }
+    const actionFingerprint =
+      typeof observation.actionFingerprint === "string" ? observation.actionFingerprint.trim() : "";
+    const observationMeta = typeof observation.meta === "string" ? observation.meta.trim() : "";
+    const fileTarget =
+      observation.fileTarget &&
+      typeof observation.fileTarget === "object" &&
+      !Array.isArray(observation.fileTarget)
+        ? (observation.fileTarget as Record<string, unknown>)
+        : undefined;
+    const path = typeof fileTarget?.path === "string" ? fileTarget.path.trim() : "";
+    const oldpath = typeof fileTarget?.oldpath === "string" ? fileTarget.oldpath.trim() : "";
+    const identity = actionFingerprint || path || oldpath || observationMeta;
+    if (!identity) {
+      continue;
+    }
+    const digest = crypto
+      .createHash("sha256")
+      .update(JSON.stringify({ toolName, terminalStatus, identity }), "utf8")
+      .digest("hex");
+    const detail = [
+      `tool=${toolName}`,
+      path ? `path=${path}` : undefined,
+      oldpath ? `oldpath=${oldpath}` : undefined,
+      actionFingerprint ? `action=${actionFingerprint}` : undefined,
+      !actionFingerprint && observationMeta ? `command=${observationMeta}` : undefined,
+      `status=${terminalStatus}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const normalizedTool = toolName.toLowerCase();
+    const isConfigObservation =
+      normalizedTool === "config" ||
+      normalizedTool === "gateway" ||
+      normalizedTool.startsWith("config_") ||
+      actionFingerprint.includes("config");
+    const isSourceOrTestObservation =
+      Boolean(path || oldpath) ||
+      normalizedTool === "read" ||
+      normalizedTool === "write" ||
+      normalizedTool === "edit" ||
+      normalizedTool === "apply_patch" ||
+      normalizedTool === "exec" ||
+      normalizedTool === "bash" ||
+      normalizedTool === "process";
+    if (isConfigObservation) {
+      trustedObservationEvidence.push({
+        id: `config.observation:${digest}`,
+        kind: "config_observation",
+        summary: `controller observed ${detail}`.slice(0, 2_048),
+      });
+    } else if (isSourceOrTestObservation) {
+      trustedObservationEvidence.push({
+        id: `source.observation:${digest}`,
+        kind: "source_observation",
+        summary: `controller observed ${detail}`.slice(0, 2_048),
+      });
+    }
+  }
+  const uniqueObservationEvidence = [
+    ...new Map(trustedObservationEvidence.map((record) => [record.id, record] as const)).values(),
+  ];
+  const observationBudget = Math.max(
+    0,
+    32 - 1 - (trace || toolSummary ? 1 : 0) - Math.min(artifactIds.length, 32),
+  );
   const trustedEvidence: JudgeTrustedEvidence[] = [
     {
       id: "runtime.completion",
@@ -237,6 +319,7 @@ export function collectObservedWorkerEvidence(result: unknown, artifactIds: read
       summary: "controller observed worker goal status=complete and a returned result",
     },
   ];
+  trustedEvidence.push(...uniqueObservationEvidence.slice(0, observationBudget));
   if (trace || toolSummary) {
     const successfulToolExecution = calls > 0 && failures === 0;
     if (successfulToolExecution) {
@@ -375,10 +458,14 @@ export async function runDirectJudgeModel(params: {
       route: params.route,
     });
   }
-  const model =
+  let requestDispatched = false;
+  let model =
     params.route === "local" && params.localAdmissionHeld
       ? markLocalInferenceAdmissionHeld(prepared.model)
       : prepared.model;
+  model = markJudgeTransportModel(model, () => {
+    requestDispatched = true;
+  });
   if (`${model.provider}/${model.id}` !== requestedModel) {
     return failedDirectJudgeResult({
       agentId: params.agentId,
@@ -460,7 +547,7 @@ export async function runDirectJudgeModel(params: {
       agentId: params.agentId,
       model: requestedModel,
       reason: "provider invocation failed",
-      requestCount: requestPrepared ? 1 : 0,
+      requestCount: requestDispatched ? 1 : 0,
       route: params.route,
     });
   }
@@ -495,7 +582,7 @@ export async function runDirectJudgeModel(params: {
     agentId: params.agentId,
     model: modelIdentity,
     executionEvidence: {
-      requestCount: requestPrepared ? 1 : 0,
+      requestCount: requestDispatched ? 1 : 0,
       modelVisibleTools,
       route: params.route,
       model: modelIdentity,

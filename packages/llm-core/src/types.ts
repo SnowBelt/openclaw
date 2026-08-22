@@ -305,7 +305,8 @@ export interface AssistantMessage {
   api: Api;
   provider: Provider;
   model: string;
-  responseModel?: string; // Concrete `chunk.model` when different from the requested `model` (e.g. OpenRouter `auto` -> `anthropic/...`)
+  /** Provider-observed model identity, including when it equals the requested model. */
+  responseModel?: string;
   /** Provider output-item kinds that the normalized adapter did not map. */
   responseOutputItems?: string[];
   responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one

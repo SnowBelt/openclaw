@@ -255,6 +255,7 @@ import type {
   EmbeddedAgentRunResult,
   TraceAttempt,
   ToolSummaryTrace,
+  ToolExecutionObservation,
 } from "./types.js";
 import { createUsageAccumulator, mergeUsageIntoAccumulator } from "./usage-accumulator.js";
 import { mapThinkingLevelForProvider } from "./utils.js";
@@ -497,7 +498,14 @@ function createScopedAuthProfileStore(
 }
 
 function buildTraceToolSummary(params: {
-  toolMetas?: Array<{ toolName: string; meta?: string; asyncStarted?: boolean }>;
+  toolMetas?: Array<{
+    toolName: string;
+    meta?: string;
+    asyncStarted?: boolean;
+    actionFingerprint?: string;
+    fileTarget?: { path?: string; oldpath?: string };
+    terminalStatus?: "succeeded" | "failed";
+  }>;
   hadFailure: boolean;
 }): ToolSummaryTrace | undefined {
   if (!params.toolMetas?.length) {
@@ -513,10 +521,36 @@ function buildTraceToolSummary(params: {
     seen.add(toolName);
     tools.push(toolName);
   }
+  const observations: ToolExecutionObservation[] = params.toolMetas
+    .filter((entry) => entry.toolName.trim())
+    .slice(0, 32)
+    .map((entry) => {
+      const observation: ToolExecutionObservation = {
+        toolName: entry.toolName.slice(0, 128),
+        terminalStatus: entry.terminalStatus ?? (params.hadFailure ? "failed" : "succeeded"),
+      };
+      if (entry.actionFingerprint) {
+        observation.actionFingerprint = entry.actionFingerprint.slice(0, 512);
+      }
+      if (entry.fileTarget) {
+        observation.fileTarget = {};
+        if (entry.fileTarget.path) {
+          observation.fileTarget.path = entry.fileTarget.path.slice(0, 512);
+        }
+        if (entry.fileTarget.oldpath) {
+          observation.fileTarget.oldpath = entry.fileTarget.oldpath.slice(0, 512);
+        }
+      }
+      if (entry.meta) {
+        observation.meta = entry.meta.slice(0, 512);
+      }
+      return observation;
+    });
   return {
     calls: params.toolMetas?.length ?? 0,
     tools,
     failures: params.hadFailure ? 1 : 0,
+    observations,
   };
 }
 

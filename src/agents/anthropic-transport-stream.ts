@@ -887,8 +887,16 @@ function createAnthropicTransportClient(params: {
   // the OpenAI SDK compatibility sanitizer can stall before the text block.
   const fetch =
     isKimiAnthropicProvider(model.provider) && options?.thinkingEnabled === true
-      ? buildGuardedModelFetch(model, undefined, { sanitizeSse: false })
-      : buildGuardedModelFetch(model);
+      ? buildGuardedModelFetch(
+          model,
+          undefined,
+          options?.sessionId
+            ? { sanitizeSse: false, ownerId: options.sessionId }
+            : { sanitizeSse: false },
+        )
+      : options?.sessionId
+        ? buildGuardedModelFetch(model, undefined, { ownerId: options.sessionId })
+        : buildGuardedModelFetch(model);
   if (model.provider === "github-copilot") {
     const betaFeatures = needsInterleavedBeta ? ["interleaved-thinking-2025-05-14"] : [];
     return {

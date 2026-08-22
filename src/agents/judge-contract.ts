@@ -111,6 +111,8 @@ const OUT_OF_SCOPE_PATTERNS = [
   /\b(?:evaluate|assess|judge|determine|decide|rank|compare|choose|recommend|provide|give|tell me|explain)\b[^.?!\n]{0,160}\b(?:the\s+)?(?:ethic(?:s|al)|unethical|moral(?:ity|ly)?|immoral|right|wrong|values?)\b/i,
   /\bwhich\b[^.?!\n]{0,160}\b(?:more\s+)?(?:ethical|moral|right|wrong)\b/i,
   /\b(?:what|who)\b[^.?!\n]{0,120}\b(?:is|are)\b[^.?!\n]{0,120}\b(?:ethical|unethical|moral|immoral|morally|ethically|right|wrong|values?)\b/i,
+  /\b(?:analy[sz]e|discuss|debate|explain|explore|evaluate|assess|judge|determine|decide|rank|compare|recommend|tell me)\b[^.?!\n]{0,180}\b(?:morality|moral(?:ity|ly)?|ethic(?:s|al(?:ly)?)|values?|justice|fairness|politic(?:s|al)|acceptable|unacceptable|good|bad|right|wrong|just|unjust)\b/i,
+  /^\s*(?:is|are|was|were|should|would)\b[^.?!\n]{0,180}\b(?:good|bad|acceptable|unacceptable|fair|unfair|just|unjust)\b\s*\??\s*$/i,
 ] as const;
 
 /** True only for explicit moral, ethical, political, or value-evaluation asks. */

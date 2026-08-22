@@ -931,6 +931,29 @@ describe("processResponsesStream", () => {
     ]);
   });
 
+  it("records unknown terminal response items even without added events", async () => {
+    const output = createAssistantOutput();
+    const stream = new AssistantMessageEventStream();
+
+    await processResponsesStream(
+      responseEvents([
+        {
+          type: "response.completed",
+          response: {
+            id: "resp_unknown_terminal_item",
+            status: "completed",
+            output: [{ type: "computer_call" }],
+          },
+        },
+      ]),
+      output,
+      stream,
+      nativeOpenAIModel,
+    );
+
+    expect(output.responseOutputItems).toEqual(["computer_call"]);
+  });
+
   it("prices cache-write tokens separately from ordinary Responses input", async () => {
     const model = {
       ...gpt56SolModel,

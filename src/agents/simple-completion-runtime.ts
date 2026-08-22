@@ -44,6 +44,7 @@ import {
   protectPreparedProviderRuntimeAuth,
   unwrapSecretSentinelsForProviderEgress,
 } from "./provider-secret-egress.js";
+import { markLocalInferenceOwner } from "./provider-transport-fetch.js";
 import { prepareModelForSimpleCompletion } from "./simple-completion-transport.js";
 
 type SimpleCompletionAuthStorage = {
@@ -388,7 +389,7 @@ export async function prepareSimpleCompletionModelForAgent(params: {
   }
   return {
     selection,
-    model: prepared.model,
+    model: markLocalInferenceOwner(prepared.model, `agent:${params.agentId}`),
     auth: prepared.auth,
   };
 }

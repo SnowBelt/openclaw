@@ -154,7 +154,13 @@ export type PursueGoalJudgeClaimRecord = {
   recordedAt: number;
 };
 
-export const PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT = 32;
+/**
+ * Claims are append-only: evicting an old hash would permit a replay after a
+ * goal edit or restart. Bound serialized state size rather than claim count so
+ * a long-lived flow can continue making new, unique claims without silently
+ * becoming permanently unusable after an arbitrary number of edits.
+ */
+export const PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES = 512 * 1024;
 
 export const PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS = 64_000;
 
@@ -544,7 +550,20 @@ function parseJudgeClaimRecords(value: unknown): PursueGoalJudgeClaimRecord[] | 
   if (value === undefined) {
     return [];
   }
-  if (!Array.isArray(value) || value.length > PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  let serializedBytes: number;
+  try {
+    const serialized = JSON.stringify(value);
+    if (typeof serialized !== "string") {
+      return undefined;
+    }
+    serializedBytes = Buffer.byteLength(serialized, "utf8");
+  } catch {
+    return undefined;
+  }
+  if (serializedBytes > PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES) {
     return undefined;
   }
   const seen = new Set<string>();

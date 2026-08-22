@@ -79,6 +79,12 @@ describe("buildAssistantMessage", () => {
     expect(msg.content[0]).toEqual({ type: "text", text: "Just text" });
   });
 
+  it("retains the Ollama response model identity for Judge verification", () => {
+    const response = makeOllamaResponse({ content: "Direct model response" });
+    const msg = buildAssistantMessage(response, MODEL_INFO);
+    expect(msg.responseModel).toBe("qwen3.5");
+  });
+
   it("omits thinking block when thinking field is empty", () => {
     const response = makeOllamaResponse({
       thinking: "",

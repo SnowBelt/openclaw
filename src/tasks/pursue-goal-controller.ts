@@ -32,7 +32,7 @@ import {
   PURSUE_GOAL_CONTROLLER_ID,
   PURSUE_GOAL_MAX_CHARS,
   PURSUE_GOAL_PENDING_TURN_TEXT_MAX_CHARS,
-  PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT,
+  PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES,
   stateForPursueGoalFlow,
   withPursueGoalEvent,
   type PursueGoalControllerState,
@@ -156,17 +156,22 @@ function appendJudgeClaimRecord(
   record: PursueGoalJudgeClaimRecord,
 ): PursueGoalJudgeClaimRecord[] | undefined {
   const existingIndex = records.findIndex((existing) => existing.claimHash === record.claimHash);
-  if (existingIndex < 0 && records.length >= PURSUE_GOAL_JUDGE_CLAIM_HISTORY_LIMIT) {
-    // Never evict a settled claim: doing so would make an old exact claim
-    // eligible for a second model execution after restart.
-    return undefined;
-  }
   if (existingIndex >= 0) {
     const next = [...records];
     next[existingIndex] = record;
     return next;
   }
-  return [...records, record];
+  const next = [...records, record];
+  try {
+    if (
+      Buffer.byteLength(JSON.stringify(next), "utf8") > PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES
+    ) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return next;
 }
 
 /**
@@ -1797,11 +1802,30 @@ export function reconcilePursueGoalControllers(): number {
     }
     if (state.phase === "succeeded") {
       const receipt = state.judgeReceipt;
+      const settledClaim = receipt
+        ? state.judgeClaims.find(
+            (claim) =>
+              claim.status === "settled" &&
+              claim.claimHash === receipt.claimHash &&
+              claim.promptHash === (receipt.schemaVersion === 2 ? receipt.promptHash : "") &&
+              claim.receiptId === receipt.receiptId,
+          )
+        : undefined;
+      const persistedEvidenceMatches = Boolean(
+        receipt?.schemaVersion === 2 &&
+        state.judgeTrustedEvidence &&
+        receipt.trustedEvidenceDigest === judgeTrustedEvidenceDigest(state.judgeTrustedEvidence) &&
+        receipt.trustedEvidenceIds &&
+        JSON.stringify([...receipt.trustedEvidenceIds].toSorted()) ===
+          JSON.stringify(state.judgeTrustedEvidence.map((record) => record.id).toSorted()),
+      );
       if (
         !receipt ||
         receipt.missionId !== state.missionId ||
         !judgeReceiptVerifier(receipt) ||
-        !judgeReceiptApprovalSemanticallyValid(receipt)
+        !judgeReceiptApprovalSemanticallyValid(receipt) ||
+        !settledClaim ||
+        !persistedEvidenceMatches
       ) {
         const blocker =
           "Persisted success was quarantined because its signed V2 Judge receipt is missing, invalid, or bound to another mission.";

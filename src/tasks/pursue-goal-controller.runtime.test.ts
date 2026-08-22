@@ -84,6 +84,52 @@ describe("Pursue Goal governed model route", () => {
     });
   });
 
+  it("derives source and config evidence from successful controller observations", () => {
+    const observed = collectObservedWorkerEvidence(
+      {
+        meta: {
+          toolSummary: {
+            calls: 2,
+            failures: 0,
+            tools: ["read", "config"],
+            observations: [
+              {
+                toolName: "read",
+                terminalStatus: "succeeded",
+                fileTarget: { path: "src/tasks/pursue-goal-controller.ts" },
+                actionFingerprint: "read:src/tasks/pursue-goal-controller.ts",
+              },
+              {
+                toolName: "config",
+                terminalStatus: "succeeded",
+                actionFingerprint: "config:judge-route",
+                meta: "read managed Judge route",
+              },
+              {
+                toolName: "write",
+                terminalStatus: "failed",
+                fileTarget: { path: "src/unsafe.ts" },
+              },
+            ],
+          },
+        },
+      },
+      [],
+    );
+
+    expect(observed.trustedEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "source_observation" }),
+        expect.objectContaining({ kind: "config_observation" }),
+      ]),
+    );
+    expect(observed.trustedEvidence).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ summary: expect.stringContaining("unsafe") }),
+      ]),
+    );
+  });
+
   it("binds artifacts to guarded loaded bytes and omits unsafe references", async () => {
     const loadMedia = async (reference: string) => {
       if (reference.includes("unsafe")) {

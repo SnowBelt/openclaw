@@ -4,7 +4,7 @@ import { Stream } from "openai/streaming";
 import type { Model } from "openclaw/plugin-sdk/llm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mintSecretSentinel } from "../secrets/sentinel.js";
-import { buildGuardedModelFetch } from "./provider-transport-fetch.js";
+import { buildGuardedModelFetch, markJudgeTransportModel } from "./provider-transport-fetch.js";
 
 type ProviderRequestPolicyConfigMockResult = {
   allowPrivateNetwork: boolean;
@@ -307,6 +307,27 @@ describe("buildGuardedModelFetch", () => {
         model: "gpt-5.4",
       },
     });
+  });
+
+  it("bounds Judge transport to one physical dispatch and counts it at egress", async () => {
+    const onDispatch = vi.fn();
+    const model = markJudgeTransportModel(
+      {
+        id: "gpt-5.6",
+        provider: "openai",
+        api: "openai-responses",
+        baseUrl: "https://api.openai.com/v1",
+      } as unknown as Model<"openai-responses">,
+      onDispatch,
+    );
+
+    const response = await buildGuardedModelFetch(model)("https://api.openai.com/v1/responses", {
+      method: "POST",
+    });
+    await response.text();
+
+    expect(latestGuardedFetchParams().maxRedirects).toBe(0);
+    expect(onDispatch).toHaveBeenCalledOnce();
   });
 
   it("rejects successful streamed OpenAI-compatible responses with HTML content", async () => {
@@ -869,7 +890,10 @@ describe("buildGuardedModelFetch", () => {
     } as unknown as Model<"openai-completions">;
 
     const fetcher = buildGuardedModelFetch(model);
-    await fetcher("http://127.0.0.1:1234/v1/chat/completions", { method: "POST" });
+    const response = await fetcher("http://127.0.0.1:1234/v1/chat/completions", {
+      method: "POST",
+    });
+    await response.text();
 
     const policy = fetchWithSsrFGuardMock.mock.calls[0]?.[0]?.policy;
     expect(policy).toEqual({
@@ -1023,7 +1047,8 @@ describe("buildGuardedModelFetch", () => {
     } as unknown as Model<"ollama">;
 
     const fetcher = buildGuardedModelFetch(model);
-    await fetcher("http://10.0.0.5:11434/api/chat", { method: "POST" });
+    const response = await fetcher("http://10.0.0.5:11434/api/chat", { method: "POST" });
+    await response.text();
 
     const policy = latestGuardedFetchParams().policy;
     expect(policy).toEqual({
@@ -1102,7 +1127,8 @@ describe("buildGuardedModelFetch", () => {
     } as unknown as Model<"ollama">;
 
     const fetcher = buildGuardedModelFetch(model);
-    await fetcher("http://127.0.0.1:11434/api/chat", { method: "POST" });
+    const response = await fetcher("http://127.0.0.1:11434/api/chat", { method: "POST" });
+    await response.text();
 
     expect(latestGuardedFetchParams().timeoutMs).toBe(300_000);
   });

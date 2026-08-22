@@ -3,6 +3,7 @@ import {
   createPursueGoalControllerState,
   isPursueGoalLeaseCurrent,
   parsePursueGoalControllerState,
+  PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES,
   withPursueGoalEvent,
 } from "./pursue-goal-controller-state.js";
 
@@ -153,6 +154,26 @@ describe("Pursue Goal controller state", () => {
         judgeClaims: [{ claimHash: "not-a-hash" }],
       }),
     ).toBeUndefined();
+  });
+
+  it("keeps append-only claim history usable beyond the old arbitrary count", () => {
+    const state = createPursueGoalControllerState({
+      flowId: "flow-claims-long-lived",
+      goal: "Keep accepting new verified edits",
+      workerAgentId: "program-manager",
+    });
+    const claims = Array.from({ length: 40 }, (_, index) => ({
+      claimHash: index.toString(16).padStart(64, "0"),
+      promptHash: (index + 1).toString(16).padStart(64, "0"),
+      runId: `run-${index}`,
+      taskId: `task-${index}`,
+      status: "settled" as const,
+      receiptId: `receipt-${index}`,
+      recordedAt: index + 1,
+    }));
+    const parsed = parsePursueGoalControllerState({ ...state, judgeClaims: claims });
+    expect(parsed?.judgeClaims).toHaveLength(40);
+    expect(JSON.stringify(claims).length).toBeLessThan(PURSUE_GOAL_JUDGE_CLAIM_HISTORY_MAX_BYTES);
   });
 
   it("round-trips only a hash-bound durable Judge execution fence", () => {

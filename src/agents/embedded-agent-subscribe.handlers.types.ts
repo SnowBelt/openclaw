@@ -72,6 +72,9 @@ export type EmbeddedAgentSubscribeState = {
     toolName?: string;
     meta?: string;
     replaySafe?: boolean;
+    actionFingerprint?: string;
+    fileTarget?: import("./tool-mutation.js").FileTarget;
+    terminalStatus?: "succeeded" | "failed";
     asyncStarted?: boolean;
     asyncTaskRunId?: string;
     asyncTaskId?: string;

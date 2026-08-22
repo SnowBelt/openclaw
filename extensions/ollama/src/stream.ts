@@ -52,8 +52,7 @@ import {
 const log = createSubsystemLogger("ollama-stream");
 
 export const OLLAMA_NATIVE_BASE_URL = OLLAMA_DEFAULT_BASE_URL;
-export const OLLAMA_INCOMPLETE_STREAM_ERROR =
-  "Ollama API stream ended without a final response";
+export const OLLAMA_INCOMPLETE_STREAM_ERROR = "Ollama API stream ended without a final response";
 
 const OLLAMA_STREAM_COOPERATIVE_YIELD_INTERVAL_MS = 12;
 const OLLAMA_STREAM_COOPERATIVE_YIELD_MAX_EVENTS = 64;
@@ -547,6 +546,7 @@ function buildUsageWithNoCost(params: {
 
 function buildStreamAssistantMessage(params: {
   model: StreamModelDescriptor;
+  responseModel?: string;
   content: AssistantMessage["content"];
   stopReason: StopReason;
   usage: Usage;
@@ -559,6 +559,7 @@ function buildStreamAssistantMessage(params: {
     api: params.model.api,
     provider: params.model.provider,
     model: params.model.id,
+    ...(params.responseModel?.trim() ? { responseModel: params.responseModel.trim() } : {}),
     usage: params.usage,
     timestamp: params.timestamp ?? Date.now(),
   };
@@ -1035,6 +1036,7 @@ export function buildAssistantMessage(
 
   return buildStreamAssistantMessage({
     model: modelInfo,
+    responseModel: response.model,
     content,
     stopReason: resolveOllamaStopReason(response),
     usage: buildUsageWithNoCost({

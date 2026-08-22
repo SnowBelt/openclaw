@@ -1025,6 +1025,26 @@ export async function processResponsesStream<TApi extends Api>(
       if (typeof responseModel === "string" && responseModel.trim()) {
         output.responseModel = responseModel.trim();
       }
+      const terminalOutput = (response as { output?: unknown } | undefined)?.output;
+      if (Array.isArray(terminalOutput)) {
+        for (const item of terminalOutput) {
+          const itemType =
+            item && typeof item === "object" && !Array.isArray(item)
+              ? (item as { type?: unknown }).type
+              : undefined;
+          if (
+            typeof itemType === "string" &&
+            itemType !== "message" &&
+            itemType !== "reasoning" &&
+            itemType !== "function_call"
+          ) {
+            output.responseOutputItems ??= [];
+            if (!output.responseOutputItems.includes(itemType)) {
+              output.responseOutputItems.push(itemType.slice(0, 128));
+            }
+          }
+        }
+      }
       if (response?.usage) {
         const inputTokenDetails = response.usage.input_tokens_details as
           | ResponsesInputTokensDetails

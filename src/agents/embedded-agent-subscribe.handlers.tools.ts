@@ -1328,6 +1328,9 @@ export async function handleToolExecutionEnd(
     toolName,
     meta,
     replaySafe: callSummary.replaySafe,
+    ...(callSummary.actionFingerprint ? { actionFingerprint: callSummary.actionFingerprint } : {}),
+    ...(callSummary.fileTarget ? { fileTarget: callSummary.fileTarget } : {}),
+    terminalStatus: isToolError ? "failed" : "succeeded",
     ...(asyncStarted ? { asyncStarted: true, ...asyncTaskIds } : {}),
   });
   const acceptedSessionSpawn =

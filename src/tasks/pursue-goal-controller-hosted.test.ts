@@ -7,6 +7,21 @@ const mocks = vi.hoisted(() => ({
   resolveSimpleCompletionSelectionForAgent: vi.fn(),
 }));
 
+function notifyJudgeDispatch(model: unknown): void {
+  if (!model || typeof model !== "object") {
+    return;
+  }
+  const marker = (model as Record<PropertyKey, unknown>)[
+    Symbol.for("openclaw.judge-transport-options.v1")
+  ];
+  if (marker && typeof marker === "object" && "onDispatch" in marker) {
+    const onDispatch = (marker as { onDispatch?: unknown }).onDispatch;
+    if (typeof onDispatch === "function") {
+      onDispatch();
+    }
+  }
+}
+
 vi.mock("../agents/agent-command.js", () => ({
   agentCommand: mocks.agentCommand,
 }));
@@ -54,7 +69,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
       },
       auth: { apiKey: "redacted-test-key", mode: "api-key" },
     });
-    mocks.completeSimple.mockImplementationOnce(async (_model, _context, options) => {
+    mocks.completeSimple.mockImplementationOnce(async (model, _context, options) => {
       const payload = await options.onPayload?.({
         model: "gpt-5.6",
         input: [],
@@ -72,6 +87,7 @@ describe("Pursue Goal direct hosted Judge route", () => {
           },
         },
       });
+      notifyJudgeDispatch(model);
       return {
         role: "assistant",
         api: "openai-responses",
@@ -244,12 +260,13 @@ describe("Pursue Goal direct hosted Judge route", () => {
       },
       auth: { apiKey: "redacted-test-key", mode: "api-key" },
     });
-    mocks.completeSimple.mockImplementationOnce(async (_model, context, options) => {
+    mocks.completeSimple.mockImplementationOnce(async (model, context, options) => {
       expect(context.tools).toEqual([]);
       expect(await options.onPayload?.({ model: "qwen3.8:27b-q8_0" })).toEqual({
         model: "qwen3.8:27b-q8_0",
         tools: [],
       });
+      notifyJudgeDispatch(model);
       return {
         role: "assistant",
         api: "ollama",
@@ -307,12 +324,13 @@ describe("Pursue Goal direct hosted Judge route", () => {
       },
       auth: { apiKey: "local", mode: "api-key" },
     });
-    mocks.completeSimple.mockImplementationOnce(async (_model, context, options) => {
+    mocks.completeSimple.mockImplementationOnce(async (model, context, options) => {
       expect(context.tools).toEqual([]);
       expect(await options.onPayload?.({ model: "openclaw-qwen38-judge-standard-q8" })).toEqual({
         model: "openclaw-qwen38-judge-standard-q8",
         tools: [],
       });
+      notifyJudgeDispatch(model);
       return {
         role: "assistant",
         api: "openai-completions",

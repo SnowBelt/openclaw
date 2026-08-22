@@ -130,6 +130,16 @@ export type ToolSummaryTrace = {
   tools: string[];
   failures?: number;
   totalToolTimeMs?: number;
+  /** Controller-observed terminal facts for completion evidence; never worker prose. */
+  observations?: ToolExecutionObservation[];
+};
+
+export type ToolExecutionObservation = {
+  toolName: string;
+  terminalStatus: "succeeded" | "failed";
+  actionFingerprint?: string;
+  fileTarget?: { path?: string; oldpath?: string };
+  meta?: string;
 };
 
 type CompletionTrace = {

@@ -58,6 +58,43 @@ const DEFAULT_MAX_SDK_RETRY_WAIT_SECONDS = 60;
 const OPENAI_SDK_STREAM_CONTENT_SNIFF_BYTES = 2 * 1024;
 const log = createSubsystemLogger("provider-transport-fetch");
 
+const JUDGE_TRANSPORT_OPTIONS = Symbol.for("openclaw.judge-transport-options.v1");
+const LOCAL_INFERENCE_OWNER = Symbol.for("openclaw.local-inference-owner.v1");
+
+type JudgeTransportOptions = {
+  onDispatch?: () => void;
+};
+
+type LocalInferenceOwner = {
+  [LOCAL_INFERENCE_OWNER]?: string;
+};
+
+/** Mark a prepared Judge model so the guarded transport can enforce its no-replay boundary. */
+export function markJudgeTransportModel<TModel extends object>(
+  model: TModel,
+  onDispatch?: () => void,
+): TModel {
+  const transportOptions: JudgeTransportOptions = {};
+  if (onDispatch) {
+    transportOptions.onDispatch = onDispatch;
+  }
+  return Object.assign(
+    { ...model },
+    {
+      [JUDGE_TRANSPORT_OPTIONS]: transportOptions,
+    },
+  ) as TModel;
+}
+
+/** Bind ordinary local inference to the owning agent/session for queue fairness. */
+export function markLocalInferenceOwner<TModel extends object>(
+  model: TModel,
+  ownerId: string,
+): TModel {
+  const normalized = ownerId.trim();
+  return normalized ? Object.assign({ ...model }, { [LOCAL_INFERENCE_OWNER]: normalized }) : model;
+}
+
 /** Max bytes for an entire JSON body synthesized into SSE frames. Prevents OOM
  *  when a hostile streaming endpoint returns a never-ending JSON response
  *  without Content-Length. */
@@ -832,12 +869,12 @@ function swapSecretSentinelsForEgress(params: { url: string; headers?: HeadersIn
   return { url: urlSwap.text, ...(headers ? { headers } : {}) };
 }
 
-function isLocalInferenceModel(model: Model): boolean {
+function isLocalInferenceModel(model: Model, endpointClass: string): boolean {
   // The model resolver attaches this marker to every managed local provider
   // (including OMLX/Ollama-compatible services). Do not infer locality from a
   // loopback URL: local proxies and test endpoints are not necessarily model
   // inference and must not consume the shared lease.
-  if (getModelProviderLocalService(model)) {
+  if (model.api === "ollama" || endpointClass === "local" || getModelProviderLocalService(model)) {
     return true;
   }
   return false;
@@ -846,7 +883,7 @@ function isLocalInferenceModel(model: Model): boolean {
 export function buildGuardedModelFetch(
   model: Model,
   timeoutMs?: number,
-  options?: { sanitizeSse?: boolean },
+  options?: { sanitizeSse?: boolean; maxRedirects?: number; ownerId?: string },
 ): typeof fetch {
   const requestConfig = resolveModelRequestPolicy(model);
   const dispatcherPolicy = buildProviderRequestDispatcherPolicy(requestConfig);
@@ -915,10 +952,18 @@ export function buildGuardedModelFetch(
     const synthesizeJsonAsSse = await requestBodyHasStreamTrue(request, baseInit);
     const baseSignal = baseInit?.signal ?? undefined;
     const localServiceSignal = buildModelRequestSignal(baseSignal, requestTimeoutMs);
-    const localInferenceModel = isLocalInferenceModel(model);
+    const endpointClass = requestConfig.policy?.endpointClass ?? "default";
+    const localInferenceModel = isLocalInferenceModel(model, endpointClass);
+    const judgeTransport = (model as Model & { [JUDGE_TRANSPORT_OPTIONS]?: JudgeTransportOptions })[
+      JUDGE_TRANSPORT_OPTIONS
+    ];
     if (localInferenceModel && !hasLocalInferenceAdmissionHeld(model)) {
+      const ownerId =
+        options?.ownerId?.trim() ||
+        (model as Model & LocalInferenceOwner)[LOCAL_INFERENCE_OWNER]?.trim() ||
+        `provider:${model.provider}/${model.id}`;
       const admission = await acquireLocalInferenceAdmission({
-        ownerId: `provider:${model.provider}/${model.id}`,
+        ownerId,
         timeoutMs: JUDGE_LOCAL_PRIMARY_WAIT_MS,
         signal: baseSignal,
         priority: "normal",
@@ -940,6 +985,7 @@ export function buildGuardedModelFetch(
       },
       dispatcherPolicy,
       timeoutMs: requestTimeoutMs,
+      maxRedirects: judgeTransport ? 0 : (options?.maxRedirects ?? 3),
       ...(baseSignal ? { signal: baseSignal } : {}),
       // Provider transport intentionally keeps the secure default and never
       // replays unsafe request bodies across cross-origin redirects.
@@ -963,6 +1009,10 @@ export function buildGuardedModelFetch(
         rawHeaders,
         localServiceSignal,
       );
+      // Count the request only after local-service preparation succeeds and
+      // immediately before the guarded network dispatch. This keeps Judge
+      // receipts truthful when service startup fails before any HTTP attempt.
+      judgeTransport?.onDispatch?.();
       result = await fetchWithSsrFGuard(
         useEnvProxy
           ? withTrustedEnvProxyGuardedFetchMode(guardedFetchOptions)

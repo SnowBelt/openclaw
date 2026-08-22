@@ -252,6 +252,19 @@ describe("OpenAI-compatible completions params", () => {
     }
   });
 
+  it("retains provider-observed model identity even when it matches the request", async () => {
+    mockChunksRef.chunks = [
+      { ...makeTextChunk("ok"), model: "gpt-5.5" },
+      { ...makeFinishChunk("stop"), model: "gpt-5.5" },
+    ];
+
+    const result = await streamOpenAICompletions(model, context, {
+      apiKey: "sk-test",
+    }).result();
+
+    expect(result.responseModel).toBe("gpt-5.5");
+  });
+
   it("surfaces chat-completions refusal deltas as visible assistant text", async () => {
     mockChunksRef.chunks = [makeRefusalChunk("I can't help with that.")];
 

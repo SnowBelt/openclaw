@@ -2000,7 +2000,9 @@ function createOpenAIResponsesClient(
     baseURL: model.baseUrl,
     dangerouslyAllowBrowser: true,
     defaultHeaders: buildOpenAIClientHeaders(model, context, optionHeaders, turnHeaders, sessionId),
-    fetch: buildGuardedModelFetch(model),
+    fetch: sessionId
+      ? buildGuardedModelFetch(model, undefined, { ownerId: sessionId })
+      : buildGuardedModelFetch(model),
     ...buildOpenAISdkClientOptions(model),
   });
 }
@@ -2500,6 +2502,7 @@ export function createAzureOpenAIResponsesTransportStreamFn(): StreamFn {
           apiKey,
           options?.headers,
           turnState?.headers,
+          options?.sessionId,
         );
         const deploymentName = resolveAzureDeploymentName(model);
         let params = buildAzureOpenAIResponsesParams(
@@ -2597,6 +2600,7 @@ function createAzureOpenAIClient(
   apiKey: string,
   optionHeaders?: Record<string, string>,
   turnHeaders?: Record<string, string>,
+  sessionId?: string,
 ) {
   const baseURL = normalizeAzureBaseUrl(model.baseUrl);
   const clientOptions = {
@@ -2604,7 +2608,9 @@ function createAzureOpenAIClient(
     dangerouslyAllowBrowser: true,
     defaultHeaders: buildOpenAIClientHeaders(model, context, optionHeaders, turnHeaders),
     baseURL,
-    fetch: buildGuardedModelFetch(model),
+    fetch: sessionId
+      ? buildGuardedModelFetch(model, undefined, { ownerId: sessionId })
+      : buildGuardedModelFetch(model),
     ...buildOpenAISdkClientOptions(model),
   };
 
@@ -2661,6 +2667,7 @@ function createOpenAICompletionsClient(
   context: Context,
   apiKey: string,
   optionHeaders?: Record<string, string>,
+  sessionId?: string,
 ) {
   const clientConfig = buildOpenAICompletionsClientConfig(model, context, optionHeaders);
   return new OpenAI({
@@ -2669,7 +2676,9 @@ function createOpenAICompletionsClient(
     dangerouslyAllowBrowser: true,
     defaultHeaders: clientConfig.defaultHeaders,
     defaultQuery: clientConfig.defaultQuery,
-    fetch: buildGuardedModelFetch(model),
+    fetch: sessionId
+      ? buildGuardedModelFetch(model, undefined, { ownerId: sessionId })
+      : buildGuardedModelFetch(model),
     ...buildOpenAISdkClientOptions(model),
   });
 }
@@ -2770,7 +2779,13 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
       let firstEventAbort: ReturnType<typeof createFirstStreamEventAbortController> | undefined;
       try {
         const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
-        const client = createOpenAICompletionsClient(model, context, apiKey, options?.headers);
+        const client = createOpenAICompletionsClient(
+          model,
+          context,
+          apiKey,
+          options?.headers,
+          options?.sessionId,
+        );
         let params = buildOpenAICompletionsParams(
           model as OpenAIModeModel,
           context,

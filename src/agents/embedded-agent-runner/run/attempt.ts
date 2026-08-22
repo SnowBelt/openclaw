@@ -5612,6 +5612,9 @@ export async function runEmbeddedAttempt(
             toolName: string;
             meta?: string;
             replaySafe?: boolean;
+            actionFingerprint?: string;
+            fileTarget?: { path?: string; oldpath?: string };
+            terminalStatus?: "succeeded" | "failed";
             asyncStarted?: boolean;
             asyncTaskRunId?: string;
             asyncTaskId?: string;
@@ -5622,14 +5625,28 @@ export async function runEmbeddedAttempt(
             toolName: string;
             meta?: string;
             replaySafe: boolean;
+            actionFingerprint?: string;
+            fileTarget?: { path?: string; oldpath?: string };
+            terminalStatus?: "succeeded" | "failed";
             asyncStarted?: true;
             asyncTaskRunId?: string;
             asyncTaskId?: string;
           } = {
             toolName: entry.toolName,
-            meta: entry.meta,
             replaySafe: entry.replaySafe === true,
           };
+          if (entry.meta) {
+            normalized.meta = entry.meta;
+          }
+          if (entry.actionFingerprint) {
+            normalized.actionFingerprint = entry.actionFingerprint;
+          }
+          if (entry.fileTarget) {
+            normalized.fileTarget = entry.fileTarget;
+          }
+          if (entry.terminalStatus) {
+            normalized.terminalStatus = entry.terminalStatus;
+          }
           if (entry.asyncStarted === true) {
             normalized.asyncStarted = true;
           }
