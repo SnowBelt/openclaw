@@ -129,6 +129,10 @@
 
   .shell--nav-drawer-open .shell-nav,
   .shell--nav-collapsed.shell--nav-drawer-open .shell-nav {
+    /* The chat composer is a sticky layer in the content grid. Keep the
+       opened navigation surface above it so the drawer remains complete and
+       touchable instead of being hidden behind the composer. */
+    z-index: 110;
     transform: translateX(0);
     opacity: 1;
     pointer-events: auto;
@@ -147,6 +151,7 @@
   }
 
   .shell--nav-drawer-open .shell-nav-backdrop {
+    z-index: 105;
     opacity: 1;
     pointer-events: auto;
   }
