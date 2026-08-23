@@ -21,6 +21,7 @@ import {
   resolveSessionSharingTarget,
   SessionMutationAuthorizationChangedError,
 } from "../session-sharing.js";
+import { assertGatewaySessionStewardBoundary } from "../session-steward-boundary.js";
 import { resolveStoredSessionKeyForAgentStore } from "../session-store-key.js";
 import type { SessionActorProfileIdentity } from "../session-utils-contracts.js";
 import { projectAssignableSessionOwner, projectSessionActor } from "../session-utils-row.js";
@@ -327,6 +328,18 @@ export const sessionMutationHandlers: GatewayRequestHandlers = {
     const p = params;
     const key = requireSessionKey(p.key, respond);
     if (!key) {
+      return;
+    }
+
+    const sessionBoundary = assertGatewaySessionStewardBoundary({
+      sessionKey: key,
+      requestedAgentId: p.agentId,
+      config: context.getRuntimeConfig(),
+      surface: "sessions.reset",
+      action: p.reason === "new" ? "new" : "reset",
+    });
+    if (!sessionBoundary.ok) {
+      respond(false, undefined, sessionBoundary.error);
       return;
     }
 

@@ -335,6 +335,7 @@ vi.mock("./browser-tool.runtime.js", async () => {
 
 import { createBrowserTool } from "./browser-tool.js";
 import { resolveBrowserToolCapabilities } from "./browser-tool.schema.js";
+import { markBrowserStewardRuntimeApproved } from "./browser/browser-steward-approval.js";
 import { DEFAULT_AI_SNAPSHOT_MAX_CHARS } from "./browser/constants.js";
 
 function mockSingleBrowserProxyNode() {
@@ -2315,6 +2316,45 @@ describe("browser tool url alias support", () => {
 
     expect(browserClientMocks.browserOpenTab).not.toHaveBeenCalled();
     expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
+  it("blocks Browser Steward mutations until an in-process approval marker exists", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:runtime-check",
+    });
+
+    await expect(
+      tool.execute?.("call-1", { action: "open", url: "https://example.com" }),
+    ).rejects.toThrow(/approval_required/);
+    expect(browserClientMocks.browserOpenTab).not.toHaveBeenCalled();
+    expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
+  it("allows Browser Steward non-secret status reads", async () => {
+    const tool = createBrowserTool({
+      agentSessionKey: "Agent:Browser-Session-Credential-Steward:Main",
+    });
+
+    await expect(tool.execute?.("call-1", { action: "status" })).resolves.toBeDefined();
+    expect(browserClientMocks.browserStatus).toHaveBeenCalled();
+  });
+
+  it("executes an explicitly approved Browser Steward mutation", async () => {
+    browserClientMocks.browserOpenTab.mockResolvedValueOnce({
+      targetId: "approved-tab",
+      url: "https://example.com",
+    });
+    const approvedParams = markBrowserStewardRuntimeApproved(
+      { action: "open", url: "https://example.com" },
+      { action: "open", url: "https://example.com" },
+      { backend: { kind: "host" } },
+    );
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:approved",
+    });
+
+    await expect(tool.execute?.("call-1", approvedParams)).resolves.toBeDefined();
+    expect(browserClientMocks.browserOpenTab).toHaveBeenCalled();
   });
 
   it("tracks opened tabs when session context is available", async () => {

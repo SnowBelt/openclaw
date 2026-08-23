@@ -24,6 +24,11 @@ import {
   prepareBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
 import {
+  assertBrowserStewardRuntimeAllowed,
+  resolveBrowserStewardProxyAction,
+  shouldApplyBrowserStewardRuntimeGuard,
+} from "../browser/browser-steward-runtime-guard.js";
+import {
   ErrorCodes,
   createBrowserControlContext,
   createBrowserRouteDispatcher,
@@ -51,6 +56,8 @@ type BrowserRequestParams = {
   query?: Record<string, unknown>;
   body?: unknown;
   timeoutMs?: number;
+  agentSessionKey?: string;
+  agentId?: string;
 };
 
 /** Handles one browser.request gateway call and streams a success/error response. */
@@ -81,6 +88,30 @@ export async function handleBrowserGatewayRequest({
       errorShape(ErrorCodes.INVALID_REQUEST, "method must be GET, POST, or DELETE"),
     );
     return;
+  }
+  if (
+    shouldApplyBrowserStewardRuntimeGuard({
+      sessionKey: typed.agentSessionKey,
+      agentId: typed.agentId,
+    })
+  ) {
+    try {
+      assertBrowserStewardRuntimeAllowed({
+        action: resolveBrowserStewardProxyAction({ method: methodRaw, path, body }),
+        profile: normalizeOptionalString(
+          query?.profile ??
+            (body && typeof body === "object"
+              ? (body as Record<string, unknown>).profile
+              : undefined),
+        ),
+        agentSessionKey: typed.agentSessionKey,
+        agentId: typed.agentId,
+        request: body,
+      });
+    } catch (error) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(error)));
+      return;
+    }
   }
   const cfg = getRuntimeConfig();
   const configuredNode = normalizeOptionalString(cfg.gateway?.nodes?.browser?.node);
@@ -176,6 +207,8 @@ export async function handleBrowserGatewayRequest({
       upload: preparedUpload.upload,
       timeoutMs,
       profile: resolveRequestedBrowserProfile({ query, body }),
+      agentSessionKey: typed.agentSessionKey,
+      agentId: typed.agentId,
       errorEnvelope: BROWSER_PROXY_ERROR_ENVELOPE,
     };
     const res = await context.nodeRegistry.invoke({

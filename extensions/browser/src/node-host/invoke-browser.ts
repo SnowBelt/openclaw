@@ -26,6 +26,11 @@ import {
   ensureBrowserProxyUploadCleanup,
   stageBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
+import {
+  assertBrowserStewardRuntimeAllowed,
+  resolveBrowserStewardProxyAction,
+  shouldApplyBrowserStewardRuntimeGuard,
+} from "../browser/browser-steward-runtime-guard.js";
 import { resolveCdpControlPolicy } from "../browser/cdp-reachability-policy.js";
 import { closeTrackedCdpTarget, redactCdpUrl } from "../browser/cdp.helpers.js";
 import { loadBrowserConfigForRuntimeRefresh } from "../browser/config-refresh-source.js";
@@ -54,6 +59,8 @@ type BrowserProxyParams = {
   profile?: string;
   errorEnvelope?: unknown;
   upload?: BrowserProxyUploadV1;
+  agentSessionKey?: string;
+  agentId?: string;
 };
 
 function readOwnedTabCloseRequest(value: unknown) {
@@ -314,6 +321,20 @@ export async function runBrowserProxyCommand(
       profile: params.profile,
     }) ?? "";
   const effectiveProfile = path === "/profiles" ? "" : requestedProfile || resolved.defaultProfile;
+  if (
+    shouldApplyBrowserStewardRuntimeGuard({
+      sessionKey: params.agentSessionKey,
+      agentId: params.agentId,
+    })
+  ) {
+    assertBrowserStewardRuntimeAllowed({
+      action: resolveBrowserStewardProxyAction({ method, path, body }),
+      profile: effectiveProfile,
+      agentSessionKey: params.agentSessionKey,
+      agentId: params.agentId,
+      request: body,
+    });
+  }
   const effectiveResolvedProfile = effectiveProfile
     ? resolveProfile(resolved, effectiveProfile)
     : null;

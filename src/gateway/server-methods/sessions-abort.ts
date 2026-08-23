@@ -23,6 +23,7 @@ import {
   resolveRequestedSessionAgentId as resolveRequestedGlobalAgentId,
   tryResolveSessionCompatibilityOwnerAgentId,
 } from "../session-request-agent.js";
+import { assertGatewaySessionStewardBoundary } from "../session-steward-boundary.js";
 import {
   resolveSessionStoreAgentId,
   resolveSessionStoreKey,
@@ -147,10 +148,19 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
       agentId: requestedParamAgentId,
     });
     if (requestedKey && requestedParamAgentId && !scopedRequestedKey) {
+      const boundary = assertGatewaySessionStewardBoundary({
+        sessionKey: requestedKey,
+        requestedAgentId: requestedParamAgentId,
+        config: cfg,
+        surface: "sessions.abort",
+        action: "abort",
+      });
       respond(
         false,
         undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "session key agent does not match agentId"),
+        boundary.ok
+          ? errorShape(ErrorCodes.INVALID_REQUEST, "session key agent does not match agentId")
+          : boundary.error,
       );
       return;
     }
@@ -206,6 +216,19 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
     const key = requireSessionKey(keyCandidate, respond);
     if (!key) {
       return;
+    }
+    if (!requestedKey) {
+      const boundary = assertGatewaySessionStewardBoundary({
+        sessionKey: key,
+        requestedAgentId: requestedParamAgentId ?? requestedRunAgentId,
+        config: cfg,
+        surface: "sessions.abort",
+        action: "abort",
+      });
+      if (!boundary.ok) {
+        respond(false, undefined, boundary.error);
+        return;
+      }
     }
     const requestedGlobalAgent = resolveRequestedGlobalAgentId(
       cfg,

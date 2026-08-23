@@ -67,6 +67,7 @@ import { listGatewayAgentsBasic } from "../agent-list.js";
 import { operatorSessionCap } from "../operator-role-policy.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
 import { createSessionListEntryFilter, isGatewayAdmin } from "../session-sharing.js";
+import { assertGatewaySessionStewardBoundary } from "../session-steward-boundary.js";
 import {
   resolveSessionStoreAgentId,
   resolveStoredSessionKeyForAgentStore,
@@ -1226,6 +1227,17 @@ export const usageHandlers: GatewayRequestHandlers = {
     const specificKey = normalizeOptionalString(p.key) ?? null;
     const requestedAgentId = normalizeOptionalString(p.agentId);
     const requestedAllAgents = p.agentScope === "all";
+    const sessionBoundary = assertGatewaySessionStewardBoundary({
+      sessionKey: specificKey,
+      requestedAgentId,
+      config,
+      surface: "sessions.usage",
+      action: "usage",
+    });
+    if (!sessionBoundary.ok) {
+      respond(false, undefined, sessionBoundary.error);
+      return;
+    }
     if (requestedAllAgents && (requestedAgentId || specificKey)) {
       respond(
         false,
