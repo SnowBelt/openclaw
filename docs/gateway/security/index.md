@@ -22,7 +22,7 @@ title: "Security"
 - If several untrusted users can message one tool-enabled agent, they share that agent's delegated tool authority.
 - If someone can modify Gateway host state/config (`~/.openclaw`, including `openclaw.json`), treat them as a trusted operator.
 - Inside one Gateway, authenticated operator access is a trusted control-plane role, not a per-user tenant role.
-- `sessionKey` (session IDs, labels) is a routing selector, not an authorization token.
+- `sessionKey` (session IDs, labels) is a routing selector, not an authorization token. See [Session boundaries](/gateway/session-boundaries).
 
 Hosting multiple users or organizations? Run one isolated Gateway cell per tenant instead of sharing a Gateway. See [Multi-tenant hosting](/gateway/multi-tenant-hosting).
 

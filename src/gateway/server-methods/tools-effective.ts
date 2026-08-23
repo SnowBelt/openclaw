@@ -48,6 +48,7 @@ import {
 } from "../../utils/delivery-context.shared.js";
 import { getConnectedNodePluginToolsVersion } from "../node-plugin-tool-snapshot.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
+import { assertGatewaySessionStewardBoundary } from "../session-steward-boundary.js";
 import { loadGatewaySessionEntryReadOnly, resolveSessionModelRef } from "../session-utils.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
@@ -696,6 +697,17 @@ async function handleToolsEffectiveRequest(params: {
     dependencies: params.dependencies,
   });
   if (requestedAgentId === null) {
+    return;
+  }
+  const sessionBoundary = assertGatewaySessionStewardBoundary({
+    sessionKey: params.rawParams.sessionKey,
+    requestedAgentId,
+    config: cfg,
+    surface: "tools.effective",
+    action: "resolve",
+  });
+  if (!sessionBoundary.ok) {
+    params.respond(false, undefined, sessionBoundary.error);
     return;
   }
   const sessionOwner = resolveRequestedSessionAgentId(

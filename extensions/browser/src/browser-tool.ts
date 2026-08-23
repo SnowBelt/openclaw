@@ -67,6 +67,15 @@ import {
 } from "./browser-tool.runtime.js";
 import { appendNavigatedPageState, executeSnapshotAction } from "./browser-tool.snapshot.js";
 import { resolveBrowserNavigationTimeoutMs } from "./browser/act-policy.js";
+import {
+  isBrowserStewardRuntimeApproved,
+  resolveBrowserStewardRuntimeApprovedParams,
+} from "./browser/browser-steward-approval.js";
+import {
+  assertBrowserStewardRuntimeAllowed,
+  shouldApplyBrowserStewardRuntimeGuard,
+  type BrowserStewardRuntimeDecision,
+} from "./browser/browser-steward-runtime-guard.js";
 import { DEFAULT_BROWSER_SCREENSHOT_TIMEOUT_MS } from "./browser/constants.js";
 import { parseBrowserNavigationUrl } from "./browser/navigation-guard.js";
 import { normalizeBrowserScreenshot } from "./browser/screenshot.js";
@@ -382,6 +391,7 @@ export function createBrowserTool(opts?: {
     channel?: string;
     chatType?: string;
   };
+  agentId?: string;
   runToolBinding?: unknown;
   toolCapabilities?: BrowserToolCapabilities;
 }): AnyAgentTool {
@@ -422,9 +432,28 @@ export function createBrowserTool(opts?: {
     parameters: createBrowserToolSchema(capabilities),
     outputSchema: BrowserToolOutputSchema,
     execute: async (_toolCallId, args, signal) => {
-      const params = bindingResult?.ok
+      const publicParams = bindingResult?.ok
         ? applyBrowserTabToolBinding(args as Record<string, unknown>, bindingResult.binding)
         : (args as Record<string, unknown>);
+      const approved = isBrowserStewardRuntimeApproved(publicParams);
+      const appliesBrowserStewardRuntimeGuard = shouldApplyBrowserStewardRuntimeGuard({
+        sessionKey: opts?.agentSessionKey,
+        agentId: opts?.agentId,
+      });
+      let browserStewardRuntimeDecision: BrowserStewardRuntimeDecision | undefined;
+      if (appliesBrowserStewardRuntimeGuard) {
+        browserStewardRuntimeDecision = assertBrowserStewardRuntimeAllowed({
+          action: readStringParam(publicParams, "action", { required: true }),
+          profile: readStringParam(publicParams, "profile"),
+          agentSessionKey: opts?.agentSessionKey,
+          agentId: opts?.agentId,
+          approved,
+          request: publicParams.request ?? publicParams,
+        });
+      }
+      const params = approved
+        ? resolveBrowserStewardRuntimeApprovedParams(publicParams)
+        : publicParams;
       const action = readStringParam(params, "action", { required: true });
       if (!capabilities.actions.some((candidate) => candidate === action)) {
         throw new Error(`browser action ${JSON.stringify(action)} is unavailable for this run`);
@@ -507,7 +536,13 @@ export function createBrowserTool(opts?: {
         opts?.allowHostControl !== false,
       );
       const proxyRequest = nodeTarget
-        ? createBrowserNodeProxyRequest({ nodeTarget, allowAutomaticHostFallback, signal })
+        ? createBrowserNodeProxyRequest({
+            nodeTarget,
+            allowAutomaticHostFallback,
+            agentSessionKey: opts?.agentSessionKey,
+            agentId: opts?.agentId,
+            signal,
+          })
         : null;
       if (proxyRequest) {
         // The node resolves omissions against its own config; Gateway defaults
@@ -534,6 +569,7 @@ export function createBrowserTool(opts?: {
         },
         isHostFallbackActive: proxyRequest?.isHostFallbackActive,
         registry: browserToolDeps,
+        ...(browserStewardRuntimeDecision ? { browserStewardRuntimeDecision } : {}),
       });
       const readBrowserStatus = async () =>
         proxyRequest

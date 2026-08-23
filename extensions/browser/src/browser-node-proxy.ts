@@ -54,6 +54,8 @@ export type BrowserProxyRequest = ((params: {
   body?: unknown;
   timeoutMs?: number;
   profile?: string;
+  agentSessionKey?: string;
+  agentId?: string;
   signal?: AbortSignal;
 }) => Promise<unknown>) & {
   isHostFallbackActive: () => boolean;
@@ -88,6 +90,8 @@ async function callBrowserProxy(params: {
   body?: unknown;
   timeoutMs?: number;
   profile?: string;
+  agentSessionKey?: string;
+  agentId?: string;
   signal?: AbortSignal;
 }): Promise<BrowserProxyEnvelope> {
   // Reserve both watchdog windows before clamping so timer saturation cannot
@@ -136,6 +140,8 @@ async function callBrowserProxy(params: {
           upload: preparedUpload.upload,
           timeoutMs: proxyTimeoutMs,
           profile: params.profile,
+          agentSessionKey: params.agentSessionKey,
+          agentId: params.agentId,
           errorEnvelope: BROWSER_PROXY_ERROR_ENVELOPE,
         },
         idempotencyKey: crypto.randomUUID(),
@@ -186,6 +192,8 @@ async function callLocalBrowserControl(params: Parameters<BrowserProxyRequest>[0
 export function createBrowserNodeProxyRequest(params: {
   nodeTarget: BrowserNodeTarget;
   allowAutomaticHostFallback: boolean;
+  agentSessionKey?: string;
+  agentId?: string;
   signal?: AbortSignal;
 }): BrowserProxyRequest {
   let hostFallbackActive = false;
@@ -207,6 +215,8 @@ export function createBrowserNodeProxyRequest(params: {
         declaredCommands: params.nodeTarget.commands ?? [],
         pendingDeclaredCommands: params.nodeTarget.pendingDeclaredCommands ?? [],
         allowAutomaticHostFallback: params.allowAutomaticHostFallback,
+        agentSessionKey: params.agentSessionKey,
+        agentId: params.agentId,
         ...requestWithSignal,
       });
       route = parseBrowserProxyRoute(proxy);
