@@ -1,5 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -8,16 +7,11 @@ import {
   installWorkspace,
   rollbackWorkspace,
 } from "../../scripts/program-manager-workspace.mjs";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const repoRoot = process.cwd();
 const sourceRoot = path.join(repoRoot, "control", "program-manager");
-const temporaryRoots: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
-});
+const temporaryRoots = useAutoCleanupTempDirTracker(afterEach);
 
 describe("Program Manager context package", () => {
   it("passes the compact source contract and budget", async () => {
@@ -43,8 +37,7 @@ describe("Program Manager context package", () => {
   });
 
   it("installs and rolls back only managed files", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-pm-context-test-"));
-    temporaryRoots.push(root);
+    const root = temporaryRoots.make("openclaw-pm-context-test-");
     const workspaceRoot = path.join(root, "workspace");
     const backupRoot = path.join(root, "backup");
     await mkdir(workspaceRoot, { recursive: true });
@@ -66,8 +59,7 @@ describe("Program Manager context package", () => {
   });
 
   it("fails closed when state contains a sensitive field", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "openclaw-pm-context-invalid-"));
-    temporaryRoots.push(root);
+    const root = temporaryRoots.make("openclaw-pm-context-invalid-");
     await cp(sourceRoot, root, { recursive: true });
     const statePath = path.join(root, "state/program-manager.json");
     const state = JSON.parse(await readFile(statePath, "utf8"));
