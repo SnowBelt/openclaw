@@ -83,6 +83,7 @@ import {
   resolveBrowserStewardRuntimePolicyParams,
   resolveBrowserStewardRuntimeApprovedParams,
   resolveBrowserStewardRuntimeApprovalBinding,
+  type BrowserStewardRuntimeApprovalAuthority,
   type BrowserStewardRuntimeApprovalBinding,
 } from "./browser/browser-steward-approval.js";
 import {
@@ -415,6 +416,7 @@ export async function prepareBrowserStewardToolParams(params: {
   sandboxBridgeUrl?: string;
   allowHostControl?: boolean;
   runToolBinding?: BrowserTabToolBinding;
+  approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
   signal?: AbortSignal;
 }): Promise<unknown> {
   const input =
@@ -439,7 +441,7 @@ export async function prepareBrowserStewardToolParams(params: {
         signal: params.signal,
       })
     : undefined;
-  return prepareBrowserStewardRuntimeParams(input, binding);
+  return prepareBrowserStewardRuntimeParams(input, binding, params.approvalAuthority);
 }
 
 function resolveBrowserBaseUrl(params: {
@@ -574,6 +576,8 @@ export function createBrowserTool(opts?: {
   /** Trusted Gateway owner identity; never read from model arguments. */
   senderIsOwner?: boolean;
   runToolBinding?: unknown;
+  /** Browser-owned approval authority; never exposed to model-visible tool arguments. */
+  approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
   toolCapabilities?: BrowserToolCapabilities;
 }): AnyAgentTool {
   const bindingResult =
@@ -620,16 +624,18 @@ export function createBrowserTool(opts?: {
         sandboxBridgeUrl: opts?.sandboxBridgeUrl,
         allowHostControl: opts?.allowHostControl,
         ...(bindingResult?.ok ? { runToolBinding: bindingResult.binding } : {}),
+        approvalAuthority: opts?.approvalAuthority,
         signal: context.signal,
       }),
-    finalizeBeforeToolCallParams: finalizeBrowserStewardRuntimeParams,
+    finalizeBeforeToolCallParams: (params, preparedParams) =>
+      finalizeBrowserStewardRuntimeParams(params, preparedParams, opts?.approvalAuthority),
     execute: async (_toolCallId, args, signal) => {
       const publicParams = bindingResult?.ok
         ? applyBrowserTabToolBinding(args as Record<string, unknown>, bindingResult.binding)
         : (args as Record<string, unknown>);
-      const approved = isBrowserStewardRuntimeApproved(publicParams);
+      const approved = isBrowserStewardRuntimeApproved(publicParams, opts?.approvalAuthority);
       const approvedBinding = approved
-        ? getBrowserStewardRuntimeApprovalBinding(publicParams)
+        ? getBrowserStewardRuntimeApprovalBinding(publicParams, opts?.approvalAuthority)
         : undefined;
       const appliesBrowserStewardRuntimeGuard = shouldApplyBrowserStewardRuntimeGuard({
         sessionKey: opts?.agentSessionKey,
@@ -637,7 +643,10 @@ export function createBrowserTool(opts?: {
       });
       let browserStewardRuntimeDecision: BrowserStewardRuntimeDecision | undefined;
       if (appliesBrowserStewardRuntimeGuard) {
-        const policyParams = resolveBrowserStewardRuntimePolicyParams(publicParams);
+        const policyParams = resolveBrowserStewardRuntimePolicyParams(
+          publicParams,
+          opts?.approvalAuthority,
+        );
         browserStewardRuntimeDecision = assertBrowserStewardRuntimeAllowed({
           action: readStringParam(publicParams, "action", { required: true }),
           profile: readStringParam(publicParams, "profile"),
@@ -648,7 +657,7 @@ export function createBrowserTool(opts?: {
         });
       }
       const params = approved
-        ? resolveBrowserStewardRuntimeApprovedParams(publicParams)
+        ? resolveBrowserStewardRuntimeApprovedParams(publicParams, opts?.approvalAuthority)
         : publicParams;
       const action = readStringParam(params, "action", { required: true });
       if (!capabilities.actions.some((candidate) => candidate === action)) {

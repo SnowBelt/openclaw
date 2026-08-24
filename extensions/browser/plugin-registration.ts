@@ -38,11 +38,13 @@ import {
 } from "./src/browser-tool.schema.js";
 import {
   approveBrowserStewardRuntimeParams,
+  createBrowserStewardRuntimeApprovalAuthority,
   createBrowserStewardGatewayApproval,
   getBrowserStewardRuntimeApprovalPromptBinding,
   isBrowserStewardRuntimeApproved,
   resolveBrowserStewardRuntimePolicyParams,
   finalizeBrowserStewardRuntimeParams,
+  type BrowserStewardRuntimeApprovalAuthority,
 } from "./src/browser/browser-steward-approval.js";
 import {
   evaluateBrowserStewardRuntimeGuard,
@@ -175,6 +177,7 @@ function createLazyBrowserTool(
       chatType?: string;
     };
     agentId?: string;
+    approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
     senderIsOwner?: boolean;
     runToolBinding?: unknown;
   },
@@ -215,10 +218,12 @@ function createLazyBrowserTool(
         sandboxBridgeUrl: opts?.sandboxBridgeUrl,
         allowHostControl: opts?.allowHostControl,
         ...(bindingResult?.ok ? { runToolBinding: bindingResult.binding } : {}),
+        approvalAuthority: opts?.approvalAuthority,
         signal: context.signal,
       });
     },
-    finalizeBeforeToolCallParams: finalizeBrowserStewardRuntimeParams,
+    finalizeBeforeToolCallParams: (params, preparedParams) =>
+      finalizeBrowserStewardRuntimeParams(params, preparedParams, opts?.approvalAuthority),
     execute: async (toolCallId, args, signal, onUpdate) => {
       const { createBrowserTool } = await loadBrowserRegistrationRuntimeModule();
       const tool = createBrowserTool(
@@ -239,7 +244,9 @@ type BrowserStewardTrustedToolPolicy = Parameters<
   OpenClawPluginApi["registerTrustedToolPolicy"]
 >[0];
 
-function createBrowserStewardTrustedToolPolicy(): BrowserStewardTrustedToolPolicy {
+function createBrowserStewardTrustedToolPolicy(
+  approvalAuthority: BrowserStewardRuntimeApprovalAuthority,
+): BrowserStewardTrustedToolPolicy {
   return {
     id: "browser-steward-runtime-approval",
     description: "Requires exact, one-shot approval before Browser Steward mutations.",
@@ -250,11 +257,14 @@ function createBrowserStewardTrustedToolPolicy(): BrowserStewardTrustedToolPolic
           sessionKey: context.sessionKey,
           agentId: context.agentId,
         }) ||
-        isBrowserStewardRuntimeApproved(event.params)
+        isBrowserStewardRuntimeApproved(event.params, approvalAuthority)
       ) {
         return undefined;
       }
-      const policyParams = resolveBrowserStewardRuntimePolicyParams(event.params);
+      const policyParams = resolveBrowserStewardRuntimePolicyParams(
+        event.params,
+        approvalAuthority,
+      );
       const action = typeof policyParams.action === "string" ? policyParams.action : "unknown";
       const decision = evaluateBrowserStewardRuntimeGuard({
         action,
@@ -269,7 +279,7 @@ function createBrowserStewardTrustedToolPolicy(): BrowserStewardTrustedToolPolic
       const approvalParams = event.params;
       const destination = describeBrowserStewardApprovalDestination(
         policyParams,
-        getBrowserStewardRuntimeApprovalPromptBinding(event.params),
+        getBrowserStewardRuntimeApprovalPromptBinding(event.params, approvalAuthority),
       );
       return {
         requireApproval: {
@@ -280,7 +290,7 @@ function createBrowserStewardTrustedToolPolicy(): BrowserStewardTrustedToolPolic
           pluginId: "browser",
           onResolution: (resolution) => {
             if (resolution === "allow-once") {
-              approveBrowserStewardRuntimeParams(approvalParams);
+              approveBrowserStewardRuntimeParams(approvalParams, approvalAuthority);
             }
           },
         },
@@ -540,6 +550,7 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
 
 /** Register Browser tool factories, CLI, gateway methods, services, and audits. */
 export function registerBrowserPlugin(api: OpenClawPluginApi) {
+  const approvalAuthority = createBrowserStewardRuntimeApprovalAuthority();
   initializeBrowserSessionTabStore(api.runtime);
   configureSystemProfileImportStateStore(
     api.runtime.state.openKeyedStore<SystemProfileImportState>({
@@ -549,7 +560,7 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
   );
   api.registerTool(((ctx: OpenClawPluginToolContext) => {
     const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
-    return createLazyBrowserTool(createBrowserToolOptions(ctx), config);
+    return createLazyBrowserTool({ ...createBrowserToolOptions(ctx), approvalAuthority }, config);
   }) as OpenClawPluginToolFactory);
   api.registerBrowserNodeDelegation?.({
     consumerPluginIds: ["google-meet", "teams-meetings", "zoom-meetings"],
@@ -571,7 +582,7 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
         },
       ),
   });
-  api.registerTrustedToolPolicy(createBrowserStewardTrustedToolPolicy());
+  api.registerTrustedToolPolicy(createBrowserStewardTrustedToolPolicy(approvalAuthority));
   api.registerNodeInvokePolicy(createBrowserProxyNodeInvokePolicy());
   api.registerCli(
     async ({ program }) => {

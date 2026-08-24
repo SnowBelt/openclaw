@@ -91,6 +91,7 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
   const pluginRuntimeById = new Map<string, PluginRuntime>();
   const pluginRuntimeRecordById = new Map<string, PluginRecord>();
   const activePluginRuntimeRecords = new WeakSet<PluginRecord>();
+  const browserNodeDelegationEpochByRecord = new WeakMap<PluginRecord, object>();
   const recordChannelRuntime = new WeakMap<PluginRecord, PluginRuntime["channel"]>();
   const registeredChannelRuntime = new WeakMap<PluginRecord, PluginRuntime["channel"]>();
   const registeredRuntimeRecordById = new Map<string, PluginRecord>();
@@ -826,10 +827,58 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
           if (!registration) {
             return undefined;
           }
+          const consumerRecord =
+            pluginRuntimeRecordById.get(pluginId) ??
+            registry.plugins.find((entry) => entry.id === pluginId);
+          if (!consumerRecord || consumerRecord.status !== "loaded" || !consumerRecord.enabled) {
+            return undefined;
+          }
+          let consumerEpoch = browserNodeDelegationEpochByRecord.get(consumerRecord);
+          const resolveConsumerEpoch = () => {
+            if (consumerEpoch) {
+              return consumerEpoch;
+            }
+            if (!isPluginRegistryActivated(registry) || isPluginRegistryRetired(registry)) {
+              return undefined;
+            }
+            if (
+              pluginRuntimeRecordById.get(pluginId) !== consumerRecord ||
+              !activePluginRuntimeRecords.has(consumerRecord) ||
+              consumerRecord.status !== "loaded" ||
+              !consumerRecord.enabled ||
+              !registry.plugins.some(
+                (entry) => entry === consumerRecord && entry.status === "loaded",
+              )
+            ) {
+              return undefined;
+            }
+            consumerEpoch = activatePluginRecordLifecycleEpoch(registry, consumerRecord);
+            if (consumerEpoch) {
+              browserNodeDelegationEpochByRecord.set(consumerRecord, consumerEpoch);
+            }
+            return consumerEpoch;
+          };
+          const isConsumerRuntimeActive = () => {
+            const epoch = resolveConsumerEpoch();
+            return Boolean(
+              epoch &&
+              pluginRuntimeRecordById.get(pluginId) === consumerRecord &&
+              activePluginRuntimeRecords.has(consumerRecord) &&
+              consumerRecord.status === "loaded" &&
+              consumerRecord.enabled &&
+              registry.plugins.some(
+                (entry) => entry === consumerRecord && entry.status === "loaded",
+              ) &&
+              isPluginRecordLifecycleEpochActive(registry, consumerRecord, epoch),
+            );
+          };
           return {
             request: async (params) => {
               if (!registry.browserNodeDelegations.includes(registration)) {
                 throw new Error("Browser node delegation is no longer active.");
+              }
+              if (!isConsumerRuntimeActive()) {
+                throw new Error("Browser node delegation consumer lifecycle is no longer active.");
               }
               return await runWithPluginScope(() =>
                 registration.delegation.request({ ...params, consumerPluginId: pluginId }),
@@ -1107,6 +1156,12 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
     resolveRegisteredChannelRuntime: (record: PluginRecord) =>
       resolveRecordChannelRuntime(record, false),
     setPluginRuntimeRecord: (record: PluginRecord) => {
+      const previousRecord = pluginRuntimeRecordById.get(record.id);
+      if (previousRecord && previousRecord !== record) {
+        activePluginRuntimeRecords.delete(previousRecord);
+        revokePluginRecordLifecycleEpoch(registry, previousRecord);
+        browserNodeDelegationEpochByRecord.delete(previousRecord);
+      }
       pluginRuntimeRecordById.set(record.id, record);
       activePluginRuntimeRecords.add(record);
     },
@@ -1115,6 +1170,7 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
       if (ownedRecord) {
         activePluginRuntimeRecords.delete(ownedRecord);
         revokePluginRecordLifecycleEpoch(registry, ownedRecord);
+        browserNodeDelegationEpochByRecord.delete(ownedRecord);
         registeredAdmissionOwnerByRecord.get(ownedRecord)?.dispose();
         registeredAdmissionOwnerByRecord.delete(ownedRecord);
         if (registeredRuntimeRecordById.get(pluginId) === ownedRecord) {
