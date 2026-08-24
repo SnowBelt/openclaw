@@ -6,7 +6,7 @@ import { sessionDeliveryOrigin } from "../../utils/delivery-context.shared.js";
 import type {
   ToolsEffectiveDependencies,
   TrustedToolsEffectiveContext,
-} from "./tools-effective.js";
+} from "./tools-effective-types.js";
 import type { RespondFn } from "./types.js";
 
 export function resolveRequestedAgentIdOrRespondError(params: {

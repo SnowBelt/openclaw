@@ -250,7 +250,7 @@ async function acquireBrowserNodeSessionLease(
     { scopes: ["operator.admin"], ...(signal ? { signal } : {}) },
   );
   const envelope = response as { payload?: unknown; payloadJSON?: unknown } | undefined;
-  let payload = envelope?.payload ?? response;
+  let payload: unknown = envelope?.payload ?? response;
   if (payload === undefined && typeof envelope?.payloadJSON === "string") {
     try {
       payload = JSON.parse(envelope.payloadJSON);

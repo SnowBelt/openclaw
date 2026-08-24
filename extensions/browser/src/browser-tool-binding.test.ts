@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { applyBrowserTabToolBinding, parseBrowserTabToolBinding } from "./browser-tool-binding.js";
 import {
+  approveBrowserStewardRuntimeParams,
   isBrowserStewardRuntimeApproved,
-  markBrowserStewardRuntimeApproved,
+  prepareBrowserStewardRuntimeParams,
 } from "./browser/browser-steward-approval.js";
 
 const binding = {
@@ -44,10 +45,11 @@ describe("browser tab tool binding", () => {
   });
 
   it("preserves the private Browser Steward approval marker when rebinding a tab", () => {
-    const approved = markBrowserStewardRuntimeApproved(
+    const approved = prepareBrowserStewardRuntimeParams(
       applyBrowserTabToolBinding({ action: "snapshot" }, binding),
       { backend: { kind: "node", identity: "desktop" } },
-    );
+    ) as Record<string, unknown>;
+    approveBrowserStewardRuntimeParams(approved);
 
     const rebound = applyBrowserTabToolBinding(approved, binding);
 

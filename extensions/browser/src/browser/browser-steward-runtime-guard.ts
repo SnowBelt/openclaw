@@ -1,3 +1,4 @@
+import { evaluateCredentialStewardExposure } from "./credential-steward-policy.js";
 import { normalizeBrowserRequestPath } from "./request-policy.js";
 
 export type BrowserStewardRuntimeDecision = {
@@ -27,7 +28,7 @@ type BrowserStewardRuntimeRequest = {
 
 const BROWSER_STEWARD_AGENT_ID = "browser-session-credential-steward";
 
-export type BrowserStewardSessionBoundaryKind =
+type BrowserStewardSessionBoundaryKind =
   | "browser_steward"
   | "other_agent"
   | "global"
@@ -40,12 +41,9 @@ export type BrowserStewardSessionBoundary = {
   affectedSession: string;
 };
 
-export type BrowserStewardCredentialExposureKind =
-  | "none"
-  | "credential_like"
-  | "credential_material";
+type BrowserStewardCredentialExposureKind = "none" | "credential_like" | "credential_material";
 
-export type BrowserStewardCredentialExposureReasonCode =
+type BrowserStewardCredentialExposureReasonCode =
   | "no_credential_material"
   | "credential_like_label"
   | "credential_material_detected";
@@ -121,7 +119,7 @@ const UNKNOWN_SESSION_BOUNDARY: BrowserStewardSessionBoundary = {
 
 const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
-export function resolveBrowserStewardSessionBoundary(
+function resolveBrowserStewardSessionBoundary(
   sessionKey: string | undefined,
 ): BrowserStewardSessionBoundary {
   const normalized = sessionKey?.trim().toLowerCase();
@@ -163,11 +161,11 @@ export function resolveBrowserStewardSessionBoundary(
   };
 }
 
-export function isBrowserStewardSession(sessionKey: string | undefined): boolean {
+function isBrowserStewardSession(sessionKey: string | undefined): boolean {
   return resolveBrowserStewardSessionBoundary(sessionKey).kind === "browser_steward";
 }
 
-export function isBrowserStewardAgentId(agentId: string | undefined): boolean {
+function isBrowserStewardAgentId(agentId: string | undefined): boolean {
   return agentId?.trim().toLowerCase() === BROWSER_STEWARD_AGENT_ID;
 }
 
@@ -348,7 +346,7 @@ function classifyCredentialMaterial(value: string): string | undefined {
 }
 
 /** Identifies upload filenames that may themselves disclose or carry credentials. */
-export function isBrowserStewardCredentialLikeUploadPath(value: string): boolean {
+function isBrowserStewardCredentialLikeUploadPath(value: string): boolean {
   return CREDENTIAL_LIKE_UPLOAD_PATH_RE.test(value);
 }
 
@@ -481,10 +479,6 @@ export function redactBrowserStewardCredentialMaterial(value: unknown): unknown 
 }
 
 /** Browser output can contain opaque page data, so diagnostic copies are metadata-only. */
-export function redactBrowserStewardDiagnosticResult(_value: unknown): unknown {
-  return { redacted: true };
-}
-
 function hasConcreteCredentialValue(value: unknown): boolean {
   const pending = [value];
   const seen = new WeakSet<object>();
@@ -506,9 +500,10 @@ function hasConcreteCredentialValue(value: unknown): boolean {
 }
 
 function evaluateBrowserCredentialExposure(value: unknown): BrowserStewardCredentialExposure {
-  const classes = new Set<string>();
-  let credentialLike = false;
-  let material = false;
+  const canonical = evaluateCredentialStewardExposure({ value });
+  const classes = new Set(canonical.credentialClassesInvolved);
+  let credentialLike = canonical.exposureKind === "credential_like";
+  let material = canonical.exposureKind === "credential_material";
   const pending = [value];
   const seen = new WeakSet<object>();
   while (pending.length > 0) {

@@ -1,7 +1,7 @@
 // Browser tests cover browser request.profile from body plugin behavior.
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isBrowserStewardGatewayApprovalValid } from "../browser/browser-steward-approval.js";
+import { consumeBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
 
 const {
   loadConfigMock,
@@ -474,7 +474,7 @@ describe("browser.request profile selection", () => {
     };
     expect(invocation.params.profile).toBe("");
     expect(
-      isBrowserStewardGatewayApprovalValid({
+      consumeBrowserStewardGatewayApproval({
         approval: invocation.params.browserStewardApproval,
         command: invocation.command,
         method: invocation.params.method as string,

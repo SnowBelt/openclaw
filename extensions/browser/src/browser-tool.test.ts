@@ -337,7 +337,7 @@ import { createBrowserTool, prepareBrowserStewardToolParams } from "./browser-to
 import { resolveBrowserToolCapabilities } from "./browser-tool.schema.js";
 import {
   approveBrowserStewardRuntimeParams,
-  markBrowserStewardRuntimeApproved,
+  prepareBrowserStewardRuntimeParams,
 } from "./browser/browser-steward-approval.js";
 import { DEFAULT_AI_SNAPSHOT_MAX_CHARS } from "./browser/constants.js";
 
@@ -2351,11 +2351,11 @@ describe("browser tool url alias support", () => {
       targetId: "approved-tab",
       url: "https://example.com",
     });
-    const approvedParams = markBrowserStewardRuntimeApproved(
-      { action: "open", url: "https://example.com" },
+    const approvedParams = prepareBrowserStewardRuntimeParams(
       { action: "open", url: "https://example.com" },
       { backend: { kind: "host" } },
-    );
+    ) as Record<string, unknown>;
+    approveBrowserStewardRuntimeParams(approvedParams);
     const tool = createBrowserTool({
       agentSessionKey: "agent:browser-session-credential-steward:approved",
     });
