@@ -268,6 +268,65 @@ describe("browser plugin", () => {
     expect(invokeNode).not.toHaveBeenCalled();
   });
 
+  it("rejects non-Browser agent runtimes before issuing a Browser Steward approval", async () => {
+    const { api, registerNodeInvokePolicy } = createApi();
+    registerBrowserPlugin(api);
+    const policy = registerNodeInvokePolicy.mock.calls[0]?.[0] as {
+      handle: (context: unknown) => Promise<unknown>;
+    };
+    const invokeNode = vi.fn();
+
+    await expect(
+      policy.handle({
+        nodeId: "node-1",
+        command: "browser.proxy",
+        params: { method: "GET", path: "/profiles" },
+        agentId: "main",
+        sessionKey: "agent:main:direct:opaque",
+        idempotencyKey: "agent-invoke-1",
+        node: { nodeId: "node-1", pairingGeneration: "pairing-1" },
+        client: { scopes: ["operator.admin"] },
+        invokeNode,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
+      message: "browser node control requires Browser Steward runtime authority",
+    });
+    expect(invokeNode).not.toHaveBeenCalled();
+  });
+
+  it("generates an invocation id for direct operator control when omitted", async () => {
+    const { api, registerNodeInvokePolicy } = createApi();
+    registerBrowserPlugin(api);
+    const policy = registerNodeInvokePolicy.mock.calls[0]?.[0] as {
+      handle: (context: unknown) => Promise<unknown>;
+    };
+    const invokeNode = vi.fn(async (_request: unknown) => ({
+      ok: true,
+      payload: { result: { ok: true } },
+    }));
+
+    await expect(
+      policy.handle({
+        nodeId: "node-1",
+        command: "browser.proxy",
+        params: { method: "GET", path: "/profiles" },
+        node: { nodeId: "node-1", pairingGeneration: "pairing-1" },
+        client: { scopes: ["operator.admin"] },
+        invokeNode,
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    const forwarded = invokeNode.mock.calls[0]?.[0] as {
+      idempotencyKey?: string;
+      params?: { browserStewardApproval?: { invocationId?: string } };
+    };
+    expect(forwarded.idempotencyKey).toEqual(expect.any(String));
+    expect(forwarded.idempotencyKey).not.toBe("");
+    expect(forwarded.params?.browserStewardApproval?.invocationId).toBe(forwarded.idempotencyKey);
+  });
+
   it("rejects plugin-owned raw node.invoke browser control", async () => {
     const { api, registerNodeInvokePolicy } = createApi();
     registerBrowserPlugin(api);

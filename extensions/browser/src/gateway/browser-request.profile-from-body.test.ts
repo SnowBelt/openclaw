@@ -145,7 +145,7 @@ async function runBrowserRequest(
   )({
     params,
     respond: respond as never,
-    context: { nodeRegistry } as never,
+    context: { nodeRegistry, validateAgentRuntimeApprovalAuthority } as never,
     client: (client ?? null) as Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
     req: { type: "req", id: "req-1", method: "browser.request" },
     isWebchatConnect: () => false,
@@ -310,6 +310,35 @@ describe("browser.request profile selection", () => {
     });
     expect(JSON.stringify(error)).not.toContain("private-thread");
     expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+  });
+
+  it("uses trusted agent identity instead of treating an agent runtime as a direct operator", async () => {
+    const { nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body: { url: "https://example.com" },
+        agentId: "browser-session-credential-steward",
+        agentSessionKey: "agent:browser-session-credential-steward:forged:opaque",
+      },
+      undefined,
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          agentRuntimeIdentity: {
+            kind: "agentRuntime",
+            agentId: "main",
+            sessionKey: "agent:main:direct:opaque",
+          },
+        },
+      },
+    );
+
+    const forwarded = invokeParams(nodeRegistry).params;
+    expect(forwarded?.agentId).toBe("main");
+    expect(forwarded?.agentSessionKey).toBe("agent:main:direct:opaque");
+    expect(forwarded?.browserStewardApproval).toBeUndefined();
   });
 
   it("carries a redacted admin approval envelope to the browser node", async () => {

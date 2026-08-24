@@ -2,6 +2,7 @@
  * Browser plugin registration helpers. This file keeps registration lazy while
  * advertising Browser tools, services, node-host commands, and audits.
  */
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { registerBrowserNodeDelegation } from "openclaw/plugin-sdk/browser-node-delegation-runtime";
@@ -18,7 +19,7 @@ import type {
   OpenClawPluginToolFactory,
 } from "openclaw/plugin-sdk/plugin-entry";
 import { createSubsystemLogger, isTruthyEnvValue } from "openclaw/plugin-sdk/runtime-env";
-import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sanitizeTerminalText } from "openclaw/plugin-sdk/text-chunking";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { isBrowserMachineOutput } from "./cli-output-mode.js";
@@ -422,6 +423,16 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           message: "browser node control requires the Browser-owned capability",
         };
       }
+      const trustedAgentId = normalizeOptionalString(ctx.agentId);
+      const trustedSessionKey = normalizeOptionalString(ctx.sessionKey);
+      const hasTrustedAgentRuntime = Boolean(trustedAgentId || trustedSessionKey);
+      if (hasTrustedAgentRuntime && trustedAgentId?.toLowerCase() !== BROWSER_STEWARD_AGENT_ID) {
+        return {
+          ok: false,
+          code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
+          message: "browser node control requires Browser Steward runtime authority",
+        };
+      }
       const rawParams = isRecord(ctx.params) ? ctx.params : undefined;
       const method = typeof rawParams?.method === "string" ? rawParams.method.toUpperCase() : "";
       const path = typeof rawParams?.path === "string" ? rawParams.path : "";
@@ -447,6 +458,7 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           ? ""
           : (requestedProfile ??
             resolveBrowserConfig(ctx.config.browser, ctx.config).defaultProfile);
+      const invocationId = normalizeOptionalString(ctx.idempotencyKey) ?? randomUUID();
       const commandParams = {
         method,
         path,
@@ -472,7 +484,7 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           agentId: BROWSER_STEWARD_AGENT_ID,
           nodeId: ctx.nodeId,
           pairingGeneration: ctx.node?.pairingGeneration ?? "",
-          invocationId: ctx.idempotencyKey ?? "",
+          invocationId,
         });
       } catch {
         return {
@@ -488,7 +500,7 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
       const result = await ctx.invokeNode({
         params: forwardedParams,
         timeoutMs: ctx.timeoutMs,
-        idempotencyKey: ctx.idempotencyKey,
+        idempotencyKey: invocationId,
       });
       if (!result.ok) {
         return {

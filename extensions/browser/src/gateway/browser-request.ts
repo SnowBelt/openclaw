@@ -107,6 +107,9 @@ export async function handleBrowserGatewayRequest({
   const browserNodeSessionLease = normalizeOptionalString(typed.browserNodeSessionLease);
   const routeOnly = typed.routeOnly === true;
   const operatorAdmin = client?.connect?.scopes?.includes(BROWSER_REQUEST_GATEWAY_SCOPE) === true;
+  const trustedAgentRuntime = client?.internal?.agentRuntimeIdentity;
+  const trustedAgentId = normalizeOptionalString(trustedAgentRuntime?.agentId);
+  const trustedAgentSessionKey = normalizeOptionalString(trustedAgentRuntime?.sessionKey);
   const pluginRuntimeOwnerId = normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId);
   const browserPluginRuntime = pluginRuntimeOwnerId === "browser";
   if (pluginRuntimeOwnerId && !browserPluginRuntime) {
@@ -117,22 +120,29 @@ export async function handleBrowserGatewayRequest({
     );
     return;
   }
+  // Agent-runtime identity is authoritative. Request fields are only caller
+  // hints for direct Gateway callers and must not turn an agent into an operator.
+  const effectiveRequestedAgentId = trustedAgentRuntime ? trustedAgentId : typed.agentId;
+  const effectiveRequestedAgentSessionKey = trustedAgentRuntime
+    ? trustedAgentSessionKey
+    : typed.agentSessionKey;
   const directOperator =
     !pluginRuntimeOwnerId &&
+    !trustedAgentRuntime &&
     operatorAdmin &&
-    !typed.agentSessionKey?.trim() &&
-    !typed.agentId?.trim();
+    !effectiveRequestedAgentSessionKey?.trim() &&
+    !effectiveRequestedAgentId?.trim();
   const appliesBrowserStewardGuard =
     shouldApplyBrowserStewardRuntimeGuard({
-      sessionKey: typed.agentSessionKey,
-      agentId: typed.agentId,
+      sessionKey: effectiveRequestedAgentSessionKey,
+      agentId: effectiveRequestedAgentId,
     }) ||
     browserPluginRuntime ||
     directOperator;
   const effectiveAgentId =
-    browserPluginRuntime || directOperator ? BROWSER_STEWARD_AGENT_ID : typed.agentId;
+    browserPluginRuntime || directOperator ? BROWSER_STEWARD_AGENT_ID : effectiveRequestedAgentId;
   const effectiveAgentSessionKey =
-    browserPluginRuntime || directOperator ? undefined : typed.agentSessionKey;
+    browserPluginRuntime || directOperator ? undefined : effectiveRequestedAgentSessionKey;
   const requestedProfile = resolveRequestedBrowserProfile({
     query,
     body,
