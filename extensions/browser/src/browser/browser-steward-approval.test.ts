@@ -7,36 +7,71 @@ describe("Browser Steward runtime approval", () => {
     module: typeof import("./browser-steward-approval.js"),
     rawParams: Record<string, unknown>,
     binding: import("./browser-steward-approval.js").BrowserStewardRuntimeApprovalBinding,
+    authority?: import("./browser-steward-approval.js").BrowserStewardRuntimeApprovalAuthority,
   ): Record<string, unknown> {
-    const prepared = module.prepareBrowserStewardRuntimeParams(rawParams, binding) as Record<
-      string,
-      unknown
-    >;
-    module.approveBrowserStewardRuntimeParams(prepared);
+    const prepared = module.prepareBrowserStewardRuntimeParams(
+      rawParams,
+      binding,
+      authority,
+    ) as Record<string, unknown>;
+    module.approveBrowserStewardRuntimeParams(prepared, authority);
     return prepared;
   }
 
-  it("survives separate plugin module instances without becoming JSON-forgeable", async () => {
+  it("requires the Browser-owned authority across separate plugin module instances", async () => {
     const firstModule = await import("./browser-steward-approval.js");
+    const authority = firstModule.createBrowserStewardRuntimeApprovalAuthority();
     const rawParams = {
       action: "act",
       request: { kind: "type", text: "synthetic-secret" },
     };
-    const approvedParams = approvePreparedRuntimeParams(firstModule, rawParams, hostBinding);
+    const approvedParams = approvePreparedRuntimeParams(
+      firstModule,
+      rawParams,
+      hostBinding,
+      authority,
+    );
 
     vi.resetModules();
     const secondModule = await import("./browser-steward-approval.js");
 
-    expect(secondModule.isBrowserStewardRuntimeApproved(approvedParams)).toBe(true);
-    expect(secondModule.resolveBrowserStewardRuntimeApprovedParams(approvedParams)).toEqual(
-      rawParams,
-    );
+    expect(secondModule.isBrowserStewardRuntimeApproved(approvedParams)).toBe(false);
+    expect(secondModule.isBrowserStewardRuntimeApproved(approvedParams, authority)).toBe(true);
+    expect(
+      secondModule.resolveBrowserStewardRuntimeApprovedParams(approvedParams, authority),
+    ).toEqual(rawParams);
     const serializedParams = JSON.stringify(approvedParams);
     expect(JSON.parse(serializedParams)).toEqual({
       action: "act",
       request: { kind: "type", text: "REDACTED" },
     });
     expect(secondModule.isBrowserStewardRuntimeApproved({ approved: true })).toBe(false);
+  });
+
+  it("does not expose approval state through global symbols or forgeable marker fields", async () => {
+    const module = await import("./browser-steward-approval.js");
+    const rawParams = { action: "act", request: { kind: "type", text: "synthetic-secret" } };
+    const pendingParams = module.prepareBrowserStewardRuntimeParams(
+      rawParams,
+      hostBinding,
+    ) as Record<string, unknown>;
+    const globalSymbols = Object.getOwnPropertySymbols(globalThis);
+
+    expect(
+      globalSymbols.some((symbol) =>
+        (symbol.description ?? "").includes("browser-steward-runtime-approval"),
+      ),
+    ).toBe(false);
+    expect(module.isBrowserStewardRuntimeApproved(pendingParams)).toBe(false);
+
+    const forgedParams = { ...pendingParams };
+    for (const symbol of Object.getOwnPropertySymbols(pendingParams)) {
+      Object.defineProperty(forgedParams, symbol, {
+        value: Reflect.get(pendingParams, symbol),
+        enumerable: true,
+      });
+    }
+    expect(module.isBrowserStewardRuntimeApproved(forgedParams)).toBe(false);
   });
 
   it("invalidates approval when downstream code rewrites the approved operation", async () => {

@@ -16,6 +16,7 @@ import {
   finalizeBrowserStewardRuntimeParams,
   isBrowserStewardRuntimeApproved,
   prepareBrowserStewardRuntimeParams,
+  type BrowserStewardRuntimeApprovalAuthority,
 } from "./src/browser/browser-steward-approval.js";
 
 type BrowserAutoEnableProbe = Parameters<OpenClawPluginApi["registerAutoEnableProbe"]>[0];
@@ -293,8 +294,8 @@ describe("browser plugin", () => {
     expect(invokeNode).not.toHaveBeenCalled();
   });
 
-  it("registers an exact one-shot approval policy for Browser Steward mutations", () => {
-    const { api, registerTrustedToolPolicy } = createApi();
+  it("registers an exact one-shot approval policy for Browser Steward mutations", async () => {
+    const { api, registerTool, registerTrustedToolPolicy } = createApi();
     registerBrowserPlugin(api);
 
     expect(registerTrustedToolPolicy).toHaveBeenCalledOnce();
@@ -306,10 +307,34 @@ describe("browser plugin", () => {
 
     const rawProfile = "Bearer prepared-token";
     const params = { action: "navigate", targetUrl: "https://example.com", profile: rawProfile };
-    const prepared = prepareBrowserStewardRuntimeParams(params, {
-      backend: { kind: "node", identity: "node-1" },
-      profile: rawProfile,
-    }) as Record<string, unknown>;
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+    const tool = factory({
+      agentId: "browser-session-credential-steward",
+      sessionKey: "agent:browser-session-credential-steward:owner-run",
+    });
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected browser plugin to return a single tool");
+    }
+    await tool.execute("capture-authority", { action: "status" });
+    const approvalAuthority = (
+      runtimeApiMocks.createBrowserTool.mock.calls.at(-1)?.[0] as {
+        approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
+      }
+    ).approvalAuthority;
+    if (!approvalAuthority) {
+      throw new Error("expected Browser-owned approval authority");
+    }
+    const prepared = prepareBrowserStewardRuntimeParams(
+      params,
+      {
+        backend: { kind: "node", identity: "node-1" },
+        profile: rawProfile,
+      },
+      approvalAuthority,
+    ) as Record<string, unknown>;
     const decision = policy.evaluate(
       { toolName: "browser", params: prepared },
       {
@@ -334,20 +359,42 @@ describe("browser plugin", () => {
     const finalized = finalizeBrowserStewardRuntimeParams(
       structuredClone(prepared),
       prepared,
+      approvalAuthority,
     ) as Record<string, unknown>;
-    expect(isBrowserStewardRuntimeApproved(finalized)).toBe(true);
+    expect(isBrowserStewardRuntimeApproved(finalized, approvalAuthority)).toBe(true);
   });
 
-  it("sanitizes approval destination text before rendering it", () => {
+  it("sanitizes approval destination text before rendering it", async () => {
     const rawProfile = "work\n\u001b[31m\u202Eprofile";
-    const { api, registerTrustedToolPolicy } = createApi();
+    const { api, registerTool, registerTrustedToolPolicy } = createApi();
     registerBrowserPlugin(api);
     const policy = registerTrustedToolPolicy.mock.calls[0]?.[0] as {
       evaluate: (event: unknown, context: unknown) => unknown;
     };
+    const factory = mockCallArg(registerTool);
+    if (typeof factory !== "function") {
+      throw new Error("expected browser plugin to register a tool factory");
+    }
+    const tool = factory({
+      agentId: "browser-session-credential-steward",
+      sessionKey: "agent:browser-session-credential-steward:display-safe",
+    });
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected browser plugin to return a single tool");
+    }
+    await tool.execute("capture-authority", { action: "status" });
+    const approvalAuthority = (
+      runtimeApiMocks.createBrowserTool.mock.calls.at(-1)?.[0] as {
+        approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
+      }
+    ).approvalAuthority;
+    if (!approvalAuthority) {
+      throw new Error("expected Browser-owned approval authority");
+    }
     const prepared = prepareBrowserStewardRuntimeParams(
       { action: "navigate", targetUrl: "https://example.com", profile: rawProfile },
       { backend: { kind: "host" }, profile: rawProfile },
+      approvalAuthority,
     );
     const decision = policy.evaluate(
       { toolName: "browser", params: prepared },
@@ -448,6 +495,7 @@ describe("browser plugin", () => {
         sessionKey: "agent:main:webchat:direct:123",
         chatType: "direct",
       },
+      approvalAuthority: expect.any(Object),
       toolCapabilities: expect.any(Object),
     });
   });
@@ -485,6 +533,7 @@ describe("browser plugin", () => {
         channel: "telegram",
         chatType: "direct",
       },
+      approvalAuthority: expect.any(Object),
       toolCapabilities: expect.any(Object),
     });
   });
@@ -535,6 +584,7 @@ describe("browser plugin", () => {
     await tool.execute("call-1", { action: "snapshot" });
     expect(runtimeApiMocks.createBrowserTool).toHaveBeenCalledWith({
       runToolBinding: binding,
+      approvalAuthority: expect.any(Object),
       toolCapabilities: expect.any(Object),
     });
   });
@@ -594,6 +644,7 @@ describe("browser plugin", () => {
     await tool.execute("call-1", { action: "snapshot" });
     expect(runtimeApiMocks.createBrowserTool).toHaveBeenCalledWith({
       runToolBinding: expect.objectContaining({ profile: "chrome", targetId: "target-7" }),
+      approvalAuthority: expect.any(Object),
       toolCapabilities: expect.objectContaining({
         tabBound: true,
       }),
@@ -675,6 +726,7 @@ describe("browser plugin", () => {
         channel: "telegram",
         chatType: "group",
       },
+      approvalAuthority: expect.any(Object),
       toolCapabilities: expect.any(Object),
     });
   });

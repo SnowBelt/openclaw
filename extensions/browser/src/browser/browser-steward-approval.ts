@@ -8,13 +8,6 @@ import {
 } from "./browser-steward-runtime-guard.js";
 import { normalizeBrowserRequestPath } from "./request-policy.js";
 
-// Plugin discovery can load policy and tool modules through distinct runtime
-// registries. A process-global symbol preserves the unforgeable JSON boundary
-// while allowing an approval issued by one module instance to reach another.
-const BROWSER_STEWARD_RUNTIME_APPROVAL = Symbol.for("openclaw.browser-steward-runtime-approval");
-const BROWSER_STEWARD_RUNTIME_APPROVAL_STATE = Symbol.for(
-  "openclaw.browser-steward-runtime-approval-state",
-);
 const BROWSER_STEWARD_GATEWAY_APPROVAL_TTL_MS = 30_000;
 const consumedBrowserStewardGatewayAuthorities = new Map<string, number>();
 
@@ -283,34 +276,6 @@ export function consumeBrowserStewardGatewayApproval(
   return true;
 }
 
-type BrowserStewardRuntimeApprovalState = {
-  approvals: WeakMap<object, BrowserStewardRuntimeApproval>;
-};
-
-function runtimeApprovalState(): BrowserStewardRuntimeApprovalState {
-  // SAFETY: the symbol-keyed slot is the private process-local approval registry.
-  const globalState = globalThis as typeof globalThis & {
-    [BROWSER_STEWARD_RUNTIME_APPROVAL_STATE]?: BrowserStewardRuntimeApprovalState;
-  };
-  globalState[BROWSER_STEWARD_RUNTIME_APPROVAL_STATE] ??= {
-    approvals: new WeakMap(),
-  };
-  return globalState[BROWSER_STEWARD_RUNTIME_APPROVAL_STATE];
-}
-
-function readBrowserStewardRuntimeApproval(
-  params: unknown,
-): BrowserStewardRuntimeApproval | undefined {
-  if (!params || typeof params !== "object") {
-    return undefined;
-  }
-  // SAFETY: the caller guard above proves params is an object carrying the private symbol slot.
-  const token = (params as Record<symbol, unknown>)[BROWSER_STEWARD_RUNTIME_APPROVAL];
-  return token && typeof token === "object"
-    ? runtimeApprovalState().approvals.get(token)
-    : undefined;
-}
-
 function matchesApprovedPublicParams(
   params: Record<string | symbol, unknown>,
   approval: BrowserStewardRuntimeApproval,
@@ -326,123 +291,194 @@ function cloneBrowserStewardApprovalParams(
   return structuredClone(Object.fromEntries(Object.entries(params))) as Record<string, unknown>;
 }
 
-function attachBrowserStewardRuntimeApproval(
-  rawParams: Record<string, unknown>,
-  publicParams: Record<string, unknown>,
-  approved: boolean,
-  binding: BrowserStewardRuntimeApprovalBinding,
-): Record<string, unknown> {
-  const approvedParams = cloneBrowserStewardApprovalParams(publicParams);
-  const token = {};
-  runtimeApprovalState().approvals.set(token, {
-    approved,
-    rawParams: cloneBrowserStewardApprovalParams(rawParams),
-    publicParams: cloneBrowserStewardApprovalParams(publicParams),
-    binding: structuredClone(binding),
+export type BrowserStewardRuntimeApprovalAuthority = {
+  approve(params: unknown): void;
+  isApproved(params: unknown): boolean;
+  getBinding(params: unknown): BrowserStewardRuntimeApprovalBinding | undefined;
+  getPromptBinding(params: unknown): BrowserStewardRuntimeApprovalBinding | undefined;
+  resolveApprovedParams(params: Record<string, unknown>): Record<string, unknown>;
+  resolvePolicyParams(params: unknown): Record<string, unknown>;
+  prepare(params: unknown, binding?: BrowserStewardRuntimeApprovalBinding): unknown;
+  finalize(params: unknown, preparedParams: unknown): unknown;
+};
+
+/** Creates Browser-owned approval state that is never stored on globalThis. */
+export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRuntimeApprovalAuthority {
+  const approvalMarker = Symbol("browser-steward-runtime-approval");
+  const approvals = new WeakMap<object, BrowserStewardRuntimeApproval>();
+
+  const readApproval = (params: unknown): BrowserStewardRuntimeApproval | undefined => {
+    if (!params || typeof params !== "object") {
+      return undefined;
+    }
+    const token = (params as Record<symbol, unknown>)[approvalMarker];
+    return token && typeof token === "object" ? approvals.get(token) : undefined;
+  };
+
+  const attachApproval = (
+    rawParams: Record<string, unknown>,
+    publicParams: Record<string, unknown>,
+    approved: boolean,
+    binding: BrowserStewardRuntimeApprovalBinding,
+  ): Record<string, unknown> => {
+    const approvedParams = cloneBrowserStewardApprovalParams(publicParams);
+    const token = {};
+    approvals.set(token, {
+      approved,
+      rawParams: cloneBrowserStewardApprovalParams(rawParams),
+      publicParams: cloneBrowserStewardApprovalParams(publicParams),
+      binding: structuredClone(binding),
+    });
+    Object.defineProperty(approvedParams, approvalMarker, {
+      value: token,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+    return approvedParams;
+  };
+
+  const markPending = (
+    rawParams: Record<string, unknown>,
+    publicParams: Record<string, unknown>,
+    binding: BrowserStewardRuntimeApprovalBinding,
+  ) => attachApproval(rawParams, publicParams, false, binding);
+
+  return Object.freeze({
+    approve(params: unknown) {
+      const approval = readApproval(params);
+      if (approval) {
+        approval.approved = true;
+      }
+    },
+    isApproved(params: unknown) {
+      const approval = readApproval(params);
+      return Boolean(
+        approval?.approved &&
+        params &&
+        typeof params === "object" &&
+        matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval),
+      );
+    },
+    getBinding(params: unknown) {
+      const approval = readApproval(params);
+      if (
+        !approval?.approved ||
+        !params ||
+        typeof params !== "object" ||
+        !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
+      ) {
+        return undefined;
+      }
+      return structuredClone(approval.binding);
+    },
+    getPromptBinding(params: unknown) {
+      const approval = readApproval(params);
+      if (
+        !approval ||
+        !params ||
+        typeof params !== "object" ||
+        !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
+      ) {
+        return undefined;
+      }
+      return structuredClone(approval.binding);
+    },
+    resolveApprovedParams(params: Record<string, unknown>) {
+      const approval = readApproval(params);
+      if (!approval?.approved || !matchesApprovedPublicParams(params, approval)) {
+        return params;
+      }
+      return cloneBrowserStewardApprovalParams(approval.rawParams);
+    },
+    resolvePolicyParams(params: unknown) {
+      const approval = readApproval(params);
+      return approval
+        ? cloneBrowserStewardApprovalParams(approval.rawParams)
+        : (params as Record<string, unknown>); // SAFETY: the caller contract supplies browser tool params when no private approval exists.
+    },
+    prepare(params: unknown, binding?: BrowserStewardRuntimeApprovalBinding) {
+      if (!params || typeof params !== "object" || Array.isArray(params)) {
+        return params;
+      }
+      const record = params as Record<string, unknown>;
+      const publicParams = redactBrowserStewardCredentialMaterial(record);
+      return markPending(
+        record,
+        publicParams as Record<string, unknown>,
+        binding ?? resolveBrowserStewardRuntimeApprovalBinding(record),
+      );
+    },
+    finalize(params: unknown, preparedParams: unknown) {
+      const approval = readApproval(preparedParams);
+      if (
+        !approval?.approved ||
+        !params ||
+        typeof params !== "object" ||
+        Array.isArray(params) ||
+        !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
+      ) {
+        return params;
+      }
+      return attachApproval(
+        approval.rawParams,
+        params as Record<string, unknown>,
+        true,
+        approval.binding,
+      );
+    },
   });
-  Object.defineProperty(approvedParams, BROWSER_STEWARD_RUNTIME_APPROVAL, {
-    value: token,
-    enumerable: true,
-    configurable: false,
-    writable: false,
-  });
-  return approvedParams;
 }
 
-/** Attach a marker that remains unusable until this policy's approval resolves. */
-function markBrowserStewardRuntimeApprovalPending(
-  rawParams: Record<string, unknown>,
-  binding: BrowserStewardRuntimeApprovalBinding,
-): Record<string, unknown>;
-function markBrowserStewardRuntimeApprovalPending(
-  rawParams: Record<string, unknown>,
-  publicParams: Record<string, unknown>,
-  binding: BrowserStewardRuntimeApprovalBinding,
-): Record<string, unknown>;
-function markBrowserStewardRuntimeApprovalPending(
-  rawParams: Record<string, unknown>,
-  publicParamsOrBinding: Record<string, unknown> | BrowserStewardRuntimeApprovalBinding,
-  binding?: BrowserStewardRuntimeApprovalBinding,
-): Record<string, unknown> {
-  // SAFETY: the overload branch establishes the union member when binding is present.
-  const publicParams = binding ? (publicParamsOrBinding as Record<string, unknown>) : rawParams;
-  const resolvedBinding =
-    // SAFETY: the no-binding overload branch leaves the union member as the binding.
-    binding ?? (publicParamsOrBinding as BrowserStewardRuntimeApprovalBinding);
-  return attachBrowserStewardRuntimeApproval(rawParams, publicParams, false, resolvedBinding);
-}
+const defaultBrowserStewardRuntimeApprovalAuthority =
+  createBrowserStewardRuntimeApprovalAuthority();
 
 /** Activate only the pending marker attached by the Browser Steward policy. */
-export function approveBrowserStewardRuntimeParams(params: unknown): void {
-  const approval = readBrowserStewardRuntimeApproval(params);
-  if (approval) {
-    approval.approved = true;
-  }
+export function approveBrowserStewardRuntimeParams(
+  params: unknown,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
+): void {
+  authority.approve(params);
 }
 
 /** True only for params marked by the trusted Browser plugin policy. */
-export function isBrowserStewardRuntimeApproved(params: unknown): boolean {
-  const approval = readBrowserStewardRuntimeApproval(params);
-  return Boolean(
-    approval?.approved &&
-    params &&
-    typeof params === "object" &&
-    // SAFETY: the guards above establish an object whose enumerable keys are compared only.
-    matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval),
-  );
+export function isBrowserStewardRuntimeApproved(
+  params: unknown,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
+): boolean {
+  return authority.isApproved(params);
 }
 
 /** Reads the private destination binding without exposing it through JSON. */
 export function getBrowserStewardRuntimeApprovalBinding(
   params: unknown,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
 ): BrowserStewardRuntimeApprovalBinding | undefined {
-  const approval = readBrowserStewardRuntimeApproval(params);
-  if (
-    !approval?.approved ||
-    !params ||
-    typeof params !== "object" ||
-    // SAFETY: the guards above establish an object whose enumerable keys are compared only.
-    !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
-  ) {
-    return undefined;
-  }
-  return structuredClone(approval.binding);
+  return authority.getBinding(params);
 }
 
 /** Reads the prepared destination binding while approval is still pending. */
 export function getBrowserStewardRuntimeApprovalPromptBinding(
   params: unknown,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
 ): BrowserStewardRuntimeApprovalBinding | undefined {
-  const approval = readBrowserStewardRuntimeApproval(params);
-  if (
-    !approval ||
-    !params ||
-    typeof params !== "object" ||
-    // SAFETY: the guards above establish an object whose enumerable keys are compared only.
-    !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
-  ) {
-    return undefined;
-  }
-  return structuredClone(approval.binding);
+  return authority.getPromptBinding(params);
 }
 
 /** Restores private params after the generic diagnostic wrapper has captured only redacted input. */
 export function resolveBrowserStewardRuntimeApprovedParams(
   params: Record<string, unknown>,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
 ): Record<string, unknown> {
-  const approval = readBrowserStewardRuntimeApproval(params);
-  if (!approval?.approved || !matchesApprovedPublicParams(params, approval)) {
-    return params;
-  }
-  return cloneBrowserStewardApprovalParams(approval.rawParams);
+  return authority.resolveApprovedParams(params);
 }
 
 /** Reads raw params only for the trusted Browser policy/guard, never for diagnostics or hooks. */
-export function resolveBrowserStewardRuntimePolicyParams(params: unknown): Record<string, unknown> {
-  const approval = readBrowserStewardRuntimeApproval(params);
-  return approval
-    ? cloneBrowserStewardApprovalParams(approval.rawParams)
-    : (params as Record<string, unknown>); // SAFETY: the caller contract supplies browser tool params when no private approval exists.
+export function resolveBrowserStewardRuntimePolicyParams(
+  params: unknown,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
+): Record<string, unknown> {
+  return authority.resolvePolicyParams(params);
 }
 
 export function resolveBrowserStewardRuntimeApprovalBinding(
@@ -493,42 +529,16 @@ export function matchesBrowserStewardRuntimeApprovalBindingAtExecution(
 export function prepareBrowserStewardRuntimeParams(
   params: unknown,
   binding?: BrowserStewardRuntimeApprovalBinding,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
 ): unknown {
-  if (!params || typeof params !== "object" || Array.isArray(params)) {
-    return params;
-  }
-  // SAFETY: the guard above excludes null, primitives, and arrays.
-  const record = params as Record<string, unknown>;
-  const publicParams = redactBrowserStewardCredentialMaterial(record);
-  return markBrowserStewardRuntimeApprovalPending(
-    record,
-    // SAFETY: redaction preserves the validated browser parameter record shape.
-    publicParams as Record<string, unknown>,
-    binding ?? resolveBrowserStewardRuntimeApprovalBinding(record),
-  );
+  return authority.prepare(params, binding);
 }
 
 /** Transfer a resolved approval only when the final hook output is unchanged. */
 export function finalizeBrowserStewardRuntimeParams(
   params: unknown,
   preparedParams: unknown,
+  authority: BrowserStewardRuntimeApprovalAuthority = defaultBrowserStewardRuntimeApprovalAuthority,
 ): unknown {
-  const approval = readBrowserStewardRuntimeApproval(preparedParams);
-  if (
-    !approval?.approved ||
-    !params ||
-    typeof params !== "object" ||
-    Array.isArray(params) ||
-    // SAFETY: the guards above establish an object whose enumerable keys are compared only.
-    !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
-  ) {
-    return params;
-  }
-  return attachBrowserStewardRuntimeApproval(
-    approval.rawParams,
-    // SAFETY: the guard above proves the final hook params are an object record.
-    params as Record<string, unknown>,
-    true,
-    approval.binding,
-  );
+  return authority.finalize(params, preparedParams);
 }
