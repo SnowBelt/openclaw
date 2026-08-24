@@ -96,6 +96,7 @@ describe("node-host Browser Steward approval", () => {
     await expect(runBrowserProxyCommand(JSON.stringify(baseParams))).rejects.toThrow(
       /approval_required/,
     );
+    expect(mocks.startBrowserControlService).not.toHaveBeenCalled();
     expect(mocks.dispatch).not.toHaveBeenCalled();
   });
 

@@ -316,8 +316,6 @@ export async function runBrowserProxyCommand(
     throw new Error("UNAVAILABLE: node browser proxy disabled");
   }
 
-  await ensureBrowserControlService();
-  invocationSignal?.throwIfAborted();
   const cfg = loadBrowserConfigForRuntimeRefresh();
   const resolved = resolveBrowserConfig(cfg.browser, cfg);
   const method = typeof params.method === "string" ? params.method.toUpperCase() : "GET";
@@ -360,6 +358,8 @@ export async function runBrowserProxyCommand(
       request: body,
     });
   }
+  await ensureBrowserControlService();
+  invocationSignal?.throwIfAborted();
   const effectiveResolvedProfile = effectiveProfile
     ? resolveProfile(resolved, effectiveProfile)
     : null;
