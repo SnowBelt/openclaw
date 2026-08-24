@@ -15,41 +15,6 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
-if custom_runtime_lifecycle_begin "$runtime_home" guard "" ""; then
-  :
-else
-  lifecycle_status=$?
-  [ "$lifecycle_status" -eq 75 ] && exit 0
-  exit "$lifecycle_status"
-fi
-lifecycle_result=guard-failed
-cleanup_guard() {
-  status=$?
-  trap - EXIT INT TERM
-  custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
-  exit "$status"
-}
-trap cleanup_guard EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-stamp=$(date -u +%Y%m%dT%H%M%SZ)
-receipt() {
-  lifecycle_result=$1
-  printf '{"at":"%s","result":"%s"}\n' "$stamp" "$1" > "$runtime_home/receipts/guard-$stamp.json"
-}
-
-tailscale_primary_ok=true
-if [ -x "$tailscale_primary_guard" ] && ! "$tailscale_primary_guard" guard; then
-  tailscale_primary_ok=false
-fi
-complete_guard() {
-  if [ "$tailscale_primary_ok" = true ]; then
-    [ "$lifecycle_result" != guard-failed ] || lifecycle_result=guard-healthy
-    exit 0
-  fi
-  lifecycle_result=guard-tailscale-failed
-  exit 1
-}
 
 runtime_identity=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
 import json, sys
@@ -91,18 +56,68 @@ runtime_is_ready() {
   curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'
 }
 
-if runtime_is_ready; then
-  complete_guard
+guard_startup_wait_attempts=45
+guard_startup_wait_seconds=2
+wait_for_runtime_ready() {
+  if runtime_is_ready; then
+    return 0
+  fi
+  for _ in $(seq 1 "$guard_startup_wait_attempts"); do
+    sleep "$guard_startup_wait_seconds"
+    if runtime_is_ready; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# A promotion or restart owns the lifecycle lock while its Gateway is
+# converging. Do not compete with it or fall through to recovery without the
+# operation-specific evidence that only the mutating command has. A bounded,
+# read-only readiness wait lets the LaunchAgent start safely during that
+# handoff; an unready runtime still fails closed with the original status.
+if custom_runtime_lifecycle_begin "$runtime_home" guard "" ""; then
+  :
+else
+  lifecycle_status=$?
+  if [ "$lifecycle_status" -eq 75 ] && wait_for_runtime_ready; then
+    exit 0
+  fi
+  exit "$lifecycle_status"
 fi
 
-guard_startup_wait_attempts=15
-guard_startup_wait_seconds=2
-for _ in $(seq 1 "$guard_startup_wait_attempts"); do
-  sleep "$guard_startup_wait_seconds"
-  if runtime_is_ready; then
-    complete_guard
+lifecycle_result=guard-failed
+cleanup_guard() {
+  status=$?
+  trap - EXIT INT TERM
+  custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
+  exit "$status"
+}
+trap cleanup_guard EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+receipt() {
+  lifecycle_result=$1
+  printf '{"at":"%s","result":"%s"}\n' "$stamp" "$1" > "$runtime_home/receipts/guard-$stamp.json"
+}
+
+tailscale_primary_ok=true
+if [ -x "$tailscale_primary_guard" ] && ! "$tailscale_primary_guard" guard; then
+  tailscale_primary_ok=false
+fi
+complete_guard() {
+  if [ "$tailscale_primary_ok" = true ]; then
+    [ "$lifecycle_result" != guard-failed ] || lifecycle_result=guard-healthy
+    exit 0
   fi
-done
+  lifecycle_result=guard-tailscale-failed
+  exit 1
+}
+
+if wait_for_runtime_ready; then
+  complete_guard
+fi
 
 # Never restart into a configuration that cannot retrieve its required secret.
 if ! printf '%s' '{"ids":["discord/bot-token"]}' | "$provider" | python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("values",{}).get("discord/bot-token") else 1)' 2>/dev/null; then

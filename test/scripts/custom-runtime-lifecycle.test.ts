@@ -271,6 +271,90 @@ describe("custom runtime lifecycle", () => {
     expect(result.stderr).not.toContain("private evidence bundle directory is missing or unsafe");
   });
 
+  it("waits read-only while another lifecycle operation owns the lock", () => {
+    const root = createRoot("openclaw-custom-runtime-guard-lock-handoff-");
+    const home = path.join(root, "home");
+    const runtimeHome = path.join(home, ".openclaw-custom-runtime");
+    const runtimeRoot = path.join(home, ".openclaw-runtime-releases", "candidate");
+    const launcher = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
+    const gatewayPlist = path.join(home, "Library", "LaunchAgents", "ai.openclaw.gateway.plist");
+    const fakeBin = path.join(root, "bin");
+    const pgrepCount = path.join(root, "pgrep-count");
+    const sourceSha = "b".repeat(64);
+
+    writeFile(
+      path.join(runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({ runtimeRoot, sourceSha })}\n`,
+    );
+    writeFile(path.join(runtimeRoot, "dist", "index.js"), "// fixture Gateway\n");
+    writeFile(launcher, ["#!/bin/sh", '[ "${1:-}" = "--verify" ]', ""].join("\n"), 0o700);
+    writeFile(
+      gatewayPlist,
+      [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<plist version="1.0"><dict>',
+        "<key>ProgramArguments</key><array>",
+        `<string>${launcher}</string><string>gateway</string>`,
+        "</array></dict></plist>",
+        "",
+      ].join("\n"),
+    );
+    writeFile(
+      path.join(runtimeHome, "locks", "lifecycle.lock", "owner.json"),
+      `${JSON.stringify({
+        activeSha: "c".repeat(64),
+        actor: "test",
+        approvalId: "test",
+        candidateSha: "d".repeat(64),
+        createdAt: new Date().toISOString(),
+        invocationId: "promotion-test",
+        operation: "promotion",
+        operationId: "promotion-test",
+        pid: process.pid,
+        schema: "openclaw.custom-runtime-lifecycle-lock.v1",
+      })}\n`,
+    );
+    writeFile(
+      path.join(fakeBin, "pgrep"),
+      [
+        "#!/bin/sh",
+        `count=$(cat ${JSON.stringify(pgrepCount)} 2>/dev/null || printf 0)`,
+        "count=$((count + 1))",
+        `printf '%s\\n' "$count" > ${JSON.stringify(pgrepCount)}`,
+        '[ "$count" -ge 3 ]',
+        "",
+      ].join("\n"),
+      0o700,
+    );
+    writeFile(
+      path.join(fakeBin, "curl"),
+      '#!/bin/sh\nprintf \'%s\\n\' \'{"ok":true,"status":"live"}\'\n',
+      0o700,
+    );
+    writeFile(path.join(fakeBin, "sleep"), "#!/bin/sh\nexit 0\n", 0o700);
+
+    const result = spawnSync("sh", [guardScript], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: home,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_GATEWAY_PLIST: gatewayPlist,
+        OPENCLAW_GATEWAY_PORT: "18789",
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(fs.readFileSync(pgrepCount, "utf8").trim()).toBe("3");
+    expect(
+      fs
+        .readdirSync(path.join(runtimeHome, "receipts"))
+        .some((entry) => entry.startsWith("lifecycle-guard-")),
+    ).toBe(false);
+    expect(result.stderr).not.toContain("private evidence bundle directory is missing or unsafe");
+  });
+
   it("blocks lifecycle mutation when exact-SHA governance evidence is missing", () => {
     const root = createRoot("openclaw-release-governor-deny-");
     const release = path.join(root, "release");
