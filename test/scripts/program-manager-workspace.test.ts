@@ -2,9 +2,11 @@ import { cp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  applyRuntimeConfig,
   checkRuntimeConfig,
   checkSource,
   installWorkspace,
+  rollbackRuntimeConfig,
   rollbackWorkspace,
   verifyInstalledWorkspace,
 } from "../../scripts/program-manager-workspace.mjs";
@@ -13,6 +15,15 @@ import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 const repoRoot = process.cwd();
 const sourceRoot = path.join(repoRoot, "control", "program-manager");
 const temporaryRoots = useAutoCleanupTempDirTracker(afterEach);
+type TestAgentEntry = {
+  id?: string;
+  name?: string;
+  role?: string;
+  workspace?: string;
+  params?: { maxTokens?: number; text_verbosity?: string };
+  tools?: { alsoAllow?: string[]; deny?: string[] };
+  subagents?: { allowAgents?: string[]; delegationMode?: string; requireAgentId?: boolean };
+};
 
 describe("Program Manager context package", () => {
   it("passes the compact source contract and budget", async () => {
@@ -45,6 +56,68 @@ describe("Program Manager context package", () => {
     expect(instructions).toContain("stop tool calls immediately");
     expect(instructions).toContain("never search the workspace for a missing packet");
     expect(instructions).toContain("do not call tools on the first response");
+  });
+
+  it("synchronizes only the active Program Manager contract and restores it exactly", async () => {
+    const root = temporaryRoots.make("openclaw-pm-config-sync-");
+    const configPath = path.join(root, "director.json");
+    const backupRoot = path.join(root, "backup");
+    const sourceConfig = JSON.parse(
+      await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"),
+    ) as { agents: { entries: Record<string, TestAgentEntry> } };
+    const list: TestAgentEntry[] = Object.entries(sourceConfig.agents.entries).map(
+      ([id, entry]) => ({
+        id,
+        ...entry,
+      }),
+    );
+    const programManagerIndex = list.findIndex((entry) => entry.id === "program-manager");
+    list[programManagerIndex] = {
+      ...list[programManagerIndex],
+      name: "Program Manager",
+      role: "program_manager",
+      workspace: "/tmp/program-manager",
+      params: { maxTokens: 3072, text_verbosity: "low" },
+      tools: {
+        alsoAllow: ["memory_search", "sessions_list"],
+        deny: ["exec", "write"],
+      },
+      subagents: {
+        allowAgents: ["builder-agent", "qa-test-agent"],
+        delegationMode: "prefer",
+        requireAgentId: true,
+      },
+    };
+    const beforeText = `${JSON.stringify({ agents: { list } }, null, 2)}\n`;
+    await writeFile(configPath, beforeText, "utf8");
+
+    await applyRuntimeConfig({ sourceRoot, configPath, backupRoot });
+    const applied = JSON.parse(await readFile(configPath, "utf8")) as {
+      agents: { list: TestAgentEntry[] };
+    };
+    const programManager = applied.agents.list.find((entry) => entry.id === "program-manager");
+    if (
+      !programManager ||
+      !programManager.params ||
+      !programManager.tools?.alsoAllow ||
+      !programManager.subagents?.allowAgents
+    ) {
+      throw new Error("Applied Program Manager entry is incomplete.");
+    }
+    expect(programManager.params.maxTokens).toBe(1024);
+    expect(programManager.tools.alsoAllow.toSorted()).toEqual([
+      "get_goal",
+      "progress_card",
+      "read",
+      "sessions_spawn",
+      "sessions_yield",
+    ]);
+    expect(programManager.subagents.allowAgents).toEqual(["builder-agent", "research-brief-agent"]);
+    expect(programManager.role).toBe("program_manager");
+    expect(programManager.workspace).toBe("/tmp/program-manager");
+
+    await rollbackRuntimeConfig({ configPath, backupRoot });
+    expect(await readFile(configPath, "utf8")).toBe(beforeText);
   });
 
   it("installs and rolls back only managed files", async () => {
