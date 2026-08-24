@@ -124,5 +124,6 @@ export function applyBrowserTabToolBindingToParams(
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return input;
   }
+  // SAFETY: the guard above excludes arrays and proves an object-shaped tool input.
   return applyBrowserTabToolBinding(input as Record<string, unknown>, binding);
 }

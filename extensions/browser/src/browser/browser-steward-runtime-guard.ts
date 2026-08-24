@@ -1,3 +1,4 @@
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { evaluateCredentialStewardExposure } from "./credential-steward-policy.js";
 import { normalizeBrowserRequestPath } from "./request-policy.js";
 
@@ -215,10 +216,7 @@ export function resolveBrowserStewardProxyAction(params: {
     return "close";
   }
   if (method === "POST" && path === "/act") {
-    const kind =
-      params.body && typeof params.body === "object"
-        ? (params.body as Record<string, unknown>).kind
-        : undefined;
+    const kind = isRecord(params.body) ? params.body.kind : undefined;
     return kind === "close" ? "close" : "act";
   }
   if (method === "POST" && path === "/navigate") {
@@ -368,7 +366,10 @@ function fillFieldsHaveCredentialHint(value: unknown): boolean {
       if (!field || typeof field !== "object" || Array.isArray(field)) {
         return false;
       }
-      const record = field as Record<string, unknown>;
+      const record = isRecord(field) ? field : undefined;
+      if (!record) {
+        return false;
+      }
       return (
         credentialFieldType(record) !== undefined ||
         hasCredentialLabel(record.labels) ||
@@ -415,7 +416,7 @@ function redactBrowserFillFields(value: unknown): unknown {
     }
     const result: Record<string, unknown> = {};
     seen.set(candidate, result);
-    for (const [key, entry] of Object.entries(candidate as Record<string, unknown>)) {
+    for (const [key, entry] of Object.entries(candidate)) {
       result[key] = key === "value" ? "REDACTED" : redactFieldPart(entry);
     }
     return result;
@@ -448,7 +449,10 @@ export function redactBrowserStewardCredentialMaterial(value: unknown): unknown 
       }
       return result;
     }
-    const record = candidate as Record<string, unknown>;
+    if (!isRecord(candidate)) {
+      return candidate;
+    }
+    const record = candidate;
     const result: Record<string, unknown> = {};
     seen.set(candidate, result);
     const kind = typeof record.kind === "string" ? record.kind.trim().toLowerCase() : "";
@@ -524,7 +528,10 @@ function evaluateBrowserCredentialExposure(value: unknown): BrowserStewardCreden
       pending.push(...entry);
       continue;
     }
-    const record = entry as Record<string, unknown>;
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const record = entry;
     const kind = typeof record.kind === "string" ? record.kind.trim().toLowerCase() : "";
     const operationKind =
       kind || (typeof record.action === "string" ? record.action.trim().toLowerCase() : "");

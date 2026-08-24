@@ -1,3 +1,4 @@
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 /**
  * Browser agent tool registration.
  *
@@ -249,7 +250,7 @@ async function acquireBrowserNodeSessionLease(
     },
     { scopes: ["operator.admin"], ...(signal ? { signal } : {}) },
   );
-  const envelope = response as { payload?: unknown; payloadJSON?: unknown } | undefined;
+  const envelope = response;
   let payload: unknown = envelope?.payload ?? response;
   if (payload === undefined && typeof envelope?.payloadJSON === "string") {
     try {
@@ -258,10 +259,7 @@ async function acquireBrowserNodeSessionLease(
       payload = undefined;
     }
   }
-  const lease =
-    payload && typeof payload === "object" && !Array.isArray(payload)
-      ? (payload as { browserNodeSessionLease?: unknown }).browserNodeSessionLease
-      : undefined;
+  const lease = isRecord(payload) ? payload.browserNodeSessionLease : undefined;
   if (typeof lease !== "string" || !lease.trim()) {
     throw new Error("browser node route lease unavailable");
   }
@@ -335,9 +333,14 @@ async function resolveBrowserStewardToolBinding(params: {
   const action = typeof params.input.action === "string" ? params.input.action.trim() : "";
   const requestedTargetValue =
     typeof params.input.target === "string" ? params.input.target.trim().toLowerCase() : "";
-  const requestedTarget = ["sandbox", "host", "node"].includes(requestedTargetValue)
-    ? requestedTargetValue
-    : "";
+  const requestedTarget =
+    requestedTargetValue === "sandbox"
+      ? "sandbox"
+      : requestedTargetValue === "host"
+        ? "host"
+        : requestedTargetValue === "node"
+          ? "node"
+          : "";
   const requestedNode =
     typeof params.input.node === "string" ? params.input.node.trim() : undefined;
   const requestedProfile =
@@ -351,7 +354,7 @@ async function resolveBrowserStewardToolBinding(params: {
   const isUserBrowserProfile = Boolean(
     resolvedProfile && getBrowserProfileCapabilities(resolvedProfile).usesChromeMcp,
   );
-  let target = requestedTarget as "sandbox" | "host" | "node" | "";
+  let target: "sandbox" | "host" | "node" | "" = requestedTarget;
   if (action === "importprofile") {
     target = "host";
   }
@@ -386,7 +389,7 @@ async function resolveBrowserStewardToolBinding(params: {
     backendKind === "node"
       ? undefined
       : resolveBrowserBaseUrl({
-          target: backendKind as "sandbox" | "host",
+          target: backendKind === "sandbox" ? "sandbox" : "host",
           sandboxBridgeUrl: params.sandboxBridgeUrl,
           allowHostControl: params.allowHostControl,
         });
@@ -426,17 +429,16 @@ export async function prepareBrowserStewardToolParams(params: {
   ) {
     return input;
   }
-  const binding =
-    input && typeof input === "object" && !Array.isArray(input)
-      ? await resolveBrowserStewardToolBinding({
-          input: input as Record<string, unknown>,
-          agentSessionKey: params.agentSessionKey,
-          agentId: params.agentId,
-          sandboxBridgeUrl: params.sandboxBridgeUrl,
-          allowHostControl: params.allowHostControl,
-          signal: params.signal,
-        })
-      : undefined;
+  const binding = isRecord(input)
+    ? await resolveBrowserStewardToolBinding({
+        input,
+        agentSessionKey: params.agentSessionKey,
+        agentId: params.agentId,
+        sandboxBridgeUrl: params.sandboxBridgeUrl,
+        allowHostControl: params.allowHostControl,
+        signal: params.signal,
+      })
+    : undefined;
   return prepareBrowserStewardRuntimeParams(input, binding);
 }
 
