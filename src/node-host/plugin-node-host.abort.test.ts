@@ -70,6 +70,8 @@ describe("non-duplex node-host plugin cancellation", () => {
     await invocation;
 
     expect(handle).toHaveBeenCalledWith('{"model":"local-only:small"}', undefined, {
+      invocationId: "cancelable-model-inference",
+      nodeId: "paired-node",
       sendNodeEvent,
       sessionKey: "agent:main:local-model",
       signal: controller.signal,
@@ -105,7 +107,11 @@ describe("non-duplex node-host plugin cancellation", () => {
       { pluginCommandContext: { sendNodeEvent } },
     );
 
-    expect(handle).toHaveBeenCalledWith("{}", undefined, { sendNodeEvent });
+    expect(handle).toHaveBeenCalledWith("{}", undefined, {
+      invocationId: "legacy-model-inference",
+      nodeId: "paired-node",
+      sendNodeEvent,
+    });
     expect(request).toHaveBeenCalledWith(
       "node.invoke.result",
       expect.objectContaining({ ok: true, payloadJSON: '{"ok":true}' }),
