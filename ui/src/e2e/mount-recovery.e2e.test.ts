@@ -69,7 +69,7 @@ describeControlUiE2e("Control UI mount recovery E2E", () => {
       expect(
         (await page.goto(`${server.baseUrl}chat`, { waitUntil: "domcontentloaded" }))?.status(),
       ).toBe(200);
-      await page.locator("openclaw-app-shell").waitFor();
+      await page.locator("openclaw-app").waitFor();
       await page.locator(".agent-chat__welcome").waitFor();
 
       expect(documentRequests).toBe(2);

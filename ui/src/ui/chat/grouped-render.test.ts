@@ -1753,6 +1753,34 @@ describe("grouped chat rendering", () => {
         ?.getAttribute("src"),
     ).toBe("data:image/png;base64,cG5n");
 
+    const legacyImageContainer = document.createElement("div");
+    renderAssistantMessage(
+      legacyImageContainer,
+      {
+        role: "assistant",
+        content: [
+          {
+            alt: "Legacy tool result",
+            data: "cG5n",
+            mimeType: "image/png",
+            type: "image",
+          },
+        ],
+        timestamp: Date.now(),
+      },
+      { showToolCalls: false },
+    );
+    expect(
+      legacyImageContainer
+        .querySelector<HTMLImageElement>(".chat-message-image")
+        ?.getAttribute("src"),
+    ).toBe("data:image/png;base64,cG5n");
+    expect(
+      legacyImageContainer
+        .querySelector<HTMLImageElement>(".chat-message-image")
+        ?.getAttribute("alt"),
+    ).toBe("Legacy tool result");
+
     container = renderUserMedia({
       id: "user-history-image-blocked",
       role: "user",
@@ -1778,6 +1806,55 @@ describe("grouped chat rendering", () => {
     );
     expect(documentLink?.textContent?.trim()).toBe("user-upload.pdf");
     expect(documentLink?.getAttribute("href")).toBe("/__openclaw__/media/user-upload.pdf");
+    vi.unstubAllGlobals();
+  });
+
+  it("renders canonical inbound transcript images through the authenticated media route", async () => {
+    resetAssistantAttachmentAvailabilityCacheForTest();
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const mediaUrl = new URL(url, "http://control.test");
+      expect(mediaUrl.pathname).toBe("/openclaw/__openclaw__/assistant-media");
+      expect(mediaUrl.searchParams.get("meta")).toBe("1");
+      expect(mediaUrl.searchParams.get("source")).toBe("media://inbound/telegram-photo.png");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer session-token");
+      return {
+        ok: true,
+        json: async () => mediaTicketPayload("ticket-inbound"),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const container = document.createElement("div");
+    const renderMessage = () =>
+      renderGroupedMessage(
+        container,
+        {
+          id: "user-inbound-media-ref",
+          role: "user",
+          content: "",
+          MediaPath: "media://inbound/telegram-photo.png",
+          MediaType: "image/png",
+          timestamp: Date.now(),
+        },
+        "user",
+        {
+          showToolCalls: false,
+          basePath: "/openclaw",
+          assistantAttachmentAuthToken: "session-token",
+          localMediaPreviewRoots: [],
+          onRequestUpdate: renderMessage,
+        },
+      );
+
+    renderMessage();
+    await flushAssistantAttachmentAvailabilityChecks();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector<HTMLImageElement>(".chat-message-image")?.getAttribute("src"),
+    ).toBe(
+      "/openclaw/__openclaw__/assistant-media?source=media%3A%2F%2Finbound%2Ftelegram-photo.png&mediaTicket=ticket-inbound",
+    );
     vi.unstubAllGlobals();
   });
 

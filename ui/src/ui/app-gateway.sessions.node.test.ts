@@ -5,6 +5,7 @@ const loadSessionsMock = vi.fn();
 const loadChatHistoryMock = vi.fn();
 const applySessionsChangedEventMock = vi.fn();
 const clearPendingQueueItemsForRunMock = vi.fn();
+const flushChatQueueForSessionAfterRunReconcileMock = vi.fn();
 const flushChatQueueForEventMock = vi.fn();
 const handleChatEventMock = vi.fn((_state?: any) => "idle");
 const handleSessionOperationEventMock = vi.fn();
@@ -39,6 +40,7 @@ vi.mock("./app-chat.ts", () => ({
     return target.sessionKey.startsWith("agent:") && agentId ? { agentId } : {};
   },
   clearPendingQueueItemsForRun: clearPendingQueueItemsForRunMock,
+  flushChatQueueForSessionAfterRunReconcile: flushChatQueueForSessionAfterRunReconcileMock,
   flushChatQueueForEvent: flushChatQueueForEventMock,
   recordFirstAssistantChatTiming: recordFirstAssistantChatTimingMock,
   refreshChatAvatar: vi.fn(),
@@ -276,6 +278,35 @@ describe("handleGatewayEvent sessions.changed", () => {
     expect(clearPendingQueueItemsForRunMock).toHaveBeenCalledWith(host, "run-1");
     expect(flushChatQueueForEventMock).toHaveBeenCalledWith(host);
     expect(loadSessionsMock).not.toHaveBeenCalled();
+  });
+
+  it("flushes the queued work for an offscreen session after its run completes", () => {
+    flushChatQueueForSessionAfterRunReconcileMock.mockReset();
+    flushChatQueueForEventMock.mockReset();
+    applySessionsChangedEventMock.mockReset().mockReturnValue({
+      applied: true,
+      change: "updated",
+      clearedSessionRunStatus: {
+        phase: "done",
+        runId: "run-offscreen",
+        sessionKey: "agent:main:offscreen",
+      },
+    });
+    const host = createHost();
+    host.sessionKey = "agent:main:visible";
+
+    handleGatewayEvent(host, {
+      type: "event",
+      event: "sessions.changed",
+      payload: { sessionKey: "agent:main:offscreen", status: "done" },
+      seq: 1,
+    });
+
+    expect(flushChatQueueForSessionAfterRunReconcileMock).toHaveBeenCalledWith(
+      host,
+      "agent:main:offscreen",
+    );
+    expect(flushChatQueueForEventMock).not.toHaveBeenCalled();
   });
 
   it("replays deferred history before flushing queued work after session completion", async () => {
@@ -563,6 +594,33 @@ describe("handleGatewayEvent sessions.changed", () => {
 });
 
 describe("handleGatewayEvent session.message", () => {
+  it("flushes an offscreen queue when a session-message patch closes its run", () => {
+    flushChatQueueForSessionAfterRunReconcileMock.mockReset();
+    applySessionsChangedEventMock.mockReset().mockReturnValue({
+      applied: true,
+      change: "updated",
+      clearedSessionRunStatus: {
+        phase: "done",
+        runId: "run-offscreen",
+        sessionKey: "agent:main:offscreen",
+      },
+    });
+    const host = createHost();
+    host.sessionKey = "agent:main:visible";
+
+    handleGatewayEvent(host, {
+      type: "event",
+      event: "session.message",
+      payload: { sessionKey: "agent:main:offscreen" },
+      seq: 1,
+    });
+
+    expect(flushChatQueueForSessionAfterRunReconcileMock).toHaveBeenCalledWith(
+      host,
+      "agent:main:offscreen",
+    );
+  });
+
   it("reloads chat history for the active session", () => {
     loadChatHistoryMock.mockReset();
     applySessionsChangedEventMock.mockReset().mockReturnValue({ applied: false });

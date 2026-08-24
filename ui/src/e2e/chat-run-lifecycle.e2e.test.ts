@@ -77,11 +77,11 @@ describeControlUiE2e("Control UI chat run lifecycle", () => {
       status: "running",
       updatedAt: Date.now(),
     });
-    await mainSession.locator(".session-run-spinner").waitFor();
+    await mainSession.locator(".sidebar-recent-session__live").waitFor();
 
     await gateway.emitChatFinal({ runId, text: "Run complete." });
     await currentPage.getByText("Run complete.", { exact: true }).waitFor();
-    await expect.poll(() => mainSession.locator(".session-run-spinner").count()).toBe(0);
+    await expect.poll(() => mainSession.locator(".sidebar-recent-session__live").count()).toBe(0);
 
     await gateway.emitGatewayEvent("sessions.changed", {
       activeRunIds: [runId],
@@ -94,11 +94,11 @@ describeControlUiE2e("Control UI chat run lifecycle", () => {
       updatedAt: Date.now(),
     });
     expect(await currentPage.getByRole("button", { name: "Stop generating" }).count()).toBe(0);
-    await expect.poll(() => mainSession.locator(".session-run-spinner").count()).toBe(0);
+    await expect.poll(() => mainSession.locator(".sidebar-recent-session__live").count()).toBe(0);
 
     await currentPage.waitForTimeout(CHAT_RUN_STATUS_TOAST_DURATION_MS + 250);
     expect(await currentPage.getByRole("button", { name: "Stop generating" }).count()).toBe(0);
-    expect(await mainSession.locator(".session-run-spinner").count()).toBe(0);
+    expect(await mainSession.locator(".sidebar-recent-session__live").count()).toBe(0);
 
     await gateway.emitGatewayEvent("sessions.changed", {
       key: "agent:main:another-session",
@@ -108,7 +108,7 @@ describeControlUiE2e("Control UI chat run lifecycle", () => {
       updatedAt: Date.now(),
     });
     expect(await currentPage.getByRole("button", { name: "Stop generating" }).count()).toBe(0);
-    await expect.poll(() => mainSession.locator(".session-run-spinner").count()).toBe(0);
+    await expect.poll(() => mainSession.locator(".sidebar-recent-session__live").count()).toBe(0);
 
     // Re-publish after the former 10-second suppression window. The completed
     // run identity stays terminal until the Gateway publishes different state.
@@ -123,7 +123,7 @@ describeControlUiE2e("Control UI chat run lifecycle", () => {
       status: "running",
       updatedAt: Date.now(),
     });
-    expect(await currentPage.getByRole("button", { name: "Stop generating" }).count()).toBe(0);
-    await expect.poll(() => mainSession.locator(".session-run-spinner").count()).toBe(0);
+    expect(await currentPage.getByRole("button", { name: "Stop generating" }).count()).toBe(1);
+    await expect.poll(() => mainSession.locator(".sidebar-recent-session__live").count()).toBe(1);
   });
 });

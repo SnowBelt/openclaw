@@ -1,3 +1,5 @@
+import { areUiSessionKeysEquivalent } from "../session-key.ts";
+import { isSessionRunActive } from "../session-run-state.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
 import type { WorkSurfaceTaskSummary } from "./work-snapshot.ts";
 
@@ -67,7 +69,7 @@ function taskStatus(task: WorkSurfaceTaskSummary | undefined): string | undefine
 
 function taskIsActive(task: WorkSurfaceTaskSummary | undefined): boolean {
   const status = taskStatus(task);
-  return status === "queued" || status === "running";
+  return status === "active" || status === "queued" || status === "running" || status === "working";
 }
 
 function rowIsActive(
@@ -77,13 +79,13 @@ function rowIsActive(
   if (taskIsActive(task)) {
     return true;
   }
-  if (row?.hasActiveRun === true || row?.hasActiveSubagentRun === true) {
+  if (isSessionRunActive(row ?? {}) || row?.hasActiveSubagentRun === true) {
     return true;
   }
   if (row?.subagentRunState === "active") {
     return true;
   }
-  return row?.status === "running";
+  return false;
 }
 
 function statusLabel(
@@ -91,19 +93,18 @@ function statusLabel(
   task: WorkSurfaceTaskSummary | undefined,
   root: boolean,
 ): string {
-  const status = taskStatus(task) ?? normalizeText(row?.status)?.toLowerCase();
-  if (status === "running") {
+  const taskStatusValue = taskStatus(task);
+  if (taskStatusValue === "running") {
     return "Running";
   }
-  if (status === "queued") {
+  if (taskStatusValue === "active" || taskStatusValue === "working") {
+    return "Working";
+  }
+  if (taskStatusValue === "queued") {
     return "Queued";
   }
-  if (
-    row?.hasActiveRun === true ||
-    row?.hasActiveSubagentRun === true ||
-    row?.subagentRunState === "active"
-  ) {
-    return "Working";
+  if (rowIsActive(row, undefined)) {
+    return row?.status === "running" ? "Running" : "Working";
   }
   return root ? "Current chat" : "Idle";
 }
@@ -134,7 +135,10 @@ function taskForSession(
   sessionKey: string,
 ): WorkSurfaceTaskSummary | undefined {
   return tasks
-    .filter((task) => normalizeText(task.sessionKey) === sessionKey)
+    .filter((task) => {
+      const taskSessionKey = normalizeText(task.sessionKey);
+      return taskSessionKey ? areUiSessionKeysEquivalent(taskSessionKey, sessionKey) : false;
+    })
     .toSorted((a, b) => {
       const activeDiff = Number(taskIsActive(b)) - Number(taskIsActive(a));
       if (activeDiff !== 0) {
@@ -254,7 +258,7 @@ export function buildAgentWorkTreeSnapshot(
     }
   }
 
-  const rootRow = byKey.get(currentSessionKey);
+  const rootRow = rows.find((row) => areUiSessionKeysEquivalent(row.key, currentSessionKey));
   const root = createNode({
     depth: 0,
     row: rootRow,
@@ -264,8 +268,19 @@ export function buildAgentWorkTreeSnapshot(
   });
 
   const visited = new Set<string>([currentSessionKey]);
+  const childKeysForParent = (parentSessionKey: string): string[] => {
+    const childKeys = new Set<string>();
+    for (const [parentKey, keys] of childKeysByParent) {
+      if (areUiSessionKeysEquivalent(parentKey, parentSessionKey)) {
+        for (const childKey of keys) {
+          childKeys.add(childKey);
+        }
+      }
+    }
+    return [...childKeys];
+  };
   const buildChildren = (parent: AgentWorkTreeNode) => {
-    const childRows = [...(childKeysByParent.get(parent.sessionKey) ?? [])]
+    const childRows = childKeysForParent(parent.sessionKey)
       .filter((childKey) => !visited.has(childKey))
       .map((childKey) => byKey.get(childKey))
       .filter((row): row is GatewaySessionRow => Boolean(row))

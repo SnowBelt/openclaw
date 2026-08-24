@@ -385,6 +385,12 @@ describe("control UI routing", () => {
     const shell = expectElement(app, ".shell", HTMLElement);
     expect(shell.style.getPropertyValue("--shell-nav-width")).toBe("");
 
+    await vi.waitFor(
+      () => {
+        expectElement(app, ".chat-split-container", HTMLElement);
+      },
+      { timeout: 2000 },
+    );
     const split = expectElement(app, ".chat-split-container", HTMLElement);
     split.classList.add("chat-split-container--open");
     await app.updateComplete;
@@ -507,11 +513,14 @@ describe("control UI routing", () => {
     ]) as typeof app.sessionsResult;
     await app.updateComplete;
 
-    const recent = Array.from(app.querySelectorAll<HTMLAnchorElement>(".sidebar-recent-session"));
+    const recent = Array.from(
+      app.querySelectorAll<HTMLAnchorElement>(".sidebar-recent-session__link"),
+    );
     expect(recent.map((entry) => entry.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "Second workspace just now",
       "First workspace 5m ago",
     ]);
+    expect(app.querySelectorAll('[data-sidebar-session-rename="true"]')).toHaveLength(2);
 
     const recentSection = expectElement(app, ".sidebar-recent-sessions", HTMLElement);
     const recentToggle = expectElement(
@@ -542,6 +551,48 @@ describe("control UI routing", () => {
     expect(app.sessionKey).toBe("agent:main:first");
     expect(window.location.pathname).toBe("/chat");
     expect(window.location.search).toBe("?session=agent%3Amain%3Afirst");
+  });
+
+  it("prioritizes pinned sessions and exposes pin and rename actions", async () => {
+    const app = mountApp("/overview");
+    app.sessionKey = "agent:main:recent";
+    app.sessionsResult = createSessionsResult([
+      { key: "agent:main:recent", label: "Recent", updatedAt: 30 },
+      { key: "agent:main:pinned", label: "Pinned", pinned: true, pinnedAt: 1, updatedAt: 1 },
+    ]) as typeof app.sessionsResult;
+    app.client = {
+      stop: vi.fn(),
+      request: vi.fn(async (method: string) => {
+        if (method === "sessions.patch") {
+          return { ok: true };
+        }
+        if (method === "sessions.list") {
+          return app.sessionsResult;
+        }
+        return null;
+      }),
+    } as unknown as typeof app.client;
+    app.connected = true;
+    await app.updateComplete;
+
+    const links = Array.from(
+      app.querySelectorAll<HTMLAnchorElement>(".sidebar-recent-session__link"),
+    );
+    expect(links[0]?.textContent?.replace(/\s+/g, " ").trim()).toContain("Pinned");
+    expect(app.querySelectorAll('[data-sidebar-session-pin="true"]')).toHaveLength(2);
+    expect(
+      app
+        .querySelector<HTMLButtonElement>('[data-sidebar-session-pin="true"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    app.querySelector<HTMLButtonElement>('[data-sidebar-session-pin="true"]')?.click();
+    await vi.waitFor(() => {
+      expect(app.client?.["request"]).toHaveBeenCalledWith("sessions.patch", {
+        key: "agent:main:pinned",
+        pinned: false,
+      });
+    });
   });
 
   it("creates a new chat session from the sidebar", async () => {

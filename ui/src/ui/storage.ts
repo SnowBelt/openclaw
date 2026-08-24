@@ -23,8 +23,8 @@ type PersistedUiSettings = Omit<UiSettings, "token" | "sessionKey" | "lastActive
   sessionsByGateway?: Record<string, ScopedSessionSelection>;
 };
 
-import { isSupportedLocale } from "../i18n/index.ts";
 import { DASHBOARD_SURFACE_REGISTRY_VERSION } from "../../config/dashboard-surfaces.ts";
+import { isSupportedLocale } from "../i18n/index.ts";
 import { getSafeLocalStorage, getSafeSessionStorage } from "../local-storage.ts";
 import { parseImportedCustomTheme, type ImportedCustomTheme } from "./custom-theme.ts";
 import { inferBasePathFromPathname, normalizeBasePath } from "./navigation.ts";
@@ -49,6 +49,15 @@ export function normalizeChatAutoScrollMode(value: unknown): ChatAutoScrollMode 
   return CHAT_AUTO_SCROLL_MODES.includes(value as ChatAutoScrollMode)
     ? (value as ChatAutoScrollMode)
     : "near-bottom";
+}
+
+export const CHAT_SEND_SHORTCUTS = ["enter", "modifier-enter"] as const;
+export type ChatSendShortcut = (typeof CHAT_SEND_SHORTCUTS)[number];
+
+export function normalizeChatSendShortcut(value: unknown): ChatSendShortcut {
+  return CHAT_SEND_SHORTCUTS.includes(value as ChatSendShortcut)
+    ? (value as ChatSendShortcut)
+    : "enter";
 }
 
 function snapBorderRadius(value: number): BorderRadiusStop {
@@ -90,6 +99,7 @@ export type UiSettings = {
   chatShowThinking: boolean;
   chatShowToolCalls: boolean;
   chatAutoScroll?: ChatAutoScrollMode;
+  chatSendShortcut?: ChatSendShortcut;
   splitRatio: number; // Sidebar split ratio (0.4 to 0.7, default 0.6)
   navCollapsed: boolean; // Collapsible sidebar state
   navWidth: number; // Sidebar width when expanded (240–400px)
@@ -249,6 +259,7 @@ export function loadSettings(): UiSettings {
     chatShowThinking: true,
     chatShowToolCalls: true,
     chatAutoScroll: "near-bottom",
+    chatSendShortcut: "enter",
     splitRatio: 0.6,
     navCollapsed: false,
     navWidth: 220,
@@ -301,6 +312,7 @@ export function loadSettings(): UiSettings {
           ? parsed.chatShowToolCalls
           : defaults.chatShowToolCalls,
       chatAutoScroll: normalizeChatAutoScrollMode(parsed.chatAutoScroll),
+      chatSendShortcut: normalizeChatSendShortcut(parsed.chatSendShortcut),
       splitRatio:
         typeof parsed.splitRatio === "number" &&
         parsed.splitRatio >= 0.4 &&
@@ -500,6 +512,9 @@ function persistSettings(next: UiSettings) {
     chatShowThinking: next.chatShowThinking,
     chatShowToolCalls: next.chatShowToolCalls,
     chatAutoScroll: normalizeChatAutoScrollMode(next.chatAutoScroll),
+    ...(normalizeChatSendShortcut(next.chatSendShortcut) === "modifier-enter"
+      ? { chatSendShortcut: "modifier-enter" as const }
+      : {}),
     splitRatio: next.splitRatio,
     navCollapsed: next.navCollapsed,
     navWidth: next.navWidth,

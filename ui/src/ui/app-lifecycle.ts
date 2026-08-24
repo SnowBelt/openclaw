@@ -39,6 +39,7 @@ type PendingChatComposerPersistSnapshot = {
   sessionKey: string;
   chatMessage: string;
   chatQueue: ChatQueueItem[];
+  chatQueuePaused: boolean;
 };
 
 type LifecycleHost = {
@@ -63,10 +64,12 @@ type LifecycleHost = {
   sessionKey: string;
   chatMessage: string;
   chatQueue: ChatQueueItem[];
+  chatQueuePaused?: boolean;
   chatComposerProvisionalRestore?: {
     sessionKey: string;
     chatMessage: string;
     chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
   } | null;
   chatComposerPersistTimer?: ReturnType<typeof globalThis.setTimeout> | number | null;
   chatComposerPersistSnapshot?: PendingChatComposerPersistSnapshot | null;
@@ -121,6 +124,7 @@ export function handleConnected(host: LifecycleHost) {
       sessionKey: host.sessionKey,
       chatMessage: host.chatMessage,
       chatQueue: [...host.chatQueue],
+      chatQueuePaused: host.chatQueuePaused === true,
     };
   } else {
     host.chatComposerProvisionalRestore = null;
@@ -193,6 +197,7 @@ function flushPendingChatComposerPersistence(host: LifecycleHost) {
       sessionKey: snapshot.sessionKey,
       chatMessage: snapshot.chatMessage,
       chatQueue: snapshot.chatQueue,
+      chatQueuePaused: snapshot.chatQueuePaused,
     },
     snapshot.sessionKey,
   );
@@ -204,6 +209,7 @@ function scheduleChatComposerDraftPersistence(host: LifecycleHost) {
     sessionKey: host.sessionKey,
     chatMessage: host.chatMessage,
     chatQueue: [...host.chatQueue],
+    chatQueuePaused: host.chatQueuePaused === true,
   };
   host.chatComposerPersistTimer = globalThis.setTimeout(() => {
     flushPendingChatComposerPersistence(host);
@@ -250,7 +256,7 @@ export function handleDisconnected(host: LifecycleHost) {
 }
 
 export function handleUpdated(host: LifecycleHost, changed: Map<PropertyKey, unknown>) {
-  if (changed.has("chatQueue")) {
+  if (changed.has("chatQueue") || changed.has("chatQueuePaused")) {
     clearPendingChatComposerPersistence(host);
     persistChatComposerState(host);
   } else if (changed.has("sessionKey")) {

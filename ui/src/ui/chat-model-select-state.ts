@@ -8,7 +8,8 @@ import {
   resolvePreferredServerChatModelValue,
 } from "./chat-model-ref.ts";
 import { pushUniqueTrimmedSelectOption } from "./select-options.ts";
-import type { ModelCatalogEntry } from "./types.ts";
+import { areUiSessionKeysEquivalent } from "./session-key.ts";
+import type { ChatModelOverride, ModelCatalogEntry } from "./types.ts";
 
 type ChatModelSelectStateInput = Pick<
   AppViewState,
@@ -18,6 +19,7 @@ type ChatModelSelectStateInput = Pick<
 export type ChatModelSelectOption = {
   value: string;
   label: string;
+  unavailable?: boolean;
 };
 
 export type ChatModelSelectOptionGroup = {
@@ -27,6 +29,8 @@ export type ChatModelSelectOptionGroup = {
 
 export type ChatModelSelectState = {
   currentOverride: string;
+  currentModelAvailable: boolean;
+  defaultSelectable: boolean;
   defaultModel: string;
   defaultDisplay: string;
   defaultLabel: string;
@@ -76,14 +80,29 @@ function resolveModelCertificationGroup(entry: ModelCatalogEntry): string {
 }
 
 function resolveActiveSessionRow(state: ChatModelSelectStateInput) {
-  return state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
+  return state.sessionsResult?.sessions?.find((row) =>
+    areUiSessionKeysEquivalent(row.key, state.sessionKey),
+  );
+}
+
+function resolveCachedModelOverride(
+  state: ChatModelSelectStateInput,
+): ChatModelOverride | null | undefined {
+  const exact = state.chatModelOverrides[state.sessionKey];
+  if (exact !== undefined) {
+    return exact;
+  }
+  const aliasKey = Object.keys(state.chatModelOverrides).find((key) =>
+    areUiSessionKeysEquivalent(key, state.sessionKey),
+  );
+  return aliasKey ? state.chatModelOverrides[aliasKey] : undefined;
 }
 
 export function resolveChatModelOverrideValue(state: ChatModelSelectStateInput): string {
   const catalog = state.chatModelCatalog ?? [];
 
   // Prefer the local cache — it reflects in-flight patches before sessionsResult refreshes.
-  const cached = state.chatModelOverrides[state.sessionKey];
+  const cached = resolveCachedModelOverride(state);
   if (cached) {
     return normalizeChatModelOverrideValue(cached, catalog);
   }
@@ -103,11 +122,49 @@ function resolveDefaultModelValue(state: ChatModelSelectStateInput): string {
   );
 }
 
+function normalizeModelAvailabilityKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function buildUnavailableModelValues(
+  catalog: ModelCatalogEntry[],
+  displayLookup: ReturnType<typeof buildCatalogDisplayLookup>,
+): Set<string> {
+  const availableValues = new Set(
+    catalog
+      .filter((entry) => entry.available !== false)
+      .map((entry) =>
+        normalizeModelAvailabilityKey(buildChatModelOptionFromLookup(entry, displayLookup).value),
+      ),
+  );
+  return new Set(
+    catalog
+      .filter((entry) => entry.available === false)
+      .map((entry) =>
+        normalizeModelAvailabilityKey(buildChatModelOptionFromLookup(entry, displayLookup).value),
+      )
+      .filter((value) => !availableValues.has(value)),
+  );
+}
+
+export function isChatModelValueUnavailable(value: string, catalog: ModelCatalogEntry[]): boolean {
+  if (!value.trim()) {
+    return false;
+  }
+  const displayLookup = buildCatalogDisplayLookup(
+    catalog.filter((entry) => entry.available !== false),
+  );
+  return buildUnavailableModelValues(catalog, displayLookup).has(
+    normalizeModelAvailabilityKey(value),
+  );
+}
+
 function buildChatModelOptions(
   catalog: ModelCatalogEntry[],
   displayLookup: ReturnType<typeof buildCatalogDisplayLookup>,
   currentOverride: string,
   defaultModel: string,
+  unavailableValues: Set<string>,
 ): ChatModelSelectOption[] {
   const seen = new Set<string>();
   const options: ChatModelSelectOption[] = [];
@@ -117,18 +174,36 @@ function buildChatModelOptions(
   };
 
   for (const entry of catalog) {
+    if (entry.available === false) {
+      continue;
+    }
     const option = buildChatModelOptionFromLookup(entry, displayLookup);
     addOption(option.value, option.label);
   }
 
-  if (currentOverride) {
+  if (currentOverride && !unavailableValues.has(normalizeModelAvailabilityKey(currentOverride))) {
     addOption(
       currentOverride,
       formatCatalogChatModelDisplayFromLookup(currentOverride, displayLookup),
     );
   }
-  if (defaultModel) {
+  if (defaultModel && !unavailableValues.has(normalizeModelAvailabilityKey(defaultModel))) {
     addOption(defaultModel, formatCatalogChatModelDisplayFromLookup(defaultModel, displayLookup));
+  }
+  const unavailableModel = unavailableValues.has(normalizeModelAvailabilityKey(currentOverride))
+    ? currentOverride
+    : unavailableValues.has(normalizeModelAvailabilityKey(defaultModel))
+      ? defaultModel
+      : "";
+  if (unavailableModel) {
+    addOption(
+      unavailableModel,
+      `Unavailable (${formatCatalogChatModelDisplayFromLookup(unavailableModel, displayLookup)})`,
+    );
+    const index = options.findIndex((option) => option.value === unavailableModel);
+    if (index >= 0) {
+      options[index] = { ...options[index], unavailable: true };
+    }
   }
   return options;
 }
@@ -173,14 +248,31 @@ export function resolveChatModelSelectState(
   state: ChatModelSelectStateInput,
 ): ChatModelSelectState {
   const catalog = state.chatModelCatalog ?? [];
-  const displayLookup = buildCatalogDisplayLookup(catalog);
+  const displayLookup = buildCatalogDisplayLookup(
+    catalog.filter((entry) => entry.available !== false),
+  );
   const currentOverride = resolveChatModelOverrideValue(state);
   const defaultModel = resolveDefaultModelValue(state);
   const defaultDisplay = formatCatalogChatModelDisplayFromLookup(defaultModel, displayLookup);
-  const options = buildChatModelOptions(catalog, displayLookup, currentOverride, defaultModel);
+  const unavailableValues = buildUnavailableModelValues(catalog, displayLookup);
+  const defaultSelectable =
+    !defaultModel || !unavailableValues.has(normalizeModelAvailabilityKey(defaultModel));
+  const effectiveCurrentModel = currentOverride || defaultModel;
+  const currentModelAvailable =
+    !effectiveCurrentModel ||
+    !unavailableValues.has(normalizeModelAvailabilityKey(effectiveCurrentModel));
+  const options = buildChatModelOptions(
+    catalog,
+    displayLookup,
+    currentOverride,
+    defaultModel,
+    unavailableValues,
+  );
 
   return {
     currentOverride,
+    currentModelAvailable,
+    defaultSelectable,
     defaultModel,
     defaultDisplay,
     defaultLabel: defaultModel ? `Default (${defaultDisplay})` : "Default model",

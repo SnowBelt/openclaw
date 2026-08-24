@@ -75,7 +75,7 @@ async function closeChat(fixture: {
   await fixture.browser.close().catch(() => {});
 }
 
-describeE2e("Control UI #93041 desktop chat quota popover (mocked Gateway E2E)", () => {
+describeE2e("Control UI #93041 desktop chat quota pill (mocked Gateway E2E)", () => {
   beforeAll(async () => {
     server = await startControlUiE2eServer();
   });
@@ -84,23 +84,16 @@ describeE2e("Control UI #93041 desktop chat quota popover (mocked Gateway E2E)",
     await server?.close();
   });
 
-  it("renders provider usage inside the desktop context popover", async () => {
+  it("renders provider usage beside the desktop composer", async () => {
     const fixture = await openChat(authStatusWithUsage);
     const { page } = fixture;
     try {
-      const contextRing = page.locator(".context-ring");
-      const pill = page.locator('[data-chat-provider-usage="true"]');
-      await contextRing.waitFor({ state: "visible" });
-      expect(await pill.isVisible()).toBe(false);
-      await contextRing.click();
+      const pill = page.getByRole("main").locator('[data-chat-provider-usage="true"]');
       await pill.waitFor({ state: "visible" });
       await page.screenshot({ path: path.join(artifactDir, "01-chat-with-context-usage.png") });
-      await page.locator(".context-usage__popover").screenshot({
-        path: path.join(artifactDir, "02-context-usage-popover.png"),
-      });
 
       const text = (await pill.textContent())?.replace(/\s+/g, " ").trim();
-      expect(text).toBe("Usage Remaining 29%");
+      expect(text).toBe("Usage 29%");
       expect(await pill.getAttribute("href")).toBe("/usage");
       expect(await pill.getAttribute("title")).toContain("Codex");
     } finally {

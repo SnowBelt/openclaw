@@ -23,7 +23,7 @@ import {
 import { cacheChatMessages, readChatMessagesFromCache } from "./chat/session-message-cache.ts";
 import { refreshSlashCommands } from "./chat/slash-commands.ts";
 import { resolveControlUiAuthToken } from "./control-ui-auth.ts";
-import { loadChatHistory } from "./controllers/chat.ts";
+import { loadChatGoals, loadChatHistory } from "./controllers/chat.ts";
 import type { ChatState } from "./controllers/chat.ts";
 import {
   createSessionAndRefresh,
@@ -34,18 +34,28 @@ import { icons } from "./icons.ts";
 import { iconForTab, isSettingsTab, pathForTab, titleForTab, type Tab } from "./navigation.ts";
 import { isCronSessionKey, parseSessionKey, resolveSessionDisplayName } from "./session-display.ts";
 import {
+  areUiSessionKeysEquivalent,
   isSessionKeyTiedToAgent,
   normalizeAgentId,
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
 } from "./session-key.ts";
-import { normalizeChatAutoScrollMode, type ChatAutoScrollMode } from "./storage.ts";
+import {
+  normalizeChatAutoScrollMode,
+  normalizeChatSendShortcut,
+  type ChatAutoScrollMode,
+} from "./storage.ts";
 import { normalizeLowercaseStringOrEmpty, normalizeOptionalString } from "./string-coerce.ts";
 import type { ThemeMode } from "./theme.ts";
 import type { SessionsListResult } from "./types.ts";
 import type { ChatQueueItem } from "./ui-types.ts";
 
 export { isCronSessionKey, parseSessionKey, resolveSessionDisplayName, resolveSessionOptionGroups };
+
+export type ChatControlsOptions = {
+  onSetControlDirectorDefault?: (model: string) => Promise<boolean>;
+  controlDirectorDefaultBusy?: boolean;
+};
 
 type SessionDefaultsSnapshot = {
   mainSessionKey?: string;
@@ -124,19 +134,50 @@ function resolveSidebarChatSessionKey(state: AppViewState): string {
 
 function saveChatQueueForSession(state: AppViewState, sessionKey: string) {
   const queueBySession = (state.chatQueueBySession ??= {});
+  const pausedBySession = (state.chatQueuePausedBySession ??= {});
+  const queueStorageKey = resolveStoredSessionKey(queueBySession, sessionKey);
+  removeEquivalentStoredSessionKeys(queueBySession, sessionKey, queueStorageKey);
   if (state.chatQueue.length > 0) {
-    queueBySession[sessionKey] = [...state.chatQueue];
+    queueBySession[queueStorageKey] = [...state.chatQueue];
     state.chatQueueBySession = { ...queueBySession };
-    return;
+  } else if (Object.hasOwn(queueBySession, queueStorageKey)) {
+    delete queueBySession[queueStorageKey];
+    state.chatQueueBySession = { ...queueBySession };
   }
-  if (Object.hasOwn(queueBySession, sessionKey)) {
-    delete queueBySession[sessionKey];
-    state.chatQueueBySession = { ...queueBySession };
+  const pausedStorageKey = resolveStoredSessionKey(pausedBySession, sessionKey);
+  removeEquivalentStoredSessionKeys(pausedBySession, sessionKey, pausedStorageKey);
+  if (state.chatQueuePaused) {
+    pausedBySession[pausedStorageKey] = true;
+  } else if (Object.hasOwn(pausedBySession, pausedStorageKey)) {
+    delete pausedBySession[pausedStorageKey];
+  }
+  state.chatQueuePausedBySession = { ...pausedBySession };
+}
+
+function resolveStoredSessionKey<T>(entries: Record<string, T>, sessionKey: string): string {
+  return (
+    (Object.hasOwn(entries, sessionKey) ? sessionKey : undefined) ??
+    Object.keys(entries).find((key) => areUiSessionKeysEquivalent(key, sessionKey)) ??
+    sessionKey
+  );
+}
+
+function removeEquivalentStoredSessionKeys<T>(
+  entries: Record<string, T>,
+  sessionKey: string,
+  keepKey?: string,
+): void {
+  for (const key of Object.keys(entries)) {
+    if (key !== keepKey && areUiSessionKeysEquivalent(key, sessionKey)) {
+      delete entries[key];
+    }
   }
 }
 
 function restoreChatQueueForSession(state: AppViewState, sessionKey: string): ChatQueueItem[] {
-  return [...(state.chatQueueBySession?.[sessionKey] ?? [])];
+  const entries = state.chatQueueBySession ?? {};
+  const storageKey = resolveStoredSessionKey(entries, sessionKey);
+  return [...(entries[storageKey] ?? [])];
 }
 
 function chatMessageCacheForState(state: AppViewState) {
@@ -158,7 +199,7 @@ function resetChatStateForSessionSwitch(state: AppViewState, sessionKey: string)
   saveChatQueueForSession(state, previousSessionKey);
   saveChatMessagesForSession(state, previousSessionKey);
   state.sessionKey = sessionKey;
-  if (previousSessionKey !== sessionKey) {
+  if (!areUiSessionKeysEquivalent(previousSessionKey, sessionKey)) {
     resetChatSessionPickerState(state);
   }
   const chatSessionState = state as unknown as {
@@ -187,7 +228,28 @@ function resetChatStateForSessionSwitch(state: AppViewState, sessionKey: string)
   state.realtimeTalkTranscript = null;
   state.resetRealtimeTalkConversation?.();
   state.chatQueue = restoreChatQueueForSession(state, sessionKey);
+  const pausedEntries = state.chatQueuePausedBySession ?? {};
+  state.chatQueuePaused =
+    pausedEntries[resolveStoredSessionKey(pausedEntries, sessionKey)] ?? false;
   restoreChatComposerState(state);
+  const pausedBySession = { ...state.chatQueuePausedBySession };
+  removeEquivalentStoredSessionKeys(pausedBySession, sessionKey);
+  if (state.chatQueuePaused) {
+    pausedBySession[sessionKey] = true;
+  } else {
+    delete pausedBySession[sessionKey];
+  }
+  state.chatQueuePausedBySession = pausedBySession;
+  if (!areUiSessionKeysEquivalent(previousSessionKey, sessionKey)) {
+    state.chatGoalPanelOpen = false;
+    state.chatGoalDraft = "";
+    state.chatGoalFlows = [];
+    state.chatGoalLoading = false;
+    state.chatGoalBusy = false;
+    state.chatGoalAction = null;
+    state.chatGoalError = null;
+    state.chatGoalUpdatedAt = null;
+  }
   host.resetChatInputHistoryNavigation();
   host.chatStreamStartedAt = null;
   reconcileChatRunLifecycle(state as unknown as Parameters<typeof reconcileChatRunLifecycle>[0], {
@@ -357,7 +419,31 @@ function renderChatAutoScrollToggle(state: AppViewState, options: { labelled?: b
   `;
 }
 
-export function renderChatControls(state: AppViewState) {
+function renderChatSendShortcutPreference(state: AppViewState) {
+  const shortcut = normalizeChatSendShortcut(state.settings.chatSendShortcut);
+  return html`
+    <label class="chat-settings-popover__preference">
+      <span>${t("chat.sendShortcut")}</span>
+      <select
+        data-chat-send-shortcut="true"
+        .value=${shortcut}
+        @change=${(event: Event) => {
+          state.applySettings({
+            ...state.settings,
+            chatSendShortcut: normalizeChatSendShortcut(
+              (event.currentTarget as HTMLSelectElement).value,
+            ),
+          });
+        }}
+      >
+        <option value="enter">${t("chat.sendShortcutEnter")}</option>
+        <option value="modifier-enter">${t("chat.sendShortcutModifierEnter")}</option>
+      </select>
+    </label>
+  `;
+}
+
+export function renderChatControls(state: AppViewState, options: ChatControlsOptions = {}) {
   const hideCron = state.sessionsHideCron ?? true;
   const hiddenCronCount = hideCron ? countHiddenCronSessions(state, state.sessionsResult) : 0;
   const disableThinkingToggle = state.onboarding;
@@ -410,7 +496,7 @@ export function renderChatControls(state: AppViewState) {
         }
       }}
     >
-      ${renderChatModelSelect(state)}
+      ${renderChatModelSelect(state, options)}
     </div>
     ${renderChatQuotaPill(state)}
     <div class="chat-settings-popover-wrapper">
@@ -515,6 +601,7 @@ export function renderChatControls(state: AppViewState) {
               <span class="chat-settings-action__text">${t("cron.jobList.history")}</span>
             </button>
           </div>
+          ${renderChatSendShortcutPreference(state)}
         </div>
       </div>
     </div>
@@ -640,6 +727,7 @@ export function renderChatMobileToggle(state: AppViewState) {
               ${renderCronFilterIcon(hiddenCronCount)}
             </button>
           </div>
+          ${renderChatSendShortcutPreference(state)}
         </div>
       </div>
     </div>
@@ -654,8 +742,12 @@ function switchChatSessionInternal(
   const previousSessionKey = state.sessionKey;
   const previousSessionsResult = state.sessionsResult;
   const nextSessionRow =
-    state.sessionsResult?.sessions.find((row) => row.key === nextSessionKey) ??
-    state.chatSessionPickerResult?.sessions.find((row) => row.key === nextSessionKey);
+    state.sessionsResult?.sessions.find((row) =>
+      areUiSessionKeysEquivalent(row.key, nextSessionKey),
+    ) ??
+    state.chatSessionPickerResult?.sessions.find((row) =>
+      areUiSessionKeysEquivalent(row.key, nextSessionKey),
+    );
   const nextSessionLabel = resolveSessionDisplayName(nextSessionKey, nextSessionRow);
   resetChatStateForSessionSwitch(state, nextSessionKey);
   if (previousSessionKey !== nextSessionKey) {
@@ -676,6 +768,7 @@ function switchChatSessionInternal(
     state as unknown as AppViewState & { chatSessionMessageSubscriptionKey?: string | null },
   );
   const historyLoad = loadChatHistory(state as unknown as ChatState);
+  const goalLoad = loadChatGoals(state as unknown as ChatState);
   const sessionsRefresh = refreshSessionOptions(state);
   flushChatQueueAfterIdleSessionReconciliation(
     state as unknown as Parameters<typeof flushChatQueueAfterIdleSessionReconciliation>[0],
@@ -686,7 +779,7 @@ function switchChatSessionInternal(
   );
   if (opts?.awaitInitialLoad) {
     void sessionsRefresh;
-    return Promise.allSettled([subscriptionSync, historyLoad]).then(() => undefined);
+    return Promise.allSettled([subscriptionSync, historyLoad, goalLoad]).then(() => undefined);
   }
   void subscriptionSync;
   void historyLoad;
@@ -777,7 +870,7 @@ export async function createChatSession(
   );
   if (
     !nextSessionKey ||
-    state.sessionKey !== previousSessionKey ||
+    !areUiSessionKeysEquivalent(state.sessionKey, previousSessionKey) ||
     !canSwitchToNewChatSession(state)
   ) {
     if (!nextSessionKey) {

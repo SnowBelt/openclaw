@@ -1,6 +1,7 @@
 // Control UI tests cover sessions behavior.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isSessionRunActive } from "../session-run-state.ts";
+import type { SessionsListResult } from "../types.ts";
 import {
   applyChatHistorySessionInfo,
   applySessionsChangedEvent,
@@ -74,6 +75,64 @@ describe("subscribeSessions", () => {
 
     expect(request).toHaveBeenCalledWith("sessions.subscribe", {});
     expect(state.sessionsError).toBeNull();
+  });
+});
+
+describe("loadSessions", () => {
+  it("keeps chat controls enabled during a background refresh", async () => {
+    const deferred = createDeferred<SessionsListResult>();
+    const request = vi.fn(async () => deferred.promise);
+    const state = createState(request);
+
+    const refresh = loadSessions(state, { background: true });
+    await Promise.resolve();
+
+    expect(state.sessionsLoading).toBe(false);
+    deferred.resolve({
+      ts: 1,
+      path: "",
+      count: 0,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      sessions: [],
+    });
+    await refresh;
+    expect(state.sessionsLoading).toBe(false);
+  });
+
+  it("takes the loading flag when a foreground refresh queues behind a background refresh", async () => {
+    const background = createDeferred<SessionsListResult>();
+    const foreground = createDeferred<SessionsListResult>();
+    const request = vi.fn(async (_method: string, params?: unknown) => {
+      if ((params as { limit?: number } | undefined)?.limit === 10) {
+        return foreground.promise;
+      }
+      return background.promise;
+    });
+    const state = createState(request);
+
+    const backgroundRefresh = loadSessions(state, { background: true, limit: 5 });
+    await Promise.resolve();
+    const foregroundRefresh = loadSessions(state, { limit: 10 });
+    expect(state.sessionsLoading).toBe(true);
+
+    background.resolve({
+      ts: 1,
+      path: "",
+      count: 0,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      sessions: [],
+    });
+    await Promise.resolve();
+    expect(state.sessionsLoading).toBe(true);
+    foreground.resolve({
+      ts: 2,
+      path: "",
+      count: 0,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      sessions: [],
+    });
+    await Promise.all([backgroundRefresh, foregroundRefresh]);
+    expect(state.sessionsLoading).toBe(false);
   });
 });
 
@@ -534,6 +593,81 @@ describe("deleteSessionsAndRefresh", () => {
 });
 
 describe("patchSession", () => {
+  it("patches a session label and reports success after refreshing sessions", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.patch") {
+        return { ok: true };
+      }
+      if (method === "sessions.list") {
+        return {
+          ts: 1,
+          path: "(multiple)",
+          count: 1,
+          defaults: { modelProvider: null, model: null, contextTokens: null },
+          sessions: [{ key: "main", kind: "direct", label: "Renamed", updatedAt: 2 }],
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request);
+
+    await expect(patchSession(state, "main", { label: "Renamed" })).resolves.toBe(true);
+
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.patch", {
+      key: "main",
+      label: "Renamed",
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.list", {
+      includeGlobal: true,
+      includeUnknown: true,
+      configuredAgentsOnly: true,
+    });
+    expect(state.sessionsResult?.sessions[0]?.label).toBe("Renamed");
+    expect(state.sessionsError).toBeNull();
+  });
+
+  it("patches a session pin state and reports success after refreshing sessions", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.patch") {
+        return { ok: true };
+      }
+      if (method === "sessions.list") {
+        return {
+          ts: 1,
+          path: "(multiple)",
+          count: 1,
+          defaults: { modelProvider: null, model: null, contextTokens: null },
+          sessions: [{ key: "main", kind: "direct", pinned: true, pinnedAt: 3 }],
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request);
+
+    await expect(patchSession(state, "main", { pinned: true })).resolves.toBe(true);
+
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.patch", {
+      key: "main",
+      pinned: true,
+    });
+    expect(state.sessionsResult?.sessions[0]?.pinned).toBe(true);
+  });
+
+  it("returns failure and exposes the gateway error when a patch is rejected", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.patch") {
+        throw new Error("duplicate session label");
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request);
+
+    await expect(patchSession(state, "main", { label: "Existing" })).resolves.toBe(false);
+
+    expect(state.sessionsError).toBe("Error: duplicate session label");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it("passes selected agent scope for global patches", async () => {
     const request = vi.fn(async () => ({ ok: true }));
     const state = createState(request, {
@@ -547,6 +681,41 @@ describe("patchSession", () => {
       key: "global",
       agentId: "work",
       fastMode: true,
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.list", {
+      includeGlobal: true,
+      includeUnknown: true,
+      configuredAgentsOnly: true,
+      agentId: "work",
+    });
+  });
+
+  it("keeps the original global agent scope when selection changes during a patch", async () => {
+    const patchResponse = createDeferred<unknown>();
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.patch") {
+        return patchResponse.promise;
+      }
+      if (method === "sessions.list") {
+        return undefined;
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request, {
+      assistantAgentId: "work",
+      agentsList: { defaultId: "main" },
+    });
+
+    const patch = patchSession(state, "global", { label: "Work chat" });
+    state.assistantAgentId = "main";
+    patchResponse.resolve({ ok: true });
+
+    await expect(patch).resolves.toBe(true);
+
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.patch", {
+      key: "global",
+      agentId: "work",
+      label: "Work chat",
     });
     expect(request).toHaveBeenNthCalledWith(2, "sessions.list", {
       includeGlobal: true,
@@ -1068,6 +1237,58 @@ describe("loadSessions", () => {
     });
     expect(state.sessionsResult?.ts).toBe(2);
     expect(state.sessionsLoading).toBe(false);
+  });
+
+  it("discards a session-scoped refresh after the selected chat changes", async () => {
+    const response = createDeferred<SessionsListResult>();
+    const request = vi.fn(async (method: string) => {
+      if (method !== "sessions.list") {
+        throw new Error(`unexpected method: ${method}`);
+      }
+      return response.promise;
+    });
+    const state = createState(request, {
+      sessionKey: "agent:main:first",
+    } as Partial<SessionsState & { sessionKey: string }>) as SessionsState & {
+      sessionKey: string;
+    };
+
+    const load = loadSessions(state, { expectedSessionKey: "agent:main:first" });
+    state.sessionKey = "agent:main:second";
+    response.resolve({
+      ts: 1,
+      path: "(multiple)",
+      count: 1,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      sessions: [{ key: "agent:main:first", kind: "direct", updatedAt: 1 }],
+    });
+
+    await load;
+
+    expect(state.sessionsResult).toBeNull();
+  });
+
+  it("does not surface a stale session refresh error in the new chat", async () => {
+    const response = createDeferred<SessionsListResult>();
+    const request = vi.fn(async (method: string) => {
+      if (method !== "sessions.list") {
+        throw new Error(`unexpected method: ${method}`);
+      }
+      return response.promise;
+    });
+    const state = createState(request, {
+      sessionKey: "agent:main:first",
+    } as Partial<SessionsState & { sessionKey: string }>) as SessionsState & {
+      sessionKey: string;
+    };
+
+    const load = loadSessions(state, { expectedSessionKey: "agent:main:first" });
+    state.sessionKey = "agent:main:second";
+    response.reject(new Error("stale refresh failed"));
+
+    await load;
+
+    expect(state.sessionsError).toBeNull();
   });
 
   it("refreshes expanded checkpoint cards when the row summary changes", async () => {
@@ -1714,6 +1935,57 @@ describe("applySessionsChangedEvent", () => {
     expect(state.chatStreamStartedAt).toBeNull();
     expect(state.chatRunStatus).toBeUndefined();
     expect(requestUpdate).toHaveBeenCalled();
+  });
+
+  it("reports terminal transitions for offscreen sessions", () => {
+    const state = {
+      ...createState(async () => undefined, {
+        sessionsResult: {
+          ts: 1,
+          path: "(multiple)",
+          count: 2,
+          defaults: { modelProvider: null, model: null, contextTokens: null },
+          sessions: [
+            {
+              key: "agent:main:offscreen",
+              kind: "direct",
+              updatedAt: 1,
+              hasActiveRun: true,
+              status: "running",
+            },
+            {
+              key: "agent:main:visible",
+              kind: "direct",
+              updatedAt: 1,
+              hasActiveRun: false,
+              status: "done",
+            },
+          ],
+        },
+      }),
+      sessionKey: "agent:main:visible",
+      chatRunId: null,
+    } as SessionsState & { sessionKey: string; chatRunId: string | null };
+
+    const applied = applySessionsChangedEvent(state, {
+      sessionKey: "agent:main:offscreen",
+      sessionId: "sess-offscreen",
+      runId: "run-offscreen",
+      status: "done",
+      hasActiveRun: false,
+      endedAt: 2,
+      ts: 2,
+    });
+
+    expect(applied).toEqual({
+      applied: true,
+      change: "updated",
+      clearedSessionRunStatus: {
+        phase: "done",
+        runId: "run-offscreen",
+        sessionKey: "agent:main:offscreen",
+      },
+    });
   });
 
   it("clears the local chat run when a lifecycle patch maps the client run id", () => {

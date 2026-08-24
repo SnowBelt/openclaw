@@ -1,3 +1,5 @@
+import { areUiSessionKeysEquivalent } from "../session-key.ts";
+import { isSessionRunActive } from "../session-run-state.ts";
 import type { SessionsListResult } from "../types.ts";
 import type { ChatQueueItem } from "../ui-types.ts";
 import {
@@ -129,6 +131,9 @@ function sessionTitle(row: NonNullable<SessionsListResult["sessions"]>[number]):
 
 function taskStatusLabel(status: string | undefined): string {
   switch (status) {
+    case "active":
+    case "working":
+      return "Working";
     case "running":
       return "Running";
     case "queued":
@@ -173,6 +178,16 @@ function itemRank(item: WorkSurfaceItem): number {
   return 5;
 }
 
+function goalHasRunningWorker(goal: ChatGoalFlowSummary): boolean {
+  const activeTasks = goal.taskSummary?.active;
+  const taskListHasRunningWorker =
+    goal.tasks?.some((task) => {
+      const status = normalizeText(task.status)?.toLowerCase();
+      return status === "active" || status === "running" || status === "working";
+    }) ?? false;
+  return (typeof activeTasks === "number" && activeTasks > 0) || taskListHasRunningWorker;
+}
+
 function goalStatusLabel(goal: ChatGoalFlowSummary): string {
   if (goal.cancelRequestedAt) {
     return "Stopping";
@@ -181,7 +196,7 @@ function goalStatusLabel(goal: ChatGoalFlowSummary): string {
     case "queued":
       return "Goal queued";
     case "running":
-      return goal.taskSummary?.active ? "Goal active · worker running" : "Goal active · waiting";
+      return goalHasRunningWorker(goal) ? "Goal active · worker running" : "Goal active · waiting";
     case "paused":
       return "Goal paused";
     case "waiting":
@@ -278,14 +293,13 @@ export function buildWorkSurfaceSnapshot(input: BuildWorkSurfaceSnapshotInput): 
 
   for (const row of input.sessionsResult?.sessions ?? []) {
     const hasExecutingRun =
-      row.hasActiveRun === true ||
+      isSessionRunActive(row) ||
       row.hasActiveSubagentRun === true ||
-      row.subagentRunState === "active" ||
-      row.status === "running";
+      row.subagentRunState === "active";
     if (!hasExecutingRun) {
       continue;
     }
-    if (chatRunId && currentSessionKey && row.key === currentSessionKey) {
+    if (chatRunId && currentSessionKey && areUiSessionKeysEquivalent(row.key, currentSessionKey)) {
       continue;
     }
     items.push({
@@ -328,7 +342,7 @@ export function isWorkSurfaceItemExecuting(item: WorkSurfaceItem): boolean {
   }
   if (item.kind === "task") {
     const status = normalizedItemStatus(item);
-    return status === "running" || status === "working";
+    return status === "active" || status === "running" || status === "working";
   }
   if (item.kind === "goal") {
     const status = normalizedItemStatus(item);

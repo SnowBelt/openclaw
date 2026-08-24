@@ -1,6 +1,6 @@
 // Control UI chat module implements run lifecycle behavior.
 import { resetToolStream, type CompactionStatus, type FallbackStatus } from "../app-tool-stream.ts";
-import { uiSessionRowMatchesSelectedChat } from "../session-key.ts";
+import { areUiSessionKeysEquivalent, uiSessionRowMatchesSelectedChat } from "../session-key.ts";
 import { isSessionRunActive } from "../session-run-state.ts";
 import type { GatewaySessionRow, SessionRunStatus, SessionsListResult } from "../types.ts";
 
@@ -152,7 +152,10 @@ function reconcileSessionRows(
     options.sessionStatus ?? (options.outcome === "done" ? ("done" as const) : ("killed" as const));
   let changed = false;
   const sessions = host.sessionsResult.sessions.map((row) => {
-    if (!keys.has(row.key)) {
+    if (
+      !keys.has(row.key) &&
+      !Array.from(keys).some((key) => uiSessionRowMatchesSelectedChat(host, row.key, key))
+    ) {
       return row;
     }
     const next = {
@@ -224,7 +227,9 @@ export function reconcileChatRunLifecycle(host: RunLifecycleHost, options: Recon
 }
 
 function currentSessionRow(host: RunLifecycleHost) {
-  return host.sessionsResult?.sessions.find((row) => row.key === host.sessionKey);
+  return host.sessionsResult?.sessions.find((row) =>
+    uiSessionRowMatchesSelectedChat(host, row.key, host.sessionKey),
+  );
 }
 
 // After a terminal chat event clears local run state, a racing sessions.list
@@ -236,7 +241,7 @@ function currentSessionRow(host: RunLifecycleHost) {
 // never cleared. (#87875)
 function reconcileStaleSelectedSessionRunAfterLocalCompletion(host: RunLifecycleHost): boolean {
   const recent = host.lastLocalTerminalReconcile;
-  if (!recent || recent.sessionKey !== host.sessionKey) {
+  if (!recent || !areUiSessionKeysEquivalent(recent.sessionKey, host.sessionKey)) {
     return false;
   }
   if (Date.now() - recent.occurredAt > STALE_ACTIVE_ROW_RECONCILE_WINDOW_MS) {

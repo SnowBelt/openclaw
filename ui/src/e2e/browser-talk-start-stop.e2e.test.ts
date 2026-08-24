@@ -118,22 +118,7 @@ describeControlUiE2e("Control UI browser Talk", () => {
     try {
       await page.goto(`${server.baseUrl}chat`);
       await page.setViewportSize({ width: 320, height: 720 });
-      await expect
-        .poll(() => page.getByRole("button", { name: "Microphone input" }).count())
-        .toBe(0);
-      const settings = page.getByRole("button", { name: "Chat settings" });
-      await settings.click();
-      const settingsDialog = page.getByRole("dialog", { name: "Chat settings" });
-      const microphoneSelect = settingsDialog.locator('[data-talk-select="microphone"] select');
-      await expect
-        .poll(async () =>
-          (await microphoneSelect.locator("option").allTextContents()).map((label) => label.trim()),
-        )
-        .toEqual(["System default", "Built-in Microphone", "USB Audio Interface"]);
-      await microphoneSelect.selectOption("usb");
-      await settings.click();
-      await expect.poll(() => settingsDialog.isVisible()).toBe(false);
-      await page.getByRole("button", { name: "Start voice input" }).click();
+      await page.getByRole("button", { name: "Start Talk" }).click();
 
       const createRequest = await gateway.waitForRequest("talk.client.create");
       expect(createRequest.params).toMatchObject({ sessionKey: "main" });
@@ -148,7 +133,7 @@ describeControlUiE2e("Control UI browser Talk", () => {
               ).openclawTalkE2eState?.constraints,
           ),
         )
-        .toEqual([{ audio: { deviceId: { exact: "usb" } } }]);
+        .toEqual([{ audio: true }]);
       await expect
         .poll(async () =>
           (await gateway.getSocketUrls()).filter((url) => url.includes("BidiGenerateContent")),
@@ -162,11 +147,11 @@ describeControlUiE2e("Control UI browser Talk", () => {
         .poll(async () =>
           (await page.locator(".agent-chat__talk-status-text").textContent())?.trim(),
         )
-        .toBe("Listening...");
+        .toBe("Talk live");
 
-      await page.getByRole("button", { name: "Stop voice input" }).click();
+      await page.getByRole("button", { name: "Stop Talk" }).click();
       await expect
-        .poll(() => page.getByRole("button", { name: "Start voice input" }).isVisible())
+        .poll(() => page.getByRole("button", { name: "Start Talk" }).isVisible())
         .toBe(true);
       await expect.poll(() => page.locator(".agent-chat__talk-status-text").count()).toBe(0);
       await expect
@@ -189,7 +174,7 @@ describeControlUiE2e("Control UI browser Talk", () => {
 
       await gateway.deliverLatest({ setupComplete: {} });
       await expect
-        .poll(() => page.getByRole("button", { name: "Start voice input" }).isVisible())
+        .poll(() => page.getByRole("button", { name: "Start Talk" }).isVisible())
         .toBe(true);
     } finally {
       await context.close();
@@ -197,43 +182,38 @@ describeControlUiE2e("Control UI browser Talk", () => {
     }
   });
 
-  it("keeps blocked microphone guidance readable in a narrow viewport", async () => {
+  it("shows a blocked microphone error in the Talk status area on a narrow viewport", async () => {
     const browser = await chromium.launch({ executablePath: chromiumExecutablePath });
     const context = await browser.newContext();
     const page = await context.newPage();
-    await installMockGateway(page);
+    await installMockGateway(page, {
+      methodResponses: {
+        "talk.client.create": {
+          provider: "google",
+          transport: "provider-websocket",
+          protocol: "google-live-bidi",
+          clientSecret: "auth_tokens/browser-talk-permission-e2e",
+          websocketUrl:
+            "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained",
+          audio: {
+            inputEncoding: "pcm16",
+            inputSampleRateHz: 16_000,
+            outputEncoding: "pcm16",
+            outputSampleRateHz: 24_000,
+          },
+        },
+      },
+    });
     await installBlockedMicrophoneFixture(page);
 
     try {
       await page.setViewportSize({ width: 320, height: 720 });
       await page.goto(`${server.baseUrl}chat`);
-      await page.getByRole("button", { name: "Chat settings" }).click();
+      await page.getByRole("button", { name: "Start Talk" }).click();
 
-      const settingsDialog = page.getByRole("dialog", { name: "Chat settings" });
-      await settingsDialog.getByRole("button", { name: "Refresh: Microphone input" }).click();
-      const permissionAlert = settingsDialog.getByRole("alert");
-      await expect.poll(() => permissionAlert.isVisible()).toBe(true);
-
-      const [settingsBounds, alertBounds] = await Promise.all([
-        settingsDialog.boundingBox(),
-        permissionAlert.boundingBox(),
-      ]);
-      expect(settingsBounds).not.toBeNull();
-      expect(alertBounds).not.toBeNull();
-      expect(settingsBounds?.width ?? 0).toBeGreaterThanOrEqual(280);
-      expect(settingsBounds?.x ?? 0).toBeGreaterThanOrEqual(8);
-      expect((settingsBounds?.x ?? 0) + (settingsBounds?.width ?? 0)).toBeLessThanOrEqual(312);
-      expect(alertBounds?.x ?? 0).toBeGreaterThanOrEqual(settingsBounds?.x ?? 0);
-      expect((alertBounds?.x ?? 0) + (alertBounds?.width ?? 0)).toBeLessThanOrEqual(
-        (settingsBounds?.x ?? 0) + (settingsBounds?.width ?? 0),
-      );
-      expect(alertBounds?.y ?? 0).toBeGreaterThanOrEqual(settingsBounds?.y ?? 0);
-      expect((alertBounds?.y ?? 0) + (alertBounds?.height ?? 0)).toBeLessThanOrEqual(
-        (settingsBounds?.y ?? 0) + (settingsBounds?.height ?? 0),
-      );
-      await expect
-        .poll(() => permissionAlert.textContent())
-        .toContain("Microphone access is blocked.");
+      const permissionAlert = page.locator('.agent-chat__talk-status[role="alert"]');
+      await permissionAlert.waitFor({ state: "visible", timeout: 10_000 });
+      await expect.poll(() => permissionAlert.textContent()).toContain("Permission denied");
     } finally {
       await context.close();
       await browser.close();

@@ -1,6 +1,7 @@
 // Control UI tests cover chat model select state behavior.
 import { describe, expect, it } from "vitest";
 import {
+  isChatModelValueUnavailable,
   resolveChatModelOverrideValue,
   resolveChatModelSelectState,
 } from "./chat-model-select-state.ts";
@@ -13,9 +14,7 @@ import {
 
 type ChatModelStateInput = Parameters<typeof resolveChatModelSelectState>[0];
 
-function createChatModelState(
-  params: Partial<Omit<ChatModelStateInput, "sessionKey">> = {},
-): ChatModelStateInput {
+function createChatModelState(params: Partial<ChatModelStateInput> = {}): ChatModelStateInput {
   return {
     sessionKey: "main",
     chatModelOverrides: {},
@@ -76,6 +75,27 @@ describe("chat-model-select-state", () => {
     });
 
     expect(resolveChatModelOverrideValue(state)).toBe("deepseek/deepseek-chat");
+  });
+
+  it("resolves the canonical default-main row for an aliased selected chat", () => {
+    const sessionsResult = createSessionsListResult({
+      model: "gpt-5-mini",
+      modelProvider: "openai",
+    });
+    const row = sessionsResult.sessions[0];
+    if (!row) {
+      throw new Error("expected a main session row");
+    }
+    row.key = "agent:main:main";
+
+    const state = createChatModelState({
+      sessionKey: "main",
+      sessionsResult,
+      chatModelCatalog: createModelCatalog(...DEFAULT_CHAT_MODEL_CATALOG),
+      chatModelOverrides: { "agent:main:main": { kind: "raw", value: "gpt-5" } },
+    });
+
+    expect(resolveChatModelOverrideValue(state)).toBe("openai/gpt-5");
   });
 
   it("falls back to the server-qualified value when catalog lookup fails", () => {
@@ -247,6 +267,65 @@ describe("chat-model-select-state", () => {
       {
         value: "anthropic/claude-3-7-sonnet-thinking",
         label: "Claude Sonnet · claude-3-7-sonnet-thinking · anthropic",
+      },
+    ]);
+  });
+
+  it("does not offer unavailable models as selectable options", () => {
+    const state = createChatModelState({
+      chatModelCatalog: createModelCatalog(
+        { id: "gpt-5.5", name: "GPT-5.5", provider: "openai", available: true },
+        {
+          id: "gpt-5.3-codex-spark",
+          name: "GPT-5.3 Codex Spark",
+          provider: "codex",
+          available: false,
+        },
+      ),
+      sessionsResult: createSessionsListResult({
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        defaultsModel: "gpt-5.5",
+        defaultsProvider: "openai",
+      }),
+    });
+
+    const resolved = resolveChatModelSelectState(state);
+    expect(resolved.options).toEqual([{ value: "openai/gpt-5.5", label: "GPT-5.5" }]);
+    expect(resolved.currentModelAvailable).toBe(true);
+    expect(isChatModelValueUnavailable("codex/gpt-5.3-codex-spark", state.chatModelCatalog)).toBe(
+      true,
+    );
+  });
+
+  it("preserves an unavailable current model and marks it for explicit replacement", () => {
+    const state = createChatModelState({
+      chatModelCatalog: createModelCatalog(
+        { id: "gpt-5.5", name: "GPT-5.5", provider: "openai", available: true },
+        {
+          id: "gpt-5.3-codex-spark",
+          name: "GPT-5.3 Codex Spark",
+          provider: "openai",
+          available: false,
+        },
+      ),
+      sessionsResult: createSessionsListResult({
+        model: "gpt-5.3-codex-spark",
+        modelProvider: "openai",
+        defaultsModel: "gpt-5.3-codex-spark",
+        defaultsProvider: "openai",
+      }),
+    });
+
+    const resolved = resolveChatModelSelectState(state);
+    expect(resolved.currentModelAvailable).toBe(false);
+    expect(resolved.defaultSelectable).toBe(false);
+    expect(resolved.options).toEqual([
+      { value: "openai/gpt-5.5", label: "GPT-5.5" },
+      {
+        value: "openai/gpt-5.3-codex-spark",
+        label: "Unavailable (gpt-5.3-codex-spark · openai)",
+        unavailable: true,
       },
     ]);
   });

@@ -27,6 +27,16 @@ function failedTool(timestamp: number) {
   };
 }
 
+function successfulTool(timestamp: number) {
+  return {
+    role: "toolResult",
+    toolName: "shell",
+    content: JSON.stringify({ status: "completed", exitCode: 0 }),
+    isError: false,
+    timestamp,
+  };
+}
+
 describeControlUiE2e("Control UI autonomous tool-turn outcomes", () => {
   beforeAll(async () => {
     server = await startControlUiE2eServer();
@@ -51,7 +61,7 @@ describeControlUiE2e("Control UI autonomous tool-turn outcomes", () => {
           senderLabel: "Forwarded from main",
           timestamp: 2,
         },
-        failedTool(3),
+        successfulTool(3),
         {
           role: "assistant",
           content: [{ type: "text", text: "Recovered on the next autonomous turn." }],

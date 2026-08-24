@@ -227,6 +227,11 @@ export type AppViewState = {
   chatSessionPickerLoading: boolean;
   chatSessionPickerError: string | null;
   chatSessionPickerResult: SessionsListResult | null;
+  chatSessionRenameKey: string | null;
+  chatSessionRenameDraft: string;
+  chatSessionRenameSurface: "desktop" | "mobile" | "sidebar" | null;
+  chatSessionRenameBusy: boolean;
+  chatSessionRenameError: string | null;
   projectsLoading?: boolean;
   projectsList?: ProjectsListResult | null;
   operationsLoading: boolean;
@@ -270,6 +275,8 @@ export type AppViewState = {
   announceSessionSwitch?: (sessionKey: string, label: string) => void;
   chatQueue: ChatQueueItem[];
   chatQueueBySession: Record<string, ChatQueueItem[]>;
+  chatQueuePaused: boolean;
+  chatQueuePausedBySession: Record<string, boolean>;
   chatMessagesBySession: ChatMessageCache;
   chatLocalInputHistoryBySession: Record<string, Array<{ text: string; ts: number }>>;
   chatInputHistorySessionKey: string | null;
@@ -859,6 +866,7 @@ export type AppViewState = {
     handleAbortChat: (opts?: ChatAbortOptions) => Promise<void>;
     removeQueuedMessage: (id: string) => void;
     retryQueuedChatMessage: (id: string) => Promise<void>;
+    toggleChatQueuePaused: () => boolean;
     handleChatScroll: (event: Event) => void;
     resetToolStream: () => void;
     resetChatScroll: () => void;

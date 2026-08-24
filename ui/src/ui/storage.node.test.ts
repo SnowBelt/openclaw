@@ -81,6 +81,16 @@ describe("loadSettings default gateway URL derivation", () => {
     expect(loadSettings().chatAutoScroll).toBe("near-bottom");
   });
 
+  it("defaults the legacy chat composer to Enter-to-send", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+
+    expect(loadSettings().chatSendShortcut).toBe("enter");
+  });
+
   it("reveals custom dashboards once when the surface registry changes", () => {
     setTestLocation({
       protocol: "https:",
@@ -436,6 +446,24 @@ describe("loadSettings default gateway URL derivation", () => {
       }),
     );
     expect(loadSettings().chatAutoScroll).toBe("near-bottom");
+  });
+
+  it("round-trips the modifier-enter chat send shortcut", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+
+    const settings = loadSettings();
+    saveSettings({ ...settings, chatSendShortcut: "modifier-enter" });
+
+    const gwUrl = expectedGatewayUrl("");
+    const persisted = JSON.parse(
+      localStorage.getItem(`openclaw.control.settings.v1:${gwUrl}`) ?? "{}",
+    ) as Record<string, unknown>;
+    expect(persisted.chatSendShortcut).toBe("modifier-enter");
+    expect(loadSettings().chatSendShortcut).toBe("modifier-enter");
   });
 
   it("clears the current-tab token when saving an empty token", () => {

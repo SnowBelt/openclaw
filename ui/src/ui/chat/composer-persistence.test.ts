@@ -58,6 +58,57 @@ describe("chat composer persistence", () => {
     expect(restored.chatQueue).toEqual(queue);
   });
 
+  it("restores a legacy canonical-main composer under the bare main alias", () => {
+    persistChatComposerState(
+      createState({
+        sessionKey: "agent:main:main",
+        chatMessage: "legacy main draft",
+      }),
+    );
+    const storageKey = sessionStorage.key(0);
+    const raw = storageKey ? sessionStorage.getItem(storageKey) : null;
+    if (!storageKey || !raw) {
+      throw new Error("Expected persisted composer state");
+    }
+    const parsed = JSON.parse(raw) as {
+      version: number;
+      sessions: Record<string, unknown>;
+    };
+    const canonicalKey = "main\u0000agent:main";
+    const legacyKey = "agent:main:main\u0000agent:main";
+    parsed.sessions[legacyKey] = parsed.sessions[canonicalKey];
+    delete parsed.sessions[canonicalKey];
+    sessionStorage.setItem(storageKey, JSON.stringify(parsed));
+
+    const restored = createState({ sessionKey: "main" });
+    expect(restoreChatComposerState(restored)).toBe(true);
+    expect(restored.chatMessage).toBe("legacy main draft");
+  });
+
+  it("persists a paused queue even after its last item is removed", () => {
+    persistChatComposerState(
+      createState({
+        chatQueue: [{ id: "paused-1", text: "wait for approval", createdAt: 1 }],
+        chatQueuePaused: true,
+      }),
+    );
+
+    const restored = createState();
+    expect(restoreChatComposerState(restored)).toBe(true);
+    expect(restored.chatQueue).toEqual([
+      { id: "paused-1", text: "wait for approval", createdAt: 1 },
+    ]);
+    expect(restored.chatQueuePaused).toBe(true);
+
+    removeStoredChatComposerQueueItem(restored, "agent:lily:main", "paused-1");
+    expect(
+      loadChatComposerSnapshot(
+        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        "agent:lily:main",
+      ),
+    ).toEqual({ draft: "", queue: [], queuePaused: true });
+  });
+
   it("preserves Skill Workshop revision metadata on queued sends", () => {
     persistChatComposerState(
       createState({
@@ -308,6 +359,7 @@ describe("chat composer persistence", () => {
     ).toEqual({
       draft: "keep this draft",
       queue: [{ id: "keep-me", text: "still queued", createdAt: 2 }],
+      queuePaused: false,
     });
   });
 

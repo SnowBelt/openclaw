@@ -20,6 +20,7 @@ import { buildChatItems, type BuildChatItemsProps } from "../chat/build-chat-ite
 import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState, resolveAssistantDisplayAvatar } from "../chat/chat-welcome.ts";
+import { copyToClipboard } from "../chat/clipboard.ts";
 import { renderContextNotice } from "../chat/context-notice.ts";
 import { summarizeControlDirectorDiagnostics } from "../chat/control-director-diagnostics.ts";
 import { DeletedMessages } from "../chat/deleted-messages.ts";
@@ -88,7 +89,9 @@ import type {
 } from "../controllers/exec-approval.ts";
 import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
+import { areUiSessionKeysEquivalent } from "../session-key.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
+import { normalizeChatSendShortcut, type ChatSendShortcut } from "../storage.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type {
   ProjectRecord,
@@ -125,7 +128,8 @@ function isCurrentSessionSubmittedProgress(
   status: ChatRunUiStatus | null | undefined,
 ): boolean {
   return (
-    item.sessionKey === sessionKey &&
+    item.sessionKey != null &&
+    areUiSessionKeysEquivalent(item.sessionKey, sessionKey) &&
     !item.pendingRunId &&
     (item.sendState === "sending" || item.sendState === "waiting-model") &&
     (status == null || item.sendRunId !== status.runId)
@@ -136,6 +140,7 @@ export type ChatProps = {
   sessionKey: string;
   onSessionKeyChange: (next: string) => void;
   thinkingLevel: string | null;
+  sendShortcut?: ChatSendShortcut;
   showThinking: boolean;
   showToolCalls: boolean;
   loading: boolean;
@@ -241,6 +246,8 @@ export type ChatProps = {
   onQueueRemove: (id: string) => void;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  queuePaused?: boolean;
+  onQueueTogglePause?: () => void;
   onWorkTaskCancel?: (taskId: string) => void;
   onGoalPanelToggle?: (open: boolean) => void;
   onGoalDraftChange?: (value: string) => void;
@@ -2541,7 +2548,9 @@ function resolveCurrentChatProject(props: ChatProps): {
   projectId: string | null;
   project: ProjectRecord | null;
 } {
-  const activeSession = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
+  const activeSession = props.sessions?.sessions?.find((row) =>
+    areUiSessionKeysEquivalent(row.key, props.sessionKey),
+  );
   const projectId =
     typeof activeSession?.projectId === "string" && activeSession.projectId.trim()
       ? activeSession.projectId.trim()
@@ -2760,8 +2769,12 @@ function renderPursueGoal(props: ChatProps) {
   const statusLabel = chatGoalStatusLabel(goal);
   const flowId = goal?.flowId ?? goal?.id ?? "";
   const activeTask =
-    goal?.tasks?.find((task) => task.status === "running" || task.status === "queued") ??
-    goal?.tasks?.[0];
+    goal?.tasks?.find((task) => {
+      const status = task.status?.trim().toLowerCase();
+      return (
+        status === "active" || status === "running" || status === "working" || status === "queued"
+      );
+    }) ?? goal?.tasks?.[0];
   const detail =
     goal?.blockedSummary ??
     activeTask?.progressSummary ??
@@ -3218,6 +3231,7 @@ function renderSlashMenu(
 
 export function renderChat(props: ChatProps) {
   const canCompose = props.connected;
+  const sendShortcut = normalizeChatSendShortcut(props.sendShortcut);
   const isBusy = props.sending || props.stream !== null;
   const canAbort = Boolean(props.canAbort && props.onAbort);
   const hasTerminalStatus = hasTerminalRunStatus(props.runStatus);
@@ -3231,7 +3245,9 @@ export function renderChat(props: ChatProps) {
       : props.runStatus;
   const compactBusy =
     props.compactionStatus?.phase === "active" || props.compactionStatus?.phase === "retrying";
-  const activeSession = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
+  const activeSession = props.sessions?.sessions?.find((row) =>
+    areUiSessionKeysEquivalent(row.key, props.sessionKey),
+  );
   const reasoningLevel = activeSession?.reasoningLevel ?? "off";
   const showReasoning = props.showThinking && reasoningLevel !== "off";
   const assistantIdentity = {
@@ -3280,13 +3296,12 @@ export function renderChat(props: ChatProps) {
       return;
     }
     const code = (btn as HTMLElement).dataset.code ?? "";
-    navigator.clipboard.writeText(code).then(
-      () => {
+    void copyToClipboard(code).then((copied) => {
+      if (copied) {
         btn.classList.add("copied");
         setTimeout(() => btn.classList.remove("copied"), 1500);
-      },
-      () => {},
-    );
+      }
+    });
   };
   const handleChatThreadScroll = (event: Event) => {
     maybeExpandChatHistoryRenderWindow(event, requestUpdate);
@@ -3677,12 +3692,13 @@ export function renderChat(props: ChatProps) {
       return;
     }
 
-    // Send on Enter (without shift)
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Enter sends by default; modifier-enter keeps Enter available for multiline drafts.
+    const sendShortcutMatches = sendShortcut === "enter" || e.metaKey || e.ctrlKey;
+    if (e.key === "Enter" && !e.shiftKey && sendShortcutMatches) {
       if (e.isComposing || e.keyCode === 229) {
         return;
       }
-      if (!props.connected) {
+      if (!props.connected || !props.canSend) {
         return;
       }
       e.preventDefault();
@@ -3843,6 +3859,8 @@ export function renderChat(props: ChatProps) {
       ${renderChatApprovalCard(props)}
       ${renderChatQueue({
         queue: props.queue,
+        queuePaused: props.queuePaused,
+        onQueueTogglePause: props.onQueueTogglePause,
         canAbort: showAbortableUi,
         onQueueRetry: props.onQueueRetry,
         onQueueSteer: props.onQueueSteer,
@@ -3931,6 +3949,7 @@ export function renderChat(props: ChatProps) {
             aria-controls=${ifDefined(slashMenuVisible ? SLASH_MENU_LISTBOX_ID : undefined)}
             aria-activedescendant=${ifDefined(activeSlashMenuOptionId ?? undefined)}
             aria-describedby=${SLASH_MENU_ACTIVE_ANNOUNCEMENT_ID}
+            aria-keyshortcuts=${sendShortcut === "enter" ? "Enter" : "Control+Enter Meta+Enter"}
             @keydown=${handleKeyDown}
             @beforeinput=${handleBeforeInput}
             @input=${handleInput}
@@ -4017,6 +4036,7 @@ export function renderChat(props: ChatProps) {
             : nothing}
           ${renderChatRunControls({
             canAbort: showAbortableUi,
+            canSend: props.canSend,
             connected: props.connected,
             draft: visibleDraft,
             hasMessages: props.messages.length > 0,

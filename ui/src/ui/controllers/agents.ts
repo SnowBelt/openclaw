@@ -4,7 +4,7 @@ import {
   resolvePreferredServerChatModelValue,
 } from "../chat-model-ref.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
-import { resolveAgentIdFromSessionKey } from "../session-key.ts";
+import { areUiSessionKeysEquivalent, resolveAgentIdFromSessionKey } from "../session-key.ts";
 import type {
   AgentsListResult,
   ChatModelOverride,
@@ -225,7 +225,9 @@ function resolveEffectiveToolsModelKey(
     return "";
   }
   const catalog = state.chatModelCatalog ?? [];
-  const cachedOverride = state.chatModelOverrides?.[resolvedSessionKey];
+  const cachedOverride = Object.entries(state.chatModelOverrides ?? {}).find(([key]) =>
+    areUiSessionKeysEquivalent(key, resolvedSessionKey),
+  )?.[1];
   const defaults = state.sessionsResult?.defaults;
   const defaultModel = resolvePreferredServerChatModelValue(
     defaults?.model,
@@ -238,7 +240,9 @@ function resolveEffectiveToolsModelKey(
   if (cachedOverride) {
     return normalizeChatModelOverrideValue(cachedOverride, catalog);
   }
-  const activeRow = state.sessionsResult?.sessions?.find((row) => row.key === resolvedSessionKey);
+  const activeRow = state.sessionsResult?.sessions?.find((row) =>
+    areUiSessionKeysEquivalent(row.key, resolvedSessionKey),
+  );
   if (activeRow?.model) {
     return resolvePreferredServerChatModelValue(activeRow.model, activeRow.modelProvider, catalog);
   }

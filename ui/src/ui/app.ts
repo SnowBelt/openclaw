@@ -28,6 +28,7 @@ import {
   removeQueuedMessage as removeQueuedMessageInternal,
   resetChatInputHistoryNavigation as resetChatInputHistoryNavigationInternal,
   retryQueuedChatMessage as retryQueuedChatMessageInternal,
+  toggleChatQueuePaused as toggleChatQueuePausedInternal,
   steerQueuedChatMessage as steerQueuedChatMessageInternal,
   type ChatInputHistoryKeyInput,
   type ChatInputHistoryKeyResult,
@@ -475,6 +476,11 @@ export class OpenClawApp extends LitElement {
   @state() chatSessionPickerLoading = false;
   @state() chatSessionPickerError: string | null = null;
   @state() chatSessionPickerResult: SessionsListResult | null = null;
+  @state() chatSessionRenameKey: string | null = null;
+  @state() chatSessionRenameDraft = "";
+  @state() chatSessionRenameSurface: "desktop" | "mobile" | "sidebar" | null = null;
+  @state() chatSessionRenameBusy = false;
+  @state() chatSessionRenameError: string | null = null;
   @state() projectsLoading = false;
   @state() projectsList: ProjectsListResult | null = null;
   @state() operationsLoading = false;
@@ -519,9 +525,12 @@ export class OpenClawApp extends LitElement {
     sessionKey: string;
     chatMessage: string;
     chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
   } | null = null;
   @state() chatQueue: ChatQueueItem[] = [];
   @state() chatQueueBySession: Record<string, ChatQueueItem[]> = {};
+  @state() chatQueuePaused = false;
+  @state() chatQueuePausedBySession: Record<string, boolean> = {};
   @state() chatMessagesBySession: ChatMessageCache = new Map();
   @state() chatAttachments: ChatAttachment[] = [];
   @state() realtimeTalkActive = false;
@@ -1050,6 +1059,38 @@ export class OpenClawApp extends LitElement {
       }
     }
   };
+  private chatComposerKeydownHandler = (e: KeyboardEvent) => {
+    if (
+      this.tab !== "chat" ||
+      e.defaultPrevented ||
+      e.isComposing ||
+      e.metaKey ||
+      e.ctrlKey ||
+      e.altKey ||
+      e.key.length !== 1
+    ) {
+      return;
+    }
+    const target = e.target;
+    if (
+      target instanceof Element &&
+      target.closest("input, textarea, select, button, a, [contenteditable]")
+    ) {
+      return;
+    }
+    const composer = this.querySelector<HTMLTextAreaElement>(
+      ".agent-chat__composer-combobox > textarea",
+    );
+    if (!composer || composer.disabled) {
+      return;
+    }
+    composer.focus({ preventScroll: true });
+    const start = composer.selectionStart ?? composer.value.length;
+    const end = composer.selectionEnd ?? start;
+    composer.setRangeText(e.key, start, end, "end");
+    composer.dispatchEvent(new Event("input", { bubbles: true }));
+    e.preventDefault();
+  };
   private chatMobileControlsKeydownHandler = (e: KeyboardEvent) => {
     if (e.key !== "Escape") {
       return;
@@ -1154,6 +1195,7 @@ export class OpenClawApp extends LitElement {
       }
     };
     document.addEventListener("keydown", this.globalKeydownHandler);
+    document.addEventListener("keydown", this.chatComposerKeydownHandler);
     document.addEventListener("keydown", this.chatMobileControlsKeydownHandler);
     document.addEventListener("pointerdown", this.chatMobileControlsPointerdownHandler);
     this.addEventListener("pointerover", this.nativeTitleTooltipPointerOverHandler);
@@ -1175,6 +1217,7 @@ export class OpenClawApp extends LitElement {
 
   override disconnectedCallback() {
     document.removeEventListener("keydown", this.globalKeydownHandler);
+    document.removeEventListener("keydown", this.chatComposerKeydownHandler);
     this.nativeBridgeCleanup?.();
     this.nativeBridgeCleanup = null;
     document.removeEventListener("keydown", this.chatMobileControlsKeydownHandler);
@@ -1803,6 +1846,12 @@ export class OpenClawApp extends LitElement {
     await retryQueuedChatMessageInternal(
       this as unknown as Parameters<typeof retryQueuedChatMessageInternal>[0],
       id,
+    );
+  }
+
+  toggleChatQueuePaused() {
+    return toggleChatQueuePausedInternal(
+      this as unknown as Parameters<typeof toggleChatQueuePausedInternal>[0],
     );
   }
 

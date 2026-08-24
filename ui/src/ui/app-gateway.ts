@@ -7,6 +7,7 @@ import {
 import {
   clearPendingQueueItemsForRun,
   createChatSessionsLoadOverrides,
+  flushChatQueueForSessionAfterRunReconcile,
   flushChatQueueForEvent,
   hasReconnectableQueuedChatSends,
   markQueuedChatSendsWaitingForReconnect,
@@ -137,6 +138,7 @@ type GatewayHost = {
   sessionKey: string;
   sessionsShowArchived: boolean;
   chatRunId: string | null;
+  chatQueuePaused?: boolean;
   pendingAbort?: { runId?: string | null; sessionKey: string; agentId?: string } | null;
   refreshSessionsAfterChat: Map<string, ChatSessionRefreshTarget>;
   sessionsLoading?: boolean;
@@ -146,6 +148,7 @@ type GatewayHost = {
     sessionKey: string;
     chatMessage: string;
     chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
   } | null;
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalBusy: boolean;
@@ -700,7 +703,8 @@ function prepareHelloScopedComposerRestore(host: GatewayHost) {
   }
   if (
     host.chatMessage !== provisional.chatMessage ||
-    !chatQueueMatches(host.chatQueue, provisional.chatQueue)
+    !chatQueueMatches(host.chatQueue, provisional.chatQueue) ||
+    (host.chatQueuePaused === true) !== provisional.chatQueuePaused
   ) {
     return;
   }
@@ -712,6 +716,7 @@ function prepareHelloScopedComposerRestore(host: GatewayHost) {
   // draft so the scoped restore can replace it without clobbering user edits.
   host.chatMessage = "";
   host.chatQueue = [];
+  host.chatQueuePaused = false;
 }
 
 async function loadAgentsThenRefreshActiveTab(host: GatewayHost) {
@@ -1179,6 +1184,12 @@ function handleSessionMessageGatewayEvent(
       return;
     }
   }
+  if (result.applied && result.clearedSessionRunStatus) {
+    void flushChatQueueForSessionAfterRunReconcile(
+      host as unknown as Parameters<typeof flushChatQueueForSessionAfterRunReconcile>[0],
+      result.clearedSessionRunStatus.sessionKey,
+    );
+  }
   if (!sessionKey || !sessionMatchesHost) {
     return;
   }
@@ -1378,6 +1389,12 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
             | { clientRunId?: unknown; runId?: unknown; sessionKey?: unknown }
             | undefined,
           runIdBeforeApply,
+        );
+      }
+      if (result.clearedSessionRunStatus) {
+        void flushChatQueueForSessionAfterRunReconcile(
+          host as unknown as Parameters<typeof flushChatQueueForSessionAfterRunReconcile>[0],
+          result.clearedSessionRunStatus.sessionKey,
         );
       }
       return;

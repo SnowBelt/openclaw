@@ -1,6 +1,14 @@
 // Control UI chat module implements composer persistence behavior.
 import { getSafeSessionStorage } from "../../local-storage.ts";
-import { DEFAULT_AGENT_ID, normalizeAgentId, parseAgentSessionKey } from "../session-key.ts";
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_MAIN_KEY,
+  isUiGlobalSessionKey,
+  normalizeAgentId,
+  parseAgentSessionKey,
+  resolveUiConfiguredMainKey,
+} from "../session-key.ts";
+import { normalizeLowercaseStringOrEmpty } from "../string-coerce.ts";
 import type { ChatAttachment, ChatQueueItem, ChatQueueSkillWorkshopRevision } from "../ui-types.ts";
 import { getChatAttachmentDataUrl } from "./attachment-payload-store.ts";
 
@@ -20,11 +28,13 @@ type ChatComposerPersistenceState = {
   sessionKey: string;
   chatMessage: string;
   chatQueue: ChatQueueItem[];
+  chatQueuePaused?: boolean;
 };
 
 type StoredComposerSession = {
   draft?: string;
   queue?: ChatQueueItem[];
+  queuePaused?: boolean;
   updatedAt: number;
 };
 
@@ -79,7 +89,68 @@ function storageSessionKeyForState(
   sessionKey: string,
 ): string {
   const agentId = resolveComposerAgentScope(state, sessionKey);
-  return `${sessionKey}\u0000agent:${agentId}`;
+  const parsed = parseAgentSessionKey(sessionKey);
+  const normalizedSessionKey = normalizeLowercaseStringOrEmpty(parsed?.rest ?? sessionKey);
+  const configuredMainKey = resolveUiConfiguredMainKey(state);
+  const isConfiguredMainAlias =
+    !isUiGlobalSessionKey(sessionKey) &&
+    (normalizedSessionKey === DEFAULT_MAIN_KEY || normalizedSessionKey === configuredMainKey);
+  const canonicalSessionKey = isConfiguredMainAlias ? DEFAULT_MAIN_KEY : normalizedSessionKey;
+  return `${canonicalSessionKey}\u0000agent:${agentId}`;
+}
+
+function legacyStorageSessionKeyForState(
+  state: Pick<ChatComposerPersistenceState, "assistantAgentId" | "agentsList" | "hello">,
+  sessionKey: string,
+): string {
+  return `${sessionKey}\u0000agent:${resolveComposerAgentScope(state, sessionKey)}`;
+}
+
+function storageSessionKeysForState(
+  state: Pick<ChatComposerPersistenceState, "assistantAgentId" | "agentsList" | "hello">,
+  sessionKey: string,
+): string[] {
+  const canonical = storageSessionKeyForState(state, sessionKey);
+  const legacy = legacyStorageSessionKeyForState(state, sessionKey);
+  const agentId = resolveComposerAgentScope(state, sessionKey);
+  const parsed = parseAgentSessionKey(sessionKey);
+  const normalizedSessionKey = normalizeLowercaseStringOrEmpty(parsed?.rest ?? sessionKey);
+  const configuredMainKey = resolveUiConfiguredMainKey(state);
+  const isConfiguredMainAlias =
+    !isUiGlobalSessionKey(sessionKey) &&
+    (normalizedSessionKey === DEFAULT_MAIN_KEY || normalizedSessionKey === configuredMainKey);
+  if (canonical === legacy && !isConfiguredMainAlias) {
+    return [canonical];
+  }
+  const candidates = isConfiguredMainAlias
+    ? [canonical, legacy, `agent:${agentId}:${DEFAULT_MAIN_KEY}\u0000agent:${agentId}`]
+    : [canonical, legacy];
+  return candidates.filter((key, index, keys) => keys.indexOf(key) === index);
+}
+
+function resolveStoredComposerSession(
+  store: StoredComposerState,
+  state: Pick<ChatComposerPersistenceState, "assistantAgentId" | "agentsList" | "hello">,
+  sessionKey: string,
+): { key: string; session?: StoredComposerSession } {
+  const keys = storageSessionKeysForState(state, sessionKey);
+  for (const key of keys) {
+    const session = normalizeStoredSession(store.sessions[key]);
+    if (session) {
+      return { key, session };
+    }
+  }
+  return { key: keys[0] ?? storageSessionKeyForState(state, sessionKey) };
+}
+
+function removeLegacyComposerSessions(
+  store: StoredComposerState,
+  state: Pick<ChatComposerPersistenceState, "assistantAgentId" | "agentsList" | "hello">,
+  sessionKey: string,
+): void {
+  for (const key of storageSessionKeysForState(state, sessionKey).slice(1)) {
+    delete store.sessions[key];
+  }
 }
 
 function readStore(storage: Storage, key: string): StoredComposerState {
@@ -315,12 +386,14 @@ function normalizeStoredSession(value: unknown): StoredComposerSession | null {
         .map(normalizeQueueItem)
         .filter((item): item is ChatQueueItem => item !== null)
     : undefined;
-  if (!draft && (!queue || queue.length === 0)) {
+  const queuePaused = normalizeOptionalBoolean(entry.queuePaused) === true;
+  if (!draft && (!queue || queue.length === 0) && !queuePaused) {
     return null;
   }
   return {
     ...(draft ? { draft } : {}),
     ...(queue && queue.length > 0 ? { queue } : {}),
+    ...(queuePaused ? { queuePaused: true } : {}),
     updatedAt:
       typeof entry.updatedAt === "number" && Number.isFinite(entry.updatedAt)
         ? entry.updatedAt
@@ -334,21 +407,21 @@ export function loadChatComposerSnapshot(
     "settings" | "assistantAgentId" | "agentsList" | "hello"
   >,
   sessionKey: string,
-): { draft: string; queue: ChatQueueItem[] } | null {
+): { draft: string; queue: ChatQueueItem[]; queuePaused: boolean } | null {
   const storage = getSafeSessionStorage();
   if (!storage) {
     return null;
   }
   try {
     const key = storageKeyForGateway(state.settings?.gatewayUrl);
-    const storeSessionKey = storageSessionKeyForState(state, sessionKey);
-    const session = normalizeStoredSession(readStore(storage, key).sessions[storeSessionKey]);
-    if (!session) {
+    const stored = resolveStoredComposerSession(readStore(storage, key), state, sessionKey);
+    if (!stored.session) {
       return null;
     }
     return {
-      draft: session.draft ?? "",
-      queue: session.queue ?? [],
+      draft: stored.session.draft ?? "",
+      queue: stored.session.queue ?? [],
+      queuePaused: stored.session.queuePaused === true,
     };
   } catch {
     return null;
@@ -367,17 +440,20 @@ export function persistChatComposerState(
     const key = storageKeyForGateway(state.settings?.gatewayUrl);
     const store = readStore(storage, key);
     const storeSessionKey = storageSessionKeyForState(state, sessionKey);
+    removeLegacyComposerSessions(store, state, sessionKey);
     const draft = state.chatMessage;
     const queue = state.chatQueue
       .slice(0, MAX_STORED_QUEUE_ITEMS)
       .map(serializeQueueItem)
       .filter((item): item is ChatQueueItem => item !== null);
-    if (!draft && queue.length === 0) {
+    const queuePaused = state.chatQueuePaused === true;
+    if (!draft && queue.length === 0 && !queuePaused) {
       delete store.sessions[storeSessionKey];
     } else {
       store.sessions[storeSessionKey] = {
         ...(draft ? { draft } : {}),
         ...(queue.length > 0 ? { queue } : {}),
+        ...(queuePaused ? { queuePaused: true } : {}),
         updatedAt: Date.now(),
       };
     }
@@ -402,18 +478,21 @@ export function removeStoredChatComposerQueueItem(
   try {
     const key = storageKeyForGateway(state.settings?.gatewayUrl);
     const store = readStore(storage, key);
+    const stored = resolveStoredComposerSession(store, state, sessionKey);
     const storeSessionKey = storageSessionKeyForState(state, sessionKey);
-    const session = normalizeStoredSession(store.sessions[storeSessionKey]);
+    const session = stored.session;
     if (!session?.queue?.length) {
       return;
     }
+    removeLegacyComposerSessions(store, state, sessionKey);
     const queue = session.queue.filter((item) => item.id !== id);
-    if (!session.draft && queue.length === 0) {
+    if (!session.draft && queue.length === 0 && session.queuePaused !== true) {
       delete store.sessions[storeSessionKey];
     } else {
       store.sessions[storeSessionKey] = {
         ...(session.draft ? { draft: session.draft } : {}),
         ...(queue.length ? { queue } : {}),
+        ...(session.queuePaused ? { queuePaused: true } : {}),
         updatedAt: Date.now(),
       };
     }
@@ -430,6 +509,7 @@ export function persistStoredChatComposerQueue(
   >,
   sessionKey: string,
   queue: ChatQueueItem[],
+  queuePaused?: boolean,
 ): void {
   const storage = getSafeSessionStorage();
   if (!storage || !sessionKey.trim()) {
@@ -438,18 +518,22 @@ export function persistStoredChatComposerQueue(
   try {
     const key = storageKeyForGateway(state.settings?.gatewayUrl);
     const store = readStore(storage, key);
+    const stored = resolveStoredComposerSession(store, state, sessionKey);
     const storeSessionKey = storageSessionKeyForState(state, sessionKey);
-    const session = normalizeStoredSession(store.sessions[storeSessionKey]);
+    const session = stored.session;
+    removeLegacyComposerSessions(store, state, sessionKey);
+    const nextQueuePaused = queuePaused ?? session?.queuePaused === true;
     const serializedQueue = queue
       .slice(0, MAX_STORED_QUEUE_ITEMS)
       .map(serializeQueueItem)
       .filter((item): item is ChatQueueItem => item !== null);
-    if (!session?.draft && serializedQueue.length === 0) {
+    if (!session?.draft && serializedQueue.length === 0 && !nextQueuePaused) {
       delete store.sessions[storeSessionKey];
     } else {
       store.sessions[storeSessionKey] = {
         ...(session?.draft ? { draft: session.draft } : {}),
         ...(serializedQueue.length ? { queue: serializedQueue } : {}),
+        ...(nextQueuePaused ? { queuePaused: true } : {}),
         updatedAt: Date.now(),
       };
     }
@@ -473,6 +557,9 @@ export function restoreChatComposerState(
   }
   if ((!options.preserveCurrent && snapshot.queue.length > 0) || state.chatQueue.length === 0) {
     state.chatQueue = snapshot.queue;
+  }
+  if (!options.preserveCurrent || !state.chatQueuePaused) {
+    state.chatQueuePaused = snapshot.queuePaused;
   }
   return true;
 }

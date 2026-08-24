@@ -14,6 +14,7 @@ import {
 import type { GatewayBrowserClient } from "../gateway.ts";
 import { DEFAULT_AGENT_ID, DEFAULT_MAIN_KEY, parseAgentSessionKey } from "../session-key.ts";
 import { sessionModelMatchesDefaults } from "../session-model-defaults.ts";
+import { isSessionRunActive } from "../session-run-state.ts";
 import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalLowercaseString,
@@ -793,7 +794,10 @@ async function resolveSteerTarget(
 }
 
 function isActiveSteerSession(session: GatewaySessionRow | undefined): boolean {
-  return session?.status === "running" && session.endedAt == null;
+  if (!session || session.endedAt != null) {
+    return false;
+  }
+  return isSessionRunActive(session);
 }
 
 type SteerChatSendAckStatus = "started" | "in_flight" | "ok" | "timeout" | "error";

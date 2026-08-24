@@ -1,7 +1,8 @@
 // Control UI chat module implements session controls behavior.
-import { html } from "lit";
+import { html, nothing } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { t } from "../../i18n/index.ts";
+import "../../components/modal-dialog.ts";
 import {
   createChatSessionsLoadOverrides,
   scopedAgentListParamsForSession,
@@ -14,7 +15,7 @@ import {
   resolveChatModelSelectState,
 } from "../chat-model-select-state.ts";
 import { refreshVisibleToolsEffectiveForCurrentSession } from "../controllers/agents.ts";
-import { loadSessions } from "../controllers/sessions.ts";
+import { loadSessions, patchSession } from "../controllers/sessions.ts";
 import { formatDateTimeMs } from "../format.ts";
 import { icons } from "../icons.ts";
 import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
@@ -23,6 +24,7 @@ import { collectQuotaWindowsFromAuthStatus, formatQuotaReset } from "../provider
 import { pushUniqueTrimmedSelectOption } from "../select-options.ts";
 import { isCronSessionKey, resolveSessionDisplayName } from "../session-display.ts";
 import {
+  areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
   isSessionKeyTiedToAgent,
   isSubagentSessionKey,
@@ -43,10 +45,16 @@ import {
   normalizeThinkLevel,
   resolveThinkingDefaultForModel,
 } from "../thinking.ts";
-import type { FastMode, GatewayThinkingLevelOption, SessionsListResult } from "../types.ts";
+import type {
+  ChatModelOverride,
+  FastMode,
+  GatewayThinkingLevelOption,
+  SessionsListResult,
+} from "../types.ts";
 
 type ChatSessionSwitchHandler = (state: AppViewState, nextSessionKey: string) => void;
 type ChatSessionSelectSurface = "desktop" | "mobile" | "sidebar";
+type ChatSessionRow = SessionsListResult["sessions"][number];
 type ChatSessionPickerSearchController = {
   activeRequestId: number | null;
   activeRequestSignature: string | null;
@@ -58,6 +66,7 @@ type ChatInlineSelectOption = {
   value: string;
   label: string;
   group?: string;
+  unavailable?: boolean;
 };
 
 const FAST_MODE_PROVIDER_IDS = new Set([
@@ -74,11 +83,70 @@ const chatSessionPickerSearchControllers = new WeakMap<
   AppViewState,
   ChatSessionPickerSearchController
 >();
+type ChatSessionControlKind = "fast-mode" | "model" | "thinking";
+
+const chatSessionControlGenerations = new WeakMap<AppViewState, Map<string, number>>();
+
+function beginChatSessionControl(
+  state: AppViewState,
+  sessionKey: string,
+  kind: ChatSessionControlKind,
+): number {
+  let generations = chatSessionControlGenerations.get(state);
+  if (!generations) {
+    generations = new Map();
+    chatSessionControlGenerations.set(state, generations);
+  }
+  const controlKey = `${kind}:${sessionKey}`;
+  const next = (generations.get(controlKey) ?? 0) + 1;
+  generations.set(controlKey, next);
+  return next;
+}
+
+function isLatestChatSessionControl(
+  state: AppViewState,
+  sessionKey: string,
+  kind: ChatSessionControlKind,
+  generation: number,
+): boolean {
+  return chatSessionControlGenerations.get(state)?.get(`${kind}:${sessionKey}`) === generation;
+}
 
 function setChatError(state: AppViewState, error: string | null) {
   state.lastError = error;
   state.chatError = error;
 }
+
+function findEquivalentChatSessionRow(
+  rows: readonly ChatSessionRow[] | undefined,
+  sessionKey: string,
+): ChatSessionRow | undefined {
+  return rows?.find((row) => areUiSessionKeysEquivalent(row.key, sessionKey));
+}
+
+function replaceChatModelOverride(
+  state: AppViewState,
+  sessionKey: string,
+  override: ChatModelOverride | null | undefined,
+): Record<string, ChatModelOverride | null> {
+  const next = { ...state.chatModelOverrides };
+  for (const key of Object.keys(next)) {
+    if (key !== sessionKey && areUiSessionKeysEquivalent(key, sessionKey)) {
+      delete next[key];
+    }
+  }
+  if (override === undefined) {
+    delete next[sessionKey];
+  } else {
+    next[sessionKey] = override;
+  }
+  return next;
+}
+
+export type ChatModelSelectActions = {
+  onSetControlDirectorDefault?: (model: string) => Promise<boolean>;
+  controlDirectorDefaultBusy?: boolean;
+};
 
 export function renderChatSessionSelect(
   state: AppViewState,
@@ -104,7 +172,9 @@ export function renderChatSessionSelect(
   const surface = options.surface ?? "desktop";
   const selectedSessionLabel = resolveSelectedChatSessionLabel(state, sessionGroups);
   const pickerOpen = state.chatSessionPickerOpen && state.chatSessionPickerSurface === surface;
-  const flashSession = state.sessionSwitchFlashKey === state.sessionKey;
+  const flashSession =
+    state.sessionSwitchFlashKey !== null &&
+    areUiSessionKeysEquivalent(state.sessionSwitchFlashKey, state.sessionKey);
   const rowClass = [
     "chat-controls__session-row",
     sessionSwitcherOnly ? "chat-controls__session-row--session-switcher" : "",
@@ -147,11 +217,34 @@ function resolveNextChatSessionOffset(
   return sessions.sessions.length;
 }
 
-async function refreshSessionOptions(state: AppViewState) {
+function isCurrentChatControlRequest(
+  state: AppViewState,
+  client: NonNullable<AppViewState["client"]>,
+  sessionKey: string,
+): boolean {
+  return (
+    state.client === client &&
+    state.connected &&
+    areUiSessionKeysEquivalent(state.sessionKey, sessionKey)
+  );
+}
+
+async function refreshSessionOptions(
+  state: AppViewState,
+  requestContext?: { client: NonNullable<AppViewState["client"]>; sessionKey: string },
+) {
+  if (
+    requestContext &&
+    !isCurrentChatControlRequest(state, requestContext.client, requestContext.sessionKey)
+  ) {
+    return false;
+  }
   await loadSessions(state as unknown as Parameters<typeof loadSessions>[0], {
     ...createChatSessionsLoadOverrides(state),
     ...scopedAgentListParamsForSession(state, state.sessionKey),
+    ...(requestContext ? { expectedSessionKey: requestContext.sessionKey } : {}),
   });
+  return true;
 }
 
 function requestHostUpdate(state: AppViewState) {
@@ -261,6 +354,137 @@ function closeChatSessionPicker(state: AppViewState) {
   requestHostUpdate(state);
 }
 
+export function openChatSessionRename(
+  state: AppViewState,
+  row: SessionsListResult["sessions"][number],
+  surface: ChatSessionSelectSurface,
+) {
+  clearChatSessionPickerSearchTimer(state);
+  state.chatSessionPickerOpen = false;
+  state.chatSessionPickerSurface = null;
+  state.chatSessionRenameKey = row.key;
+  state.chatSessionRenameDraft = resolveSessionDisplayName(row.key, row);
+  state.chatSessionRenameSurface = surface;
+  state.chatSessionRenameBusy = false;
+  state.chatSessionRenameError = null;
+  requestHostUpdate(state);
+}
+
+export function toggleChatSessionPinned(
+  state: AppViewState,
+  row: SessionsListResult["sessions"][number],
+) {
+  if (!state.connected || !state.client) {
+    return;
+  }
+  void patchSession(state, row.key, { pinned: row.pinned !== true });
+}
+
+function closeChatSessionRename(state: AppViewState) {
+  if (state.chatSessionRenameBusy) {
+    return;
+  }
+  state.chatSessionRenameKey = null;
+  state.chatSessionRenameDraft = "";
+  state.chatSessionRenameSurface = null;
+  state.chatSessionRenameError = null;
+  requestHostUpdate(state);
+}
+
+async function submitChatSessionRename(state: AppViewState) {
+  const key = state.chatSessionRenameKey;
+  if (!key || state.chatSessionRenameBusy) {
+    return;
+  }
+  state.chatSessionRenameBusy = true;
+  state.chatSessionRenameError = null;
+  requestHostUpdate(state);
+
+  const updated = await patchSession(state, key, {
+    label: normalizeOptionalString(state.chatSessionRenameDraft) ?? null,
+  });
+  if (state.chatSessionRenameKey !== key) {
+    return;
+  }
+  state.chatSessionRenameBusy = false;
+  if (!updated) {
+    state.chatSessionRenameError = state.sessionsError ?? "Could not rename this chat.";
+    requestHostUpdate(state);
+    return;
+  }
+  closeChatSessionRename(state);
+}
+
+function renderChatSessionRenameDialog(state: AppViewState, surface: ChatSessionSelectSurface) {
+  const key = state.chatSessionRenameKey;
+  if (!key || state.chatSessionRenameSurface !== surface) {
+    return nothing;
+  }
+  const row = resolveChatSessionRow(state, key);
+  const label = row ? resolveSessionDisplayName(row.key, row) : key;
+  const title = t("sessionsView.renameSession");
+  return html`
+    <openclaw-modal-dialog
+      label=${title}
+      description=${`${title}: ${label}`}
+      @modal-cancel=${() => closeChatSessionRename(state)}
+    >
+      <div class="session-rename-dialog">
+        <div class="session-rename-dialog__header">
+          <div class="session-rename-dialog__title">${title}</div>
+          <div class="session-rename-dialog__subtitle">${label}</div>
+        </div>
+        <label class="field session-rename-dialog__field">
+          <span>${t("sessionsView.renameSessionPrompt")}</span>
+          <input
+            data-chat-session-rename-input="true"
+            type="text"
+            maxlength="512"
+            autocomplete="off"
+            .value=${state.chatSessionRenameDraft}
+            ?disabled=${state.chatSessionRenameBusy}
+            autofocus
+            @input=${(event: Event) => {
+              state.chatSessionRenameDraft = (event.target as HTMLInputElement).value;
+            }}
+            @keydown=${(event: KeyboardEvent) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void submitChatSessionRename(state);
+              }
+            }}
+          />
+        </label>
+        ${state.chatSessionRenameError
+          ? html`<div class="session-rename-dialog__error" role="alert">
+              ${state.chatSessionRenameError}
+            </div>`
+          : nothing}
+        <div class="exec-approval-actions">
+          <button
+            class="btn primary"
+            data-chat-session-rename-save="true"
+            type="button"
+            ?disabled=${state.chatSessionRenameBusy}
+            @click=${() => void submitChatSessionRename(state)}
+          >
+            ${state.chatSessionRenameBusy ? t("common.loading") : t("common.save")}
+          </button>
+          <button
+            class="btn"
+            data-chat-session-rename-cancel="true"
+            type="button"
+            ?disabled=${state.chatSessionRenameBusy}
+            @click=${() => closeChatSessionRename(state)}
+          >
+            ${t("common.cancel")}
+          </button>
+        </div>
+      </div>
+    </openclaw-modal-dialog>
+  `;
+}
+
 export function resetChatSessionPickerState(state: AppViewState) {
   clearChatSessionPickerSearchTimer(state);
   invalidateChatSessionPickerSearchRequests(state);
@@ -271,6 +495,11 @@ export function resetChatSessionPickerState(state: AppViewState) {
   state.chatSessionPickerLoading = false;
   state.chatSessionPickerError = null;
   state.chatSessionPickerResult = null;
+  state.chatSessionRenameKey = null;
+  state.chatSessionRenameDraft = "";
+  state.chatSessionRenameSurface = null;
+  state.chatSessionRenameBusy = false;
+  state.chatSessionRenameError = null;
 }
 
 function toggleChatSessionPicker(state: AppViewState, surface: ChatSessionSelectSurface) {
@@ -296,8 +525,9 @@ function createChatSessionPickerRequestParams(
     limit: overrides.limit,
   };
   const activeAgentSession = parseAgentSessionKey(state.sessionKey);
-  const activeSessionRow = state.sessionsResult?.sessions.find(
-    (row) => row.key === state.sessionKey,
+  const activeSessionRow = findEquivalentChatSessionRow(
+    state.sessionsResult?.sessions,
+    state.sessionKey,
   );
   const isGlobalScopeSession =
     activeSessionRow?.kind === "global" ||
@@ -499,8 +729,8 @@ function resolveChatSessionRow(
   sessionKey: string,
 ): SessionsListResult["sessions"][number] | undefined {
   return (
-    state.sessionsResult?.sessions.find((row) => row.key === sessionKey) ??
-    state.chatSessionPickerResult?.sessions.find((row) => row.key === sessionKey)
+    findEquivalentChatSessionRow(state.sessionsResult?.sessions, sessionKey) ??
+    findEquivalentChatSessionRow(state.chatSessionPickerResult?.sessions, sessionKey)
   );
 }
 
@@ -519,13 +749,16 @@ function resolveChatSessionPickerRows(
   state: AppViewState,
   result: SessionsListResult | null,
 ): { row: SessionsListResult["sessions"][number]; label: string }[] {
-  const rowsByKey = new Map((result?.sessions ?? []).map((row) => [row.key, row] as const));
+  const rows = result?.sessions ?? [];
   return resolveSessionOptionGroups(state, state.sessionKey, result)
     .flatMap((group) => group.options)
-    .filter((option) => rowsByKey.has(option.key))
+    .map((option) => ({ option, row: findEquivalentChatSessionRow(rows, option.key) }))
+    .filter((entry): entry is { option: SessionOptionEntry; row: ChatSessionRow } =>
+      Boolean(entry.row),
+    )
     .map((option) => ({
-      row: rowsByKey.get(option.key)!,
-      label: option.label,
+      row: option.row,
+      label: option.option.label,
     }));
 }
 
@@ -539,8 +772,10 @@ function resolveSelectedChatSessionLabel(
     return displayName;
   }
   return (
-    sessionGroups.flatMap((group) => group.options).find((entry) => entry.key === state.sessionKey)
-      ?.label ?? state.sessionKey
+    sessionGroups
+      .flatMap((group) => group.options)
+      .find((entry) => areUiSessionKeysEquivalent(entry.key, state.sessionKey))?.label ??
+    state.sessionKey
   );
 }
 
@@ -600,7 +835,10 @@ function renderChatSessionPicker(params: {
           ${icons.chevronDown}
         </span>
       </button>
-      ${pickerOpen ? renderChatSessionPickerPopover(state, onSwitchSession, pickerId) : ""}
+      ${pickerOpen
+        ? renderChatSessionPickerPopover(state, onSwitchSession, pickerId, surface)
+        : nothing}
+      ${renderChatSessionRenameDialog(state, surface)}
     </div>
   `;
 }
@@ -609,6 +847,7 @@ function renderChatSessionPickerPopover(
   state: AppViewState,
   onSwitchSession: ChatSessionSwitchHandler,
   pickerId: string,
+  surface: ChatSessionSelectSurface,
 ) {
   const result = resolveChatSessionPickerResult(state);
   const pickerRows = resolveChatSessionPickerRows(state, result);
@@ -713,35 +952,72 @@ function renderChatSessionPickerPopover(
           (entry) => {
             const { row, label } = entry;
             const meta = formatChatSessionPickerMeta(row);
-            const selected = row.key === state.sessionKey;
+            const selected = areUiSessionKeysEquivalent(row.key, state.sessionKey);
             return html`
-              <button
-                class="chat-session-picker__option ${selected
-                  ? "chat-session-picker__option--selected"
-                  : ""}"
-                data-chat-session-picker-option="true"
-                data-session-key=${row.key}
-                role="option"
-                aria-selected=${selected ? "true" : "false"}
-                title=${label}
-                type="button"
-                @click=${() => {
-                  closeChatSessionPicker(state);
-                  if (row.key !== state.sessionKey) {
-                    onSwitchSession(state, row.key);
-                  }
-                }}
-              >
-                <span class="chat-session-picker__option-main">
-                  <span class="chat-session-picker__option-label">${label}</span>
-                  ${meta ? html`<span class="chat-session-picker__option-meta">${meta}</span>` : ""}
-                </span>
-                ${selected
-                  ? html`<span class="chat-session-picker__option-check" aria-hidden="true">
-                      ${icons.check}
-                    </span>`
-                  : ""}
-              </button>
+              <div class="chat-session-picker__option-row">
+                <button
+                  class="chat-session-picker__option ${selected
+                    ? "chat-session-picker__option--selected"
+                    : ""}"
+                  data-chat-session-picker-option="true"
+                  data-session-key=${row.key}
+                  role="option"
+                  aria-selected=${selected ? "true" : "false"}
+                  title=${label}
+                  type="button"
+                  @click=${() => {
+                    closeChatSessionPicker(state);
+                    if (!areUiSessionKeysEquivalent(row.key, state.sessionKey)) {
+                      onSwitchSession(state, row.key);
+                    }
+                  }}
+                >
+                  <span class="chat-session-picker__option-main">
+                    <span class="chat-session-picker__option-label">${label}</span>
+                    ${meta
+                      ? html`<span class="chat-session-picker__option-meta">${meta}</span>`
+                      : nothing}
+                  </span>
+                  ${selected
+                    ? html`<span class="chat-session-picker__option-check" aria-hidden="true">
+                        ${icons.check}
+                      </span>`
+                    : nothing}
+                </button>
+                <button
+                  class="btn btn--ghost btn--icon chat-session-picker__option-action"
+                  data-chat-session-rename="true"
+                  data-session-key=${row.key}
+                  type="button"
+                  title=${t("sessionsView.renameSession")}
+                  aria-label=${`${t("sessionsView.renameSession")}: ${label}`}
+                  ?disabled=${controlsDisabled}
+                  @click=${(event: MouseEvent) => {
+                    event.stopPropagation();
+                    openChatSessionRename(state, row, surface);
+                  }}
+                >
+                  ${icons.penLine}
+                </button>
+                <button
+                  class="btn btn--ghost btn--icon chat-session-picker__option-action"
+                  data-chat-session-pin="true"
+                  data-session-key=${row.key}
+                  type="button"
+                  title=${row.pinned
+                    ? t("sessionsView.unpinSession")
+                    : t("sessionsView.pinSession")}
+                  aria-label=${`${row.pinned ? t("sessionsView.unpinSession") : t("sessionsView.pinSession")}: ${label}`}
+                  aria-pressed=${row.pinned ? "true" : "false"}
+                  ?disabled=${controlsDisabled}
+                  @click=${(event: MouseEvent) => {
+                    event.stopPropagation();
+                    toggleChatSessionPinned(state, row);
+                  }}
+                >
+                  ${row.pinned ? icons.pinOff : icons.pin}
+                </button>
+              </div>
             `;
           },
         )}
@@ -865,9 +1141,16 @@ async function refreshVisibleToolsEffectiveForCurrentSessionLazy(state: AppViewS
   return refreshVisibleToolsEffectiveForCurrentSession(state);
 }
 
-export function renderChatModelSelect(state: AppViewState) {
-  const { currentOverride, defaultLabel, options, optionGroups } =
-    resolveChatModelSelectState(state);
+export function renderChatModelSelect(state: AppViewState, actions: ChatModelSelectActions = {}) {
+  const {
+    currentOverride,
+    currentModelAvailable,
+    defaultSelectable,
+    defaultModel,
+    defaultLabel,
+    options,
+    optionGroups,
+  } = resolveChatModelSelectState(state);
   const thinking = resolveChatThinkingSelectState(state);
   const fastMode = resolveChatFastModeSelectState(state, currentOverride);
   const busy =
@@ -883,17 +1166,27 @@ export function renderChatModelSelect(state: AppViewState) {
     busy ||
     !state.client ||
     (thinking.options.length === 0 && thinking.currentOverride === "");
+  const unavailableCurrentModel = currentModelAvailable ? "" : currentOverride || defaultModel;
+  const selectedModelValue = unavailableCurrentModel || currentOverride;
   const selectedLabel =
-    currentOverride === ""
+    selectedModelValue === ""
       ? defaultLabel
-      : (options.find((entry) => entry.value === currentOverride)?.label ?? currentOverride);
+      : (options.find((entry) => entry.value === selectedModelValue)?.label ?? selectedModelValue);
   const selectedThinkingLabel =
     thinking.currentOverride === ""
       ? thinking.defaultLabel
       : (thinking.options.find((entry) => entry.value === thinking.currentOverride)?.label ??
         thinking.currentOverride);
+  const controlDirectorAgentId = normalizeAgentId(state.agentsList?.defaultId ?? "main");
+  const activeAgentId = resolveChatAgentFilterId(state, state.sessionKey);
+  const canSetControlDirectorDefault =
+    activeAgentId === controlDirectorAgentId &&
+    Boolean(actions.onSetControlDirectorDefault) &&
+    currentModelAvailable &&
+    currentOverride !== "" &&
+    currentOverride !== defaultModel;
   const modelOptions = [
-    { value: "", label: defaultLabel, group: "Default" },
+    ...(defaultSelectable ? [{ value: "", label: defaultLabel, group: "Default" }] : []),
     ...optionGroups.flatMap((group) =>
       group.options.map((option) => ({ ...option, group: group.label })),
     ),
@@ -902,13 +1195,16 @@ export function renderChatModelSelect(state: AppViewState) {
     disabled,
     modelOptions,
     selectedModelLabel: selectedLabel,
-    selectedModelValue: currentOverride,
+    selectedModelValue,
     selectedThinkingLabel,
     selectedThinkingValue: thinking.currentOverride,
     fastMode,
     thinkingDisabled,
     thinkingOptions: [{ value: "", label: thinking.defaultLabel }, ...thinking.options],
     onModelSelect: (next) => switchChatModel(state, next),
+    canSetControlDirectorDefault,
+    defaultBusy: actions.controlDirectorDefaultBusy ?? false,
+    onSetDefault: actions.onSetControlDirectorDefault,
     onFastModeSelect: (next) => switchChatFastMode(state, next),
     onThinkingSelect: (next) => switchChatThinkingLevel(state, next),
   });
@@ -936,7 +1232,7 @@ function resolveThinkingTargetModel(state: AppViewState): {
   provider: string | null;
   model: string | null;
 } {
-  const activeRow = state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
+  const activeRow = findEquivalentChatSessionRow(state.sessionsResult?.sessions, state.sessionKey);
   return {
     provider: activeRow?.modelProvider ?? state.sessionsResult?.defaults?.modelProvider ?? null,
     model: activeRow?.model ?? state.sessionsResult?.defaults?.model ?? null,
@@ -967,7 +1263,7 @@ function resolveChatFastModeSelectState(
   state: AppViewState,
   currentModelOverride: string,
 ): ChatFastModeSelectState {
-  const activeRow = state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
+  const activeRow = findEquivalentChatSessionRow(state.sessionsResult?.sessions, state.sessionKey);
   const { provider } = resolveThinkingTargetModel(state);
   const effectiveProvider =
     resolveProviderFromModelValue(currentModelOverride, state.chatModelCatalog ?? []) ??
@@ -1074,7 +1370,7 @@ function resolveThinkingLevelOptions(
 }
 
 export function resolveChatThinkingSelectState(state: AppViewState): ChatThinkingSelectState {
-  const activeRow = state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
+  const activeRow = findEquivalentChatSessionRow(state.sessionsResult?.sessions, state.sessionKey);
   const defaults = state.sessionsResult?.defaults;
   const { provider, model } = resolveThinkingTargetModel(state);
   const agentRuntime =
@@ -1159,6 +1455,9 @@ function renderChatModelReasoningSelect(params: {
   selectedThinkingValue: string;
   thinkingDisabled: boolean;
   thinkingOptions: ChatInlineSelectOption[];
+  canSetControlDirectorDefault: boolean;
+  defaultBusy: boolean;
+  onSetDefault?: (model: string) => Promise<boolean>;
   onFastModeSelect: (value: "" | "on" | "off" | "auto") => Promise<unknown>;
   onModelSelect: (value: string) => Promise<unknown>;
   onThinkingSelect: (value: string) => Promise<unknown>;
@@ -1173,6 +1472,9 @@ function renderChatModelReasoningSelect(params: {
     selectedThinkingValue,
     thinkingDisabled,
     thinkingOptions,
+    canSetControlDirectorDefault,
+    defaultBusy,
+    onSetDefault,
     onFastModeSelect,
     onModelSelect,
     onThinkingSelect,
@@ -1231,14 +1533,17 @@ function renderChatModelReasoningSelect(params: {
                       <button
                         class="chat-controls__inline-select-option chat-controls__combined-model-option ${selected
                           ? "chat-controls__inline-select-option--selected"
+                          : ""} ${entry.unavailable
+                          ? "chat-controls__inline-select-option--unavailable"
                           : ""}"
                         data-chat-model-option=${entry.value}
                         role="option"
                         aria-selected=${selected ? "true" : "false"}
+                        aria-disabled=${entry.unavailable ? "true" : "false"}
                         type="button"
-                        ?disabled=${disabled}
+                        ?disabled=${disabled || entry.unavailable === true}
                         @click=${async (event: MouseEvent) => {
-                          if (disabled || selected) {
+                          if (disabled || selected || entry.unavailable) {
                             event.preventDefault();
                             return;
                           }
@@ -1265,6 +1570,31 @@ function renderChatModelReasoningSelect(params: {
             `,
           )}
         </div>
+        ${canSetControlDirectorDefault && onSetDefault
+          ? html`
+              <div class="chat-controls__model-default-action">
+                <button
+                  class="btn btn--sm chat-controls__model-default-button"
+                  data-chat-model-set-default="true"
+                  type="button"
+                  ?disabled=${disabled || defaultBusy}
+                  @click=${async (event: MouseEvent) => {
+                    event.stopPropagation();
+                    if (disabled || defaultBusy || !selectedModelValue) {
+                      return;
+                    }
+                    const defaultButton = event.currentTarget as HTMLElement;
+                    const updated = await onSetDefault(selectedModelValue);
+                    if (updated) {
+                      defaultButton.closest("details")?.removeAttribute("open");
+                    }
+                  }}
+                >
+                  ${defaultBusy ? "Saving…" : "Set as Control Director default"}
+                </button>
+              </div>
+            `
+          : nothing}
         <div
           class="chat-controls__reasoning-panel"
           role="listbox"
@@ -1376,7 +1706,7 @@ function patchSessionFastMode(
   state.sessionsResult = {
     ...current,
     sessions: current.sessions.map((row) =>
-      row.key === sessionKey ? Object.assign({}, row, { fastMode }) : row,
+      areUiSessionKeysEquivalent(row.key, sessionKey) ? Object.assign({}, row, { fastMode }) : row,
     ),
   };
 }
@@ -1385,27 +1715,46 @@ async function switchChatFastMode(state: AppViewState, nextFastMode: "" | "on" |
   if (!state.client || !state.connected) {
     return;
   }
+  const client = state.client;
   const targetSessionKey = state.sessionKey;
-  const activeRow = state.sessionsResult?.sessions?.find((row) => row.key === targetSessionKey);
+  const activeRow = findEquivalentChatSessionRow(state.sessionsResult?.sessions, targetSessionKey);
   const previousFastMode = activeRow?.fastMode;
   const next: FastMode | undefined =
     nextFastMode === "" ? undefined : nextFastMode === "auto" ? "auto" : nextFastMode === "on";
   if (previousFastMode === next) {
     return;
   }
+  const controlGeneration = beginChatSessionControl(state, targetSessionKey, "fast-mode");
   setChatError(state, null);
   patchSessionFastMode(state, targetSessionKey, next);
   try {
-    await state.client.request("sessions.patch", {
+    await client.request("sessions.patch", {
       key: targetSessionKey,
       ...scopedAgentParamsForSession(state, targetSessionKey),
       fastMode: next ?? null,
     });
-    await refreshSessionOptions(state);
+    if (
+      !isLatestChatSessionControl(state, targetSessionKey, "fast-mode", controlGeneration) ||
+      !isCurrentChatControlRequest(state, client, targetSessionKey)
+    ) {
+      return;
+    }
+    await refreshSessionOptions(state, { client, sessionKey: targetSessionKey });
+    if (
+      !isLatestChatSessionControl(state, targetSessionKey, "fast-mode", controlGeneration) ||
+      !isCurrentChatControlRequest(state, client, targetSessionKey)
+    ) {
+      return;
+    }
     patchSessionFastMode(state, targetSessionKey, next);
   } catch (err) {
+    if (!isLatestChatSessionControl(state, targetSessionKey, "fast-mode", controlGeneration)) {
+      return;
+    }
     patchSessionFastMode(state, targetSessionKey, previousFastMode);
-    setChatError(state, `Failed to set speed: ${String(err)}`);
+    if (isCurrentChatControlRequest(state, client, targetSessionKey)) {
+      setChatError(state, `Failed to set speed: ${String(err)}`);
+    }
   }
 }
 
@@ -1418,13 +1767,19 @@ async function switchChatModel(state: AppViewState, nextModel: string): Promise<
     return true;
   }
   const targetSessionKey = state.sessionKey;
-  const prevOverride = state.chatModelOverrides[targetSessionKey];
+  const switchGeneration = beginChatSessionControl(state, targetSessionKey, "model");
+  const previousOverrideEntry = Object.entries(state.chatModelOverrides).find(([key]) =>
+    areUiSessionKeysEquivalent(key, targetSessionKey),
+  );
+  const previousOverrideKey = previousOverrideEntry?.[0];
+  const previousOverride = previousOverrideEntry?.[1];
   setChatError(state, null);
   // Write the override cache immediately so the picker stays in sync during the RPC round-trip.
-  state.chatModelOverrides = {
-    ...state.chatModelOverrides,
-    [targetSessionKey]: createChatModelOverride(nextModel),
-  };
+  state.chatModelOverrides = replaceChatModelOverride(
+    state,
+    targetSessionKey,
+    createChatModelOverride(nextModel),
+  );
   const client = state.client;
   const switchPromiseRef: { current?: Promise<boolean> } = {};
   const clearPendingSwitch = () => {
@@ -1441,13 +1796,34 @@ async function switchChatModel(state: AppViewState, nextModel: string): Promise<
         ...scopedAgentParamsForSession(state, targetSessionKey),
         model: nextModel || null,
       });
+      if (
+        !isLatestChatSessionControl(state, targetSessionKey, "model", switchGeneration) ||
+        !isCurrentChatControlRequest(state, client, targetSessionKey)
+      ) {
+        return true;
+      }
       void refreshVisibleToolsEffectiveForCurrentSessionLazy(state);
-      await refreshSessionOptions(state);
+      await refreshSessionOptions(state, { client, sessionKey: targetSessionKey });
+      if (
+        !isLatestChatSessionControl(state, targetSessionKey, "model", switchGeneration) ||
+        !isCurrentChatControlRequest(state, client, targetSessionKey)
+      ) {
+        return true;
+      }
       return true;
     } catch (err) {
       // Roll back so the picker reflects the actual server model.
-      state.chatModelOverrides = { ...state.chatModelOverrides, [targetSessionKey]: prevOverride };
-      setChatError(state, `Failed to set model: ${String(err)}`);
+      if (!isLatestChatSessionControl(state, targetSessionKey, "model", switchGeneration)) {
+        return true;
+      }
+      state.chatModelOverrides = replaceChatModelOverride(
+        state,
+        previousOverrideKey ?? targetSessionKey,
+        previousOverride,
+      );
+      if (isCurrentChatControlRequest(state, client, targetSessionKey)) {
+        setChatError(state, `Failed to set model: ${String(err)}`);
+      }
       return false;
     } finally {
       clearPendingSwitch();
@@ -1473,7 +1849,9 @@ function patchSessionThinkingLevel(
   state.sessionsResult = {
     ...current,
     sessions: current.sessions.map((row) =>
-      row.key === sessionKey ? Object.assign({}, row, { thinkingLevel }) : row,
+      areUiSessionKeysEquivalent(row.key, sessionKey)
+        ? Object.assign({}, row, { thinkingLevel })
+        : row,
     ),
   };
 }
@@ -1482,8 +1860,9 @@ async function switchChatThinkingLevel(state: AppViewState, nextThinkingLevel: s
   if (!state.client || !state.connected) {
     return;
   }
+  const client = state.client;
   const targetSessionKey = state.sessionKey;
-  const activeRow = state.sessionsResult?.sessions?.find((row) => row.key === targetSessionKey);
+  const activeRow = findEquivalentChatSessionRow(state.sessionsResult?.sessions, targetSessionKey);
   const previousThinkingLevel = activeRow?.thinkingLevel;
   const normalizedNext =
     (normalizeThinkLevel(nextThinkingLevel) ?? nextThinkingLevel.trim()) || undefined;
@@ -1494,22 +1873,40 @@ async function switchChatThinkingLevel(state: AppViewState, nextThinkingLevel: s
   if ((normalizedPrev ?? "") === (normalizedNext ?? "")) {
     return;
   }
+  const controlGeneration = beginChatSessionControl(state, targetSessionKey, "thinking");
   setChatError(state, null);
   patchSessionThinkingLevel(state, targetSessionKey, normalizedNext);
   state.chatThinkingLevel = normalizedNext ?? null;
   try {
-    await state.client.request("sessions.patch", {
+    await client.request("sessions.patch", {
       key: targetSessionKey,
       ...scopedAgentParamsForSession(state, targetSessionKey),
       thinkingLevel: normalizedNext ?? null,
     });
-    await refreshSessionOptions(state);
+    if (
+      !isLatestChatSessionControl(state, targetSessionKey, "thinking", controlGeneration) ||
+      !isCurrentChatControlRequest(state, client, targetSessionKey)
+    ) {
+      return;
+    }
+    await refreshSessionOptions(state, { client, sessionKey: targetSessionKey });
+    if (
+      !isLatestChatSessionControl(state, targetSessionKey, "thinking", controlGeneration) ||
+      !isCurrentChatControlRequest(state, client, targetSessionKey)
+    ) {
+      return;
+    }
     patchSessionThinkingLevel(state, targetSessionKey, normalizedNext);
     state.chatThinkingLevel = normalizedNext ?? null;
   } catch (err) {
+    if (!isLatestChatSessionControl(state, targetSessionKey, "thinking", controlGeneration)) {
+      return;
+    }
     patchSessionThinkingLevel(state, targetSessionKey, previousThinkingLevel);
-    state.chatThinkingLevel = normalizedPrev ?? null;
-    setChatError(state, `Failed to set thinking level: ${String(err)}`);
+    if (isCurrentChatControlRequest(state, client, targetSessionKey)) {
+      state.chatThinkingLevel = normalizedPrev ?? null;
+      setChatError(state, `Failed to set thinking level: ${String(err)}`);
+    }
   }
 }
 
@@ -1656,13 +2053,12 @@ export function resolveSessionOptionGroups(
   const hideCron = state.sessionsHideCron ?? true;
   const activeAgentId = resolveChatAgentFilterId(state, sessionKey);
   const defaultAgentId = normalizeAgentId(state.agentsList?.defaultId ?? "main");
-  const byKey = new Map<string, SessionsListResult["sessions"][number]>();
-  for (const row of rows) {
-    byKey.set(row.key, row);
-  }
 
   const seenKeys = new Set<string>();
   const groups = new Map<string, SessionOptionGroup>();
+  const resolveRowForKey = (key: string) => findEquivalentChatSessionRow(rows, key);
+  const hasEquivalentSeenKey = (key: string) =>
+    [...seenKeys].some((seenKey) => areUiSessionKeysEquivalent(seenKey, key));
   const ensureGroup = (groupId: string, label: string): SessionOptionGroup => {
     const existing = groups.get(groupId);
     if (existing) {
@@ -1678,50 +2074,47 @@ export function resolveSessionOptionGroups(
   };
 
   const addOption = (key: string) => {
-    if (!key || seenKeys.has(key)) {
+    const row = resolveRowForKey(key);
+    const optionKey = row?.key ?? key;
+    if (!optionKey || hasEquivalentSeenKey(optionKey)) {
       return;
     }
-    seenKeys.add(key);
-    const row = byKey.get(key);
-    const parsed = parseAgentSessionKey(key);
+    seenKeys.add(optionKey);
+    const parsed = parseAgentSessionKey(optionKey);
     const group = parsed
       ? ensureGroup(
           `agent:${normalizeLowercaseStringOrEmpty(parsed.agentId)}`,
           resolveAgentGroupLabel(state, parsed.agentId),
         )
       : ensureGroup("other", "Other Sessions");
-    const scopeLabel = normalizeOptionalString(parsed?.rest) ?? key;
+    const scopeLabel = normalizeOptionalString(parsed?.rest) ?? optionKey;
     group.options.push({
-      key,
-      label: resolveSessionScopedOptionLabel(key, row, parsed?.rest),
+      key: optionKey,
+      label: resolveSessionScopedOptionLabel(optionKey, row, parsed?.rest),
       scopeLabel,
-      title: key,
+      title: optionKey,
     });
   };
 
   for (const row of rows) {
-    if (
-      !isSessionKeyTiedToAgent(row.key, activeAgentId, defaultAgentId) &&
-      row.key !== sessionKey
-    ) {
+    const isCurrent = areUiSessionKeysEquivalent(row.key, sessionKey);
+    if (!isSessionKeyTiedToAgent(row.key, activeAgentId, defaultAgentId) && !isCurrent) {
       continue;
     }
-    if (row.key !== sessionKey && (row.kind === "global" || row.kind === "unknown")) {
+    if (!isCurrent && (row.kind === "global" || row.kind === "unknown")) {
       continue;
     }
-    if (hideCron && row.key !== sessionKey && isCronSessionKey(row.key)) {
+    if (hideCron && !isCurrent && isCronSessionKey(row.key)) {
       continue;
     }
     const isSubagent = isSubagentSessionKey(row.key) || Boolean(row.spawnedBy);
-    if (isSubagent && row.key !== sessionKey) {
+    if (isSubagent && !isCurrent) {
       continue;
     }
     addOption(row.key);
   }
-  if (byKey.has(sessionKey)) {
-    addOption(sessionKey);
-  } else if (sessionKey) {
-    addOption(sessionKey);
+  if (sessionKey) {
+    addOption(resolveRowForKey(sessionKey)?.key ?? sessionKey);
   }
 
   for (const group of groups.values()) {

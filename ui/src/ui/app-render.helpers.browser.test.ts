@@ -136,6 +136,28 @@ describe("chat header controls (browser)", () => {
     }
   });
 
+  it("renders and persists the legacy chat send shortcut preference", async () => {
+    const applySettings = vi.fn();
+    const state = createState({ applySettings });
+    const container = document.createElement("div");
+    render(renderChatControls(state), container);
+    await Promise.resolve();
+
+    const select = requireElement(
+      container.querySelector<HTMLSelectElement>("select[data-chat-send-shortcut]"),
+      "chat send shortcut",
+    );
+    expect(select.value).toBe("enter");
+
+    select.value = "modifier-enter";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(applySettings).toHaveBeenCalledWith({
+      ...state.settings,
+      chatSendShortcut: "modifier-enter",
+    });
+  });
+
   // Proves the pill is wired into renderChatControls — the surface that actually ships — not the
   // orphaned session-select wrapper that chat.test.ts exercises. (Live re-render when authStatus
   // arrives is enforced by the renderGuardedChatControls dep list and verified via screenshot.)
@@ -176,6 +198,43 @@ describe("chat header controls (browser)", () => {
     await Promise.resolve();
 
     expect(container.querySelector('[data-chat-provider-usage="true"]')).toBeNull();
+  });
+
+  it("offers the selected override as the Control Director default", async () => {
+    const onSetControlDirectorDefault = vi.fn(async () => true);
+    const state = createState({
+      agentsList: {
+        defaultId: "main",
+        mainKey: "main",
+        scope: "all",
+        agents: [{ id: "main", name: "Control Director" }],
+      },
+      sessionsResult: {
+        ts: 0,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: "openai", model: "gpt-5", contextTokens: null },
+        sessions: [
+          row({ key: "main", modelProvider: "openai", model: "gpt-5-mini", updatedAt: 1 }),
+        ],
+      },
+      chatModelCatalog: [
+        { id: "gpt-5", name: "GPT-5", provider: "openai" },
+        { id: "gpt-5-mini", name: "GPT-5 mini", provider: "openai" },
+      ],
+    });
+    const container = document.createElement("div");
+    render(renderChatControls(state, { onSetControlDirectorDefault }), container);
+    await Promise.resolve();
+
+    const button = requireButton(
+      container.querySelector<HTMLButtonElement>('[data-chat-model-set-default="true"]'),
+      "Control Director default",
+    );
+    button.click();
+    await vi.waitFor(() => {
+      expect(onSetControlDirectorDefault).toHaveBeenCalledWith("openai/gpt-5-mini");
+    });
   });
 
   it("renders explicit hover tooltip metadata for the color mode buttons", async () => {
@@ -309,8 +368,9 @@ describe("chat header controls (browser)", () => {
     const selectDatasets = Array.from(container.querySelectorAll("select")).map(
       (select) => select.dataset,
     );
-    expect(selectDatasets).toHaveLength(1);
-    expect(selectDatasets[0]?.chatAgentFilter).toBe("true");
+    expect(selectDatasets).toHaveLength(2);
+    expect(selectDatasets.find((dataset) => dataset.chatAgentFilter === "true")).toBeDefined();
+    expect(selectDatasets.find((dataset) => dataset.chatSendShortcut === "true")).toBeDefined();
     expect(container.querySelector<HTMLElement>('[data-chat-model-select="true"]')?.tagName).toBe(
       "SUMMARY",
     );

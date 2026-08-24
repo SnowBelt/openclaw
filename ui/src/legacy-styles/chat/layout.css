@@ -858,6 +858,25 @@
   white-space: nowrap;
 }
 
+.chat-settings-popover__preference {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-settings-popover__preference select {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--card) 74%, transparent);
+  color: var(--text);
+  font: inherit;
+}
+
 .agent-chat__stt-interim {
   padding: 10px 14px 0;
   color: var(--muted);
@@ -2014,6 +2033,37 @@
   cursor: pointer;
 }
 
+.chat-session-picker__option-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.chat-session-picker__option-row .chat-session-picker__option {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.chat-session-picker__option-action {
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.chat-session-picker__option-action svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .chat-session-picker__option:hover,
 .chat-session-picker__option:focus-visible {
   background: var(--bg-hover);
@@ -2063,6 +2113,63 @@
   stroke: currentColor;
   fill: none;
   stroke-width: 1.5px;
+}
+
+.session-rename-dialog {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 520px);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-xl);
+}
+
+.session-rename-dialog__header {
+  display: grid;
+  gap: 4px;
+}
+
+.session-rename-dialog__title {
+  color: var(--text-strong);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.session-rename-dialog__subtitle {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-rename-dialog__field {
+  display: grid;
+  gap: 6px;
+}
+
+.session-rename-dialog__field > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.session-rename-dialog__field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.session-rename-dialog__error {
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .chat-session-picker__status {
@@ -2282,8 +2389,22 @@
   display: block;
 }
 
+.chat-controls__model-default-action {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding: 8px;
+}
+
+.chat-controls__model-default-button {
+  justify-content: center;
+  width: 100%;
+}
+
 .chat-controls__combined-model-arrow svg {
   transform: rotate(-90deg);
+}
+
+.chat-controls__inline-select-option--unavailable {
+  color: var(--danger);
 }
 
 .chat-controls__reasoning-panel {

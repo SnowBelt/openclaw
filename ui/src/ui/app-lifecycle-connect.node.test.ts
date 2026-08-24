@@ -91,11 +91,13 @@ function createHost() {
     sessionKey: "main",
     chatMessage: "",
     chatQueue: [] as ChatQueueItem[],
+    chatQueuePaused: false,
     pendingGatewayUrl: null as string | null,
     chatComposerProvisionalRestore: null as {
       sessionKey: string;
       chatMessage: string;
       chatQueue: ChatQueueItem[];
+      chatQueuePaused: boolean;
     } | null,
     chatLoading: false,
     chatMessages: [],
@@ -191,6 +193,7 @@ describe("handleConnected", () => {
       sessionKey: "main",
       chatMessage: "offline draft",
       chatQueue: [{ id: "queued-1", text: "retry me", createdAt: 1 }],
+      chatQueuePaused: false,
     });
   });
 

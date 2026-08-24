@@ -152,6 +152,80 @@ describe("buildAgentWorkTreeSnapshot", () => {
     expect(worker?.taskId).toBe("task-worker");
   });
 
+  it("keeps active and working task statuses visible in the work tree", () => {
+    for (const status of ["active", "working"]) {
+      const tree = buildAgentWorkTreeSnapshot({
+        currentSessionKey: "agent:main:main",
+        sessionsResult: sessions([
+          { key: "agent:main:main" },
+          {
+            key: `agent:main:subagent:${status}`,
+            label: `${status} worker`,
+            spawnedBy: "agent:main:main",
+          },
+        ]),
+        tasks: [
+          {
+            id: `task-${status}`,
+            taskId: `task-${status}`,
+            sessionKey: `agent:main:subagent:${status}`,
+            status,
+          },
+        ],
+      });
+
+      const worker = tree.flat.find((node) => node.taskId === `task-${status}`);
+      expect(worker?.isActive).toBe(true);
+      expect(worker?.status).toBe("Working");
+    }
+  });
+
+  it("does not treat an explicitly inactive row as running", () => {
+    const tree = buildAgentWorkTreeSnapshot({
+      currentSessionKey: "agent:main:main",
+      sessionsResult: sessions([
+        { key: "agent:main:main" },
+        {
+          key: "agent:main:subagent:stale",
+          label: "Stale worker",
+          spawnedBy: "agent:main:main",
+          hasActiveRun: false,
+          status: "running",
+        },
+        {
+          key: "agent:main:subagent:child",
+          label: "Active child",
+          parentSessionKey: "agent:main:subagent:stale",
+          hasActiveRun: true,
+        },
+      ]),
+    });
+
+    const stale = tree.flat.find((node) => node.sessionKey === "agent:main:subagent:stale");
+    expect(stale?.isActive).toBe(false);
+    expect(stale?.status).toBe("Idle");
+    expect(stale?.activeDescendants).toBe(1);
+  });
+
+  it("resolves a default-main alias to the canonical root and its children", () => {
+    const tree = buildAgentWorkTreeSnapshot({
+      currentSessionKey: "main",
+      sessionsResult: sessions([
+        { key: "agent:main:main" },
+        {
+          key: "agent:main:subagent:worker",
+          label: "Worker",
+          spawnedBy: "agent:main:main",
+          hasActiveRun: true,
+        },
+      ]),
+    });
+
+    expect(tree.root?.sessionKey).toBe("main");
+    expect(tree.flat.map((node) => node.title)).toEqual(["Current chat", "Worker"]);
+    expect(tree.activeChildCount).toBe(1);
+  });
+
   it("excludes unrelated subagents", () => {
     const tree = buildAgentWorkTreeSnapshot({
       currentSessionKey: "agent:main:main",

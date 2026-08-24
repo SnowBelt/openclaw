@@ -337,6 +337,21 @@ function extractImages(message: unknown): ImageBlock[] {
           });
         } else if (typeof b.url === "string") {
           appendImageBlock(images, { url: b.url, ...imageMeta });
+        } else if (typeof b.data === "string" && b.data.trim()) {
+          // Tool results and provider responses commonly use the Gateway's
+          // base64 image block shape rather than the chat source shape.
+          appendImageBlock(images, {
+            url: buildBase64ImageUrl({
+              data: b.data,
+              mediaType:
+                typeof b.mimeType === "string"
+                  ? b.mimeType
+                  : typeof b.media_type === "string"
+                    ? b.media_type
+                    : undefined,
+            }),
+            ...imageMeta,
+          });
         }
       } else if (b.type === "image_url") {
         // OpenAI format
@@ -1080,11 +1095,28 @@ function isLocalAssistantAttachmentSource(source: string): boolean {
     return false;
   }
   return (
+    isCanonicalInboundMediaSource(trimmed) ||
     trimmed.startsWith("file://") ||
     trimmed.startsWith("~") ||
     trimmed.startsWith("/") ||
     /^[a-zA-Z]:[\\/]/.test(trimmed)
   );
+}
+
+function isCanonicalInboundMediaSource(source: string): boolean {
+  // Keep the raw one-segment check so URL parsing cannot normalize dot segments.
+  const match = /^media:\/\/inbound\/([^/?#]+)$/i.exec(source.trim());
+  if (!match?.[1]) {
+    return false;
+  }
+  try {
+    const id = decodeURIComponent(match[1]);
+    return (
+      id !== "." && id !== ".." && !id.includes("/") && !id.includes("\\") && !id.includes("\0")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function normalizeLocalAttachmentPath(source: string): string | null {
@@ -1142,6 +1174,9 @@ function isLocalAttachmentPreviewAllowed(
   source: string,
   localMediaPreviewRoots: readonly string[],
 ): boolean {
+  if (isCanonicalInboundMediaSource(source)) {
+    return true;
+  }
   const normalizedSource = normalizeLocalAttachmentPath(source);
   const comparableSources = normalizedSource
     ? [canonicalizeLocalPathForComparison(normalizedSource)]

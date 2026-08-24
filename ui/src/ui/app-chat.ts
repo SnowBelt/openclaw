@@ -101,6 +101,8 @@ export type ChatHost = ChatInputHistoryState & {
   chatAttachments: ChatAttachment[];
   chatQueue: ChatQueueItem[];
   chatQueueBySession?: Record<string, ChatQueueItem[]>;
+  chatQueuePaused?: boolean;
+  chatQueuePausedBySession?: Record<string, boolean>;
   chatMessagesBySession?: ChatMessageCache;
   chatRunId: string | null;
   chatSending: boolean;
@@ -241,6 +243,62 @@ export {
 };
 export type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult };
 
+const chatQueueFlushes = new WeakSet<object>();
+const chatQueueReconnectRetries = new WeakSet<object>();
+// Queue offscreen session completions instead of dropping concurrent events
+// behind the shared send lock.
+const chatQueueOffscreenPendingSessions = new WeakMap<object, Set<string>>();
+const chatQueueSendIdleWaiters = new WeakMap<object, Set<() => void>>();
+
+function enqueueOffscreenChatQueueSession(host: ChatHost, sessionKey: string) {
+  const normalized = sessionKey.trim();
+  if (!normalized) {
+    return;
+  }
+  const pending = chatQueueOffscreenPendingSessions.get(host) ?? new Set<string>();
+  pending.add(normalized);
+  chatQueueOffscreenPendingSessions.set(host, pending);
+}
+
+function takeOffscreenChatQueueSession(host: ChatHost): string | null {
+  const pending = chatQueueOffscreenPendingSessions.get(host);
+  const next = pending?.values().next().value;
+  if (!pending || typeof next !== "string") {
+    return null;
+  }
+  pending.delete(next);
+  if (pending.size === 0) {
+    chatQueueOffscreenPendingSessions.delete(host);
+  }
+  return next;
+}
+
+function hasPendingOffscreenChatQueueSessions(host: ChatHost): boolean {
+  return (chatQueueOffscreenPendingSessions.get(host)?.size ?? 0) > 0;
+}
+
+function waitForChatSendIdle(host: ChatHost): Promise<void> {
+  if (!host.chatSending) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const waiters = chatQueueSendIdleWaiters.get(host) ?? new Set<() => void>();
+    waiters.add(resolve);
+    chatQueueSendIdleWaiters.set(host, waiters);
+  });
+}
+
+function resolveChatSendIdle(host: ChatHost) {
+  const waiters = chatQueueSendIdleWaiters.get(host);
+  if (!waiters) {
+    return;
+  }
+  chatQueueSendIdleWaiters.delete(host);
+  for (const resolve of waiters) {
+    resolve();
+  }
+}
+
 export function isChatBusy(host: ChatHost) {
   return host.chatSending || Boolean(host.chatRunId);
 }
@@ -255,7 +313,8 @@ export function hasAbortableSessionRun(host: {
   }
   return Boolean(
     host.sessionsResult?.sessions.some(
-      (session) => session.key === host.sessionKey && isSessionRunActive(session),
+      (session) =>
+        areUiSessionKeysEquivalent(session.key, host.sessionKey) && isSessionRunActive(session),
     ),
   );
 }
@@ -324,6 +383,9 @@ function visibleSessionMatches(
   sessionKey: string,
   agentId: string | undefined,
 ): boolean {
+  if (host.sessionKey !== sessionKey && areUiSessionKeysEquivalent(host.sessionKey, sessionKey)) {
+    return true;
+  }
   if (host.sessionKey !== sessionKey) {
     const hostAliasAgentId = resolveUiGlobalAliasAgentId(host, host.sessionKey);
     if (!hostAliasAgentId || !isUiGlobalSessionKey(sessionKey)) {
@@ -507,24 +569,52 @@ function updateQueuedMessage(
   return updateQueuedMessageForSession(host, host.sessionKey, id, update);
 }
 
+function equivalentChatQueueSessionKey(
+  host: Pick<ChatHost, "sessionKey" | "chatQueueBySession">,
+  sessionKey: string,
+): string | null {
+  if (areUiSessionKeysEquivalent(sessionKey, host.sessionKey)) {
+    return null;
+  }
+  const queueBySession = host.chatQueueBySession ?? {};
+  if (Object.hasOwn(queueBySession, sessionKey)) {
+    return sessionKey;
+  }
+  return (
+    Object.keys(queueBySession).find((key) => areUiSessionKeysEquivalent(key, sessionKey)) ??
+    sessionKey
+  );
+}
+
 function readChatQueueForSession(host: ChatHost, sessionKey: string): ChatQueueItem[] {
-  return sessionKey === host.sessionKey
+  const storageSessionKey = equivalentChatQueueSessionKey(host, sessionKey);
+  return storageSessionKey === null
     ? host.chatQueue
-    : (host.chatQueueBySession?.[sessionKey] ?? []);
+    : (host.chatQueueBySession?.[storageSessionKey] ?? []);
 }
 
 function writeChatQueueForSession(host: ChatHost, sessionKey: string, queue: ChatQueueItem[]) {
-  if (sessionKey === host.sessionKey) {
+  const storageSessionKey = equivalentChatQueueSessionKey(host, sessionKey);
+  if (storageSessionKey === null) {
     host.chatQueue = queue;
     return;
   }
   const queueBySession = { ...host.chatQueueBySession };
   if (queue.length > 0) {
-    queueBySession[sessionKey] = queue;
+    queueBySession[storageSessionKey] = queue;
   } else {
-    delete queueBySession[sessionKey];
+    delete queueBySession[storageSessionKey];
   }
   host.chatQueueBySession = queueBySession;
+  // Offscreen session queues do not trigger the host's reactive `chatQueue`
+  // persistence hook. Persist them here so reconnect ACKs and failures cannot
+  // leave a stale item that would be sent again after a page reload.
+  persistStoredChatComposerQueue(
+    host,
+    storageSessionKey,
+    queue,
+    isChatQueuePaused(host, storageSessionKey),
+  );
   host.requestUpdate?.();
 }
 
@@ -547,7 +637,55 @@ function updateQueuedMessageForSession(
 }
 
 function persistQueuedMessagesForSession(host: ChatHost, sessionKey: string) {
-  persistStoredChatComposerQueue(host, sessionKey, readChatQueueForSession(host, sessionKey));
+  persistStoredChatComposerQueue(
+    host,
+    sessionKey,
+    readChatQueueForSession(host, sessionKey),
+    isChatQueuePaused(host, sessionKey),
+  );
+}
+
+export function isChatQueuePaused(host: ChatQueuePauseHost, sessionKey = host.sessionKey): boolean {
+  const storageSessionKey = equivalentChatQueueSessionKey(host, sessionKey);
+  return storageSessionKey === null
+    ? host.chatQueuePaused === true
+    : host.chatQueuePausedBySession?.[storageSessionKey] === true;
+}
+
+export function setChatQueuePaused(
+  host: ChatHost,
+  paused: boolean,
+  sessionKey = host.sessionKey,
+): boolean {
+  const nextPaused = paused;
+  const storageSessionKey = equivalentChatQueueSessionKey(host, sessionKey);
+  const isCurrentSession = storageSessionKey === null;
+  const persistedSessionKey = storageSessionKey ?? host.sessionKey;
+  const nextBySession = { ...host.chatQueuePausedBySession };
+  if (nextPaused) {
+    nextBySession[persistedSessionKey] = true;
+  } else {
+    delete nextBySession[persistedSessionKey];
+  }
+  host.chatQueuePausedBySession = nextBySession;
+  if (isCurrentSession) {
+    host.chatQueuePaused = nextPaused;
+  }
+  persistStoredChatComposerQueue(
+    host,
+    persistedSessionKey,
+    readChatQueueForSession(host, persistedSessionKey),
+    nextPaused,
+  );
+  host.requestUpdate?.();
+  if (!nextPaused && isCurrentSession) {
+    void flushChatQueue(host);
+  }
+  return nextPaused;
+}
+
+export function toggleChatQueuePaused(host: ChatHost): boolean {
+  return setChatQueuePaused(host, !isChatQueuePaused(host));
 }
 
 function removeQueuedMessageWithoutReleasing(
@@ -637,7 +775,7 @@ function cancelPendingSendBeforeRequest(
   }
 }
 
-type QueuedChatSendResult = "sent" | "pending" | "failed";
+type QueuedChatSendResult = "sent" | "terminal" | "pending" | "failed";
 
 type ChatSendTimingPhase =
   | "pending-visible"
@@ -1040,7 +1178,7 @@ async function sendQueuedChatMessage(
   const hasAttachments = attachments.length > 0;
   if (!message && !hasAttachments) {
     removeQueuedMessageWithoutReleasing(host, id, prepared.sessionKey ?? host.sessionKey);
-    return "sent";
+    return "terminal";
   }
   if (prepared.skillWorkshopRevision && hasAttachments) {
     updateQueuedMessageForSession(host, prepared.sessionKey ?? host.sessionKey, id, (item) => ({
@@ -1213,7 +1351,7 @@ async function sendQueuedChatMessage(
       }
     }
     discardChatAttachmentDataUrls(excludeComposerAttachments(host, attachments));
-    return "sent";
+    return ack.status === "ok" ? "terminal" : "sent";
   } catch (err) {
     const error = formatConnectError(err);
     if (isRecoverableChatSendError(err, error)) {
@@ -1243,6 +1381,7 @@ async function sendQueuedChatMessage(
     return "failed";
   } finally {
     host.chatSending = false;
+    resolveChatSendIdle(host);
   }
 }
 
@@ -1283,8 +1422,8 @@ async function sendChatMessageNow(
     previousDraft: opts?.previousDraft,
     previousAttachments: opts?.previousAttachments,
   });
-  const ok = result === "sent";
-  if (ok && host.sessionKey === queuedSessionKey) {
+  const ok = result === "sent" || result === "terminal";
+  if (ok && areUiSessionKeysEquivalent(host.sessionKey, queuedSessionKey)) {
     setLastActiveSessionKey(
       host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
       queuedSessionKey,
@@ -1293,7 +1432,7 @@ async function sendChatMessageNow(
   }
   if (
     ok &&
-    host.sessionKey === queuedSessionKey &&
+    areUiSessionKeysEquivalent(host.sessionKey, queuedSessionKey) &&
     opts?.restoreDraft &&
     opts.previousDraft?.trim()
   ) {
@@ -1301,17 +1440,17 @@ async function sendChatMessageNow(
   }
   if (
     ok &&
-    host.sessionKey === queuedSessionKey &&
+    areUiSessionKeysEquivalent(host.sessionKey, queuedSessionKey) &&
     opts?.restoreAttachments &&
     opts.previousAttachments?.length
   ) {
     host.chatAttachments = opts.previousAttachments;
   }
   // Force scroll after sending to ensure viewport is at bottom for incoming stream
-  if (host.sessionKey === queuedSessionKey) {
+  if (areUiSessionKeysEquivalent(host.sessionKey, queuedSessionKey)) {
     scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0], true);
   }
-  if (ok && host.sessionKey === queuedSessionKey && !host.chatRunId) {
+  if (ok && areUiSessionKeysEquivalent(host.sessionKey, queuedSessionKey) && !host.chatRunId) {
     void flushChatQueue(host);
   }
   return ok;
@@ -1513,46 +1652,128 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string) {
 }
 
 async function flushChatQueue(host: ChatHost) {
-  if (!host.connected || isChatBusy(host)) {
+  if (
+    !host.connected ||
+    isChatBusy(host) ||
+    isChatQueuePaused(host) ||
+    chatQueueFlushes.has(host)
+  ) {
     return;
   }
-  const nextIndex = host.chatQueue.findIndex(
-    (item) =>
-      !item.pendingRunId &&
-      item.sendState !== "sending" &&
-      item.sendState !== "waiting-model" &&
-      item.sendState !== "failed" &&
-      // Older persisted queue entries can retain the error without its state.
-      // Keep those sends manual-retry-only instead of silently resubmitting them.
-      !(item.sendError && !item.sendState) &&
-      (item.sessionKey == null || item.sessionKey === host.sessionKey),
-  );
-  if (nextIndex < 0) {
-    return;
-  }
-  const next = host.chatQueue[nextIndex];
-  let ok = false;
+  chatQueueFlushes.add(host);
   try {
-    if (next.localCommandName) {
-      host.chatQueue = host.chatQueue.filter((_, index) => index !== nextIndex);
-      await dispatchSlashCommand(host, next.localCommandName, next.localCommandArgs ?? "");
-      ok = true;
-    } else {
-      ok = await sendChatMessageNow(host, next.text, {
-        queueItemId: next.id,
-        attachments: next.attachments,
-        refreshSessions: next.refreshSessions,
-      });
+    while (host.connected && !isChatBusy(host) && !isChatQueuePaused(host)) {
+      const nextIndex = host.chatQueue.findIndex(
+        (item) =>
+          isDrainableChatQueueItem(item) &&
+          (item.sessionKey == null || areUiSessionKeysEquivalent(item.sessionKey, host.sessionKey)),
+      );
+      if (nextIndex < 0) {
+        return;
+      }
+      const next = host.chatQueue[nextIndex];
+      let ok = false;
+      try {
+        if (next.localCommandName) {
+          host.chatQueue = host.chatQueue.filter((_, index) => index !== nextIndex);
+          await dispatchSlashCommand(host, next.localCommandName, next.localCommandArgs ?? "");
+          ok = true;
+        } else {
+          ok = await sendChatMessageNow(host, next.text, {
+            queueItemId: next.id,
+            attachments: next.attachments,
+            refreshSessions: next.refreshSessions,
+          });
+        }
+      } catch (err) {
+        setChatError(host, String(err));
+      }
+      if (!ok) {
+        if (next.localCommandName) {
+          host.chatQueue = [next, ...host.chatQueue];
+        }
+        return;
+      }
+      // Continue draining local commands. A normal send stops once the Gateway
+      // exposes the resulting run so the next message waits for it to finish.
     }
-  } catch (err) {
-    setChatError(host, String(err));
+  } finally {
+    chatQueueFlushes.delete(host);
   }
-  if (!ok && next.localCommandName) {
-    host.chatQueue = [next, ...host.chatQueue];
-  } else if (ok && host.chatQueue.length > 0) {
-    // Continue draining — local commands don't block on server response
-    void flushChatQueue(host);
+}
+
+function isDrainableChatQueueItem(
+  item: ChatQueueItem,
+  options: { allowLocalCommand?: boolean } = {},
+): boolean {
+  return (
+    !item.pendingRunId &&
+    (options.allowLocalCommand !== false || !item.localCommandName) &&
+    item.sendState !== "sending" &&
+    item.sendState !== "waiting-model" &&
+    item.sendState !== "failed" &&
+    // Older persisted queue entries can retain the error without its state.
+    // Keep those sends manual-retry-only instead of silently resubmitting them.
+    !(item.sendError && !item.sendState)
+  );
+}
+
+async function drainPendingOffscreenChatQueue(host: ChatHost) {
+  if (!host.connected || !host.client || chatQueueReconnectRetries.has(host)) {
+    return;
   }
+  chatQueueReconnectRetries.add(host);
+  try {
+    while (host.connected && host.client) {
+      const sessionKey = takeOffscreenChatQueueSession(host);
+      if (!sessionKey) {
+        return;
+      }
+      if (
+        areUiSessionKeysEquivalent(host.sessionKey, sessionKey) ||
+        isChatQueuePaused(host, sessionKey)
+      ) {
+        continue;
+      }
+      await waitForChatSendIdle(host);
+      if (!host.connected || !host.client) {
+        return;
+      }
+      const item = readChatQueueForSession(host, sessionKey).find((entry) =>
+        isDrainableChatQueueItem(entry, { allowLocalCommand: false }),
+      );
+      if (!item) {
+        continue;
+      }
+      const result = await sendQueuedChatMessage(host, item.id, undefined, sessionKey);
+      if (result === "terminal") {
+        // A deduplicated retry can complete without another run-terminal event.
+        // Requeue this session so later prompts are not stranded behind it.
+        enqueueOffscreenChatQueueSession(host, sessionKey);
+      }
+    }
+  } finally {
+    chatQueueReconnectRetries.delete(host);
+    if (host.connected && host.client && hasPendingOffscreenChatQueueSessions(host)) {
+      void drainPendingOffscreenChatQueue(host);
+    }
+  }
+}
+
+export async function flushChatQueueForSessionAfterRunReconcile(
+  host: ChatHost,
+  sessionKey: string,
+) {
+  if (
+    !host.connected ||
+    !host.client ||
+    areUiSessionKeysEquivalent(host.sessionKey, sessionKey) ||
+    isChatQueuePaused(host, sessionKey)
+  ) {
+    return;
+  }
+  enqueueOffscreenChatQueueSession(host, sessionKey);
+  await drainPendingOffscreenChatQueue(host);
 }
 
 function isSelectedSessionKnownIdle(
@@ -1688,9 +1909,19 @@ export function clearPendingQueueItemsForRun(host: ChatHost, runId: string | und
   }
 }
 
-type ChatQueueStoreHost = {
-  chatQueue: ChatQueueItem[];
+type ChatQueuePauseHost = {
+  sessionKey: string;
   chatQueueBySession?: Record<string, ChatQueueItem[]>;
+  chatQueuePaused?: boolean;
+  chatQueuePausedBySession?: Record<string, boolean>;
+};
+
+type ChatQueueStoreHost = ChatQueuePauseHost & {
+  chatQueue: ChatQueueItem[];
+  settings?: { gatewayUrl?: string | null };
+  assistantAgentId?: string | null;
+  agentsList?: { defaultId?: string | null; mainKey?: string | null } | null;
+  hello?: { snapshot?: unknown } | null;
 };
 
 function chatQueueCollections(host: ChatQueueStoreHost): ChatQueueItem[][] {
@@ -1722,6 +1953,7 @@ export function markQueuedChatSendsWaitingForReconnect(host: ChatQueueStoreHost)
   const active = markQueue(host.chatQueue);
   if (active.changed) {
     host.chatQueue = active.queue;
+    persistStoredChatComposerQueue(host, host.sessionKey, active.queue, isChatQueuePaused(host));
   }
 
   let changed = false;
@@ -1731,6 +1963,12 @@ export function markQueuedChatSendsWaitingForReconnect(host: ChatQueueStoreHost)
     if (next.changed) {
       changed = true;
       queueBySession[sessionKey] = next.queue;
+      persistStoredChatComposerQueue(
+        host,
+        sessionKey,
+        next.queue,
+        isChatQueuePaused(host, sessionKey),
+      );
     }
   }
   if (changed) {
@@ -1739,33 +1977,49 @@ export function markQueuedChatSendsWaitingForReconnect(host: ChatQueueStoreHost)
 }
 
 export async function retryReconnectableQueuedChatSends(host: ChatHost) {
-  if (!host.connected || !host.client || host.chatSending) {
+  if (!host.connected || !host.client || host.chatSending || chatQueueReconnectRetries.has(host)) {
     return;
   }
-  const sessionKeys = [
-    host.sessionKey,
-    ...Object.keys(host.chatQueueBySession ?? {}).filter(
-      (sessionKey) => sessionKey !== host.sessionKey,
-    ),
-  ];
-  for (const sessionKey of sessionKeys) {
-    const item = readChatQueueForSession(host, sessionKey).find(
-      (entry) =>
-        entry.sendRunId &&
-        entry.sendState === "waiting-reconnect" &&
-        !entry.pendingRunId &&
-        !entry.localCommandName,
-    );
-    if (!item) {
-      continue;
+  chatQueueReconnectRetries.add(host);
+  try {
+    const sessionKeys = [
+      host.sessionKey,
+      ...Object.keys(host.chatQueueBySession ?? {}).filter(
+        (sessionKey) => !areUiSessionKeysEquivalent(sessionKey, host.sessionKey),
+      ),
+    ];
+    for (const sessionKey of sessionKeys) {
+      if (isChatQueuePaused(host, sessionKey)) {
+        continue;
+      }
+      const item = readChatQueueForSession(host, sessionKey).find(
+        (entry) =>
+          entry.sendRunId &&
+          entry.sendState === "waiting-reconnect" &&
+          !entry.pendingRunId &&
+          !entry.localCommandName,
+      );
+      if (!item) {
+        continue;
+      }
+      const result = await sendQueuedChatMessage(host, item.id, undefined, sessionKey);
+      if (result === "terminal" && !areUiSessionKeysEquivalent(sessionKey, host.sessionKey)) {
+        // A reconnect retry may be a cached terminal response; let the same
+        // offscreen session continue without waiting for a terminal event.
+        enqueueOffscreenChatQueueSession(host, sessionKey);
+      }
+      if (host.chatRunId) {
+        return;
+      }
     }
-    await sendQueuedChatMessage(host, item.id, undefined, sessionKey);
-    if (host.chatRunId) {
-      return;
+    if (!host.chatRunId) {
+      void flushChatQueue(host);
     }
-  }
-  if (!host.chatRunId) {
-    void flushChatQueue(host);
+  } finally {
+    chatQueueReconnectRetries.delete(host);
+    if (host.connected && host.client && hasPendingOffscreenChatQueueSessions(host)) {
+      void drainPendingOffscreenChatQueue(host);
+    }
   }
 }
 
@@ -1830,7 +2084,7 @@ export async function handleSendChat(
         if (modelSwitchReady !== true && !(await modelSwitchReady)) {
           return;
         }
-        if (host.sessionKey !== submittedSessionKey) {
+        if (!areUiSessionKeysEquivalent(host.sessionKey, submittedSessionKey)) {
           return;
         }
         const cleared =
@@ -1889,7 +2143,7 @@ export async function handleSendChat(
     skillWorkshopRevision,
   );
   await withChatSubmitGuard(host, submitKey, async () => {
-    if (host.sessionKey !== submittedSessionKey) {
+    if (!areUiSessionKeysEquivalent(host.sessionKey, submittedSessionKey)) {
       return;
     }
     const cleared =
@@ -1916,7 +2170,7 @@ export async function handleSendChat(
     }
 
     if (modelSwitchReady !== true && !(await modelSwitchReady)) {
-      if (host.sessionKey === submittedSessionKey) {
+      if (areUiSessionKeysEquivalent(host.sessionKey, submittedSessionKey)) {
         cancelPendingSendBeforeRequest(host, queued, {
           previousDraft: cleared.previousDraft,
           previousAttachments: cleared.previousAttachments,
@@ -1931,7 +2185,7 @@ export async function handleSendChat(
       }
       return;
     }
-    if (host.sessionKey !== submittedSessionKey) {
+    if (!areUiSessionKeysEquivalent(host.sessionKey, submittedSessionKey)) {
       updateQueuedMessageForSession(host, submittedSessionKey, queued.id, (item) => ({
         ...item,
         sendError: undefined,
@@ -1956,6 +2210,18 @@ export async function handleSendChat(
         sendState: undefined,
       }));
       recordChatSendTiming(host, queued, "queued-busy", submittedAtMs);
+      return;
+    }
+
+    if (isChatQueuePaused(host, submittedSessionKey)) {
+      updateQueuedMessage(host, queued.id, (item) => ({
+        ...item,
+        // Keep disconnected sends reconnectable; connected sends wait for an
+        // explicit resume instead of bypassing the paused queue.
+        sendState: host.connected && host.client ? undefined : "waiting-reconnect",
+        sendError: undefined,
+      }));
+      persistQueuedMessagesForSession(host, submittedSessionKey);
       return;
     }
 
@@ -2132,7 +2398,7 @@ export async function refreshChat(
     }
     requestUpdate();
   });
-  const sessionsRefresh = historyLoad.then((history) => {
+  const applyHistorySessionInfo = historyLoad.then((history) => {
     if (history?.sessionInfo) {
       applyChatHistorySessionInfo(
         host as unknown as SessionsState,
@@ -2141,6 +2407,22 @@ export async function refreshChat(
       );
     }
   });
+  // `chat.startup` can provide history and agent metadata without the selected
+  // session row. Load that row during the first chat refresh so an active run
+  // is rendered as active instead of briefly looking idle until another event
+  // or manual navigation causes a sessions.list refresh.
+  const sessionsRefresh =
+    opts?.startup === true
+      ? Promise.all([
+          loadSessions(host as unknown as SessionsState, {
+            ...createChatSessionsLoadOverrides(host),
+            ...scopedAgentListParamsForSession(host, refreshedSessionKey),
+            background: true,
+            expectedSessionKey: refreshedSessionKey,
+          }),
+          applyHistorySessionInfo,
+        ])
+      : applyHistorySessionInfo;
   const startupMetadataRefresh =
     opts?.startup === true
       ? historyLoad.then((history) => {
@@ -2150,7 +2432,7 @@ export async function refreshChat(
           if (
             host.client !== refreshedClient ||
             !host.connected ||
-            host.sessionKey !== refreshedSessionKey ||
+            !areUiSessionKeysEquivalent(host.sessionKey, refreshedSessionKey) ||
             resolveAgentIdForSession(host) !== refreshedAgentId
           ) {
             return { commands: false, models: false };
@@ -2169,7 +2451,7 @@ export async function refreshChat(
     requestUpdate,
   );
   scheduleChatMetadataRefresh(() => {
-    if (host.sessionKey !== refreshedSessionKey || !host.connected) {
+    if (!areUiSessionKeysEquivalent(host.sessionKey, refreshedSessionKey) || !host.connected) {
       return;
     }
     void startupMetadataRefresh
@@ -2270,7 +2552,7 @@ async function refreshChatMetadata(host: ChatHost) {
     if (
       host.client !== client ||
       !host.connected ||
-      host.sessionKey !== sessionKey ||
+      !areUiSessionKeysEquivalent(host.sessionKey, sessionKey) ||
       resolveAgentIdForSession(host) !== agentId
     ) {
       return;
@@ -2311,7 +2593,7 @@ function shouldApplyChatAvatarResult(
 ): boolean {
   return (
     chatAvatarRequestVersions.get(host as object) === version &&
-    host.sessionKey === sessionKey &&
+    areUiSessionKeysEquivalent(host.sessionKey, sessionKey) &&
     resolveAgentIdForSession(host) === agentId
   );
 }

@@ -4,6 +4,8 @@ import {
   registerChatAttachmentPayload,
   resetChatAttachmentPayloadStoreForTest,
 } from "../chat/attachment-payload-store.ts";
+import type { ChatGoalFlowSummary } from "../chat/pursue-goal.ts";
+import type { WorkSurfaceTaskSummary } from "../chat/work-snapshot.ts";
 import { GatewayRequestError } from "../gateway.ts";
 import {
   abortChatRun,
@@ -95,6 +97,28 @@ describe("chat work task loading", () => {
     expect(state.chatWorkLoading).toBe(false);
   });
 
+  it("does not apply work-task results from a replaced Gateway client", async () => {
+    const pending = createDeferred<{ tasks: WorkSurfaceTaskSummary[] }>();
+    const oldClient = {
+      request: vi.fn().mockReturnValueOnce(pending.promise),
+    };
+    const state = createState({
+      client: oldClient as unknown as ChatState["client"],
+      chatWorkTasks: [],
+      chatWorkLoading: false,
+      chatWorkError: null,
+    });
+
+    const load = loadChatWorkTasks(state);
+    state.client = { request: vi.fn() } as unknown as ChatState["client"];
+    pending.resolve({ tasks: [{ id: "stale", taskId: "stale", title: "Stale" }] });
+    await load;
+
+    expect(state.chatWorkTasks).toEqual([]);
+    expect(state.chatWorkLoading).toBe(false);
+    expect(state.chatWorkError).toBeNull();
+  });
+
   it("cancels a work task when a task id exists", async () => {
     const request = vi
       .fn()
@@ -147,6 +171,30 @@ describe("chat project actions", () => {
     expect(state.projectsLoading).toBe(false);
   });
 
+  it("does not apply a project refresh from a replaced Gateway client", async () => {
+    const pending = createDeferred<{
+      projects: Array<{ id: string; title: string; status: string }>;
+    }>();
+    const oldClient = {
+      request: vi.fn().mockReturnValueOnce(pending.promise),
+    };
+    const state = createState({
+      client: oldClient as unknown as ChatState["client"],
+      projectsList: null,
+      projectsLoading: false,
+      chatProjectError: null,
+    });
+
+    const load = loadChatProjects(state);
+    state.client = { request: vi.fn() } as unknown as ChatState["client"];
+    pending.resolve({ projects: [{ id: "stale", title: "Stale", status: "active" }] });
+    await load;
+
+    expect(state.projectsList).toBeNull();
+    expect(state.projectsLoading).toBe(false);
+    expect(state.chatProjectError).toBeNull();
+  });
+
   it("creates a project and attaches the active chat session", async () => {
     const request = vi
       .fn()
@@ -187,6 +235,34 @@ describe("chat project actions", () => {
     });
     expect(state.chatProjectCreateName).toBe("");
     expect(state.chatProjectPickerOpen).toBe(false);
+    expect(state.chatProjectBusy).toBe(false);
+  });
+
+  it("keeps project attachment on the original session if the user switches chats mid-request", async () => {
+    const pending = createDeferred<{
+      project: { id: string; title: string; status: string };
+    }>();
+    const request = vi
+      .fn()
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ projects: [] });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatProjectCreateName: "Project",
+      chatProjectPickerOpen: true,
+    });
+
+    const create = createAndAttachChatProject(state);
+    state.sessionKey = "agent:main:other";
+    pending.resolve({ project: { id: "project-new", title: "Project", status: "active" } });
+    await create;
+
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.patch", {
+      key: "main",
+      projectId: "project-new",
+    });
+    expect(state.chatProjectPickerOpen).toBe(true);
     expect(state.chatProjectBusy).toBe(false);
   });
 
@@ -274,6 +350,28 @@ describe("chat pursue goal actions", () => {
     expect(state.chatGoalLoading).toBe(false);
   });
 
+  it("does not apply a goal response after the chat session changes", async () => {
+    const pending = createDeferred<{ flows: ChatGoalFlowSummary[] }>();
+    const request = vi.fn().mockReturnValueOnce(pending.promise);
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [],
+      chatGoalLoading: false,
+      chatGoalError: null,
+    });
+
+    const load = loadChatGoals(state);
+    state.sessionKey = "agent:main:other";
+    pending.resolve({
+      flows: [{ id: "stale", goal: "Old session", status: "running" }],
+    });
+    await load;
+
+    expect(state.chatGoalFlows).toEqual([]);
+    expect(state.chatGoalLoading).toBe(false);
+    expect(state.chatGoalError).toBeNull();
+  });
+
   it("creates a goal from the composer draft", async () => {
     const request = vi
       .fn()
@@ -337,6 +435,36 @@ describe("chat pursue goal actions", () => {
       limit: 20,
     });
     expect(state.chatGoalFlows?.[0]?.status).toBe("cancelled");
+    expect(state.chatGoalAction).toBeNull();
+  });
+
+  it("does not apply a goal control response after the chat session changes", async () => {
+    const pending = createDeferred<{
+      found: true;
+      applied: true;
+      action: "stop";
+      flow: ChatGoalFlowSummary;
+    }>();
+    const request = vi.fn().mockReturnValueOnce(pending.promise);
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
+    });
+
+    const control = controlChatGoal(state, "flow-1", "stop");
+    state.sessionKey = "agent:main:other";
+    state.chatGoalFlows = [];
+    state.chatGoalAction = null;
+    pending.resolve({
+      found: true,
+      applied: true,
+      action: "stop",
+      flow: { id: "flow-1", goal: "Finish", status: "cancelled" },
+    });
+    await control;
+
+    expect(state.chatGoalFlows).toEqual([]);
+    expect(state.chatGoalError).toBeNull();
     expect(state.chatGoalAction).toBeNull();
   });
 

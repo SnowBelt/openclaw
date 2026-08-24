@@ -18,7 +18,7 @@ export type BuildChatItemsProps = {
   sessionKey: string;
   messages: unknown[];
   toolMessages: unknown[];
-  streamSegments: Array<{ text: string; ts: number }>;
+  streamSegments: Array<{ text: string; ts: number; toolCallId?: string }>;
   stream: string | null;
   streamStartedAt: number | null;
   queue?: ChatQueueItem[];
@@ -477,6 +477,32 @@ function chatItemTimestamp(item: ChatItem): number | null {
   return null;
 }
 
+function chatItemToolCallId(item: ChatItem): string | null {
+  if (item.kind === "stream") {
+    return item.toolCallId?.trim() || null;
+  }
+  if (item.kind !== "message") {
+    return null;
+  }
+  const value = asRecord(item.message)?.toolCallId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function compareCausalStreamAndTool(left: ChatItem, right: ChatItem): number | null {
+  const leftToolCallId = chatItemToolCallId(left);
+  const rightToolCallId = chatItemToolCallId(right);
+  if (!leftToolCallId || !rightToolCallId || leftToolCallId !== rightToolCallId) {
+    return null;
+  }
+  if (left.kind === "stream" && right.kind === "message") {
+    return -1;
+  }
+  if (left.kind === "message" && right.kind === "stream") {
+    return 1;
+  }
+  return null;
+}
+
 function timestampAfterVisibleItems(items: ChatItem[], desiredTimestamp: number): number {
   const latestTimestamp = items.reduce<number | null>((latest, item) => {
     const timestamp = chatItemTimestamp(item);
@@ -494,6 +520,10 @@ function sortChatItemsByVisibleTime(items: ChatItem[]): ChatItem[] {
   return items
     .map((item, index) => ({ item, index, timestamp: chatItemTimestamp(item) }))
     .toSorted((a, b) => {
+      const causalOrder = compareCausalStreamAndTool(a.item, b.item);
+      if (causalOrder !== null) {
+        return causalOrder;
+      }
       if (a.timestamp == null && b.timestamp == null) {
         return a.index - b.index;
       }
@@ -785,6 +815,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
           text: visibleText,
           startedAt: segments[i].ts,
           isStreaming: false,
+          ...(segments[i].toolCallId ? { toolCallId: segments[i].toolCallId } : {}),
         });
       }
     }

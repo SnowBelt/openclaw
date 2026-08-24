@@ -14,6 +14,7 @@ import {
   resolveUiDefaultAgentId,
   resolveUiGlobalAliasAgentId,
   resolveUiSelectedGlobalAgentId,
+  uiSessionRowMatchesSelectedChat,
 } from "../session-key.ts";
 import { isSessionRunActive } from "../session-run-state.ts";
 import type {
@@ -66,6 +67,10 @@ export type SessionsState = SessionsChatRunState & {
 
 export type LoadSessionsOverrides = {
   agentId?: string;
+  /** Load without disabling chat controls during a non-interactive hydrate. */
+  background?: boolean;
+  /** Discard a response that no longer belongs to the selected chat session. */
+  expectedSessionKey?: string;
   activeMinutes?: number;
   limit?: number;
   offset?: number;
@@ -275,7 +280,7 @@ function sessionPatchTargetsCurrentChatRun(
   state: SessionsState & { sessionKey: string },
   options: { changedSessionKey: string; eventRunId?: string },
 ): boolean {
-  if (state.sessionKey !== options.changedSessionKey) {
+  if (!uiSessionRowMatchesSelectedChat(state, options.changedSessionKey, state.sessionKey)) {
     return false;
   }
   if (
@@ -319,6 +324,8 @@ const SESSION_EVENT_ROW_FIELDS = [
   "startedAt",
   "status",
   "archived",
+  "pinned",
+  "pinnedAt",
   "subject",
   "surface",
   "systemSent",
@@ -707,6 +714,7 @@ export type SessionsChangedApplyResult =
       change: "deleted" | "inserted" | "updated";
       clearedChatRun?: boolean;
       clearedChatRunStatus?: Pick<ChatRunUiStatus, "phase" | "runId" | "sessionKey">;
+      clearedSessionRunStatus?: Pick<ChatRunUiStatus, "phase" | "runId" | "sessionKey">;
     };
 
 export function applySessionsChangedEvent(
@@ -834,13 +842,26 @@ export function applySessionsChangedEvent(
   const hasCurrentSession = hasCurrentChatSession(state);
   const currentChatRunId = state.chatRunId ?? null;
   const currentChatSessionKey = hasCurrentSession ? state.sessionKey : null;
-  const clearedChatRun =
-    nextRow.hasActiveRun !== true &&
+  const chatRunTargetsCurrentSession =
     hasCurrentSession &&
     sessionPatchTargetsCurrentChatRun(state, {
       changedSessionKey: key,
       eventRunId,
-    }) &&
+    });
+  const clearedOffscreenSessionRun =
+    hasCurrentSession &&
+    !uiSessionRowMatchesSelectedChat(state, key, state.sessionKey) &&
+    existing &&
+    isSessionRunActive(existing) &&
+    !isSessionRunActive(nextRow)
+      ? {
+          phase: nextRow.status === "done" ? ("done" as const) : ("interrupted" as const),
+          runId: eventRunId ?? null,
+          sessionKey: key,
+        }
+      : undefined;
+  const clearedChatRun =
+    chatRunTargetsCurrentSession &&
     reconcileChatRunFromCurrentSessionRow(state, {
       publishRunStatus: false,
     });
@@ -861,6 +882,7 @@ export function applySessionsChangedEvent(
           },
         }
       : {}),
+    ...(clearedOffscreenSessionRun ? { clearedSessionRunStatus: clearedOffscreenSessionRun } : {}),
   };
 }
 
@@ -1070,6 +1092,10 @@ export async function loadSessions(state: SessionsState, overrides?: LoadSession
   const control = getSessionsLoadControl(state);
   if (control.loading) {
     control.pending = { overrides };
+    if (overrides?.background !== true) {
+      control.ownsStateLoading = true;
+      state.sessionsLoading = true;
+    }
     return;
   }
   if (state.sessionsLoading) {
@@ -1078,13 +1104,19 @@ export async function loadSessions(state: SessionsState, overrides?: LoadSession
   }
   const client = state.client;
   control.loading = true;
-  control.ownsStateLoading = true;
-  state.sessionsLoading = true;
+  control.ownsStateLoading = overrides?.background !== true;
+  if (control.ownsStateLoading) {
+    state.sessionsLoading = true;
+  }
   state.sessionsError = null;
   let currentOverrides: LoadSessionsOverrides | undefined = overrides;
   try {
     for (;;) {
       control.pending = null;
+      if (currentOverrides?.background !== true && !control.ownsStateLoading) {
+        control.ownsStateLoading = true;
+        state.sessionsLoading = true;
+      }
       await loadSessionsOnce(state, client, currentOverrides);
       const pending = takePendingSessionsLoad(control);
       if (!pending || !state.client || !state.connected) {
@@ -1107,6 +1139,10 @@ async function loadSessionsOnce(
   client: NonNullable<SessionsState["client"]>,
   overrides?: LoadSessionsOverrides,
 ) {
+  const expectedSessionKey = overrides?.expectedSessionKey;
+  if (expectedSessionKey && !areUiSessionKeysEquivalent(state.sessionKey, expectedSessionKey)) {
+    return;
+  }
   await (async () => {
     const previousRows = new Map(
       (state.sessionsResult?.sessions ?? []).map((row) => [row.key, row] as const),
@@ -1150,7 +1186,12 @@ async function loadSessionsOnce(
       params.search = search;
     }
     const res = await client.request<SessionsListResult | undefined>("sessions.list", params);
-    if (res) {
+    if (
+      res &&
+      state.client === client &&
+      state.connected &&
+      (!expectedSessionKey || areUiSessionKeysEquivalent(state.sessionKey, expectedSessionKey))
+    ) {
       const projected = projectSessionsResultForAvailability(res, { showArchived });
       state.sessionsResult =
         overrides?.append === true && offset > 0 && state.sessionsResult
@@ -1188,6 +1229,13 @@ async function loadSessionsOnce(
       }
     }
   })().catch((err: unknown) => {
+    if (
+      state.client !== client ||
+      !state.connected ||
+      (expectedSessionKey && !areUiSessionKeysEquivalent(state.sessionKey, expectedSessionKey))
+    ) {
+      return;
+    }
     if (!isMissingOperatorReadScopeError(err)) {
       state.sessionsError = String(err);
       return;
@@ -1202,21 +1250,27 @@ export async function patchSession(
   key: string,
   patch: {
     label?: string | null;
+    pinned?: boolean | null;
     thinkingLevel?: string | null;
     fastMode?: FastMode | null;
     verboseLevel?: string | null;
     reasoningLevel?: string | null;
   },
-) {
+): Promise<boolean> {
+  state.sessionsError = null;
   if (!state.client || !state.connected) {
-    return;
+    return false;
   }
+  const selectedGlobalAgentId = isUiGlobalSessionKey(key)
+    ? resolveSelectedGlobalAgentId(state)
+    : null;
   const params: Record<string, unknown> = {
     key,
-    ...(isUiGlobalSessionKey(key) ? { agentId: resolveSelectedGlobalAgentId(state) } : {}),
+    ...(selectedGlobalAgentId ? { agentId: selectedGlobalAgentId } : {}),
   };
   for (const field of [
     "label",
+    "pinned",
     "thinkingLevel",
     "fastMode",
     "verboseLevel",
@@ -1230,10 +1284,12 @@ export async function patchSession(
     await state.client.request("sessions.patch", params);
     await loadSessions(
       state,
-      isUiGlobalSessionKey(key) ? { agentId: resolveSelectedGlobalAgentId(state) } : undefined,
+      selectedGlobalAgentId ? { agentId: selectedGlobalAgentId } : undefined,
     );
+    return true;
   } catch (err) {
     state.sessionsError = String(err);
+    return false;
   }
 }
 

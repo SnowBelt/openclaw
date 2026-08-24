@@ -275,4 +275,25 @@ describe("reconcileChatRunFromCurrentSessionRow stale-active suppression (#87875
     expect(reconcileChatRunFromCurrentSessionRow(host)).toBe(true);
     expect(rowActive(host)).toBe(false);
   });
+
+  it("suppresses a stale default-main alias row for the canonical selected chat", () => {
+    const host = makeHost({
+      sessionKey: "agent:main:main",
+      sessionsResult: makeSessionsResult([{ key: "main", hasActiveRun: true, status: "running" }]),
+      lastLocalTerminalReconcile: {
+        sessionKey: "agent:main:main",
+        runId: "r1",
+        phase: "done",
+        sessionStatus: "done",
+        occurredAt: Date.now(),
+      },
+    });
+
+    expect(reconcileChatRunFromCurrentSessionRow(host)).toBe(true);
+    expect(host.sessionsResult?.sessions[0]).toMatchObject({
+      hasActiveRun: false,
+      key: "main",
+      status: "done",
+    });
+  });
 });

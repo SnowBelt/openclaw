@@ -5,6 +5,7 @@ import { icons } from "../icons.ts";
 
 export type ChatRunControlsProps = {
   canAbort: boolean;
+  canSend: boolean;
   connected: boolean;
   draft: string;
   hasMessages: boolean;
@@ -59,7 +60,7 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
                 }
                 props.onSend();
               }}
-              ?disabled=${!props.connected || props.sending}
+              ?disabled=${!props.canSend || !props.connected || props.sending}
               title=${t("chat.runControls.queue")}
               aria-label=${t("chat.runControls.queueMessage")}
             >
@@ -85,7 +86,7 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
                 }
                 props.onSend();
               }}
-              ?disabled=${!props.connected || props.sending}
+              ?disabled=${!props.canSend || !props.connected || props.sending}
               title=${props.isBusy ? t("chat.runControls.queue") : t("chat.runControls.send")}
               aria-label=${props.isBusy
                 ? t("chat.runControls.queueMessage")

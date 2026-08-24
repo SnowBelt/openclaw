@@ -938,6 +938,31 @@ describe("executeSlashCommand directives", () => {
 });
 
 describe("executeSlashCommand /steer (soft inject)", () => {
+  it("steers when the session row only reports hasActiveRun", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.list") {
+        return { sessions: [row("agent:main:main", { hasActiveRun: true })] };
+      }
+      if (method === "chat.send") {
+        return { status: "started", runId: "run-has-active" };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "agent:main:main",
+      "steer",
+      "continue with the smaller fix",
+    );
+
+    expect(result.content).toBe("Steered.");
+    expect(requireRequestCall(request, "chat.send").payload).toMatchObject({
+      message: "continue with the smaller fix",
+      deliver: false,
+    });
+  });
+
   it("injects into the current session via chat.send with deliver: false", async () => {
     const request = vi.fn(async (method: string, _payload?: unknown) => {
       if (method === "sessions.list") {

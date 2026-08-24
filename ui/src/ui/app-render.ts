@@ -16,6 +16,7 @@ import { DEFAULT_CRON_FORM } from "./app-defaults.ts";
 import { renderUsageTab } from "./app-render-usage-tab.ts";
 import {
   renderChatControls,
+  type ChatControlsOptions,
   renderTab,
   resolveAssistantAttachmentAuthToken,
   resolveDashboardHeaderContext,
@@ -29,14 +30,18 @@ import {
 } from "./app-render.helpers.ts";
 import { hasOperatorAdminAccess, hasOperatorWriteAccess, warnQueryToken } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
+import { resolveChatModelSelectState } from "./chat-model-select-state.ts";
+import { copyToClipboard } from "./chat/clipboard.ts";
 import { createLazyChatRenderer } from "./chat/lazy-render.ts";
 import { resolveCurrentChatGoal } from "./chat/pursue-goal.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import {
+  openChatSessionRename,
   renderChatSessionSelect,
   resolveChatAgentFilterId,
   resolveChatAgentFilterOptions,
   resolvePreferredSessionForAgent,
+  toggleChatSessionPinned,
 } from "./chat/session-controls.ts";
 import { clearChatMessagesFromCache } from "./chat/session-message-cache.ts";
 import {
@@ -254,6 +259,7 @@ import {
 } from "./navigation.ts";
 import { isPluginEnabledInConfigSnapshot } from "./plugin-activation.ts";
 import { isCronSessionKey, resolveSessionDisplayName } from "./session-display.ts";
+import { areUiSessionKeysEquivalent } from "./session-key.ts";
 import {
   buildAgentMainSessionKey,
   isSessionKeyTiedToAgent,
@@ -262,6 +268,7 @@ import {
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
 } from "./session-key.ts";
+import { isSessionRunActive } from "./session-run-state.ts";
 import "./components/dashboard-header.ts";
 import type { SidebarContent } from "./sidebar-content.ts";
 import { loadLocalAssistantIdentity } from "./storage.ts";
@@ -506,7 +513,7 @@ async function sendSkillWorkshopRevisionRequest(
   if (state.tab !== "chat") {
     state.setTab("chat" as Tab);
   }
-  if (state.sessionKey === sessionKey) {
+  if (areUiSessionKeysEquivalent(state.sessionKey, sessionKey)) {
     await loadChatHistory(state);
   } else {
     await switchChatSessionAndWait(state, sessionKey);
@@ -626,7 +633,19 @@ function resolveSidebarRecentSessions(state: AppViewState): GatewaySessionRow[] 
         !row.spawnedBy &&
         (!shouldFilterByAgent || isSidebarSessionForSelectedAgent(state, row, selectedAgentId)),
     )
-    .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    .toSorted((a, b) => {
+      const pinnedDelta = Number(b.pinned === true) - Number(a.pinned === true);
+      if (pinnedDelta !== 0) {
+        return pinnedDelta;
+      }
+      if (a.pinned === true && b.pinned === true) {
+        const pinnedAtDelta = (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0);
+        if (pinnedAtDelta !== 0) {
+          return pinnedAtDelta;
+        }
+      }
+      return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    })
     .slice(0, 5);
 }
 
@@ -706,46 +725,81 @@ function renderSidebarSessions(state: AppViewState) {
 }
 
 function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow) {
-  const active = row.key === state.sessionKey;
+  const active = areUiSessionKeysEquivalent(row.key, state.sessionKey);
   const label = resolveSessionDisplayName(row.key, row);
   const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
   const href = `${pathForTab("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
   return html`
-    <a
-      href=${href}
-      class="sidebar-recent-session ${active ? "sidebar-recent-session--active" : ""}"
+    <div
+      class="sidebar-recent-session sidebar-recent-session--managed ${active
+        ? "sidebar-recent-session--active"
+        : ""}"
       data-session-key=${row.key}
-      title=${`${label} · ${row.key}`}
-      @click=${(event: MouseEvent) => {
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
-          return;
-        }
-        event.preventDefault();
-        if (row.key !== state.sessionKey) {
-          switchChatSession(state, row.key);
-        }
-        state.setTab("chat" as import("./navigation.ts").Tab);
-      }}
     >
-      <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
-      <span class="sidebar-recent-session__body">
-        <span class="sidebar-recent-session__name">${label}</span>
-        <span class="sidebar-recent-session__meta">${meta}</span>
-      </span>
-      ${row.hasActiveRun
-        ? html`<span
-            class="sidebar-recent-session__live"
-            aria-label=${t("sessions.sessionDetails.activeRun")}
-          ></span>`
-        : nothing}
-    </a>
+      <a
+        href=${href}
+        class="sidebar-recent-session__link"
+        title=${`${label} · ${row.key}`}
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          if (!areUiSessionKeysEquivalent(row.key, state.sessionKey)) {
+            switchChatSession(state, row.key);
+          }
+          state.setTab("chat" as import("./navigation.ts").Tab);
+        }}
+      >
+        <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
+        <span class="sidebar-recent-session__body">
+          <span class="sidebar-recent-session__name">${label}</span>
+          <span class="sidebar-recent-session__meta">${meta}</span>
+        </span>
+        ${isSessionRunActive(row)
+          ? html`<span
+              class="sidebar-recent-session__live"
+              aria-label=${t("sessions.sessionDetails.activeRun")}
+            ></span>`
+          : nothing}
+      </a>
+      <button
+        class="btn btn--ghost btn--icon sidebar-recent-session__pin"
+        data-sidebar-session-pin="true"
+        type="button"
+        title=${row.pinned ? t("sessionsView.unpinSession") : t("sessionsView.pinSession")}
+        aria-label=${`${row.pinned ? t("sessionsView.unpinSession") : t("sessionsView.pinSession")}: ${label}`}
+        aria-pressed=${row.pinned ? "true" : "false"}
+        ?disabled=${!state.connected || !state.client}
+        @click=${(event: MouseEvent) => {
+          event.stopPropagation();
+          toggleChatSessionPinned(state, row);
+        }}
+      >
+        ${row.pinned ? icons.pinOff : icons.pin}
+      </button>
+      <button
+        class="btn btn--ghost btn--icon sidebar-recent-session__rename"
+        data-sidebar-session-rename="true"
+        type="button"
+        title=${t("sessionsView.renameSession")}
+        aria-label=${`${t("sessionsView.renameSession")}: ${label}`}
+        ?disabled=${!state.connected || !state.client}
+        @click=${(event: MouseEvent) => {
+          event.stopPropagation();
+          openChatSessionRename(state, row, "sidebar");
+        }}
+      >
+        ${icons.penLine}
+      </button>
+    </div>
   `;
 }
 
@@ -821,7 +875,11 @@ function getChatWorkspaceFilesState(
   agentId: string,
 ): ChatWorkspaceFilesState {
   const current = chatWorkspaceFilesStates.get(state);
-  if (current?.sessionKey === sessionKey && current.agentId === agentId) {
+  if (
+    current &&
+    areUiSessionKeysEquivalent(current.sessionKey, sessionKey) &&
+    current.agentId === agentId
+  ) {
     return current;
   }
   const next = {
@@ -1111,7 +1169,7 @@ function renderMeasured<T>(
   return result;
 }
 
-function renderGuardedChatControls(state: AppViewState) {
+function renderGuardedChatControls(state: AppViewState, options: ChatControlsOptions = {}) {
   return guard(
     [
       state.sessionKey,
@@ -1145,12 +1203,18 @@ function renderGuardedChatControls(state: AppViewState) {
       state.chatSessionPickerLoading,
       state.chatSessionPickerError,
       state.chatSessionPickerResult,
+      state.chatSessionRenameKey,
+      state.chatSessionRenameDraft,
+      state.chatSessionRenameSurface,
+      state.chatSessionRenameBusy,
+      state.chatSessionRenameError,
       state.sessionSwitchNotice?.id ?? null,
       state.sessionSwitchNotice?.text ?? null,
       state.sessionSwitchFlashKey,
+      options.controlDirectorDefaultBusy ?? false,
       i18n.getLocale(),
     ],
-    () => renderChatControls(state),
+    () => renderChatControls(state, options),
   );
 }
 
@@ -1349,7 +1413,9 @@ export function extractQuickSettingsSecurity(state: AppViewState): {
 }
 
 function resolveQuickSettingsSessionRow(state: AppViewState) {
-  return state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
+  return state.sessionsResult?.sessions?.find((row) =>
+    areUiSessionKeysEquivalent(row.key, state.sessionKey),
+  );
 }
 
 function renderCronQuickCreateForTab(
@@ -1502,7 +1568,12 @@ export function renderApp(state: AppViewState) {
   const presenceCount = state.presenceEntries.length;
   const sessionsCount = state.sessionsResult?.count ?? null;
   const cronNext = state.cronStatus?.nextWakeAtMs ?? null;
-  const chatDisabledReason = state.connected ? null : t("chat.disconnected");
+  const chatModelState = resolveChatModelSelectState(state);
+  const unavailableChatModel = chatModelState.currentOverride || chatModelState.defaultModel;
+  const chatModelUnavailableReason = chatModelState.currentModelAvailable
+    ? null
+    : `The selected chat model${unavailableChatModel ? ` (${unavailableChatModel})` : ""} is unavailable. Choose another model before sending.`;
+  const chatDisabledReason = state.connected ? chatModelUnavailableReason : t("chat.disconnected");
   const isChat = state.tab === "chat";
   const headerError = !isChat && state.lastError !== state.chatError ? state.lastError : null;
   const chatViewError = state.lastError;
@@ -1724,6 +1795,46 @@ export function renderApp(state: AppViewState) {
       basePath: ["agents", "list", index, "model"] as Array<string | number>,
       existing,
     };
+  };
+  const setControlDirectorDefaultModel = async (model: string): Promise<boolean> => {
+    const normalizedModel = model.trim();
+    const controlDirectorId = normalizeAgentId(state.agentsList?.defaultId ?? "main");
+    const activeAgentId = resolveChatAgentFilterId(state, state.sessionKey);
+    if (!normalizedModel || activeAgentId !== controlDirectorId) {
+      return false;
+    }
+    try {
+      if (!state.configForm && !state.configSnapshot) {
+        await loadConfig(state);
+      }
+      const index = ensureAgentIndex(controlDirectorId);
+      if (index < 0) {
+        throw new Error(`Control Director agent '${controlDirectorId}' is not configured.`);
+      }
+      const { basePath: modelPath, existing } = resolveAgentModelFormEntry(index);
+      if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+        const fallbacks = (existing as { fallbacks?: unknown }).fallbacks;
+        updateConfigFormValue(state, modelPath, {
+          ...existing,
+          primary: normalizedModel,
+          ...(Array.isArray(fallbacks) ? { fallbacks } : {}),
+        });
+      } else {
+        updateConfigFormValue(state, modelPath, normalizedModel);
+      }
+      await saveAgentsConfig(state);
+      await loadSessions(state, {
+        ...createChatSessionsLoadOverrides(state),
+        ...scopedAgentListParamsForSession(state, state.sessionKey),
+      });
+      return true;
+    } catch (err) {
+      state.lastError = String(err);
+      state.chatError = `Failed to set the Control Director default: ${String(err)}`;
+      return false;
+    } finally {
+      requestHostUpdate?.();
+    }
   };
   const cronAgentSuggestions = sortLocaleStrings(
     new Set(
@@ -2335,13 +2446,16 @@ export function renderApp(state: AppViewState) {
     state.agentsList &&
     !chatWorkspaceFiles.loading &&
     !chatWorkspaceFiles.error &&
-    chatWorkspaceFiles.list?.sessionKey !== state.sessionKey
+    !areUiSessionKeysEquivalent(chatWorkspaceFiles.list?.sessionKey, state.sessionKey)
   ) {
     loadChatWorkspaceFiles();
   }
   const toggleChatWorkspaceFilesCollapsed = () => {
     chatWorkspaceFiles.collapsed = !chatWorkspaceFiles.collapsed;
-    if (!chatWorkspaceFiles.collapsed && chatWorkspaceFiles.list?.sessionKey !== state.sessionKey) {
+    if (
+      !chatWorkspaceFiles.collapsed &&
+      !areUiSessionKeysEquivalent(chatWorkspaceFiles.list?.sessionKey, state.sessionKey)
+    ) {
       loadChatWorkspaceFiles();
     }
     requestHostUpdate?.();
@@ -2369,7 +2483,7 @@ export function renderApp(state: AppViewState) {
     }, 160);
   };
   const copyChatWorkspacePath = (filePath: string) => {
-    void globalThis.navigator?.clipboard?.writeText?.(filePath);
+    void copyToClipboard(filePath);
   };
   function loadChatWorkspaceFiles(opts?: { force?: boolean }) {
     if (!state.client || !state.connected) {
@@ -2465,7 +2579,7 @@ export function renderApp(state: AppViewState) {
         currentRequest?.id === openRequest.id &&
         currentRequest.agentId === resolveChatWorkspaceAgentId() &&
         currentRequest.itemId === itemId &&
-        currentRequest.sessionKey === currentSessionWorkspaceKey() &&
+        areUiSessionKeysEquivalent(currentRequest.sessionKey, currentSessionWorkspaceKey()) &&
         currentFiles?.agentId === openRequest.agentId &&
         currentFiles?.activeId === itemId
       );
@@ -4712,6 +4826,7 @@ export function renderApp(state: AppViewState) {
                     switchChatSession(state, next);
                   },
                   thinkingLevel: state.chatThinkingLevel,
+                  sendShortcut: state.settings.chatSendShortcut,
                   showThinking,
                   showToolCalls,
                   loading: state.chatLoading,
@@ -4752,6 +4867,7 @@ export function renderApp(state: AppViewState) {
                   execApprovalError: state.execApprovalError,
                   draft: state.chatMessage,
                   queue: state.chatQueue,
+                  queuePaused: state.chatQueuePaused,
                   realtimeTalkActive: state.realtimeTalkActive,
                   realtimeTalkStatus: state.realtimeTalkStatus,
                   realtimeTalkDetail: state.realtimeTalkDetail,
@@ -4761,21 +4877,26 @@ export function renderApp(state: AppViewState) {
                   realtimeTalkOptions: state.realtimeTalkOptions,
                   realtimeTalkCatalogProviders: state.realtimeTalkCatalogProviders,
                   connected: state.connected,
-                  canSend: state.connected,
+                  canSend: state.connected && !chatModelUnavailableReason,
                   disabledReason: chatDisabledReason,
                   error: chatViewError,
                   runStatus: state.chatRunStatus,
                   onDismissError: () => dismissChatError(state),
                   onDismissRealtimeTalkError: () => dismissRealtimeTalkError(state),
                   sessions: state.sessionsResult,
-                  composerControls: renderGuardedChatControls(state),
+                  composerControls: renderGuardedChatControls(state, {
+                    onSetControlDirectorDefault: setControlDirectorDefaultModel,
+                    controlDirectorDefaultBusy: state.configLoading || state.configSaving,
+                  }),
                   sessionWorkspace: {
                     collapsed: chatWorkspaceFiles.collapsed,
                     sessionKey: state.sessionKey,
-                    list:
-                      chatWorkspaceFiles.list?.sessionKey === state.sessionKey
-                        ? chatWorkspaceFiles.list
-                        : null,
+                    list: areUiSessionKeysEquivalent(
+                      chatWorkspaceFiles.list?.sessionKey,
+                      state.sessionKey,
+                    )
+                      ? chatWorkspaceFiles.list
+                      : null,
                     loading: chatWorkspaceFiles.loading,
                     error: chatWorkspaceFiles.error,
                     activeId: chatWorkspaceFiles.activeId,
@@ -4839,6 +4960,7 @@ export function renderApp(state: AppViewState) {
                   onQueueRemove: (id) => state.removeQueuedMessage(id),
                   onQueueRetry: (id) => void state.retryQueuedChatMessage(id),
                   onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
+                  onQueueTogglePause: () => state.toggleChatQueuePaused(),
                   onWorkTaskCancel: (taskId) => void cancelChatWorkTask(state, taskId),
                   onGoalPanelToggle: (open) => {
                     state.chatGoalPanelOpen = open;

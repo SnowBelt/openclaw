@@ -46,6 +46,7 @@ const loadSessionsMock = vi.hoisted(() =>
     }
   }),
 );
+const patchSessionMock = vi.hoisted(() => vi.fn(async () => true));
 const buildChatItemsMock = vi.hoisted(() =>
   vi.fn((props: { messages: unknown[]; stream: string | null; streamStartedAt: number | null }) => {
     if (
@@ -192,6 +193,7 @@ vi.mock("../controllers/agents.ts", () => ({
 
 vi.mock("../controllers/sessions.ts", () => ({
   loadSessions: loadSessionsMock,
+  patchSession: patchSessionMock,
   syncSelectedSessionMessageSubscription: vi.fn(async () => undefined),
 }));
 
@@ -229,6 +231,8 @@ function renderQueue(params: {
   canAbort?: boolean;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  queuePaused?: boolean;
+  onQueueTogglePause?: () => void;
 }) {
   const container = document.createElement("div");
   render(
@@ -238,6 +242,8 @@ function renderQueue(params: {
       onQueueRetry: params.onQueueRetry,
       onQueueSteer: params.onQueueSteer,
       onQueueRemove: () => undefined,
+      queuePaused: params.queuePaused,
+      onQueueTogglePause: params.onQueueTogglePause,
     }),
     container,
   );
@@ -1429,6 +1435,7 @@ afterEach(() => {
   renderMessageGroupMock.mockClear();
   assistantAttachmentRenderVersionMock.value = 0;
   loadSessionsMock.mockClear();
+  patchSessionMock.mockClear();
   refreshVisibleToolsEffectiveForCurrentSessionMock.mockClear();
   resetChatViewState();
   resetChatAttachmentPayloadStoreForTest();
@@ -2541,6 +2548,42 @@ describe("chat slash menu accessibility", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Enter multiline and sends with the configured modifier shortcut", () => {
+    const onDraftChange = vi.fn();
+    const onSend = vi.fn();
+    const container = renderChatView({
+      onDraftChange,
+      onSend,
+      sendShortcut: "modifier-enter",
+    });
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeInstanceOf(HTMLTextAreaElement);
+    expect(textarea?.getAttribute("aria-keyshortcuts")).toBe("Control+Enter Meta+Enter");
+
+    inputDraft(container, "multiline draft");
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea!.dispatchEvent(enter);
+
+    expect(enter.defaultPrevented).toBe(false);
+    expect(onSend).not.toHaveBeenCalled();
+
+    const modifierEnter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea!.dispatchEvent(modifierEnter);
+
+    expect(modifierEnter.defaultPrevented).toBe(true);
+    expect(onDraftChange).toHaveBeenCalledWith("multiline draft");
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
   it("commits local draft input on blur", () => {
     const onDraftChange = vi.fn();
     const container = renderChatView({ onDraftChange });
@@ -2810,6 +2853,23 @@ describe("chat attachment picker", () => {
 });
 
 describe("chat queue", () => {
+  it("keeps a paused queue visible and exposes an explicit resume control", () => {
+    const onQueueTogglePause = vi.fn();
+    const container = renderQueue({
+      queue: [],
+      queuePaused: true,
+      onQueueTogglePause,
+    });
+
+    expect(container.textContent).toContain("Queue (0) · Paused");
+    expect(container.textContent).toContain("No messages are waiting");
+    const resume = container.querySelector<HTMLButtonElement>(".chat-queue__pause");
+    expect(resume?.getAttribute("aria-label")).toBe("Resume queue");
+    expect(resume?.getAttribute("aria-pressed")).toBe("true");
+    resume?.click();
+    expect(onQueueTogglePause).toHaveBeenCalledTimes(1);
+  });
+
   it("renders Steer only for queued messages during an active run", () => {
     const onQueueSteer = vi.fn();
     const container = renderQueue({
@@ -3347,6 +3407,56 @@ describe("chat session controls", () => {
     target.click();
 
     expect(onSwitchSession).toHaveBeenCalledWith(state, targetSessionKey);
+  });
+
+  it("renames a chat through the in-app dialog", async () => {
+    const { state } = createChatHeaderState();
+    state.sessionsIncludeGlobal = false;
+    state.sessionsIncludeUnknown = false;
+    state.chatSessionPickerOpen = true;
+    state.chatSessionPickerSurface = "desktop";
+    state.chatSessionPickerResult = createSessionsResultFromRows([
+      { key: "main", kind: "direct", label: "Main chat", updatedAt: 2 },
+    ]);
+    const container = document.createElement("div");
+    render(renderChatSessionSelect(state), container);
+
+    container.querySelector<HTMLButtonElement>('[data-chat-session-rename="true"]')!.click();
+    render(renderChatSessionSelect(state), container);
+
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-chat-session-rename-input="true"]',
+    );
+    expect(input?.value).toBe("Main chat");
+    input!.value = "Renamed chat";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    container.querySelector<HTMLButtonElement>('[data-chat-session-rename-save="true"]')!.click();
+
+    await vi.waitFor(() => {
+      expect(patchSessionMock).toHaveBeenCalledWith(state, "main", { label: "Renamed chat" });
+      expect(state.chatSessionRenameKey).toBeNull();
+    });
+  });
+
+  it("pins a chat through the conversation picker", async () => {
+    const { state } = createChatHeaderState();
+    state.sessionsIncludeGlobal = false;
+    state.sessionsIncludeUnknown = false;
+    state.chatSessionPickerOpen = true;
+    state.chatSessionPickerSurface = "desktop";
+    state.chatSessionPickerResult = createSessionsResultFromRows([
+      { key: "main", kind: "direct", label: "Main chat", pinned: false, updatedAt: 2 },
+    ]);
+    const container = document.createElement("div");
+    render(renderChatSessionSelect(state), container);
+
+    const pin = container.querySelector<HTMLButtonElement>('[data-chat-session-pin="true"]');
+    expect(pin?.getAttribute("aria-pressed")).toBe("false");
+    pin?.click();
+
+    await vi.waitFor(() => {
+      expect(patchSessionMock).toHaveBeenCalledWith(state, "main", { pinned: true });
+    });
   });
 
   it("clears applied chat session picker search when the input is cleared", async () => {
@@ -4355,6 +4465,83 @@ describe("chat session controls", () => {
     await flushTasks();
     expect(loadSessionsMock).toHaveBeenCalledTimes(1);
     expect(state.sessionsResult?.sessions[0]?.model).toBeUndefined();
+  });
+
+  it("does not let a stale model-switch failure roll back a newer selection", async () => {
+    const { state, request } = createChatHeaderState();
+    const patchRequests: Array<{
+      reject: (error: Error) => void;
+      resolve: (value: unknown) => void;
+    }> = [];
+    request.mockImplementation(((method: string): Promise<unknown> => {
+      if (method === "sessions.patch") {
+        return new Promise((resolve, reject) => {
+          patchRequests.push({ resolve, reject });
+        });
+      }
+      if (method === "sessions.list") {
+        return Promise.resolve(
+          createSessionsResultFromRows([
+            {
+              key: "main",
+              kind: "direct",
+              modelProvider: "openai",
+              model: "gpt-5",
+              updatedAt: 1,
+            },
+          ]),
+        );
+      }
+      if (method === "tools.effective") {
+        return Promise.resolve({ agentId: "main", profile: "coding", groups: [] });
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    }) as never);
+    const container = document.createElement("div");
+    render(renderChatSessionSelect(state), container);
+
+    clickChatModelOption(container, "openai/gpt-5-mini");
+    clickChatModelOption(container, "openai/gpt-5");
+    expect(patchRequests).toHaveLength(2);
+
+    patchRequests[0]?.reject(new Error("stale failure"));
+    await flushTasks();
+    expect(state.chatModelOverrides.main?.value).toBe("openai/gpt-5");
+    expect(state.chatError).toBeNull();
+
+    patchRequests[1]?.resolve({ ok: true });
+    await flushTasks();
+    expect(state.chatModelOverrides.main?.value).toBe("openai/gpt-5");
+    expect(state.chatError).toBeNull();
+  });
+
+  it("restores a canonical model override when the selected chat uses the bare main alias", async () => {
+    const { state, request } = createChatHeaderState();
+    const row = state.sessionsResult?.sessions[0];
+    if (!row) {
+      throw new Error("Expected the default session row");
+    }
+    row.key = "agent:main:main";
+    state.chatModelOverrides = {
+      "agent:main:main": { kind: "qualified", value: "openai/gpt-5" },
+    };
+    request.mockImplementation((method: string) => {
+      if (method === "sessions.patch") {
+        throw new Error("gateway rejected model change");
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const container = document.createElement("div");
+    render(renderChatSessionSelect(state), container);
+
+    clickChatModelOption(container, "openai/gpt-5-mini");
+    await flushTasks();
+
+    expect(state.chatModelOverrides).toEqual({
+      "agent:main:main": { kind: "qualified", value: "openai/gpt-5" },
+    });
+    expect(state.chatModelOverrides.main).toBeUndefined();
+    expect(state.chatError).toContain("gateway rejected model change");
   });
 
   it("keeps Default available when an explicit model override matches the default", async () => {
@@ -5584,6 +5771,31 @@ describe("chat Pursue Goal surface", () => {
     );
     expect(onGoalControl).toHaveBeenNthCalledWith(3, "flow-1", "stop");
     expect(surface.textContent).toContain("Stop goal");
+  });
+
+  it("shows an active worker task even when its status is not running", () => {
+    const container = renderChatView({
+      goalPanelOpen: true,
+      goalFlows: [
+        {
+          id: "flow-active-worker",
+          status: "running",
+          goal: "Keep the worker visible",
+          currentStep: "Waiting for task details.",
+          tasks: [
+            {
+              taskId: "task-active",
+              status: "active",
+              progressSummary: "Local model is validating the patch",
+            },
+          ],
+        },
+      ],
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-goal]")!;
+    expect(surface.textContent).toContain("Local model is validating the patch");
+    expect(surface.textContent).toContain("Task active");
   });
 
   it("shows an immediate stopping state and disables duplicate goal control", () => {

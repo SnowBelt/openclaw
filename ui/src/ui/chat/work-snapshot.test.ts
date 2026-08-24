@@ -34,6 +34,36 @@ describe("buildWorkSurfaceSnapshot", () => {
     expect(buildWorkSurfaceSnapshot({ currentSessionKey: "agent:main:main" })).toEqual([]);
   });
 
+  it("does not treat a contradictory running status as active work", () => {
+    const items = buildWorkSurfaceSnapshot({
+      sessionsResult: {
+        ...sessionsResult,
+        sessions: [
+          {
+            ...sessionsResult.sessions[0],
+            hasActiveRun: false,
+            status: "running",
+          },
+        ],
+      },
+    });
+
+    expect(items).toEqual([]);
+  });
+
+  it("does not duplicate the selected chat when its session row uses the default-main alias", () => {
+    const items = buildWorkSurfaceSnapshot({
+      currentSessionKey: "main",
+      chatRunId: "run-1",
+      sessionsResult: {
+        ...sessionsResult,
+        sessions: [{ ...sessionsResult.sessions[0], key: "agent:main:main" }],
+      },
+    });
+
+    expect(items.map((item) => item.kind)).toEqual(["chat_run"]);
+  });
+
   it("sorts active run, queued messages, running tasks, queued tasks, and active sessions", () => {
     const items = buildWorkSurfaceSnapshot({
       assistantName: "OpenClaw",
@@ -213,6 +243,35 @@ describe("buildWorkSurfaceSnapshot", () => {
     });
 
     expect(items.some((item) => isWorkSurfaceItemExecuting(item))).toBe(true);
+  });
+
+  it("uses task status when a goal snapshot has no active-task count or a stale zero", () => {
+    const items = buildWorkSurfaceSnapshot({
+      goals: [
+        {
+          id: "flow-1",
+          goal: "Finish the dashboard",
+          status: "running",
+          taskSummary: { active: 0 },
+          tasks: [{ id: "task-1", status: "running" }],
+        },
+      ],
+    });
+
+    expect(items[0]?.status).toBe("Goal active · worker running");
+    expect(items.some((item) => isWorkSurfaceItemExecuting(item))).toBe(true);
+  });
+
+  it("treats active and working task rows as executing work", () => {
+    for (const status of ["active", "working"]) {
+      const items = buildWorkSurfaceSnapshot({
+        currentSessionKey: "agent:main:main",
+        tasks: [{ id: `task-${status}`, status }],
+      });
+
+      expect(items[0]?.status).toBe("Working");
+      expect(isWorkSurfaceItemExecuting(items[0]!)).toBe(true);
+    }
   });
 
   it("recognizes subagent activity flags as executing sessions", () => {

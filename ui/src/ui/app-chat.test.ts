@@ -52,6 +52,8 @@ let clearPendingQueueItemsForRun: typeof import("./app-chat.ts").clearPendingQue
 let removeQueuedMessage: typeof import("./app-chat.ts").removeQueuedMessage;
 let markQueuedChatSendsWaitingForReconnect: typeof import("./app-chat.ts").markQueuedChatSendsWaitingForReconnect;
 let retryReconnectableQueuedChatSends: typeof import("./app-chat.ts").retryReconnectableQueuedChatSends;
+let flushChatQueueForEvent: typeof import("./app-chat.ts").flushChatQueueForEvent;
+let flushChatQueueForSessionAfterRunReconcile: typeof import("./app-chat.ts").flushChatQueueForSessionAfterRunReconcile;
 let recordChatSendServerTiming: typeof import("./app-chat.ts").recordChatSendServerTiming;
 let recordFirstAssistantChatTiming: typeof import("./app-chat.ts").recordFirstAssistantChatTiming;
 
@@ -68,6 +70,8 @@ async function loadChatHelpers(): Promise<void> {
     removeQueuedMessage,
     markQueuedChatSendsWaitingForReconnect,
     retryReconnectableQueuedChatSends,
+    flushChatQueueForEvent,
+    flushChatQueueForSessionAfterRunReconcile,
     recordChatSendServerTiming,
     recordFirstAssistantChatTiming,
   } = await import("./app-chat.ts"));
@@ -469,7 +473,7 @@ describe("refreshChat", () => {
   });
 
   it("drains a restored queue after refresh proves the selected session is idle", async () => {
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "chat.history") {
         return {
           messages: [],
@@ -1125,6 +1129,46 @@ describe("refreshChat", () => {
       resetSlashCommandsForTest();
       globalThis.fetch = previousFetch;
     }
+  });
+
+  it("loads the selected session run state during startup chat refresh", async () => {
+    const request = vi.fn((method: string) => {
+      if (method === "chat.startup") {
+        return Promise.resolve({ messages: [] });
+      }
+      if (method === "sessions.list") {
+        return Promise.resolve(
+          createSessionsResult([
+            row("main", {
+              hasActiveRun: true,
+              status: "running",
+              updatedAt: Date.now(),
+            }),
+          ]),
+        );
+      }
+      return pendingPromise();
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      sessionKey: "main",
+    });
+
+    await refreshChat(host, { startup: true, awaitHistory: true, scheduleScroll: false });
+
+    expect(request).toHaveBeenCalledWith("sessions.list", expect.anything());
+    expect(hasAbortableSessionRun(host)).toBe(true);
+  });
+
+  it("recognizes an active default-main alias as abortable", () => {
+    const host = makeHost({
+      sessionKey: "main",
+      sessionsResult: createSessionsResult([
+        row("agent:main:main", { hasActiveRun: true, status: "running" }),
+      ]),
+    });
+
+    expect(hasAbortableSessionRun(host)).toBe(true);
   });
 
   it("falls back to separate metadata RPCs when chat.metadata is not advertised", async () => {
@@ -2385,6 +2429,57 @@ describe("handleSendChat", () => {
     expect(host.chatMessage).toBe("queued while busy");
   });
 
+  it("keeps a new prompt queued while the queue is paused", async () => {
+    const request = vi.fn(async () => {
+      throw new Error("paused queue must not send");
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "wait until resumed",
+      chatQueuePaused: true,
+    });
+
+    await handleSendChat(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue).toHaveLength(1);
+    expect(host.chatQueue[0]).toMatchObject({
+      text: "wait until resumed",
+      sendState: undefined,
+    });
+  });
+
+  it("stops draining when the queue is paused during an in-flight send", async () => {
+    const sent = createDeferred<unknown>();
+    const request = vi.fn((method: string) => {
+      if (method === "chat.send") {
+        return sent.promise;
+      }
+      if (method === "chat.history") {
+        return Promise.resolve({ messages: [] });
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [
+        { id: "first", text: "first", createdAt: 1 },
+        { id: "second", text: "second", createdAt: 2 },
+      ],
+    });
+
+    const flush = flushChatQueueForEvent(host);
+    await Promise.resolve();
+    expect(request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(1);
+
+    host.chatQueuePaused = true;
+    sent.resolve({ runId: "run-first", status: "ok" });
+    await flush;
+
+    expect(request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(1);
+    expect(host.chatQueue).toMatchObject([{ id: "second", text: "second" }]);
+  });
+
   it("coalesces duplicate in-flight chat submits before the gateway acknowledges them", async () => {
     const sent = createDeferred<unknown>();
     const request = vi.fn((method: string) => {
@@ -2723,6 +2818,228 @@ describe("handleSendChat", () => {
     expect(host.chatMessages).toStrictEqual([]);
     expect(host.chatRunId).toBeNull();
     expect(host.chatStream).toBeNull();
+  });
+
+  it("drains one queued prompt for an offscreen session after its run completes", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "run-offscreen-next", status: "started" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      sessionKey: "agent:main:visible",
+      chatQueueBySession: {
+        "agent:main:offscreen": [
+          {
+            id: "offscreen-queued-1",
+            text: "continue offscreen work",
+            createdAt: 1,
+            sessionKey: "agent:main:offscreen",
+          },
+          {
+            id: "offscreen-queued-2",
+            text: "wait for the next run",
+            createdAt: 2,
+            sessionKey: "agent:main:offscreen",
+          },
+        ],
+      },
+    });
+
+    await flushChatQueueForSessionAfterRunReconcile(host, "agent:main:offscreen");
+
+    const payload = findRequestPayload(
+      request as unknown as MockCallSource,
+      "chat.send",
+      "offscreen queued send payload",
+    );
+    expect(payload.sessionKey).toBe("agent:main:offscreen");
+    expect(payload.message).toBe("continue offscreen work");
+    expect(host.chatQueueBySession?.["agent:main:offscreen"]).toHaveLength(1);
+    expect(host.chatQueueBySession?.["agent:main:offscreen"]?.[0]?.id).toBe("offscreen-queued-2");
+  });
+
+  it("continues an offscreen queue after a deduplicated terminal send", async () => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
+      if (method !== "chat.send") {
+        throw new Error(`Unexpected request: ${method}`);
+      }
+      if (request.mock.calls.length === 1) {
+        return { runId: "run-already-completed", status: "ok" };
+      }
+      return { runId: "run-next", status: "started" };
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      sessionKey: "agent:main:visible",
+      chatQueueBySession: {
+        "agent:main:offscreen": [
+          {
+            id: "offscreen-completed-retry",
+            text: "retry the completed prompt",
+            createdAt: 1,
+            sessionKey: "agent:main:offscreen",
+          },
+          {
+            id: "offscreen-next",
+            text: "send the next prompt",
+            createdAt: 2,
+            sessionKey: "agent:main:offscreen",
+          },
+        ],
+      },
+    });
+
+    await flushChatQueueForSessionAfterRunReconcile(host, "agent:main:offscreen");
+
+    expect(request.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({
+        message: "retry the completed prompt",
+        sessionKey: "agent:main:offscreen",
+      }),
+      expect.objectContaining({
+        message: "send the next prompt",
+        sessionKey: "agent:main:offscreen",
+      }),
+    ]);
+    expect(host.chatQueueBySession?.["agent:main:offscreen"] ?? []).toEqual([]);
+  });
+
+  it("serializes concurrent offscreen session drains without dropping either session", async () => {
+    const firstSend = createDeferred<unknown>();
+    const secondSend = createDeferred<unknown>();
+    const request = vi.fn((method: string, params?: { sessionKey?: string }) => {
+      if (method !== "chat.send") {
+        throw new Error(`Unexpected request: ${method}`);
+      }
+      if (!params?.sessionKey) {
+        throw new Error("Expected a session key");
+      }
+      return request.mock.calls.length === 1 ? firstSend.promise : secondSend.promise;
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      sessionKey: "agent:main:visible",
+      chatQueueBySession: {
+        "agent:main:first": [
+          {
+            id: "first-queued",
+            text: "continue first",
+            createdAt: 1,
+            sessionKey: "agent:main:first",
+          },
+        ],
+        "agent:main:second": [
+          {
+            id: "second-queued",
+            text: "continue second",
+            createdAt: 2,
+            sessionKey: "agent:main:second",
+          },
+        ],
+      },
+    });
+
+    const first = flushChatQueueForSessionAfterRunReconcile(host, "agent:main:first");
+    const second = flushChatQueueForSessionAfterRunReconcile(host, "agent:main:second");
+    await Promise.resolve();
+
+    expect(request).toHaveBeenCalledTimes(1);
+    firstSend.resolve({ runId: "run-first", status: "started" });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+
+    secondSend.resolve({ runId: "run-second", status: "started" });
+    await Promise.all([first, second]);
+
+    expect(request.mock.calls.map((call) => call[1]?.sessionKey)).toEqual([
+      "agent:main:first",
+      "agent:main:second",
+    ]);
+    expect(host.chatQueueBySession?.["agent:main:first"] ?? []).toEqual([]);
+    expect(host.chatQueueBySession?.["agent:main:second"] ?? []).toEqual([]);
+  });
+
+  it("does not duplicate reconnect replay when connection events overlap", async () => {
+    const sent = createDeferred<unknown>();
+    const request = vi.fn((method: string) => {
+      if (method === "chat.send") {
+        return sent.promise;
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [
+        {
+          id: "reconnect-1",
+          text: "send once after reconnect",
+          createdAt: 1,
+          sendRunId: "run-reconnect-1",
+          sendState: "waiting-reconnect",
+          sessionKey: "agent:main",
+        },
+      ],
+    });
+
+    const first = retryReconnectableQueuedChatSends(host);
+    const second = retryReconnectableQueuedChatSends(host);
+    await Promise.resolve();
+
+    expect(request).toHaveBeenCalledTimes(1);
+    sent.resolve({ runId: "run-reconnect-1", status: "started" });
+    await Promise.all([first, second]);
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(host.chatMessages).toHaveLength(1);
+  });
+
+  it("continues an offscreen reconnect queue after a terminal retry response", async () => {
+    const request = vi.fn(
+      async (method: string, params?: { message?: string; sessionKey?: string }) => {
+        if (method !== "chat.send") {
+          throw new Error(`Unexpected request: ${method}`);
+        }
+        if (params?.message === "retry the accepted prompt") {
+          return { runId: "run-accepted-before-reconnect", status: "ok" };
+        }
+        return { runId: "run-reconnect-next", status: "started" };
+      },
+    );
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      sessionKey: "agent:main:visible",
+      chatQueueBySession: {
+        "agent:main:offscreen": [
+          {
+            id: "reconnect-accepted",
+            text: "retry the accepted prompt",
+            createdAt: 1,
+            sendRunId: "run-accepted-before-reconnect",
+            sendState: "waiting-reconnect",
+            sessionKey: "agent:main:offscreen",
+          },
+          {
+            id: "reconnect-next",
+            text: "send the next reconnect prompt",
+            createdAt: 2,
+            sessionKey: "agent:main:offscreen",
+          },
+        ],
+      },
+    });
+
+    await retryReconnectableQueuedChatSends(host);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(host.chatQueueBySession?.["agent:main:offscreen"] ?? []).toEqual([]),
+    );
+
+    expect(request.mock.calls.map((call) => call[1]?.message)).toEqual([
+      "retry the accepted prompt",
+      "send the next reconnect prompt",
+    ]);
   });
 
   it("does not auto-resend legacy error-only queue records", async () => {

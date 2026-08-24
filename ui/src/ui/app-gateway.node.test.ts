@@ -9,7 +9,9 @@ import type { ChatQueueItem } from "./ui-types.ts";
 
 const loadChatHistoryMock = vi.hoisted(() => vi.fn(async () => undefined));
 const loadChatComposerSnapshotMock = vi.hoisted(() =>
-  vi.fn<(...args: unknown[]) => { draft: string; queue: ChatQueueItem[] } | null>(() => null),
+  vi.fn<
+    (...args: unknown[]) => { draft: string; queue: ChatQueueItem[]; queuePaused: boolean } | null
+  >(() => null),
 );
 const restoreChatComposerStateMock = vi.hoisted(() =>
   vi.fn<(...args: unknown[]) => boolean>(() => false),
@@ -191,6 +193,7 @@ function createHost(): TestGatewayHost {
     chatMessages: [],
     chatMessage: "",
     chatQueue: [],
+    chatQueuePaused: false,
     chatComposerProvisionalRestore: null,
     chatQueueBySession: {},
     chatToolMessages: [],
@@ -304,19 +307,23 @@ describe("connectGateway", () => {
     const scopedQueue = [{ id: "queued-new", text: "right agent", createdAt: 2 }];
     host.chatMessage = "fallback draft";
     host.chatQueue = provisionalQueue;
+    host.chatQueuePaused = true;
     host.chatComposerProvisionalRestore = {
       sessionKey: "main",
       chatMessage: "fallback draft",
       chatQueue: provisionalQueue,
+      chatQueuePaused: true,
     };
     loadChatComposerSnapshotMock.mockReturnValueOnce({
       draft: "scoped draft",
       queue: scopedQueue,
+      queuePaused: false,
     });
     restoreChatComposerStateMock.mockImplementationOnce((target: unknown) => {
       const hostTarget = target as typeof host;
       expect(hostTarget.chatMessage).toBe("");
       expect(hostTarget.chatQueue).toEqual([]);
+      expect(hostTarget.chatQueuePaused).toBe(false);
       hostTarget.chatMessage = "scoped draft";
       hostTarget.chatQueue = scopedQueue;
       return true;
@@ -351,10 +358,12 @@ describe("connectGateway", () => {
       sessionKey: "main",
       chatMessage: "fallback draft",
       chatQueue: provisionalQueue,
+      chatQueuePaused: false,
     };
     loadChatComposerSnapshotMock.mockReturnValueOnce({
       draft: "scoped draft",
       queue: [{ id: "queued-new", text: "right agent", createdAt: 2 }],
+      queuePaused: false,
     });
     restoreChatComposerStateMock.mockImplementationOnce((target: unknown) => {
       const hostTarget = target as typeof host;

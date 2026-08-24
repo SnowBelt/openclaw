@@ -5,6 +5,7 @@ const {
   refreshChatAvatarMock,
   flushChatQueueAfterIdleSessionReconciliationMock,
   refreshSlashCommandsMock,
+  loadChatGoalsMock,
   loadChatHistoryMock,
   createSessionAndRefreshMock,
   loadSessionsMock,
@@ -14,6 +15,7 @@ const {
   refreshChatAvatarMock: vi.fn(),
   flushChatQueueAfterIdleSessionReconciliationMock: vi.fn(),
   refreshSlashCommandsMock: vi.fn(),
+  loadChatGoalsMock: vi.fn(),
   loadChatHistoryMock: vi.fn(),
   createSessionAndRefreshMock: vi.fn(),
   loadSessionsMock: vi.fn(),
@@ -61,6 +63,7 @@ vi.mock("./chat/slash-commands.ts", () => ({
 }));
 
 vi.mock("./controllers/chat.ts", () => ({
+  loadChatGoals: loadChatGoalsMock,
   loadChatHistory: loadChatHistoryMock,
 }));
 
@@ -94,6 +97,7 @@ beforeEach(() => {
   refreshChatAvatarMock.mockReset();
   flushChatQueueAfterIdleSessionReconciliationMock.mockReset();
   refreshSlashCommandsMock.mockReset();
+  loadChatGoalsMock.mockReset();
   loadChatHistoryMock.mockReset();
   createSessionAndRefreshMock.mockReset();
   loadSessionsMock.mockReset();
@@ -587,6 +591,15 @@ describe("resolveSessionOptionGroups", () => {
 
   it("keeps the active agent main session visible when no row exists yet", () => {
     expect(labelsForSessionOptions({ sessionKey: "agent:main:main" })).toEqual(["main"]);
+  });
+
+  it("uses a canonical default-main row once for the bare main alias", () => {
+    expect(
+      labelsForSessionOptions({
+        sessionKey: "main",
+        sessions: [row({ key: "agent:main:main", label: "Control Director" })],
+      }),
+    ).toEqual(["Control Director"]);
   });
 
   it("hides inactive subagent sessions from the picker", () => {
@@ -1157,6 +1170,14 @@ describe("switchChatSession", () => {
       chatQueue: [{ id: "queued", text: "message B", createdAt: 1 }],
       chatQueueBySession: {},
       chatRunId: "run-1",
+      chatGoalPanelOpen: true,
+      chatGoalDraft: "Old goal",
+      chatGoalFlows: [{ id: "old-goal", goal: "Old goal", status: "running" }],
+      chatGoalLoading: true,
+      chatGoalBusy: true,
+      chatGoalAction: { flowId: "old-goal", action: "stop" },
+      chatGoalError: "old error",
+      chatGoalUpdatedAt: 1,
       sessionsShowArchived: false,
       chatSideResultTerminalRuns: new Set(["btw-run-1"]),
       chatStreamStartedAt: 1,
@@ -1195,6 +1216,12 @@ describe("switchChatSession", () => {
     ]);
     expect(state.chatSideResult).toBeNull();
     expect(state.chatSideResultTerminalRuns.size).toBe(0);
+    expect(state.chatGoalPanelOpen).toBe(false);
+    expect(state.chatGoalDraft).toBe("");
+    expect(state.chatGoalFlows).toEqual([]);
+    expect(state.chatGoalAction).toBeNull();
+    expect(state.chatGoalError).toBeNull();
+    expect(loadChatGoalsMock).toHaveBeenCalledWith(state);
     expect(
       (state as unknown as { resetChatInputHistoryNavigation: ReturnType<typeof vi.fn> })
         .resetChatInputHistoryNavigation,
@@ -1426,6 +1453,52 @@ describe("switchChatSession", () => {
 
     expect(state.chatMessages).toEqual(mainMessages);
     expect(state.chatMessagesBySession.get("agent:main:other")).toEqual(otherMessages);
+  });
+
+  it("restores queued messages across the bare and canonical main aliases", () => {
+    const queuedMessage = { id: "queued-main", text: "finish the draft", createdAt: 1 };
+    const settings = createSettings();
+    const state = {
+      sessionKey: "agent:main:other",
+      chatMessage: "",
+      chatAttachments: [],
+      chatMessages: [],
+      chatToolMessages: [],
+      chatStreamSegments: [],
+      chatThinkingLevel: null,
+      chatStream: null,
+      chatSideResult: null,
+      lastError: null,
+      compactionStatus: null,
+      fallbackStatus: null,
+      chatAvatarUrl: null,
+      chatQueue: [],
+      chatQueueBySession: { "agent:main:main": [queuedMessage] },
+      chatQueuePausedBySession: {},
+      chatMessagesBySession: new Map(),
+      chatRunId: null,
+      sessionsShowArchived: false,
+      chatSideResultTerminalRuns: new Set<string>(),
+      chatStreamStartedAt: null,
+      settings,
+      announceSessionSwitch: vi.fn(),
+      applySettings(next: typeof settings) {
+        state.settings = next;
+      },
+      loadAssistantIdentity: vi.fn(),
+      resetToolStream: vi.fn(),
+      resetChatScroll: vi.fn(),
+      resetChatInputHistoryNavigation: vi.fn(),
+    } as unknown as AppViewState;
+
+    refreshChatAvatarMock.mockResolvedValue(undefined);
+    refreshSlashCommandsMock.mockResolvedValue(undefined);
+    loadChatHistoryMock.mockResolvedValue(undefined);
+    loadSessionsMock.mockResolvedValue(undefined);
+
+    switchChatSession(state, "main");
+
+    expect(state.chatQueue).toEqual([queuedMessage]);
   });
 
   it("restores configured main aliases without crossing agent scopes", () => {

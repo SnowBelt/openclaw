@@ -551,6 +551,30 @@ describe("buildChatItems", () => {
     ]);
   });
 
+  it("keeps a stream segment before its tool card when timestamps arrive out of order", () => {
+    const items = buildChatItems(
+      createProps({
+        streamSegments: [{ text: "I will inspect the file.", ts: 100, toolCallId: "call-1" }],
+        toolMessages: [
+          {
+            role: "toolResult",
+            toolCallId: "call-1",
+            content: "file contents",
+            timestamp: 50,
+          },
+        ],
+      }),
+    );
+
+    expect(items[0]).toMatchObject({
+      kind: "stream",
+      text: "I will inspect the file.",
+      startedAt: 100,
+      toolCallId: "call-1",
+    });
+    expect(requireGroup(items[1]).role).toBe("tool");
+  });
+
   it("suppresses metadata-only history messages before grouping", () => {
     const groups = messageGroups({
       messages: [

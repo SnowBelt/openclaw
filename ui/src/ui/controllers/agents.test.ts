@@ -353,6 +353,33 @@ describe("loadToolsEffective", () => {
 
     expect(state.toolsEffectiveResultKey).toBe("main:main:model=openai/gpt-5-mini");
   });
+
+  it("uses canonical default-main rows and overrides for the bare main alias", async () => {
+    const { state, request } = createState();
+    state.sessionsResult = {
+      ...state.sessionsResult!,
+      sessions: [
+        {
+          ...state.sessionsResult!.sessions[0]!,
+          key: "agent:main:main",
+          model: "gpt-5-mini",
+          modelProvider: "openai",
+        },
+      ],
+    };
+    state.chatModelOverrides = {
+      "agent:main:main": { kind: "qualified", value: "openai/gpt-5" },
+    };
+    request.mockResolvedValue({
+      agentId: "main",
+      profile: "coding",
+      groups: [],
+    });
+
+    await loadToolsEffective(state, { agentId: "main", sessionKey: "main" });
+
+    expect(state.toolsEffectiveResultKey).toBe("main:main:model=openai/gpt-5");
+  });
 });
 
 describe("saveAgentsConfig", () => {

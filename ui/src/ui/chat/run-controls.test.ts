@@ -28,6 +28,7 @@ vi.mock("../markdown.ts", () => ({
 function createProps(overrides: Partial<ChatRunControlsProps> = {}): ChatRunControlsProps {
   return {
     canAbort: false,
+    canSend: true,
     connected: true,
     draft: "",
     hasMessages: false,
@@ -135,6 +136,23 @@ describe("chat run controls", () => {
     queueButton.click();
     expect(onStoreDraft).toHaveBeenCalledWith(" follow up ");
     expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks send and queue controls when the selected model is unavailable", () => {
+    const container = document.createElement("div");
+    render(
+      renderChatRunControls(
+        createProps({
+          canAbort: true,
+          canSend: false,
+          draft: "do not send",
+        }),
+      ),
+      container,
+    );
+
+    expect(getButton(container, 'button[title="Queue"]').disabled).toBe(true);
+    expect(getButton(container, 'button[title="Stop"]').disabled).toBe(false);
   });
 
   it("keeps Stop clickable while disconnected when a run is abortable", () => {
