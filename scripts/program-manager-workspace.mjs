@@ -398,14 +398,14 @@ export function validateRuntimeEntry(value) {
     );
   }
   if (
-    value.params?.maxTokens !== 3072 ||
+    value.params?.maxTokens !== 1024 ||
     value.params?.text_verbosity !== "low" ||
     value.params?.cacheRetention !== "short"
   ) {
     issues.push(
       issue(
         "model_budget_changed",
-        "Model parameters must keep the bounded low-verbosity profile.",
+        "Model parameters must keep the 1024-token bounded low-verbosity profile.",
       ),
     );
   }
