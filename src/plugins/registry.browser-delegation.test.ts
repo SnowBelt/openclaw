@@ -90,6 +90,39 @@ describe("plugin registry Browser node delegation", () => {
     ).rejects.toThrow("Browser node delegation is no longer active.");
   });
 
+  it("preserves an explicit false official-install marker for bundled Browser", () => {
+    const pluginRegistry = createTestRegistry();
+    const browserRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/index.js",
+      origin: "bundled",
+      trustedOfficialInstall: false,
+      enabled: true,
+      configSchema: false,
+    });
+    registerBrowserNodeDelegation(
+      pluginRegistry.createApi(browserRecord, { config: {} as OpenClawConfig }),
+      {
+        consumerPluginIds: ["google-meet"],
+        request: async () => undefined,
+      },
+    );
+    const consumerRecord = createPluginRecord({
+      id: "google-meet",
+      source: "/plugins/google-meet/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const consumerRuntime = pluginRegistry.createApi(consumerRecord, {
+      config: {} as OpenClawConfig,
+    }).runtime;
+    pluginRegistry.registry.plugins.push(consumerRecord);
+    markPluginRegistryActive(pluginRegistry.registry);
+
+    expect(consumerRuntime.browser).toBeDefined();
+  });
+
   it("rejects a retained capability after the consumer lifecycle is rolled back", async () => {
     const pluginRegistry = createTestRegistry();
     const browserRecord = createPluginRecord({
@@ -218,6 +251,76 @@ describe("plugin registry Browser node delegation", () => {
         message: "browser node delegation may only be registered by the browser plugin",
       }),
     );
+  });
+
+  it("rejects delegation registration from an untrusted Browser replacement", () => {
+    const pluginRegistry = createTestRegistry();
+    const api = pluginRegistry.createApi(
+      createPluginRecord({
+        id: "browser",
+        source: "/plugins/browser/index.js",
+        origin: "workspace",
+        enabled: true,
+        configSchema: false,
+      }),
+      { config: {} as OpenClawConfig },
+    );
+    registerBrowserNodeDelegation(api, {
+      consumerPluginIds: ["google-meet"],
+      request: async () => undefined,
+    });
+
+    expect(pluginRegistry.registry.browserNodeDelegations).toEqual([]);
+    expect(pluginRegistry.registry.diagnostics).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        pluginId: "browser",
+        message: "browser node delegation requires a trusted Browser plugin record",
+      }),
+    );
+  });
+
+  it("does not expose delegation to an untrusted consumer or stale runtime", () => {
+    const pluginRegistry = createTestRegistry();
+    const browserRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    registerBrowserNodeDelegation(
+      pluginRegistry.createApi(browserRecord, { config: {} as OpenClawConfig }),
+      {
+        consumerPluginIds: ["google-meet"],
+        request: async () => undefined,
+      },
+    );
+    const untrustedConsumerRecord = createPluginRecord({
+      id: "google-meet",
+      source: "/plugins/google-meet/index.js",
+      origin: "workspace",
+      enabled: true,
+      configSchema: false,
+    });
+    const untrustedConsumerRuntime = pluginRegistry.createApi(untrustedConsumerRecord, {
+      config: {} as OpenClawConfig,
+    }).runtime;
+    const trustedReplacementRecord = createPluginRecord({
+      id: "google-meet",
+      source: "/plugins/google-meet/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const trustedReplacementRuntime = pluginRegistry.createApi(trustedReplacementRecord, {
+      config: {} as OpenClawConfig,
+    }).runtime;
+    pluginRegistry.registry.plugins.push(trustedReplacementRecord);
+    markPluginRegistryActive(pluginRegistry.registry);
+
+    expect(untrustedConsumerRuntime.browser).toBeUndefined();
+    expect(trustedReplacementRuntime.browser).toBeDefined();
   });
 
   it("prints a redacted final-effect proof for allowed and revoked Browser I/O", async () => {

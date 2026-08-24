@@ -211,16 +211,12 @@ describe("browser plugin", () => {
       path: "/tabs/open",
       body: { url: "https://example.com" },
       profile: "openclaw",
-      agentSessionKey: "agent:browser-session-credential-steward:policy-run:user-123",
-      agentId: "browser-session-credential-steward",
     };
     const allowed = await policy.handle({
       nodeId: "node-1",
       command: "browser.proxy",
       params,
       idempotencyKey: "invoke-1",
-      sessionKey: params.agentSessionKey,
-      agentId: "browser-session-credential-steward",
       node: { nodeId: "node-1", pairingGeneration: "pairing-1" },
       client: { scopes: ["operator.admin"] },
       invokeNode,
@@ -291,7 +287,35 @@ describe("browser plugin", () => {
     ).resolves.toEqual({
       ok: false,
       code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-      message: "browser node control requires Browser Steward runtime authority",
+      message: "browser node control requires an approved Browser tool operation",
+    });
+    expect(invokeNode).not.toHaveBeenCalled();
+  });
+
+  it("rejects Browser Steward agent runtimes without a Browser tool operation proof", async () => {
+    const { api, registerNodeInvokePolicy } = createApi();
+    registerBrowserPlugin(api);
+    const policy = registerNodeInvokePolicy.mock.calls[0]?.[0] as {
+      handle: (context: unknown) => Promise<unknown>;
+    };
+    const invokeNode = vi.fn();
+
+    await expect(
+      policy.handle({
+        nodeId: "node-1",
+        command: "browser.proxy",
+        params: { method: "POST", path: "/tabs/open", body: { url: "https://example.com" } },
+        agentId: "browser-session-credential-steward",
+        sessionKey: "agent:browser-session-credential-steward:direct:opaque",
+        idempotencyKey: "agent-invoke-2",
+        node: { nodeId: "node-1", pairingGeneration: "pairing-1" },
+        client: { scopes: ["operator.admin"] },
+        invokeNode,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
+      message: "browser node control requires an approved Browser tool operation",
     });
     expect(invokeNode).not.toHaveBeenCalled();
   });

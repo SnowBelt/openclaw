@@ -172,7 +172,7 @@ export function createPluginApiFactory(
       registrationMode,
       config: params.config,
       pluginConfig: params.pluginConfig,
-      runtime: resolvePluginRuntime(record.id),
+      runtime: resolvePluginRuntime(record),
       logger: normalizeLogger(registryParams.logger),
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),
       browserNodeDelegationRegistrar: registrationCapabilities.capabilityHandlers

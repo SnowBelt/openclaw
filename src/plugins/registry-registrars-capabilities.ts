@@ -10,6 +10,9 @@ import type { OpenClawPluginApi, PluginRegistrationMode } from "./types.js";
 export function createCapabilityRegistrars(state: PluginRegistryState) {
   const { registry, pushDiagnostic } = state;
 
+  const isTrustedBrowserPluginRecord = (record: PluginRecord) =>
+    record.origin === "bundled" || record.trustedOfficialInstall === true;
+
   const registerBrowserNodeDelegation = (
     record: PluginRecord,
     delegation: BrowserNodeDelegation,
@@ -20,6 +23,15 @@ export function createCapabilityRegistrars(state: PluginRegistryState) {
         pluginId: record.id,
         source: record.source,
         message: "browser node delegation may only be registered by the browser plugin",
+      });
+      return;
+    }
+    if (!isTrustedBrowserPluginRecord(record)) {
+      pushDiagnostic({
+        level: "error",
+        pluginId: record.id,
+        source: record.source,
+        message: "browser node delegation requires a trusted Browser plugin record",
       });
       return;
     }
@@ -40,6 +52,14 @@ export function createCapabilityRegistrars(state: PluginRegistryState) {
       ...registry.browserNodeDelegations.filter((entry) => entry.pluginId !== record.id),
       {
         pluginId: record.id,
+        provider: {
+          origin: record.origin,
+          source: record.source,
+          ...(record.rootDir ? { rootDir: record.rootDir } : {}),
+          ...(record.trustedOfficialInstall !== undefined
+            ? { trustedOfficialInstall: record.trustedOfficialInstall }
+            : {}),
+        },
         delegation: {
           consumerPluginIds: [...new Set(consumerPluginIds)],
           request: delegation.request,
