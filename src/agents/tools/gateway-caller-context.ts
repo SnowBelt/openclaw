@@ -1,6 +1,7 @@
 // Ambient trusted caller context for model-mediated Gateway tool calls.
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ExecutionIdentityAdmissionToken } from "../../audit/execution-identity-admission.js";
+import type { GatewayToolOperationApproval } from "../../gateway/agent-runtime-identity-token.js";
 import type { CronCreatorAuthorityGrant } from "../../gateway/cron-creator-authority-grant.js";
 import type { GatewayContextResolver } from "../../gateway/server-methods/types.js";
 import type { WorkerSessionTurnClaim } from "../../gateway/worker-environments/placement-record.js";
@@ -40,6 +41,8 @@ type GatewayToolCallerIdentity = {
   cronToolsAllowCapture?: "final-executable-surface";
   /** One-shot Gateway-owned proof for a freshly resolved configured-MCP cap. */
   cronCreatorAuthorityGrant?: CronCreatorAuthorityGrant;
+  /** Opaque private proof for one exact plugin-owned Gateway operation. */
+  gatewayToolOperationApproval?: GatewayToolOperationApproval;
   // Trusted run context, carried separately from model-authored tool arguments.
   turnSourceChannel?: string;
   turnSourceLocal?: true;
@@ -170,6 +173,8 @@ export async function withGatewayToolCallerIdentity<T>(
     identity.cronToolsAllowCapture ?? inheritedOwner?.cronToolsAllowCapture;
   const cronCreatorAuthorityGrant =
     identity.cronCreatorAuthorityGrant ?? inheritedOwner?.cronCreatorAuthorityGrant;
+  const gatewayToolOperationApproval =
+    identity.gatewayToolOperationApproval ?? inheritedOwner?.gatewayToolOperationApproval;
   const turnSourceChannel = inheritedOwner?.turnSourceChannel ?? identity.turnSourceChannel?.trim();
   const turnSourceLocal = inheritedOwner?.turnSourceLocal ?? identity.turnSourceLocal;
   const turnSourceTo = inheritedOwner?.turnSourceTo ?? identity.turnSourceTo?.trim();
@@ -190,6 +195,7 @@ export async function withGatewayToolCallerIdentity<T>(
       ...(cronSelfManagementJobId ? { cronSelfManagementJobId } : {}),
       ...(cronToolsAllowCapture ? { cronToolsAllowCapture } : {}),
       ...(cronCreatorAuthorityGrant ? { cronCreatorAuthorityGrant } : {}),
+      ...(gatewayToolOperationApproval ? { gatewayToolOperationApproval } : {}),
       ...(executionIdentityToken ? { executionIdentityToken } : {}),
       ...(receiptAuthority ? { receiptAuthority } : {}),
       ...(workerTurnClaim ? { workerTurnClaim } : {}),
@@ -201,6 +207,21 @@ export async function withGatewayToolCallerIdentity<T>(
       ...(turnSourceAccountId ? { turnSourceAccountId } : {}),
       ...(turnSourceThreadId !== undefined ? { turnSourceThreadId } : {}),
     },
+    run,
+  );
+}
+
+/** Runs one private plugin operation with an exact, signed Gateway proof. */
+export async function withGatewayToolOperationApproval<T>(
+  approval: GatewayToolOperationApproval,
+  run: () => Promise<T> | T,
+): Promise<T> {
+  const identity = gatewayToolCallerStorage.getStore();
+  if (!identity) {
+    return await run();
+  }
+  return await withGatewayToolCallerIdentity(
+    { ...identity, gatewayToolOperationApproval: approval },
     run,
   );
 }

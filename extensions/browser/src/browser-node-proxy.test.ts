@@ -23,7 +23,7 @@ type BrowserGatewayCall = (
   method: string,
   options: { timeoutMs: number },
   request: BrowserNodeRequest,
-  extra: { scopes: string[]; signal?: AbortSignal },
+  extra: { scopes: string[]; requireAgentRuntimeIdentity?: boolean; signal?: AbortSignal },
 ) => Promise<BrowserNodeResponse>;
 
 const runtimeMocks = vi.hoisted(() => ({
@@ -155,6 +155,34 @@ describe("Browser node proxy nested watchdogs", () => {
       "/snapshot",
       expect.objectContaining({ method: "GET", signal }),
     );
+  });
+
+  it("requires trusted runtime identity when carrying a Browser Steward operation proof", async () => {
+    const browserStewardGatewayApproval = vi.fn(() => ({
+      authorityId: "authority-1",
+      requestFingerprint: "fingerprint-1",
+      expiresAtMs: Date.now() + 30_000,
+    }));
+    const proxy = createBrowserNodeProxyRequest({
+      nodeTarget: { nodeId: "node-1" },
+      allowAutomaticHostFallback: false,
+      browserStewardGatewayApproval,
+    });
+
+    await proxy({ method: "POST", path: "/tabs/open", body: { url: "https://example.com" } });
+
+    expect(browserStewardGatewayApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "browser.proxy",
+        method: "POST",
+        path: "/tabs/open",
+        body: { url: "https://example.com" },
+      }),
+    );
+    expect(readGatewayCall().extra).toEqual({
+      scopes: ["operator.admin"],
+      requireAgentRuntimeIdentity: true,
+    });
   });
 
   it("records Gateway-host fallback envelopes before tracking later tabs", async () => {

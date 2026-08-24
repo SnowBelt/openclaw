@@ -16,6 +16,7 @@
   "async-lock-runtime",
   "browser-config",
   "browser-node-delegation-runtime",
+  "browser-steward-runtime",
   "bundled-channel-config-schema",
   "channel-activity-runtime",
   "channel-config-ui-hints",

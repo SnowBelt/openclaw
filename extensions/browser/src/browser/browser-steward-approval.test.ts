@@ -284,4 +284,41 @@ describe("Browser Steward runtime approval", () => {
       }),
     ).toBe(true);
   });
+
+  it("binds private Gateway operation proofs to one request and one use", async () => {
+    const module = await import("./browser-steward-approval.js");
+    const request = {
+      command: "browser.proxy",
+      method: "POST",
+      path: "/tabs/open",
+      body: { url: "https://example.com" },
+      profile: "openclaw",
+      agentSessionKey: "agent:browser-session-credential-steward:direct:opaque",
+      agentId: "browser-session-credential-steward",
+      nodeId: "node-1",
+      browserNodeSessionLease: "lease-1",
+      allowAutomaticHostFallback: false,
+    } as const;
+    const claim = module.createBrowserStewardGatewayApprovalClaim(request);
+
+    expect(JSON.stringify(claim)).not.toContain("opaque");
+    expect(module.consumeBrowserStewardGatewayApprovalClaim({ approval: claim, ...request })).toBe(
+      true,
+    );
+    expect(module.consumeBrowserStewardGatewayApprovalClaim({ approval: claim, ...request })).toBe(
+      false,
+    );
+
+    const expiredClaim = module.createBrowserStewardGatewayApprovalClaim({
+      ...request,
+      nowMs: 10_000,
+    });
+    expect(
+      module.consumeBrowserStewardGatewayApprovalClaim({
+        approval: expiredClaim,
+        ...request,
+        nowMs: expiredClaim.expiresAtMs,
+      }),
+    ).toBe(false);
+  });
 });
