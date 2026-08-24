@@ -20,14 +20,18 @@ import {
 } from "./src/browser/browser-steward-approval.js";
 
 type BrowserAutoEnableProbe = Parameters<OpenClawPluginApi["registerAutoEnableProbe"]>[0];
+type BrowserToolMockOptions = {
+  approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
+};
 
 const runtimeApiMocks = vi.hoisted(() => ({
   createBrowserPluginService: vi.fn(() => ({ id: "browser-control", start: vi.fn() })),
-  createBrowserTool: vi.fn(() => ({
+  createBrowserTool: vi.fn((opts: BrowserToolMockOptions = {}) => ({
     name: "browser",
     description: "browser",
     parameters: { type: "object", properties: {} },
     execute: vi.fn(async () => ({ type: "json", value: { ok: true } })),
+    approvalAuthority: opts.approvalAuthority,
   })),
   collectBrowserSecurityAuditFindings: vi.fn(() => []),
   handleBrowserGatewayRequest: vi.fn(),
@@ -319,11 +323,11 @@ describe("browser plugin", () => {
       throw new Error("expected browser plugin to return a single tool");
     }
     await tool.execute("capture-authority", { action: "status" });
-    const approvalAuthority = (
-      runtimeApiMocks.createBrowserTool.mock.calls.at(-1)?.[0] as {
-        approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
-      }
-    ).approvalAuthority;
+    const createBrowserToolCall = runtimeApiMocks.createBrowserTool.mock.calls.at(-1);
+    if (!createBrowserToolCall) {
+      throw new Error("expected Browser tool creation call");
+    }
+    const approvalAuthority = createBrowserToolCall[0]?.approvalAuthority;
     if (!approvalAuthority) {
       throw new Error("expected Browser-owned approval authority");
     }
@@ -383,11 +387,11 @@ describe("browser plugin", () => {
       throw new Error("expected browser plugin to return a single tool");
     }
     await tool.execute("capture-authority", { action: "status" });
-    const approvalAuthority = (
-      runtimeApiMocks.createBrowserTool.mock.calls.at(-1)?.[0] as {
-        approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
-      }
-    ).approvalAuthority;
+    const createBrowserToolCall = runtimeApiMocks.createBrowserTool.mock.calls.at(-1);
+    if (!createBrowserToolCall) {
+      throw new Error("expected Browser tool creation call");
+    }
+    const approvalAuthority = createBrowserToolCall[0]?.approvalAuthority;
     if (!approvalAuthority) {
       throw new Error("expected Browser-owned approval authority");
     }
