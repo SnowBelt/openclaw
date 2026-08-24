@@ -219,7 +219,7 @@ export function createDiagnosticsEventHandler(params: {
         case "session_steward.boundary_decision":
         case "session_steward.boundary_rejected":
           // Session Steward events stay in the internal diagnostic stream; do not export routing facts as OTEL attributes.
-          return;
+          break;
         case "tool.loop":
           recordToolLoop(evt);
           return;
