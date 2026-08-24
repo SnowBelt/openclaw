@@ -13,6 +13,7 @@ const consumedBrowserStewardGatewayAuthorities = new Map<string, number>();
 
 type BrowserStewardRuntimeApproval = {
   approved: boolean;
+  used: boolean;
   rawParams: Record<string, unknown>;
   publicParams: Record<string, unknown>;
   binding: BrowserStewardRuntimeApprovalBinding;
@@ -326,6 +327,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
     const token = {};
     approvals.set(token, {
       approved,
+      used: false,
       rawParams: cloneBrowserStewardApprovalParams(rawParams),
       publicParams: cloneBrowserStewardApprovalParams(publicParams),
       binding: structuredClone(binding),
@@ -348,7 +350,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
   return Object.freeze({
     approve(params: unknown) {
       const approval = readApproval(params);
-      if (approval) {
+      if (approval && !approval.used) {
         approval.approved = true;
       }
     },
@@ -356,6 +358,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
       const approval = readApproval(params);
       return Boolean(
         approval?.approved &&
+        !approval.used &&
         params &&
         typeof params === "object" &&
         // SAFETY: params was narrowed to a non-null object before comparing its public fields.
@@ -366,6 +369,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
       const approval = readApproval(params);
       if (
         !approval?.approved ||
+        approval.used ||
         !params ||
         typeof params !== "object" ||
         // SAFETY: params was narrowed to a non-null object before comparing its public fields.
@@ -379,6 +383,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
       const approval = readApproval(params);
       if (
         !approval ||
+        approval.used ||
         !params ||
         typeof params !== "object" ||
         // SAFETY: params was narrowed to a non-null object before comparing its public fields.
@@ -390,14 +395,19 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
     },
     resolveApprovedParams(params: Record<string, unknown>) {
       const approval = readApproval(params);
-      if (!approval?.approved || !matchesApprovedPublicParams(params, approval)) {
+      if (!approval?.approved || approval.used || !matchesApprovedPublicParams(params, approval)) {
         return params;
       }
+      approval.used = true;
       return cloneBrowserStewardApprovalParams(approval.rawParams);
     },
     resolvePolicyParams(params: unknown) {
       const approval = readApproval(params);
-      return approval
+      return approval &&
+        !approval.used &&
+        params &&
+        typeof params === "object" &&
+        matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
         ? cloneBrowserStewardApprovalParams(approval.rawParams)
         : (params as Record<string, unknown>); // SAFETY: the caller contract supplies browser tool params when no private approval exists.
     },
@@ -419,6 +429,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
       const approval = readApproval(preparedParams);
       if (
         !approval?.approved ||
+        approval.used ||
         !params ||
         typeof params !== "object" ||
         Array.isArray(params) ||
@@ -427,6 +438,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
       ) {
         return params;
       }
+      approval.used = true;
       return attachApproval(
         approval.rawParams,
         // SAFETY: params was narrowed to a non-null, non-array object before attaching approval.

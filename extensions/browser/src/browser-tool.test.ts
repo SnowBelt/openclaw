@@ -2309,6 +2309,7 @@ describe("browser tool url alias support", () => {
         );
         expect(error).toBeInstanceOf(Error);
         expect(String(error)).not.toContain("secret");
+        expect(String(error)).not.toContain("raw-oauth-code-123456");
       }
     }
 
@@ -2366,6 +2367,25 @@ describe("browser tool url alias support", () => {
 
     await expect(tool.execute?.("call-1", approvedParams)).resolves.toBeDefined();
     expect(browserClientMocks.browserOpenTab).toHaveBeenCalled();
+  });
+
+  it("consumes a Browser Steward allow-once approval after one execution", async () => {
+    browserClientMocks.browserOpenTab.mockResolvedValue({
+      targetId: "one-shot-tab",
+      url: "https://example.com",
+    });
+    const approvedParams = prepareBrowserStewardRuntimeParams(
+      { action: "open", url: "https://example.com" },
+      { backend: { kind: "host" } },
+    ) as Record<string, unknown>;
+    approveBrowserStewardRuntimeParams(approvedParams);
+    const tool = createBrowserTool({
+      agentSessionKey: "agent:browser-session-credential-steward:one-shot",
+    });
+
+    await expect(tool.execute?.("call-1", approvedParams)).resolves.toBeDefined();
+    await expect(tool.execute?.("call-2", approvedParams)).rejects.toThrow(/approval_required/);
+    expect(browserClientMocks.browserOpenTab).toHaveBeenCalledTimes(1);
   });
 
   it("carries the Gateway route lease from approval into the Browser node request", async () => {
@@ -3253,6 +3273,7 @@ describe("browser tool url alias support", () => {
           );
         expect(error).toBeInstanceOf(Error);
         expect(String(error)).not.toContain("secret");
+        expect(String(error)).not.toContain("raw-oauth-code-123456");
       }
     }
 
