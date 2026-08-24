@@ -107,7 +107,7 @@ function runtimeHarness(options?: RuntimeHarnessOptions) {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
       browser: {
         request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
-          await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+          await gatewayRequest("browser.request", params),
       },
     } as unknown as PluginRuntime,
     state,
@@ -227,7 +227,6 @@ describe("Zoom meeting session flow", () => {
     expect(harness.gatewayRequest).toHaveBeenCalledWith(
       "browser.request",
       expect.objectContaining({ path: "/tabs/open" }),
-      expect.objectContaining({ scopes: ["operator.admin"] }),
     );
   });
 
@@ -282,7 +281,6 @@ describe("Zoom meeting session flow", () => {
     expect(harness.gatewayRequest).not.toHaveBeenCalledWith(
       "browser.request",
       expect.objectContaining({ path: "/tabs/open" }),
-      expect.anything(),
     );
     expect(await runtime.leave(joined.session.id)).toMatchObject({
       browserLeft: true,
@@ -334,7 +332,6 @@ describe("Zoom meeting session flow", () => {
         path: "/act",
         body: expect.objectContaining({ targetId: "zoom-tab" }),
       }),
-      expect.objectContaining({ scopes: ["operator.admin"] }),
     );
   });
 

@@ -7,7 +7,7 @@ type CredentialStewardReasonCode =
   | "credential_like_label"
   | "credential_material_detected";
 
-type CredentialStewardDecision = {
+export type CredentialStewardDecision = {
   exposureKind: CredentialStewardExposureKind;
   credentialClassesInvolved: string[];
   dataSensitivity: "low" | "medium" | "critical";
