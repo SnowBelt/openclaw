@@ -169,7 +169,7 @@ describe("browser plugin", () => {
     expect(runtimeApiMocks.createBrowserPluginService).not.toHaveBeenCalled();
   });
 
-  it("blocks generic Steward node control but preserves trusted plugin node control", async () => {
+  it("blocks raw node control and requires the Browser gateway request path", async () => {
     const { api, registerNodeInvokePolicy } = createApi();
     registerBrowserPlugin(api);
 
@@ -204,7 +204,7 @@ describe("browser plugin", () => {
     expect(blocked).toEqual({
       ok: false,
       code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-      message: "browser node control requires the approved Browser tool path",
+      message: "browser node control requires the Browser gateway request path",
     });
     expect(invokeNode).not.toHaveBeenCalled();
 
@@ -221,13 +221,11 @@ describe("browser plugin", () => {
     });
 
     expect(pluginResult).toEqual({
-      params: pluginParams,
-      idempotencyKey: "plugin-invoke-1",
+      ok: false,
+      code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
+      message: "browser node control requires the Browser gateway request path",
     });
-    expect(invokeNode).toHaveBeenCalledWith({
-      params: pluginParams,
-      idempotencyKey: "plugin-invoke-1",
-    });
+    expect(invokeNode).not.toHaveBeenCalled();
 
     const denied = await policy.handle({
       command: "browser.proxy",
@@ -240,7 +238,7 @@ describe("browser plugin", () => {
       code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
       message: "browser node control requires operator admin authority",
     });
-    expect(invokeNode).toHaveBeenCalledOnce();
+    expect(invokeNode).not.toHaveBeenCalled();
   });
 
   it("rejects raw node.invoke browser control without a trusted Browser Steward session", async () => {
@@ -268,7 +266,7 @@ describe("browser plugin", () => {
     ).resolves.toEqual({
       ok: false,
       code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-      message: "browser node control requires the approved Browser tool path",
+      message: "browser node control requires the Browser gateway request path",
     });
     expect(invokeNode).not.toHaveBeenCalled();
   });
