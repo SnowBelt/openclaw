@@ -1,6 +1,7 @@
 // Browser tests cover browser request.profile from body plugin behavior.
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isBrowserStewardGatewayApprovalValid } from "../browser/browser-steward-approval.js";
 
 const {
   loadConfigMock,
@@ -69,12 +70,14 @@ vi.mock("../sdk-node-runtime.js", async () => {
   };
 });
 
+import type { GatewayRequestHandlers } from "../sdk-node-runtime.js";
 import { browserHandlers } from "./browser-request.js";
 
 type RespondCall = [boolean, unknown?, { code: string; message: string; details?: unknown }?];
 
 type TestNode = {
   nodeId: string;
+  pairingGeneration?: string;
   displayName?: string;
   caps?: string[];
   commands?: string[];
@@ -82,7 +85,7 @@ type TestNode = {
   platform?: string;
 };
 
-function createContext(invokeResult?: unknown, connectedNodes?: TestNode[]) {
+function createContext(invokeResult?: unknown, connectedNodes?: TestNode[], leaseIsCurrent = true) {
   const invoke = vi.fn(async () =>
     invokeResult === undefined ? { ok: true, payload: { result: { ok: true } } } : invokeResult,
   );
@@ -91,15 +94,24 @@ function createContext(invokeResult?: unknown, connectedNodes?: TestNode[]) {
       connectedNodes ?? [
         {
           nodeId: "node-1",
+          pairingGeneration: "pairing-1",
           caps: ["browser"],
           commands: ["browser.proxy", "browser.proxy.upload.v1"],
           platform: "linux",
         },
       ],
   );
+  const createBrowserNodeSessionLease = vi.fn(() => "lease-1");
+  const renewBrowserNodeSessionLease = vi.fn(() => listConnected()[0]);
+  const resolveBrowserNodeSessionLease = vi.fn(() =>
+    leaseIsCurrent ? listConnected()[0] : undefined,
+  );
   return {
     invoke,
     listConnected,
+    createBrowserNodeSessionLease,
+    renewBrowserNodeSessionLease,
+    resolveBrowserNodeSessionLease,
   };
 }
 
@@ -107,9 +119,11 @@ async function runBrowserRequest(
   params: Record<string, unknown>,
   invokeResult?: unknown,
   connectedNodes?: TestNode[],
+  client?: Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
+  leaseIsCurrent = true,
 ) {
   const respond = vi.fn();
-  const nodeRegistry = createContext(invokeResult, connectedNodes);
+  const nodeRegistry = createContext(invokeResult, connectedNodes, leaseIsCurrent);
   await expectDefined(
     browserHandlers["browser.request"],
     "browser request handler",
@@ -117,7 +131,7 @@ async function runBrowserRequest(
     params,
     respond: respond as never,
     context: { nodeRegistry } as never,
-    client: null,
+    client,
     req: { type: "req", id: "req-1", method: "browser.request" },
     isWebchatConnect: () => false,
   });
@@ -157,6 +171,75 @@ describe("browser.request profile selection", () => {
       .mockImplementation(async ({ body }: { body: unknown }) => ({ body }));
   });
 
+  it("issues an opaque route lease for an exact connected browser node", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      { routeOnly: true, nodeId: "node-1" },
+      undefined,
+      undefined,
+      { connect: { scopes: ["operator.admin"] } },
+    );
+
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { browserNodeSessionLease: "lease-1", nodeId: "node-1" },
+      undefined,
+    ]);
+    expect(nodeRegistry.createBrowserNodeSessionLease).toHaveBeenCalledWith("node-1");
+    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+  });
+
+  it("renews the same route lease only for an exact approved node route", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        routeOnly: true,
+        nodeId: "node-1",
+        browserNodeSessionLease: "lease-1",
+        renewBrowserNodeSessionLease: true,
+      },
+      undefined,
+      undefined,
+      { connect: { scopes: ["operator.admin"] } },
+    );
+
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { browserNodeSessionLease: "lease-1", nodeId: "node-1" },
+      undefined,
+    ]);
+    expect(nodeRegistry.renewBrowserNodeSessionLease).toHaveBeenCalledWith("node-1", "lease-1");
+    expect(nodeRegistry.createBrowserNodeSessionLease).not.toHaveBeenCalled();
+    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Browser Steward request after its node route lease becomes stale", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/act",
+        nodeId: "node-1",
+        browserNodeSessionLease: "lease-1",
+        body: { request: { kind: "click", ref: "button" } },
+        agentSessionKey: "agent:browser-session-credential-steward:node:opaque",
+        agentId: "browser-session-credential-steward",
+      },
+      undefined,
+      undefined,
+      { connect: { scopes: ["operator.admin"] } },
+      false,
+    );
+
+    const [ok, payload, error] = firstRespondCall(respond);
+    expect(ok).toBe(false);
+    expect(payload).toBeUndefined();
+    expect(error).toMatchObject({
+      code: "INVALID_REQUEST",
+      message: "browser node route lease is stale; request approval again",
+    });
+    expect(JSON.stringify(error)).not.toContain("opaque");
+    expect(nodeRegistry.resolveBrowserNodeSessionLease).toHaveBeenCalledWith("node-1", "lease-1");
+    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+  });
+
   it("forces system-profile import host-local even when a browser node is connected", async () => {
     const { respond, nodeRegistry } = await runBrowserRequest({
       method: "POST",
@@ -186,6 +269,36 @@ describe("browser.request profile selection", () => {
     expect(invoke.params?.profile).toBe("work");
     expect(invoke.params?.errorEnvelope).toBe("browser-v1");
     expect(firstRespondCall(respond)[0]).toBe(true);
+  });
+
+  it("carries a redacted admin approval envelope to the browser node", async () => {
+    const rawSecret = "raw-browser-secret-user-123";
+    const { nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/act",
+        body: { profile: "work", request: { kind: "type", text: rawSecret } },
+        agentSessionKey: "agent:browser-session-credential-steward:node:user-123",
+        agentId: "browser-session-credential-steward",
+      },
+      undefined,
+      undefined,
+      { connect: { scopes: ["operator.admin"] } },
+    );
+
+    const approval = invokeParams(nodeRegistry).params?.browserStewardApproval;
+    expect(approval).toMatchObject({
+      issuer: "gateway.operator.admin",
+      command: "browser.proxy",
+      action: "act",
+      profile: "work",
+      sessionBoundary: {
+        kind: "browser_steward",
+        affectedSession: "agent:browser-session-credential-steward:REDACTED",
+      },
+    });
+    expect(JSON.stringify(approval)).not.toContain(rawSecret);
+    expect(JSON.stringify(approval)).not.toContain("user-123");
   });
 
   it("prefers query profile over body profile when both are present", async () => {
@@ -327,6 +440,47 @@ describe("browser.request profile selection", () => {
     expect(firstRespondCall(respond)[0]).toBe(true);
   });
 
+  it("uses one canonical empty profile for an approved normalized profile route", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "GET",
+        path: "/profiles/",
+        agentSessionKey: "agent:browser-session-credential-steward:profiles",
+        agentId: "browser-session-credential-steward",
+      },
+      undefined,
+      undefined,
+      { connect: { scopes: ["operator.admin"] } },
+    );
+
+    const invocation = nodeRegistry.invoke.mock.calls[0]?.[0] as {
+      nodeId: string;
+      command: string;
+      idempotencyKey: string;
+      pairingGeneration: string;
+      params: Record<string, unknown>;
+    };
+    expect(invocation.params.profile).toBe("");
+    expect(
+      isBrowserStewardGatewayApprovalValid({
+        approval: invocation.params.browserStewardApproval,
+        command: invocation.command,
+        method: invocation.params.method as string,
+        path: invocation.params.path as string,
+        query: invocation.params.query,
+        body: invocation.params.body,
+        upload: invocation.params.upload,
+        profile: invocation.params.profile as string,
+        agentSessionKey: invocation.params.agentSessionKey as string,
+        agentId: invocation.params.agentId as string,
+        nodeId: invocation.nodeId,
+        pairingGeneration: invocation.pairingGeneration,
+        invocationId: invocation.idempotencyKey,
+      }),
+    ).toBe(true);
+    expect(firstRespondCall(respond)[0]).toBe(true);
+  });
+
   it("falls back to host dispatch when an auto-selected node has no browser host", async () => {
     const { respond, nodeRegistry } = await runBrowserRequest(
       { method: "GET", path: "/" },
@@ -342,6 +496,29 @@ describe("browser.request profile selection", () => {
     expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
     expect(startBrowserControlServiceFromConfigMock).toHaveBeenCalledOnce();
     expect(firstRespondCall(respond)[2]?.message).toBe("browser control is disabled");
+  });
+
+  it("returns a host-fallback envelope for internal routed callers", async () => {
+    startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
+    dispatchBrowserRouteMock.mockResolvedValueOnce({
+      status: 200,
+      body: { targetId: "gateway-host-tab" },
+    });
+    const { respond } = await runBrowserRequest(
+      { method: "POST", path: "/tabs/open", includeRoute: true },
+      {
+        ok: false,
+        error: {
+          code: "UNAVAILABLE",
+          message: "Browser control host is not reachable on 127.0.0.1:18791.",
+        },
+      },
+    );
+
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { result: { targetId: "gateway-host-tab" }, route: { status: "host-fallback" } },
+    ]);
   });
 
   it("sends Gateway-owned upload bytes without forwarding source paths", async () => {
@@ -515,6 +692,32 @@ describe("browser.request profile selection", () => {
 
     expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
     expect(firstRespondCall(respond)[2]?.message).toBe("UNAVAILABLE: node invoke timed out");
+  });
+
+  it("preserves status-coded node proxy errors for internal Browser tool callers", async () => {
+    const { respond } = await runBrowserRequest(
+      { method: "POST", path: "/act", includeRoute: true },
+      { ok: false, error: { code: "INVALID_REQUEST", message: "404: tab not found" } },
+    );
+
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { error: { status: 404, body: { error: "tab not found" } } },
+      undefined,
+    ]);
+  });
+
+  it("wraps unstructured node proxy errors for internal Browser tool callers", async () => {
+    const { respond } = await runBrowserRequest(
+      { method: "POST", path: "/act", includeRoute: true },
+      { ok: false, error: { code: "UNAVAILABLE", message: "node disconnected" } },
+    );
+
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { error: { status: 502, body: { error: "node disconnected" } } },
+      undefined,
+    ]);
   });
 
   it("maps validated node-proxy route failures like local route failures", async () => {

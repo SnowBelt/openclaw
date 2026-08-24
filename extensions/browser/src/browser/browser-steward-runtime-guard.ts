@@ -1,3 +1,5 @@
+import { normalizeBrowserRequestPath } from "./request-policy.js";
+
 export type BrowserStewardRuntimeDecision = {
   boundaryDecision: "allow" | "approval_required";
   requestedAction: string;
@@ -177,11 +179,7 @@ export function shouldApplyBrowserStewardRuntimeGuard(params: {
 }
 
 function normalizeProxyPath(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return normalizeBrowserRequestPath(value);
 }
 
 export function resolveBrowserStewardProxyAction(params: {
@@ -658,6 +656,17 @@ function redactedBrowserProfile(value: string | undefined): string {
     : "REDACTED";
 }
 
+function hasBrowserStewardIdentityMismatch(params: {
+  sessionBoundary: BrowserStewardSessionBoundary;
+  agentId?: string;
+}): boolean {
+  const agentId = params.agentId?.trim().toLowerCase() || undefined;
+  if (params.sessionBoundary.kind === "browser_steward") {
+    return agentId !== undefined && agentId !== BROWSER_STEWARD_AGENT_ID;
+  }
+  return params.sessionBoundary.kind === "other_agent" && agentId === BROWSER_STEWARD_AGENT_ID;
+}
+
 export function evaluateBrowserStewardRuntimeGuard(
   request: BrowserStewardRuntimeRequest,
 ): BrowserStewardRuntimeDecision {
@@ -666,13 +675,17 @@ export function evaluateBrowserStewardRuntimeGuard(
   const profile = redactedBrowserProfile(request.profile);
   const sessionBoundary = resolveBrowserStewardSessionBoundary(request.agentSessionKey);
   const credentialExposure = evaluateBrowserCredentialExposure(request);
+  const identityMismatch = hasBrowserStewardIdentityMismatch({
+    sessionBoundary,
+    agentId: request.agentId,
+  });
   const credentialClasses = uniqueCredentialClasses([
     ...(ACTION_CREDENTIAL_CLASSES[action] ?? ["browser session"]),
     ...credentialExposure.classes,
   ]);
   const readOnlyAllowed = NON_SECRET_READ_ACTIONS.has(action) && !credentialExposure.blocked;
   const approved = request.approved === true || request.delegated === true;
-  const allow = readOnlyAllowed || approved;
+  const allow = !identityMismatch && (readOnlyAllowed || approved);
   return {
     boundaryDecision: allow ? "allow" : "approval_required",
     requestedAction,
@@ -683,12 +696,14 @@ export function evaluateBrowserStewardRuntimeGuard(
     credentialExposureReasonCode: credentialExposure.reasonCode,
     credentialClassesInvolved: credentialClasses,
     dataSensitivity: readOnlyAllowed ? "low" : credentialExposure.blocked ? "critical" : "high",
-    approvalRequired: !allow,
-    safeNextAction: allow
-      ? "proceed with redacted Browser Steward runtime guard metadata"
-      : credentialExposure.blocked
-        ? "block credential exposure and hand off to Control Director for explicit approval or delegation"
-        : "block and hand off to Control Director for explicit approval or delegation",
+    approvalRequired: identityMismatch || !allow,
+    safeNextAction: identityMismatch
+      ? "reject the mismatched Browser Steward session and agent identity"
+      : allow
+        ? "proceed with redacted Browser Steward runtime guard metadata"
+        : credentialExposure.blocked
+          ? "block credential exposure and hand off to Control Director for explicit approval or delegation"
+          : "block and hand off to Control Director for explicit approval or delegation",
     telemetryEvent: allow
       ? "browser_steward.boundary_decision"
       : credentialExposure.blocked

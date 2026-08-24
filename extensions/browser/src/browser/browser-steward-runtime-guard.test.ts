@@ -184,6 +184,25 @@ describe("Browser Steward runtime guard", () => {
     });
   });
 
+  it("rejects mismatched Browser Steward agent and session identities even when approved", () => {
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "navigate",
+      approved: true,
+      agentSessionKey: "agent:main:direct:opaque",
+      agentId: "browser-session-credential-steward",
+    });
+
+    expect(decision).toMatchObject({
+      boundaryDecision: "approval_required",
+      approvalRequired: true,
+      safeNextAction: "reject the mismatched Browser Steward session and agent identity",
+      sessionBoundary: {
+        kind: "other_agent",
+        affectedSession: "agent:main:REDACTED",
+      },
+    });
+  });
+
   it("marks missing sessions as unknown", () => {
     expect(evaluateBrowserStewardRuntimeGuard({ action: "status" })).toMatchObject({
       affectedSession: "UNKNOWN",
@@ -370,7 +389,7 @@ describe("Browser Steward runtime guard", () => {
       action: "status",
       request: {
         ...(fixture.labels ? { labels: fixture.labels } : {}),
-        value: fixture.value,
+        value: fixture.valueParts?.join("") ?? fixture.value,
       },
     });
 
@@ -393,7 +412,7 @@ describe("Browser Steward runtime guard", () => {
         JSON.stringify(
           redactBrowserStewardCredentialMaterial({
             ...(fixture.labels ? { labels: fixture.labels } : {}),
-            value: fixture.value,
+            value: fixture.valueParts?.join("") ?? fixture.value,
           }),
         ),
       ).not.toContain(rawValue);

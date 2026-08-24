@@ -138,4 +138,114 @@ describe("Browser Steward runtime approval", () => {
     expect(module.isBrowserStewardRuntimeApproved(pendingParams)).toBe(true);
     expect(module.resolveBrowserStewardRuntimeApprovedParams(pendingParams)).toEqual(rawParams);
   });
+
+  it("redacts prepared credential material while retaining it only for trusted policy resolution", async () => {
+    const module = await import("./browser-steward-approval.js");
+    const rawParams = {
+      action: "upload",
+      paths: ["/tmp/private-key.pem"],
+      request: { kind: "type", text: "prepared-secret" },
+      authorization: "Bearer prepared-token",
+    };
+    const prepared = module.prepareBrowserStewardRuntimeParams(rawParams) as Record<
+      string,
+      unknown
+    >;
+
+    expect(JSON.stringify(prepared)).not.toContain("prepared-secret");
+    expect(JSON.stringify(prepared)).not.toContain("prepared-token");
+    expect(JSON.stringify(prepared)).not.toContain("private-key.pem");
+    expect(module.resolveBrowserStewardRuntimePolicyParams(prepared)).toEqual(rawParams);
+    expect(module.resolveBrowserStewardRuntimeApprovedParams(prepared)).toEqual(prepared);
+  });
+
+  it("creates a redacted approval envelope bound to the exact browser request", async () => {
+    const module = await import("./browser-steward-approval.js");
+    const request = {
+      command: "browser.proxy",
+      method: "POST",
+      path: "/act",
+      body: { kind: "type", text: "raw-browser-secret" },
+      profile: "openclaw",
+      agentSessionKey: "agent:browser-session-credential-steward:direct:user-123",
+      agentId: "browser-session-credential-steward",
+      nodeId: "node-1",
+      pairingGeneration: "pairing-1",
+      invocationId: "invoke-1",
+    } as const;
+    const approval = module.createBrowserStewardGatewayApproval(request);
+
+    expect(approval).toMatchObject({
+      issuer: "gateway.operator.admin",
+      command: "browser.proxy",
+      action: "act",
+      profile: "openclaw",
+      sessionBoundary: {
+        kind: "browser_steward",
+        ownerAgentId: "browser-session-credential-steward",
+        affectedSession: "agent:browser-session-credential-steward:REDACTED",
+      },
+      nodeId: "node-1",
+      pairingGeneration: "pairing-1",
+      invocationId: "invoke-1",
+    });
+    const serialized = JSON.stringify(approval);
+    expect(serialized).not.toContain("raw-browser-secret");
+    expect(serialized).not.toContain("user-123");
+    expect(module.isBrowserStewardGatewayApprovalValid({ approval, ...request })).toBe(true);
+    expect(
+      module.isBrowserStewardGatewayApprovalValid({
+        approval,
+        ...request,
+        pairingGeneration: "different-pairing",
+      }),
+    ).toBe(false);
+    expect(
+      module.isBrowserStewardGatewayApprovalValid({
+        approval,
+        ...request,
+        nowMs: approval.expiresAtMs,
+      }),
+    ).toBe(false);
+    expect(
+      module.isBrowserStewardGatewayApprovalValid({
+        approval,
+        ...request,
+        body: { kind: "type", text: "different-secret" },
+      }),
+    ).toBe(false);
+    expect(
+      module.isBrowserStewardGatewayApprovalValid({
+        approval: { ...approval, action: "navigate" },
+        ...request,
+      }),
+    ).toBe(false);
+  });
+
+  it("canonicalizes trailing-slash proxy routes before approval fingerprinting", async () => {
+    const module = await import("./browser-steward-approval.js");
+    const request = {
+      command: "browser.proxy",
+      method: "POST",
+      path: "/tabs/open/",
+      body: { url: "https://example.com" },
+      profile: "openclaw",
+      agentSessionKey: "agent:browser-session-credential-steward:direct:opaque",
+      agentId: "browser-session-credential-steward",
+      nodeId: "node-1",
+      pairingGeneration: "pairing-1",
+      invocationId: "invoke-2",
+    } as const;
+    const approval = module.createBrowserStewardGatewayApproval(request);
+
+    expect(approval.action).toBe("open");
+    expect(module.isBrowserStewardGatewayApprovalValid({ approval, ...request })).toBe(true);
+    expect(
+      module.isBrowserStewardGatewayApprovalValid({
+        approval,
+        ...request,
+        path: "/tabs/open",
+      }),
+    ).toBe(true);
+  });
 });

@@ -9,12 +9,15 @@ import type {
   AnyAgentTool,
   OpenClawPluginApi,
   OpenClawPluginNodeHostCommand,
+  OpenClawPluginNodeInvokePolicy,
   OpenClawPluginSecurityAuditCollector,
   OpenClawPluginService,
   OpenClawPluginToolContext,
   OpenClawPluginToolFactory,
 } from "openclaw/plugin-sdk/plugin-entry";
 import { createSubsystemLogger, isTruthyEnvValue } from "openclaw/plugin-sdk/runtime-env";
+import { sanitizeTerminalText } from "openclaw/plugin-sdk/text-chunking";
+import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { isBrowserMachineOutput } from "./cli-output-mode.js";
 import {
   BROWSER_REQUEST_GATEWAY_METHOD,
@@ -31,6 +34,18 @@ import {
   createBrowserToolSchema,
   resolveBrowserToolCapabilities,
 } from "./src/browser-tool.schema.js";
+import {
+  approveBrowserStewardRuntimeParams,
+  getBrowserStewardRuntimeApprovalPromptBinding,
+  isBrowserStewardRuntimeApproved,
+  resolveBrowserStewardRuntimePolicyParams,
+  finalizeBrowserStewardRuntimeParams,
+} from "./src/browser/browser-steward-approval.js";
+import {
+  evaluateBrowserStewardRuntimeGuard,
+  redactBrowserStewardCredentialMaterial,
+  shouldApplyBrowserStewardRuntimeGuard,
+} from "./src/browser/browser-steward-runtime-guard.js";
 import { resolveBrowserConfig, resolveProfile } from "./src/browser/config.js";
 import { getBrowserProfileCapabilities } from "./src/browser/profile-capabilities.js";
 import { initializeBrowserSessionTabStore } from "./src/browser/session-tab-store.js";
@@ -41,6 +56,71 @@ import {
 
 const EAGER_BROWSER_CONTROL_SERVICE_ENV = "OPENCLAW_EAGER_BROWSER_CONTROL_SERVER";
 const logger = createSubsystemLogger("browser");
+
+function safeApprovalText(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = sanitizeTerminalText(value.trim()).replace(/\p{Cf}/gu, "");
+  return trimmed ? truncateUtf16Safe(trimmed, 96) : undefined;
+}
+
+function safeApprovalOrigin(value: unknown): string | undefined {
+  const raw = safeApprovalText(value);
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.username || url.password) {
+      return undefined;
+    }
+    return truncateUtf16Safe(url.origin, 128);
+  } catch {
+    return undefined;
+  }
+}
+
+function describeBrowserStewardApprovalDestination(
+  params: Record<string, unknown>,
+  binding:
+    | {
+        backend: {
+          kind: "host" | "sandbox" | "node";
+          identity?: string;
+        };
+        origin?: string;
+        profile?: string;
+      }
+    | undefined,
+): string {
+  const request =
+    params.request && typeof params.request === "object" && !Array.isArray(params.request)
+      ? (params.request as Record<string, unknown>)
+      : undefined;
+  const boundBackend = binding?.backend;
+  const backendIdentity = safeApprovalText(
+    redactBrowserStewardCredentialMaterial(boundBackend?.identity),
+  );
+  const backend = boundBackend
+    ? `${boundBackend.kind}${backendIdentity ? `=${backendIdentity}` : ""}`
+    : "unknown";
+  const redactedProfile = redactBrowserStewardCredentialMaterial(binding?.profile);
+  const profile = safeApprovalText(redactedProfile);
+  const origin =
+    safeApprovalOrigin(params.targetUrl) ??
+    safeApprovalOrigin(params.url) ??
+    safeApprovalOrigin(request?.url) ??
+    safeApprovalOrigin(params.origin) ??
+    safeApprovalOrigin(binding?.origin);
+  return [
+    `backend=${backend}`,
+    profile ? `profile=${profile}` : undefined,
+    origin ? `origin=${origin}` : undefined,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(", ");
+}
 
 const loadBrowserRegistrationRuntimeModule = createLazyRuntimeModule(
   () => import("./register.runtime.js"),
@@ -89,6 +169,8 @@ function createLazyBrowserTool(
       channel?: string;
       chatType?: string;
     };
+    agentId?: string;
+    senderIsOwner?: boolean;
     runToolBinding?: unknown;
   },
   config?: OpenClawPluginToolContext["runtimeConfig"],
@@ -119,6 +201,19 @@ function createLazyBrowserTool(
     description: describeBrowserTool({ targetDefault, hostHint, capabilities }),
     parameters: createBrowserToolSchema(capabilities),
     outputSchema: BrowserToolOutputSchema,
+    prepareBeforeToolCallParams: async (params, context) => {
+      const { prepareBrowserStewardToolParams } = await loadBrowserRegistrationRuntimeModule();
+      return await prepareBrowserStewardToolParams({
+        input: params,
+        agentSessionKey: opts?.agentSessionKey,
+        agentId: opts?.agentId,
+        sandboxBridgeUrl: opts?.sandboxBridgeUrl,
+        allowHostControl: opts?.allowHostControl,
+        ...(bindingResult?.ok ? { runToolBinding: bindingResult.binding } : {}),
+        signal: context.signal,
+      });
+    },
+    finalizeBeforeToolCallParams: finalizeBrowserStewardRuntimeParams,
     execute: async (toolCallId, args, signal, onUpdate) => {
       const { createBrowserTool } = await loadBrowserRegistrationRuntimeModule();
       const tool = createBrowserTool(
@@ -131,6 +226,60 @@ function createLazyBrowserTool(
           : { ...opts, toolCapabilities: capabilities },
       );
       return await tool.execute(toolCallId, args, signal, onUpdate);
+    },
+  };
+}
+
+type BrowserStewardTrustedToolPolicy = Parameters<
+  OpenClawPluginApi["registerTrustedToolPolicy"]
+>[0];
+
+function createBrowserStewardTrustedToolPolicy(): BrowserStewardTrustedToolPolicy {
+  return {
+    id: "browser-steward-runtime-approval",
+    description: "Requires exact, one-shot approval before Browser Steward mutations.",
+    matcher: ["browser"],
+    evaluate: (event, context) => {
+      if (
+        !shouldApplyBrowserStewardRuntimeGuard({
+          sessionKey: context.sessionKey,
+          agentId: context.agentId,
+        }) ||
+        isBrowserStewardRuntimeApproved(event.params)
+      ) {
+        return undefined;
+      }
+      const policyParams = resolveBrowserStewardRuntimePolicyParams(event.params);
+      const action = typeof policyParams.action === "string" ? policyParams.action : "unknown";
+      const decision = evaluateBrowserStewardRuntimeGuard({
+        action,
+        profile: typeof policyParams.profile === "string" ? policyParams.profile : undefined,
+        agentSessionKey: context.sessionKey,
+        agentId: context.agentId,
+        request: policyParams.request ?? policyParams,
+      });
+      if (!decision.approvalRequired) {
+        return undefined;
+      }
+      const approvalParams = event.params;
+      const destination = describeBrowserStewardApprovalDestination(
+        policyParams,
+        getBrowserStewardRuntimeApprovalPromptBinding(event.params),
+      );
+      return {
+        requireApproval: {
+          title: "Approve Browser Steward action",
+          description: `Approve ${decision.requestedAction} (${destination}) for ${decision.affectedSession}.`,
+          severity: decision.dataSensitivity === "critical" ? "critical" : "warning",
+          allowedDecisions: ["allow-once", "deny"],
+          pluginId: "browser",
+          onResolution: (resolution) => {
+            if (resolution === "allow-once") {
+              approveBrowserStewardRuntimeParams(approvalParams);
+            }
+          },
+        },
+      };
     },
   };
 }
@@ -151,6 +300,8 @@ function createBrowserToolOptions(ctx: OpenClawPluginToolContext): {
     channel?: string;
     chatType?: string;
   };
+  agentId?: string;
+  senderIsOwner?: boolean;
   runToolBinding?: unknown;
 } {
   const mediaChannel = ctx.deliveryContext?.channel ?? ctx.messageChannel;
@@ -181,6 +332,8 @@ function createBrowserToolOptions(ctx: OpenClawPluginToolContext): {
           },
         }
       : {}),
+    ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+    ...(ctx.senderIsOwner !== undefined ? { senderIsOwner: ctx.senderIsOwner } : {}),
     ...(ctx.toolBindings && Object.hasOwn(ctx.toolBindings, "browser")
       ? { runToolBinding: ctx.toolBindings.browser }
       : {}),
@@ -202,7 +355,18 @@ function createBrowserProxyNodeHostCommand(command: string): OpenClawPluginNodeH
       config.browser?.enabled !== false && config.nodeHost?.browserProxy?.enabled !== false,
     handle: async (paramsJSON, _io, context) => {
       const { runBrowserProxyCommand } = await loadBrowserRegistrationRuntimeModule();
-      return await runBrowserProxyCommand(paramsJSON, command, context?.signal);
+      return await runBrowserProxyCommand(
+        paramsJSON,
+        command,
+        context?.signal,
+        context?.nodeId && context.invocationId && context.pairingGeneration
+          ? {
+              nodeId: context.nodeId,
+              invocationId: context.invocationId,
+              pairingGeneration: context.pairingGeneration,
+            }
+          : undefined,
+      );
     },
     ...(command === BROWSER_PROXY_UPLOAD_COMMAND
       ? {
@@ -222,6 +386,33 @@ export const browserPluginNodeHostCommands: OpenClawPluginNodeHostCommand[] = [
   createBrowserProxyNodeHostCommand(BROWSER_PROXY_COMMAND),
   createBrowserProxyNodeHostCommand(BROWSER_PROXY_UPLOAD_COMMAND),
 ];
+
+function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
+  return {
+    commands: [BROWSER_PROXY_COMMAND, BROWSER_PROXY_UPLOAD_COMMAND],
+    classifyRisk: () => ({ level: "high" as const, family: "browser-steward" }),
+    handle: async (ctx) => {
+      if (!ctx.client?.scopes?.includes(BROWSER_REQUEST_GATEWAY_SCOPE)) {
+        return {
+          ok: false,
+          code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
+          message: "browser node control requires operator admin authority",
+        };
+      }
+      if (ctx.pluginRuntimeOwnerId) {
+        return await ctx.invokeNode({
+          params: ctx.params,
+          idempotencyKey: ctx.idempotencyKey,
+        });
+      }
+      return {
+        ok: false,
+        code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
+        message: "browser node control requires the approved Browser tool path",
+      };
+    },
+  };
+}
 
 /** Security audit collectors contributed by the Browser plugin. */
 export const browserSecurityAuditCollectors: OpenClawPluginSecurityAuditCollector[] = [
@@ -278,6 +469,8 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
     const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
     return createLazyBrowserTool(createBrowserToolOptions(ctx), config);
   }) as OpenClawPluginToolFactory);
+  api.registerTrustedToolPolicy(createBrowserStewardTrustedToolPolicy());
+  api.registerNodeInvokePolicy(createBrowserProxyNodeInvokePolicy());
   api.registerCli(
     async ({ program }) => {
       const { registerBrowserCli } = await import("./src/cli/browser-cli.js");

@@ -1,3 +1,5 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized node lifecycle handler. */
+
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
   ErrorCodes,
@@ -80,7 +82,11 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
     };
     const nodeId = normalizeOptionalString(p.nodeId) ?? "";
     const command = normalizeOptionalString(p.command) ?? "";
-    const sessionKey = normalizeOptionalString(p.sessionKey);
+    const trustedAgentRuntime = client?.internal?.agentRuntimeIdentity;
+    const trustedPluginRuntimeOwner = client?.internal?.pluginRuntimeOwnerId;
+    const trustedSessionKey = normalizeOptionalString(trustedAgentRuntime?.sessionKey);
+    const sessionKey = trustedSessionKey ?? normalizeOptionalString(p.sessionKey);
+    const agentId = normalizeOptionalString(trustedAgentRuntime?.agentId);
     const nodeInvokeStream =
       client?.internal?.syntheticClient === true && client.internal.pluginRuntimeOwnerId
         ? client.internal.nodeInvokeStream
@@ -126,6 +132,21 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
           ErrorCodes.INVALID_REQUEST,
           `node.invoke cannot mutate persistent browser profiles via ${command}`,
           { details: { command } },
+        ),
+      );
+      return;
+    }
+    if (
+      isBrowserProxyNodeInvokeCommand(command) &&
+      !trustedAgentRuntime &&
+      !trustedPluginRuntimeOwner
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "browser node control requires a trusted Browser Steward session runtime authority",
         ),
       );
       return;
@@ -440,7 +461,8 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
               nodeSession,
               command,
               params: forwardedParams.params,
-              ...(sessionKey ? { sessionKey } : {}),
+              ...(agentId ? { agentId } : {}),
+              ...(trustedSessionKey ? { sessionKey: trustedSessionKey } : {}),
               turnSource: {
                 channel: p.turnSourceChannel,
                 to: p.turnSourceTo,
@@ -584,6 +606,7 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
           timeoutMs: dispatchTimeoutMs,
           signal: invocationLifecycle,
           idempotencyKey: p.idempotencyKey,
+          pairingGeneration: generation.key,
           ...(sessionKey ? { sessionKey } : {}),
           ...(nodeInvokeStream && {
             onProgress: nodeInvokeStream.onProgress,

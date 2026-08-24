@@ -241,6 +241,7 @@ export async function applyPluginNodeInvokePolicy(params: {
   nodeSession: NodeSession;
   command: string;
   params: unknown;
+  agentId?: string;
   sessionKey?: string;
   turnSource?: {
     channel?: unknown;
@@ -478,6 +479,9 @@ export async function applyPluginNodeInvokePolicy(params: {
       ...(params.nodeSession.pairingGeneration
         ? { expectedPairingGeneration: params.nodeSession.pairingGeneration }
         : {}),
+      ...(params.nodeSession.pairingGeneration
+        ? { pairingGeneration: params.nodeSession.pairingGeneration }
+        : {}),
       command: params.command,
       params: override.params ?? params.params,
       timeoutMs,
@@ -548,6 +552,11 @@ export async function applyPluginNodeInvokePolicy(params: {
       nodeId: params.nodeSession.nodeId,
       command: params.command,
       params: params.params,
+      ...(params.agentId ? { agentId: params.agentId } : {}),
+      ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+      ...(params.client?.internal?.pluginRuntimeOwnerId
+        ? { pluginRuntimeOwnerId: params.client.internal.pluginRuntimeOwnerId }
+        : {}),
       timeoutMs: params.timeoutMs,
       idempotencyKey: params.idempotencyKey,
       config: params.context.getRuntimeConfig(),
@@ -558,6 +567,9 @@ export async function applyPluginNodeInvokePolicy(params: {
         platform: params.nodeSession.platform,
         deviceFamily: params.nodeSession.deviceFamily,
         commands: params.nodeSession.commands,
+        ...(params.nodeSession.pairingGeneration
+          ? { pairingGeneration: params.nodeSession.pairingGeneration }
+          : {}),
       },
       client: params.client
         ? {
