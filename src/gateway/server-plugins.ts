@@ -213,6 +213,7 @@ export async function dispatchTrustedPluginGatewayMethod<T>(
 ): Promise<T> {
   const scope = getPluginRuntimeGatewayRequestScope();
   const pluginId = scope?.pluginId?.trim();
+  const pluginRuntimeAuthority = scope?.pluginRuntimeAuthority;
   if (!canTrustedOfficialPluginRequestScopes(scope ?? {})) {
     throw new Error("Gateway requests are only available to bundled or trusted official plugins.");
   }
@@ -220,6 +221,7 @@ export async function dispatchTrustedPluginGatewayMethod<T>(
   return await dispatchGatewayMethodInProcess<T>(method, params, {
     forceSyntheticClient: true,
     pluginRuntimeOwnerId: pluginId,
+    ...(pluginRuntimeAuthority ? { pluginRuntimeAuthority } : {}),
     resolveGatewayContext,
     ...(!scope?.client ? { operatorRoleActor: { kind: "system" as const } } : {}),
     ...(syntheticScopes ? { syntheticScopes } : {}),

@@ -1,6 +1,6 @@
 import { isValidAgentId, normalizeAgentId } from "../routing/session-key.js";
 
-type SessionStewardBoundaryKind = "agent" | "global" | "unscoped" | "unknown" | "malformed";
+export type SessionStewardBoundaryKind = "agent" | "global" | "unscoped" | "unknown" | "malformed";
 
 export type SessionStewardAgentRelation = "same_agent" | "cross_agent" | "unbound";
 
@@ -19,6 +19,12 @@ type ResolveSessionStewardBoundaryParams = {
 };
 
 const UNKNOWN = "UNKNOWN";
+const UNKNOWN_AGENT_SESSION = "agent:UNKNOWN:REDACTED";
+
+type ResolvedBoundaryAgentId = {
+  comparisonId: string;
+  exposedId: string;
+};
 
 function normalizeBoundarySegment(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
@@ -27,15 +33,25 @@ function normalizeBoundarySegment(value: string | null | undefined): string {
 function normalizeBoundaryAgentId(
   value: string | null | undefined,
   configuredAgentIds: readonly string[] | undefined,
-): string {
+): ResolvedBoundaryAgentId {
   const normalized = normalizeBoundarySegment(value);
-  if (!normalized || isValidAgentId(normalized)) {
-    return normalized;
+  if (!normalized) {
+    return { comparisonId: "", exposedId: "" };
   }
   const configured = configuredAgentIds?.find(
     (agentId) => normalizeBoundarySegment(agentId) === normalized,
   );
-  return configured ? normalizeAgentId(configured) : "";
+  if (configured) {
+    const configuredId = normalizeAgentId(configured);
+    if (isValidAgentId(configuredId)) {
+      return { comparisonId: configuredId, exposedId: configuredId };
+    }
+  }
+  // Unconfigured agent ids remain usable for routing comparisons, but are not
+  // trusted identity facts and therefore never leave the policy as raw text.
+  return isValidAgentId(normalized)
+    ? { comparisonId: normalized, exposedId: UNKNOWN }
+    : { comparisonId: "", exposedId: "" };
 }
 
 function unknownDecision(requestedAgentId: string): SessionStewardBoundaryDecision {
@@ -62,7 +78,7 @@ function resolveAgentRelation(
   ownerAgentId: string,
   requestedAgentId: string,
 ): SessionStewardAgentRelation {
-  if (!ownerAgentId || !requestedAgentId || requestedAgentId === UNKNOWN) {
+  if (!ownerAgentId || !requestedAgentId) {
     return "unbound";
   }
   return ownerAgentId === requestedAgentId ? "same_agent" : "cross_agent";
@@ -74,14 +90,14 @@ export function resolveSessionStewardBoundary(
   params: ResolveSessionStewardBoundaryParams,
 ): SessionStewardBoundaryDecision {
   const rawRequestedAgentId = normalizeBoundarySegment(params.requestedAgentId);
-  const normalizedRequestedAgentId = normalizeBoundaryAgentId(
+  const requestedAgent = normalizeBoundaryAgentId(
     params.requestedAgentId,
     params.configuredAgentIds,
   );
-  if (rawRequestedAgentId && !normalizedRequestedAgentId) {
+  if (rawRequestedAgentId && !requestedAgent.comparisonId) {
     return malformedDecision(UNKNOWN);
   }
-  const requestedAgentId = normalizedRequestedAgentId || UNKNOWN;
+  const requestedAgentId = requestedAgent.exposedId || UNKNOWN;
   const normalizedSessionKey = normalizeBoundarySegment(params.sessionKey);
   if (!normalizedSessionKey) {
     return unknownDecision(requestedAgentId);
@@ -108,18 +124,21 @@ export function resolveSessionStewardBoundary(
   }
 
   const rawOwnerAgentId = parts[1]?.trim() ?? "";
-  const ownerAgentId = normalizeBoundaryAgentId(rawOwnerAgentId, params.configuredAgentIds);
+  const ownerAgent = normalizeBoundaryAgentId(rawOwnerAgentId, params.configuredAgentIds);
   const hasMalformedEmptyTail =
     parts.length > 2 && !parts.slice(2).some((part) => part.trim().length > 0);
-  if (!rawOwnerAgentId || !ownerAgentId || hasMalformedEmptyTail) {
+  if (!rawOwnerAgentId || !ownerAgent.comparisonId || hasMalformedEmptyTail) {
     return malformedDecision(requestedAgentId);
   }
 
   return {
     kind: "agent",
-    ownerAgentId,
+    ownerAgentId: ownerAgent.exposedId,
     requestedAgentId,
-    agentRelation: resolveAgentRelation(ownerAgentId, requestedAgentId),
-    affectedSession: `agent:${ownerAgentId}:REDACTED`,
+    agentRelation: resolveAgentRelation(ownerAgent.comparisonId, requestedAgent.comparisonId),
+    affectedSession:
+      ownerAgent.exposedId === UNKNOWN
+        ? UNKNOWN_AGENT_SESSION
+        : `agent:${ownerAgent.exposedId}:REDACTED`,
   };
 }

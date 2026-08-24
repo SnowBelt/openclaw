@@ -20,6 +20,7 @@ describe("Gateway Session Steward boundary", () => {
       requestedAgentId: "worker",
       surface: "tools.invoke",
       action: "invoke",
+      config: { agents: { list: [{ id: "main" }, { id: "worker" }] } },
     });
     stop();
 
@@ -61,6 +62,7 @@ describe("Gateway Session Steward boundary", () => {
       sessionKey: "Agent:Main:direct:person-123",
       requestedAgentId: "MAIN",
       surface: "sessions.files.get",
+      config: { agents: { list: [{ id: "main" }] } },
     });
     expect(sameAgent).toMatchObject({
       ok: true,
@@ -83,5 +85,23 @@ describe("Gateway Session Steward boundary", () => {
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain("agent:main:");
     expect(JSON.stringify(result)).not.toContain("main:");
+  });
+
+  it("redacts unconfigured credential-shaped agent ids without exposing them", () => {
+    const result = assertGatewaySessionStewardBoundary({
+      sessionKey: "agent:sk-abcdefghijk:main",
+      requestedAgentId: "sk-abcdefghijk",
+      surface: "sessions.files.get",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("sk-abcdefghijk");
+    expect(result).toMatchObject({
+      boundary: {
+        affectedSession: "agent:UNKNOWN:REDACTED",
+        ownerAgentId: "UNKNOWN",
+        requestedAgentId: "UNKNOWN",
+      },
+    });
   });
 });

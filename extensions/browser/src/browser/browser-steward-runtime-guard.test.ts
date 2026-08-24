@@ -101,11 +101,11 @@ describe("Browser Steward runtime guard", () => {
       boundaryDecision: "approval_required",
       approvalRequired: true,
       affectedBrowserProfile: "work",
-      affectedSession: "agent:main:REDACTED",
+      affectedSession: "agent:UNKNOWN:REDACTED",
       sessionBoundary: {
         kind: "other_agent",
-        ownerAgentId: "main",
-        affectedSession: "agent:main:REDACTED",
+        ownerAgentId: "UNKNOWN",
+        affectedSession: "agent:UNKNOWN:REDACTED",
       },
       telemetryEvent: "browser_steward.approval_gate",
     });
@@ -200,7 +200,8 @@ describe("Browser Steward runtime guard", () => {
       safeNextAction: "reject the mismatched Browser Steward session and agent identity",
       sessionBoundary: {
         kind: "other_agent",
-        affectedSession: "agent:main:REDACTED",
+        ownerAgentId: "UNKNOWN",
+        affectedSession: "agent:UNKNOWN:REDACTED",
       },
     });
   });

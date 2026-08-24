@@ -46,6 +46,7 @@ import type { PluginRegistryState } from "./registry-state.js";
 import type { PluginRecord } from "./registry-types.js";
 import {
   getGatewayContextResolver,
+  withPluginRuntimeGatewayRequestAuthority,
   withPluginRuntimePluginIdScope,
   withPluginRuntimePluginScope,
   withPluginRuntimeRegistryScope,
@@ -880,8 +881,10 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               if (!isConsumerRuntimeActive()) {
                 throw new Error("Browser node delegation consumer lifecycle is no longer active.");
               }
-              return await runWithPluginScope(() =>
-                registration.delegation.request({ ...params, consumerPluginId: pluginId }),
+              return await withPluginRuntimeGatewayRequestAuthority(isConsumerRuntimeActive, () =>
+                runWithPluginScope(() =>
+                  registration.delegation.request({ ...params, consumerPluginId: pluginId }),
+                ),
               );
             },
           } satisfies NonNullable<PluginRuntime["browser"]>;
