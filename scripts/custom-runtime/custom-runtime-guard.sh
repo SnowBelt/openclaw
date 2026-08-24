@@ -76,10 +76,33 @@ PY
 then
   plist_uses_launcher=true
 fi
-if "$launcher" --verify >/dev/null 2>&1 && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1
-then
+
+# A guard can be launched immediately after the Gateway LaunchAgent is
+# bootstrapped. During that bounded window the pointer and plist are already
+# correct, but the Gateway process and health endpoint may not be observable
+# yet. Waiting here keeps a transient startup race from falling through to
+# recovery, which requires an operation-specific Release Governor bundle that
+# a persistent LaunchAgent must not retain.
+runtime_is_ready() {
+  [ -n "$runtime_root" ] || return 1
+  [ "$plist_uses_launcher" = true ] || return 1
+  "$launcher" --verify >/dev/null 2>&1 || return 1
+  pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1 || return 1
+  curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'
+}
+
+if runtime_is_ready; then
   complete_guard
 fi
+
+guard_startup_wait_attempts=15
+guard_startup_wait_seconds=2
+for _ in $(seq 1 "$guard_startup_wait_attempts"); do
+  sleep "$guard_startup_wait_seconds"
+  if runtime_is_ready; then
+    complete_guard
+  fi
+done
 
 # Never restart into a configuration that cannot retrieve its required secret.
 if ! printf '%s' '{"ids":["discord/bot-token"]}' | "$provider" | python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("values",{}).get("discord/bot-token") else 1)' 2>/dev/null; then
