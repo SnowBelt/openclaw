@@ -283,6 +283,32 @@ describe("browser.request profile selection", () => {
     expect(firstRespondCall(respond)[0]).toBe(true);
   });
 
+  it("rejects generic plugin browser requests before node routing", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "GET",
+        path: "/profiles",
+        agentSessionKey: "agent:google-meet:direct:private-thread",
+      },
+      undefined,
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: { pluginRuntimeOwnerId: "google-meet" },
+      },
+    );
+
+    const [ok, payload, error] = firstRespondCall(respond);
+    expect(ok).toBe(false);
+    expect(payload).toBeUndefined();
+    expect(error).toEqual({
+      code: "INVALID_REQUEST",
+      message: "browser control requires a Browser-owned capability",
+    });
+    expect(JSON.stringify(error)).not.toContain("private-thread");
+    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+  });
+
   it("carries a redacted admin approval envelope to the browser node", async () => {
     const rawSecret = "raw-browser-secret-user-123";
     const { nodeRegistry } = await runBrowserRequest(

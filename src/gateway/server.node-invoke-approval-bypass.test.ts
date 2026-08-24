@@ -640,7 +640,7 @@ describe("node.invoke approval bypass", () => {
     }
   });
 
-  test("rejects direct browser.proxy node.invoke without a trusted Browser Steward session", async () => {
+  test("does not forward direct browser.proxy node.invoke without Browser policy", async () => {
     let sawInvoke = false;
     const nodeIdentity = createDeviceIdentity();
     const node = await connectLinuxNode(
@@ -661,8 +661,13 @@ describe("node.invoke approval bypass", () => {
         },
         idempotencyKey: crypto.randomUUID(),
       });
-      expect(directProxy.ok).toBe(false);
-      expect(directProxy.error?.message ?? "").toContain("trusted Browser Steward session");
+      expect(directProxy).toMatchObject({
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: "browser node control requires an active Browser Steward policy",
+        },
+      });
       await expectNoForwardedInvoke(() => sawInvoke);
     } finally {
       ws.close();

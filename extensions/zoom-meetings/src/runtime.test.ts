@@ -105,6 +105,10 @@ function runtimeHarness(options?: RuntimeHarnessOptions) {
     gatewayRequest,
     runtime: {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
+      browser: {
+        request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
+          await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+      },
     } as unknown as PluginRuntime,
     state,
   };

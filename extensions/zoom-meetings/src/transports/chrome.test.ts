@@ -101,6 +101,10 @@ describe("Zoom meeting Chrome startup cleanup", () => {
     );
     const runtime = {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
+      browser: {
+        request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
+          await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+      },
       system: {
         runCommandWithTimeout: vi.fn(async () => ({
           code: 0,
@@ -150,6 +154,10 @@ describe("Zoom meeting Chrome startup cleanup", () => {
     );
     const runtime = {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
+      browser: {
+        request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
+          await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+      },
       system: {
         runCommandWithTimeout: vi.fn(async () => ({
           code: 0,
@@ -209,6 +217,14 @@ describe("Zoom meeting Chrome startup cleanup", () => {
             },
           ],
         })),
+      },
+      browser: {
+        request: async (
+          params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0],
+        ) => {
+          const response = await invoke({ command: "browser.proxy", params });
+          return (response.payload as { result?: unknown }).result;
+        },
       },
     } as unknown as PluginRuntime;
 
@@ -271,6 +287,14 @@ describe("Zoom meeting Chrome startup cleanup", () => {
             },
           ],
         })),
+      },
+      browser: {
+        request: async (
+          params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0],
+        ) => {
+          const response = await invoke({ command: "browser.proxy", params });
+          return (response.payload as { result?: unknown }).result;
+        },
       },
     } as unknown as PluginRuntime;
 

@@ -116,6 +116,12 @@ describe("Zoom meetings node realtime recovery", () => {
       }
       return { payload: { ok: true } };
     });
+    const browserRequest = async (
+      params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0],
+    ) => {
+      const response = await invoke({ command: "browser.proxy", params });
+      return (response.payload as { result?: unknown }).result;
+    };
     const runtime = new ZoomMeetingsRuntime({
       config: resolveZoomMeetingsConfig({
         chrome: { waitForInCallMs: 1 },
@@ -138,6 +144,7 @@ describe("Zoom meetings node realtime recovery", () => {
             ],
           })),
         },
+        browser: { request: browserRequest },
       } as unknown as PluginRuntime,
     });
 

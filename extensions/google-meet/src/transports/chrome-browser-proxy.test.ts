@@ -1,6 +1,5 @@
 import { runInNewContext } from "node:vm";
 // Google Meet tests cover chrome browser proxy plugin behavior.
-import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { callBrowserProxyOnNode } from "./chrome-browser-proxy.js";
@@ -85,7 +84,7 @@ describe("Google Meet Chrome browser proxy", () => {
     const request = vi.fn(async () => ({ tabs: [] }));
     const invoke = vi.fn();
     const runtime = {
-      gateway: { request },
+      browser: { request },
       nodes: {
         invoke,
       },
@@ -101,25 +100,19 @@ describe("Google Meet Chrome browser proxy", () => {
       }),
     ).resolves.toEqual({ tabs: [] });
 
-    expect(request).toHaveBeenCalledWith(
-      "browser.request",
-      {
-        method: "GET",
-        path: "/tabs",
-        body: undefined,
-        timeoutMs: 100,
-        nodeId: "node-1",
-        allowAutomaticHostFallback: false,
-      },
-      { timeoutMs: 5_100, scopes: ["operator.admin"] },
-    );
+    expect(request).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/tabs",
+      timeoutMs: 100,
+      nodeId: "node-1",
+    });
     expect(invoke).not.toHaveBeenCalled();
   });
 
   it("caps oversized node proxy gateway timeouts", async () => {
     const request = vi.fn(async () => ({ ok: true }));
     const runtime = {
-      gateway: { request },
+      browser: { request },
       nodes: {
         invoke: vi.fn(),
       },
@@ -134,9 +127,7 @@ describe("Google Meet Chrome browser proxy", () => {
     });
 
     expect(request).toHaveBeenCalledWith(
-      "browser.request",
       expect.objectContaining({ timeoutMs: Number.MAX_SAFE_INTEGER }),
-      expect.objectContaining({ timeoutMs: MAX_TIMER_TIMEOUT_MS }),
     );
   });
 });

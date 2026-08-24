@@ -81,6 +81,10 @@ function runtimeHarness(options?: { tabOpen?: boolean }) {
       isAvailable: vi.fn(async () => true),
       request: gatewayRequest,
     },
+    browser: {
+      request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
+        await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+    },
     system: {
       runCommandWithTimeout: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
     },

@@ -86,6 +86,7 @@ export function createTestPluginApi(api: TestPluginApiInput = {}): OpenClawPlugi
     scheduleSessionTurn: async () => undefined,
     unscheduleSessionTurnsByTag: async () => ({ removed: 0, failed: 0 }),
     registerMemoryCapability() {},
+    registerBrowserNodeDelegation() {},
     registerMemoryPromptSupplement() {},
     registerMemoryPromptPreparation() {},
     registerMemoryCorpusSupplement() {},
