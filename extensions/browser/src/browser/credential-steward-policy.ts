@@ -1,3 +1,5 @@
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+
 type CredentialStewardExposureKind = "none" | "credential_like" | "credential_material";
 
 type CredentialStewardReasonCode =
@@ -194,7 +196,10 @@ function fillFieldsHaveCredentialHint(value: unknown): boolean {
       if (!field || typeof field !== "object" || Array.isArray(field)) {
         return false;
       }
-      const record = field as Record<string, unknown>;
+      const record = isRecord(field) ? field : undefined;
+      if (!record) {
+        return false;
+      }
       const typeClass =
         typeof record.type === "string" ? classifyCredentialLabel(record.type) : undefined;
       return (
@@ -226,7 +231,10 @@ function scanCredentialValue(value: unknown, state: CredentialScanState): void {
       pending.push(...candidate);
       continue;
     }
-    const record = candidate as Record<string, unknown>;
+    if (!isRecord(candidate)) {
+      continue;
+    }
+    const record = candidate;
     const kind = typeof record.kind === "string" ? record.kind.trim().toLowerCase() : "";
     if (
       kind === "fill" &&

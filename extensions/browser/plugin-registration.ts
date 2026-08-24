@@ -17,6 +17,7 @@ import type {
   OpenClawPluginToolFactory,
 } from "openclaw/plugin-sdk/plugin-entry";
 import { createSubsystemLogger, isTruthyEnvValue } from "openclaw/plugin-sdk/runtime-env";
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sanitizeTerminalText } from "openclaw/plugin-sdk/text-chunking";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { isBrowserMachineOutput } from "./cli-output-mode.js";
@@ -100,7 +101,7 @@ function describeBrowserStewardApprovalDestination(
 ): string {
   const request =
     params.request && typeof params.request === "object" && !Array.isArray(params.request)
-      ? (params.request as Record<string, unknown>)
+      ? (params.request as Record<string, unknown>) // SAFETY: the guard above excludes arrays and proves an object-shaped request.
       : undefined;
   const boundBackend = binding?.backend;
   const backendIdentity = safeApprovalText(
@@ -410,10 +411,7 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           message: "browser node control requires the Browser-owned capability",
         };
       }
-      const rawParams =
-        ctx.params && typeof ctx.params === "object" && !Array.isArray(ctx.params)
-          ? (ctx.params as Record<string, unknown>)
-          : undefined;
+      const rawParams = isRecord(ctx.params) ? ctx.params : undefined;
       const method = typeof rawParams?.method === "string" ? rawParams.method.toUpperCase() : "";
       const path = typeof rawParams?.path === "string" ? rawParams.path : "";
       if (!method || !path) {
@@ -450,7 +448,7 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
         profile,
         agentId: BROWSER_STEWARD_AGENT_ID,
       } satisfies Record<string, unknown>;
-      let approval: Record<string, unknown>;
+      let approval: ReturnType<typeof createBrowserStewardGatewayApproval>;
       try {
         approval = createBrowserStewardGatewayApproval({
           command: ctx.command,
@@ -464,7 +462,7 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           nodeId: ctx.nodeId,
           pairingGeneration: ctx.node?.pairingGeneration ?? "",
           invocationId: ctx.idempotencyKey ?? "",
-        }) as unknown as Record<string, unknown>;
+        });
       } catch {
         return {
           ok: false,
