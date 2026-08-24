@@ -23,6 +23,7 @@ function createHost() {
     sessionKey: "main",
     chatMessage: "",
     chatQueue: [] as ChatQueueItem[],
+    chatQueuePaused: false,
     chatLoading: false,
     chatMessages: [],
     chatToolMessages: [],
@@ -162,6 +163,7 @@ describe("handleUpdated", () => {
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "typing without blocking input",
       queue: [],
+      queuePaused: false,
     });
   });
 
@@ -183,11 +185,13 @@ describe("handleUpdated", () => {
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "save before close",
       queue: [],
+      queuePaused: false,
     });
     vi.advanceTimersByTime(200);
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "save before close",
       queue: [],
+      queuePaused: false,
     });
   });
 
@@ -211,6 +215,7 @@ describe("handleUpdated", () => {
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "draft with queued work",
       queue: [{ id: "queued-1", text: "next prompt", createdAt: 1 }],
+      queuePaused: false,
     });
   });
 
@@ -238,10 +243,12 @@ describe("handleUpdated", () => {
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "draft before new chat",
       queue: [],
+      queuePaused: false,
     });
     expect(loadChatComposerSnapshot(host, "agent:main:new-session")).toEqual({
       draft: "draft restored into new chat",
       queue: [],
+      queuePaused: false,
     });
   });
 
@@ -265,6 +272,7 @@ describe("handleUpdated", () => {
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "draft from old session",
       queue: [],
+      queuePaused: false,
     });
     expect(loadChatComposerSnapshot(host, "agent:main:other")).toBeNull();
     vi.advanceTimersByTime(200);
@@ -272,6 +280,7 @@ describe("handleUpdated", () => {
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "draft from old session",
       queue: [],
+      queuePaused: false,
     });
   });
 
@@ -293,6 +302,7 @@ describe("handleUpdated", () => {
     expect(loadChatComposerSnapshot(host, "main")).toEqual({
       draft: "survive refresh",
       queue: [{ id: "queued-1", text: "next prompt", createdAt: 1 }],
+      queuePaused: false,
     });
   });
 });
