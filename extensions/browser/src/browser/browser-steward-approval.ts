@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import type { BrowserStewardGatewayApprovalClaim } from "openclaw/plugin-sdk/browser-steward-runtime";
 import {
   evaluateBrowserStewardRuntimeGuard,
   redactBrowserStewardCredentialMaterial,
@@ -10,6 +11,7 @@ import { normalizeBrowserRequestPath } from "./request-policy.js";
 
 const BROWSER_STEWARD_GATEWAY_APPROVAL_TTL_MS = 30_000;
 const consumedBrowserStewardGatewayAuthorities = new Map<string, number>();
+const consumedBrowserStewardGatewayOperationAuthorities = new Map<string, number>();
 
 type BrowserStewardRuntimeApproval = {
   approved: boolean;
@@ -75,6 +77,9 @@ function createBrowserStewardRequestFingerprint(params: {
   profile?: string;
   agentSessionKey?: string;
   agentId?: string;
+  nodeId?: string;
+  browserNodeSessionLease?: string;
+  allowAutomaticHostFallback?: boolean;
 }): string {
   const canonical = JSON.stringify(
     canonicalizeBrowserStewardApprovalValue({
@@ -87,11 +92,100 @@ function createBrowserStewardRequestFingerprint(params: {
       profile: params.profile,
       agentSessionKey: params.agentSessionKey,
       agentId: params.agentId,
+      nodeId: params.nodeId,
+      browserNodeSessionLease: params.browserNodeSessionLease,
+      allowAutomaticHostFallback: params.allowAutomaticHostFallback,
     }),
   );
   return createHash("sha256")
     .update(canonical ?? "undefined")
     .digest("hex");
+}
+
+type BrowserStewardGatewayApprovalClaimParams = {
+  command: string;
+  method?: string;
+  path?: string;
+  query?: unknown;
+  body?: unknown;
+  upload?: unknown;
+  profile?: string;
+  agentSessionKey?: string;
+  agentId?: string;
+  nodeId?: string;
+  browserNodeSessionLease?: string;
+  allowAutomaticHostFallback?: boolean;
+  nowMs?: number;
+};
+
+/** Creates a short-lived proof for one exact Browser Gateway request. */
+export function createBrowserStewardGatewayApprovalClaim(
+  params: BrowserStewardGatewayApprovalClaimParams,
+): BrowserStewardGatewayApprovalClaim {
+  if (!isBrowserStewardProxyCommand(params.command)) {
+    throw new Error("unsupported Browser Steward Gateway operation command");
+  }
+  return {
+    authorityId: randomUUID(),
+    requestFingerprint: createBrowserStewardRequestFingerprint(params),
+    expiresAtMs: (params.nowMs ?? Date.now()) + BROWSER_STEWARD_GATEWAY_APPROVAL_TTL_MS,
+  };
+}
+
+type BrowserStewardGatewayApprovalClaimValidationParams =
+  BrowserStewardGatewayApprovalClaimParams & {
+    approval: unknown;
+  };
+
+function readBrowserStewardGatewayApprovalClaim(
+  value: unknown,
+): BrowserStewardGatewayApprovalClaim | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  // SAFETY: the object guard permits structural validation of the private claim fields.
+  const claim = value as Partial<BrowserStewardGatewayApprovalClaim>;
+  return typeof claim.authorityId === "string" &&
+    claim.authorityId.trim() &&
+    typeof claim.requestFingerprint === "string" &&
+    claim.requestFingerprint.trim() &&
+    typeof claim.expiresAtMs === "number" &&
+    Number.isSafeInteger(claim.expiresAtMs)
+    ? {
+        authorityId: claim.authorityId,
+        requestFingerprint: claim.requestFingerprint,
+        expiresAtMs: claim.expiresAtMs,
+      }
+    : undefined;
+}
+
+/** Redeems the private proof exactly once for the exact Browser Gateway request. */
+export function consumeBrowserStewardGatewayApprovalClaim(
+  params: BrowserStewardGatewayApprovalClaimValidationParams,
+): boolean {
+  if (!isBrowserStewardProxyCommand(params.command)) {
+    return false;
+  }
+  const claim = readBrowserStewardGatewayApprovalClaim(params.approval);
+  if (!claim) {
+    return false;
+  }
+  const nowMs = params.nowMs ?? Date.now();
+  for (const [authorityId, expiresAtMs] of consumedBrowserStewardGatewayOperationAuthorities) {
+    if (expiresAtMs <= nowMs) {
+      consumedBrowserStewardGatewayOperationAuthorities.delete(authorityId);
+    }
+  }
+  const expectedFingerprint = createBrowserStewardRequestFingerprint(params);
+  if (
+    claim.expiresAtMs <= nowMs ||
+    consumedBrowserStewardGatewayOperationAuthorities.has(claim.authorityId) ||
+    claim.requestFingerprint !== expectedFingerprint
+  ) {
+    return false;
+  }
+  consumedBrowserStewardGatewayOperationAuthorities.set(claim.authorityId, claim.expiresAtMs);
+  return true;
 }
 
 function isBrowserStewardProxyCommand(

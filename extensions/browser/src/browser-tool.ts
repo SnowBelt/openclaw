@@ -75,6 +75,7 @@ import {
 import { appendNavigatedPageState, executeSnapshotAction } from "./browser-tool.snapshot.js";
 import { resolveBrowserNavigationTimeoutMs } from "./browser/act-policy.js";
 import {
+  createBrowserStewardGatewayApprovalClaim,
   finalizeBrowserStewardRuntimeParams,
   getBrowserStewardRuntimeApprovalBinding,
   isBrowserStewardRuntimeApproved,
@@ -634,6 +635,10 @@ export function createBrowserTool(opts?: {
         ? applyBrowserTabToolBinding(args as Record<string, unknown>, bindingResult.binding)
         : (args as Record<string, unknown>);
       const approved = isBrowserStewardRuntimeApproved(publicParams, opts?.approvalAuthority);
+      const browserStewardGatewayApproval = approved
+        ? (request: Parameters<typeof createBrowserStewardGatewayApprovalClaim>[0]) =>
+            createBrowserStewardGatewayApprovalClaim(request)
+        : undefined;
       const approvedBinding = approved
         ? getBrowserStewardRuntimeApprovalBinding(publicParams, opts?.approvalAuthority)
         : undefined;
@@ -778,6 +783,7 @@ export function createBrowserTool(opts?: {
             agentSessionKey: opts?.agentSessionKey,
             agentId: opts?.agentId,
             browserNodeSessionLease: approvedBinding?.browserNodeSessionLease,
+            browserStewardGatewayApproval,
             signal,
           })
         : null;
@@ -796,6 +802,7 @@ export function createBrowserTool(opts?: {
             agentSessionKey: opts?.agentSessionKey,
             agentId: opts?.agentId,
             browserNodeSessionLease: approvedBinding?.browserNodeSessionLease,
+            browserStewardGatewayApproval,
           })
         : undefined;
       const toolTimeoutMs =

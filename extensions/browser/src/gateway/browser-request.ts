@@ -26,7 +26,10 @@ import {
   isBrowserProxyUploadRequest,
   prepareBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
-import { createBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
+import {
+  consumeBrowserStewardGatewayApprovalClaim,
+  createBrowserStewardGatewayApproval,
+} from "../browser/browser-steward-approval.js";
 import {
   assertBrowserStewardRuntimeAllowed,
   BROWSER_STEWARD_AGENT_ID,
@@ -64,7 +67,7 @@ function hasActiveBrowserNodeRuntimeAuthority(
   const pluginAuthority = client?.internal?.pluginRuntimeAuthority;
   if (pluginAuthority) {
     try {
-      if (pluginAuthority() !== true) {
+      if (!pluginAuthority()) {
         return false;
       }
     } catch {
@@ -120,6 +123,8 @@ export async function handleBrowserGatewayRequest({
   const trustedAgentRuntime = client?.internal?.agentRuntimeIdentity;
   const trustedAgentId = normalizeOptionalString(trustedAgentRuntime?.agentId);
   const trustedAgentSessionKey = normalizeOptionalString(trustedAgentRuntime?.sessionKey);
+  const browserStewardOperationClaim = trustedAgentRuntime?.gatewayToolOperationApproval;
+  const hasBrowserStewardOperationClaim = browserStewardOperationClaim?.owner === "browser";
   const pluginRuntimeOwnerId = normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId);
   const browserPluginRuntime = pluginRuntimeOwnerId === "browser";
   if (pluginRuntimeOwnerId && !browserPluginRuntime) {
@@ -153,6 +158,9 @@ export async function handleBrowserGatewayRequest({
     browserPluginRuntime || directOperator ? BROWSER_STEWARD_AGENT_ID : effectiveRequestedAgentId;
   const effectiveAgentSessionKey =
     browserPluginRuntime || directOperator ? undefined : effectiveRequestedAgentSessionKey;
+  const operatorApproved = operatorAdmin && !trustedAgentRuntime;
+  let browserStewardOperationApproved =
+    operatorApproved || browserPluginRuntime || hasBrowserStewardOperationClaim;
   const requestedProfile = resolveRequestedBrowserProfile({
     query,
     body,
@@ -243,7 +251,7 @@ export async function handleBrowserGatewayRequest({
         profile: requestedProfile,
         agentSessionKey: effectiveAgentSessionKey,
         agentId: effectiveAgentId,
-        approved: operatorAdmin,
+        approved: browserStewardOperationApproved,
         request: body,
       });
     } catch (error) {
@@ -358,6 +366,37 @@ export async function handleBrowserGatewayRequest({
     }
   }
 
+  if (hasBrowserStewardOperationClaim) {
+    browserStewardOperationApproved = consumeBrowserStewardGatewayApprovalClaim({
+      approval: browserStewardOperationClaim,
+      command: proxyCommand,
+      method: methodRaw,
+      path,
+      query,
+      body: preparedUpload?.body ?? body,
+      upload: preparedUpload?.upload ?? typed.upload,
+      profile: typed.profile,
+      agentSessionKey: effectiveAgentSessionKey,
+      agentId: effectiveAgentId,
+      nodeId: requestedNode,
+      browserNodeSessionLease,
+      allowAutomaticHostFallback: typed.allowAutomaticHostFallback,
+    });
+    try {
+      assertBrowserStewardRuntimeAllowed({
+        action: resolveBrowserStewardProxyAction({ method: methodRaw, path, body }),
+        profile: requestedProfile,
+        agentSessionKey: effectiveAgentSessionKey,
+        agentId: effectiveAgentId,
+        approved: browserStewardOperationApproved,
+        request: body,
+      });
+    } catch (error) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(error)));
+      return;
+    }
+  }
+
   if (nodeTarget && preparedUpload) {
     const allowlist = resolveNodeCommandAllowlist(cfg, nodeTarget);
     const allowed = isNodeCommandAllowed({
@@ -397,7 +436,7 @@ export async function handleBrowserGatewayRequest({
       profile: appliesBrowserStewardGuard ? stewardProfile : requestedProfile,
       agentSessionKey: effectiveAgentSessionKey,
       agentId: effectiveAgentId,
-      ...(operatorAdmin && appliesBrowserStewardGuard
+      ...(browserStewardOperationApproved && appliesBrowserStewardGuard
         ? {
             browserStewardApproval: createBrowserStewardGatewayApproval({
               command: proxyCommand,

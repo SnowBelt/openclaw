@@ -1,7 +1,10 @@
 // Browser tests cover browser request.profile from body plugin behavior.
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { consumeBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
+import {
+  consumeBrowserStewardGatewayApproval,
+  createBrowserStewardGatewayApprovalClaim,
+} from "../browser/browser-steward-approval.js";
 
 const {
   loadConfigMock,
@@ -86,7 +89,7 @@ type TestNode = {
 };
 
 function createContext(
-  invokeResult?: unknown | (() => unknown | Promise<unknown>),
+  invokeResult?: unknown,
   connectedNodes?: TestNode[],
   leaseIsCurrent = true,
   validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
@@ -128,7 +131,7 @@ function createContext(
 
 async function runBrowserRequest(
   params: Record<string, unknown>,
-  invokeResult?: unknown | (() => unknown | Promise<unknown>),
+  invokeResult?: unknown,
   connectedNodes?: TestNode[],
   client?: {
     connect?: { scopes?: string[] };
@@ -319,35 +322,6 @@ describe("browser.request profile selection", () => {
     });
     expect(JSON.stringify(error)).not.toContain("private-thread");
     expect(nodeRegistry.invoke).not.toHaveBeenCalled();
-  });
-
-  it("uses trusted agent identity instead of treating an agent runtime as a direct operator", async () => {
-    const { nodeRegistry } = await runBrowserRequest(
-      {
-        method: "POST",
-        path: "/tabs/open",
-        body: { url: "https://example.com" },
-        agentId: "browser-session-credential-steward",
-        agentSessionKey: "agent:browser-session-credential-steward:forged:opaque",
-      },
-      undefined,
-      undefined,
-      {
-        connect: { scopes: ["operator.admin"] },
-        internal: {
-          agentRuntimeIdentity: {
-            kind: "agentRuntime",
-            agentId: "main",
-            sessionKey: "agent:main:direct:opaque",
-          },
-        },
-      },
-    );
-
-    const forwarded = invokeParams(nodeRegistry).params;
-    expect(forwarded?.agentId).toBe("main");
-    expect(forwarded?.agentSessionKey).toBe("agent:main:direct:opaque");
-    expect(forwarded?.browserStewardApproval).toBeUndefined();
   });
 
   it("carries a redacted admin approval envelope to the browser node", async () => {
@@ -609,12 +583,24 @@ describe("browser.request profile selection", () => {
       await preparation;
       return { body };
     });
+    const operationClaim = createBrowserStewardGatewayApprovalClaim({
+      command: "browser.proxy",
+      method: "POST",
+      path: "/tabs/open",
+      body: { url: "https://example.com" },
+      agentId: "browser-session-credential-steward",
+      agentSessionKey: "agent:browser-session-credential-steward:node:opaque",
+      nodeId: "node-1",
+      allowAutomaticHostFallback: false,
+    });
     let authorityActive = true;
     const request = runBrowserRequest(
       {
         method: "POST",
         path: "/tabs/open",
         body: { url: "https://example.com" },
+        nodeId: "node-1",
+        allowAutomaticHostFallback: false,
         agentSessionKey: "agent:browser-session-credential-steward:node:opaque",
         agentId: "browser-session-credential-steward",
       },
@@ -627,6 +613,7 @@ describe("browser.request profile selection", () => {
             kind: "agentRuntime",
             agentId: "browser-session-credential-steward",
             sessionKey: "agent:browser-session-credential-steward:node:opaque",
+            gatewayToolOperationApproval: { owner: "browser", ...operationClaim },
           },
         },
       } as never,

@@ -1,6 +1,6 @@
 import { isValidAgentId, normalizeAgentId } from "../routing/session-key.js";
 
-export type SessionStewardBoundaryKind = "agent" | "global" | "unscoped" | "unknown" | "malformed";
+type SessionStewardBoundaryKind = "agent" | "global" | "unscoped" | "unknown" | "malformed";
 
 export type SessionStewardAgentRelation = "same_agent" | "cross_agent" | "unbound";
 

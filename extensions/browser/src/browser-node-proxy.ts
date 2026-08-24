@@ -1,4 +1,8 @@
 import {
+  withBrowserStewardGatewayApproval,
+  type BrowserStewardGatewayApprovalClaim,
+} from "openclaw/plugin-sdk/browser-steward-runtime";
+import {
   addTimerTimeoutGraceMs,
   MAX_TIMER_TIMEOUT_MS,
   resolveTimerTimeoutMs,
@@ -54,11 +58,27 @@ export type BrowserProxyRequest = ((params: {
   agentSessionKey?: string;
   agentId?: string;
   browserNodeSessionLease?: string;
+  browserStewardGatewayApproval?: BrowserStewardGatewayApprovalFactory;
   signal?: AbortSignal;
 }) => Promise<unknown>) & {
   isHostFallbackActive: () => boolean;
   route: () => BrowserProxyRoute | undefined;
 };
+
+type BrowserStewardGatewayApprovalFactory = (params: {
+  command: string;
+  method: string;
+  path: string;
+  query?: Record<string, string | number | boolean | undefined>;
+  body?: unknown;
+  upload?: unknown;
+  profile?: string;
+  agentSessionKey?: string;
+  agentId?: string;
+  nodeId?: string;
+  browserNodeSessionLease?: string;
+  allowAutomaticHostFallback?: boolean;
+}) => BrowserStewardGatewayApprovalClaim;
 
 function unwrapBrowserProxyPayload(
   payload: { payload?: unknown; payloadJSON?: unknown } | null,
@@ -91,6 +111,7 @@ async function callBrowserProxy(params: {
   agentSessionKey?: string;
   agentId?: string;
   browserNodeSessionLease?: string;
+  browserStewardGatewayApproval?: BrowserStewardGatewayApprovalFactory;
   signal?: AbortSignal;
 }): Promise<BrowserProxyEnvelope> {
   // Reserve both watchdog windows before clamping so timer saturation cannot
@@ -120,8 +141,22 @@ async function callBrowserProxy(params: {
     signal: params.signal,
   });
   let payload: { payload?: unknown; payloadJSON?: unknown } | null;
-  try {
-    payload = await callGatewayTool<{ payload?: unknown; payloadJSON?: unknown }>(
+  const browserStewardGatewayApproval = params.browserStewardGatewayApproval?.({
+    command: preparedUpload.upload ? BROWSER_PROXY_UPLOAD_COMMAND : "browser.proxy",
+    method: params.method,
+    path: params.path,
+    query: params.query,
+    body: preparedUpload.body,
+    upload: preparedUpload.upload,
+    profile: params.profile,
+    agentSessionKey: params.agentSessionKey,
+    agentId: params.agentId,
+    nodeId: params.nodeId,
+    browserNodeSessionLease: params.browserNodeSessionLease,
+    allowAutomaticHostFallback: params.allowAutomaticHostFallback,
+  });
+  const call = () =>
+    callGatewayTool<{ payload?: unknown; payloadJSON?: unknown }>(
       "browser.request",
       { timeoutMs: gatewayTimeoutMs },
       {
@@ -144,9 +179,14 @@ async function callBrowserProxy(params: {
       },
       {
         scopes: ["operator.admin"],
+        ...(browserStewardGatewayApproval ? { requireAgentRuntimeIdentity: true } : {}),
         ...(params.signal ? { signal: params.signal } : {}),
       },
     );
+  try {
+    payload = browserStewardGatewayApproval
+      ? await withBrowserStewardGatewayApproval(browserStewardGatewayApproval, call)
+      : await call();
   } catch (error) {
     if (params.allowAutomaticHostFallback && isBrowserControlHostUnavailableError(error)) {
       throw new BrowserNodeSafeFallbackError("browser node control host unavailable", error);
@@ -191,6 +231,7 @@ export function createBrowserNodeProxyRequest(params: {
   agentSessionKey?: string;
   agentId?: string;
   browserNodeSessionLease?: string;
+  browserStewardGatewayApproval?: BrowserStewardGatewayApprovalFactory;
   signal?: AbortSignal;
 }): BrowserProxyRequest {
   let hostFallbackActive = false;
@@ -216,6 +257,7 @@ export function createBrowserNodeProxyRequest(params: {
         agentId: params.agentId,
         browserNodeSessionLease: params.browserNodeSessionLease,
         ...requestWithSignal,
+        browserStewardGatewayApproval: params.browserStewardGatewayApproval,
       });
       route = parseBrowserProxyRoute(proxy);
       if (route?.status === "host-fallback") {
@@ -255,6 +297,7 @@ export function createBrowserNodeSessionTabRoute(params: {
   agentSessionKey?: string;
   agentId?: string;
   browserNodeSessionLease?: string;
+  browserStewardGatewayApproval?: BrowserStewardGatewayApprovalFactory;
 }): Extract<BrowserSessionTabRoute, { kind: "node-proxy" }> {
   return {
     kind: "node-proxy",
@@ -266,6 +309,7 @@ export function createBrowserNodeSessionTabRoute(params: {
         agentSessionKey: params.agentSessionKey,
         agentId: params.agentId,
         browserNodeSessionLease: params.browserNodeSessionLease,
+        browserStewardGatewayApproval: params.browserStewardGatewayApproval,
       });
       if (tab.ownership?.status === "durable") {
         return parseBrowserSessionTabCloseResult(
