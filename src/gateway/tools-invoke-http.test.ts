@@ -12,6 +12,10 @@ import type { runBeforeToolCallHook as runBeforeToolCallHookType } from "../agen
 import type { ExecSessionDefaults } from "../agents/exec-defaults.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  onTrustedInternalDiagnosticEvent,
+  type DiagnosticEventPayload,
+} from "../infra/diagnostic-events.js";
 import { withPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
@@ -1458,6 +1462,30 @@ describe("tools.invoke Gateway RPC", () => {
     expect(hookCtx.config).toBe(cfg);
     expect(hookCtx.sessionKey).toBe("agent:main:main");
     expect(lastCreateOpenClawToolsContext?.conversationReadOrigin).toBe("delegated");
+  });
+
+  it("keeps caller action text out of Session Steward diagnostics", async () => {
+    allowAgentsListForMain();
+    const rawAction = "Bearer raw-diagnostic-token";
+    const events: DiagnosticEventPayload[] = [];
+    const stop = onTrustedInternalDiagnosticEvent((event) => events.push(event));
+    const response = await invokeToolAuthed({
+      tool: "agents_list",
+      action: rawAction,
+      args: {},
+      sessionKey: "main",
+    });
+    stop();
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).ok).toBe(true);
+    const serializedEvents = JSON.stringify(events);
+    expect(serializedEvents).not.toContain(rawAction);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "session_steward.boundary_decision", action: "invoke" }),
+      ]),
+    );
   });
 
   it("limits terminal controls and execution denial to the current persisted session generation", async () => {

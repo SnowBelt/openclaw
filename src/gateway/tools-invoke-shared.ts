@@ -216,7 +216,9 @@ async function invokeGatewayToolWithSignal(
     requestedAgentId: normalizeOptionalString(params.input.agentId),
     config: params.cfg,
     surface: "tools.invoke",
-    action: normalizeOptionalString(params.input.action) ?? toolName,
+    // Diagnostic action is a fixed surface label; request action text may be
+    // arbitrary tool data and must never enter the trusted event stream.
+    action: "invoke",
   });
   if (!sessionBoundary.ok) {
     return {
