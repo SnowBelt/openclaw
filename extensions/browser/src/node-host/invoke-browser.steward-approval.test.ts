@@ -115,6 +115,7 @@ describe("node-host Browser Steward approval", () => {
         { nodeId: "node-1", pairingGeneration: "pairing-1", invocationId: "invoke-1" },
       ),
     ).resolves.toBe(JSON.stringify({ result: { ok: true } }));
+    expect(mocks.startBrowserControlService).toHaveBeenCalledOnce();
     expect(mocks.dispatch).toHaveBeenCalledOnce();
     expect(JSON.stringify(approval)).not.toContain("node-run");
 
