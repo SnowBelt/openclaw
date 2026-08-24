@@ -19,7 +19,7 @@ import type {
   EmbeddingProviderRuntime,
 } from "./embedding-provider-types.js";
 import type { PluginOrigin } from "./plugin-origin.types.js";
-import type { PluginRecord } from "./registry-types.js";
+import type { PluginRecord } from "./plugin-record.types.js";
 
 /** A narrow, in-process Browser-owned request surface for approved plugin consumers. */
 export type BrowserNodeDelegationRequest = {
