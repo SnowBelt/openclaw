@@ -823,18 +823,18 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
           if (!registration) {
             return undefined;
           }
-          const providerRecord =
-            pluginRuntimeRecordById.get(registration.pluginId) ??
-            registry.plugins.find((entry) => entry.id === registration.pluginId);
-          if (
-            !providerRecord ||
-            !activePluginRuntimeRecords.has(providerRecord) ||
-            !isTrustedBrowserPluginRecord(providerRecord) ||
-            providerRecord.origin !== registration.provider.origin ||
-            providerRecord.source !== registration.provider.source ||
-            providerRecord.rootDir !== registration.provider.rootDir ||
-            providerRecord.trustedOfficialInstall !== registration.provider.trustedOfficialInstall
-          ) {
+          const providerRecord = registration.providerRecord;
+          const isProviderRuntimeActive = () =>
+            pluginRuntimeRecordById.get(registration.pluginId) === providerRecord &&
+            activePluginRuntimeRecords.has(providerRecord) &&
+            isTrustedBrowserPluginRecord(providerRecord) &&
+            providerRecord.status === "loaded" &&
+            providerRecord.enabled &&
+            providerRecord.origin === registration.provider.origin &&
+            providerRecord.source === registration.provider.source &&
+            providerRecord.rootDir === registration.provider.rootDir &&
+            providerRecord.trustedOfficialInstall === registration.provider.trustedOfficialInstall;
+          if (!isProviderRuntimeActive()) {
             return undefined;
           }
           if (
@@ -889,6 +889,9 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
             request: async (params) => {
               if (!registry.browserNodeDelegations.includes(registration)) {
                 throw new Error("Browser node delegation is no longer active.");
+              }
+              if (!isProviderRuntimeActive()) {
+                throw new Error("Browser node delegation provider lifecycle is no longer active.");
               }
               if (!isConsumerRuntimeActive()) {
                 throw new Error("Browser node delegation consumer lifecycle is no longer active.");

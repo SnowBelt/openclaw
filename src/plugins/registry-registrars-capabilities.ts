@@ -52,6 +52,7 @@ export function createCapabilityRegistrars(state: PluginRegistryState) {
       ...registry.browserNodeDelegations.filter((entry) => entry.pluginId !== record.id),
       {
         pluginId: record.id,
+        providerRecord: record,
         provider: {
           origin: record.origin,
           source: record.source,

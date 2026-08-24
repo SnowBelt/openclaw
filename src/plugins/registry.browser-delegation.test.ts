@@ -323,6 +323,59 @@ describe("plugin registry Browser node delegation", () => {
     expect(trustedReplacementRuntime.browser).toBeDefined();
   });
 
+  it("rejects a retained capability after the Browser provider is replaced", async () => {
+    const pluginRegistry = createTestRegistry();
+    const browserRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const request = vi.fn(async () => ({ ok: true }));
+    registerBrowserNodeDelegation(
+      pluginRegistry.createApi(browserRecord, { config: {} as OpenClawConfig }),
+      {
+        consumerPluginIds: ["google-meet"],
+        request,
+      },
+    );
+    const consumerRecord = createPluginRecord({
+      id: "google-meet",
+      source: "/plugins/google-meet/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const consumerRuntime = pluginRegistry.createApi(consumerRecord, {
+      config: {} as OpenClawConfig,
+    }).runtime;
+    pluginRegistry.registry.plugins.push(consumerRecord);
+    markPluginRegistryActive(pluginRegistry.registry);
+    const browserCapability = consumerRuntime.browser;
+    expect(browserCapability).toBeDefined();
+
+    const replacementRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    pluginRegistry.createApi(replacementRecord, { config: {} as OpenClawConfig });
+
+    expect(consumerRuntime.browser).toBeUndefined();
+    await expect(
+      browserCapability?.request({
+        method: "GET",
+        path: "/profiles",
+        timeoutMs: 1_000,
+        nodeId: "node-1",
+      }),
+    ).rejects.toThrow("Browser node delegation provider lifecycle is no longer active.");
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("prints a redacted final-effect proof for allowed and revoked Browser I/O", async () => {
     const pluginRegistry = createTestRegistry();
     const browserRecord = createPluginRecord({
