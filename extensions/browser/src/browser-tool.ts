@@ -9,6 +9,7 @@ import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import {
   createBrowserNodeProxyRequest,
   createBrowserNodeSessionTabRoute,
+  type BrowserOwnedGatewayRequest,
 } from "./browser-node-proxy.js";
 import { resolveBrowserNodeTarget } from "./browser-node-routing.js";
 import {
@@ -579,6 +580,8 @@ export function createBrowserTool(opts?: {
   runToolBinding?: unknown;
   /** Browser-owned approval authority; never exposed to model-visible tool arguments. */
   approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
+  /** Browser-owned lifecycle path for retained node-tab cleanup. */
+  browserOwnedGatewayRequest?: BrowserOwnedGatewayRequest;
   toolCapabilities?: BrowserToolCapabilities;
 }): AnyAgentTool {
   const bindingResult =
@@ -803,6 +806,7 @@ export function createBrowserTool(opts?: {
             agentId: opts?.agentId,
             browserNodeSessionLease: approvedBinding?.browserNodeSessionLease,
             browserStewardGatewayApproval,
+            browserOwnedGatewayRequest: opts?.browserOwnedGatewayRequest,
           })
         : undefined;
       const toolTimeoutMs =

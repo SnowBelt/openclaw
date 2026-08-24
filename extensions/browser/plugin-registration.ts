@@ -31,6 +31,7 @@ import {
   BROWSER_PROXY_COMMAND,
   BROWSER_PROXY_UPLOAD_COMMAND,
 } from "./src/browser-node-commands.js";
+import type { BrowserOwnedGatewayRequest } from "./src/browser-node-proxy.js";
 import { parseBrowserTabToolBinding } from "./src/browser-tool-binding.js";
 import { describeBrowserTool } from "./src/browser-tool-description.js";
 import {
@@ -180,6 +181,7 @@ function createLazyBrowserTool(
     };
     agentId?: string;
     approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
+    browserOwnedGatewayRequest?: BrowserOwnedGatewayRequest;
     senderIsOwner?: boolean;
     runToolBinding?: unknown;
   },
@@ -564,6 +566,26 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
 /** Register Browser tool factories, CLI, gateway methods, services, and audits. */
 export function registerBrowserPlugin(api: OpenClawPluginApi) {
   const approvalAuthority = createBrowserStewardRuntimeApprovalAuthority();
+  const browserOwnedGatewayRequest: BrowserOwnedGatewayRequest = async (params) =>
+    await api.runtime.gateway.request(
+      BROWSER_REQUEST_GATEWAY_METHOD,
+      {
+        method: params.method,
+        path: params.path,
+        ...(params.query ? { query: params.query } : {}),
+        ...(params.body !== undefined ? { body: params.body } : {}),
+        ...(params.profile ? { profile: params.profile } : {}),
+        nodeId: params.nodeId,
+        ...(params.browserNodeSessionLease
+          ? { browserNodeSessionLease: params.browserNodeSessionLease }
+          : {}),
+        allowAutomaticHostFallback: false,
+      },
+      {
+        timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? params.timeoutMs,
+        scopes: [BROWSER_REQUEST_GATEWAY_SCOPE],
+      },
+    );
   initializeBrowserSessionTabStore(api.runtime);
   configureSystemProfileImportStateStore(
     api.runtime.state.openKeyedStore<SystemProfileImportState>({
@@ -573,7 +595,10 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
   );
   api.registerTool(((ctx: OpenClawPluginToolContext) => {
     const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
-    return createLazyBrowserTool({ ...createBrowserToolOptions(ctx), approvalAuthority }, config);
+    return createLazyBrowserTool(
+      { ...createBrowserToolOptions(ctx), approvalAuthority, browserOwnedGatewayRequest },
+      config,
+    );
   }) as OpenClawPluginToolFactory);
   registerBrowserNodeDelegation(api, {
     consumerPluginIds: ["google-meet", "teams-meetings", "zoom-meetings"],

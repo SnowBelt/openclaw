@@ -65,6 +65,21 @@ export type BrowserProxyRequest = ((params: {
   route: () => BrowserProxyRoute | undefined;
 };
 
+/**
+ * Browser-owned Gateway path for retained node-tab cleanup. It is deliberately
+ * narrower than a general Gateway client and is never exposed to model input.
+ */
+export type BrowserOwnedGatewayRequest = (params: {
+  method: "GET" | "POST" | "DELETE";
+  path: string;
+  query?: Record<string, string | number | boolean | undefined>;
+  body?: unknown;
+  profile?: string;
+  nodeId: string;
+  browserNodeSessionLease?: string;
+  timeoutMs: number;
+}) => Promise<unknown>;
+
 type BrowserStewardGatewayApprovalFactory = (params: {
   command: string;
   method: string;
@@ -298,11 +313,46 @@ export function createBrowserNodeSessionTabRoute(params: {
   agentId?: string;
   browserNodeSessionLease?: string;
   browserStewardGatewayApproval?: BrowserStewardGatewayApprovalFactory;
+  browserOwnedGatewayRequest?: BrowserOwnedGatewayRequest;
 }): Extract<BrowserSessionTabRoute, { kind: "node-proxy" }> {
   return {
     kind: "node-proxy",
     nodeId: params.nodeTarget.nodeId,
     closeTarget: async (tab) => {
+      // Session cleanup commonly runs after the originating agent turn, when
+      // no ambient signed identity remains. Keep this effect on the Browser
+      // plugin's lifecycle-owned Gateway path and bind it to the retained
+      // node, lease, and exact tab-close request instead of reconstructing a
+      // model/agent operation proof.
+      if (params.browserOwnedGatewayRequest) {
+        if (tab.ownership?.status === "durable") {
+          return parseBrowserSessionTabCloseResult(
+            await params.browserOwnedGatewayRequest({
+              method: "POST",
+              path: BROWSER_PROXY_OWNED_TAB_CLOSE_PATH,
+              body: { ownership: tab.ownership },
+              profile: tab.profile,
+              nodeId: params.nodeTarget.nodeId,
+              ...(params.browserNodeSessionLease
+                ? { browserNodeSessionLease: params.browserNodeSessionLease }
+                : {}),
+              timeoutMs: DEFAULT_BROWSER_PROXY_TIMEOUT_MS,
+            }),
+          );
+        }
+        await params.browserOwnedGatewayRequest({
+          method: "DELETE",
+          path: `/tabs/${encodeURIComponent(tab.targetId)}`,
+          query: { targetIdMode: "raw" },
+          profile: tab.profile,
+          nodeId: params.nodeTarget.nodeId,
+          ...(params.browserNodeSessionLease
+            ? { browserNodeSessionLease: params.browserNodeSessionLease }
+            : {}),
+          timeoutMs: DEFAULT_BROWSER_PROXY_TIMEOUT_MS,
+        });
+        return { status: "closed" };
+      }
       const cleanupProxy = createBrowserNodeProxyRequest({
         nodeTarget: params.nodeTarget,
         allowAutomaticHostFallback: false,

@@ -46,7 +46,10 @@ const uploadMocks = vi.hoisted(() => ({
 vi.mock("./browser-tool.runtime.js", () => runtimeMocks);
 vi.mock("./browser-proxy-upload.js", () => uploadMocks);
 
-import { createBrowserNodeProxyRequest } from "./browser-node-proxy.js";
+import {
+  createBrowserNodeProxyRequest,
+  createBrowserNodeSessionTabRoute,
+} from "./browser-node-proxy.js";
 
 function createSessionProxy() {
   return createBrowserNodeProxyRequest({
@@ -81,6 +84,79 @@ beforeEach(() => {
 });
 
 describe("Browser node proxy nested watchdogs", () => {
+  it("uses the Browser-owned lifecycle path for retained tab cleanup", async () => {
+    const browserOwnedGatewayRequest = vi.fn(async () => ({ status: "closed" }));
+    const route = createBrowserNodeSessionTabRoute({
+      nodeTarget: { nodeId: "node-1" },
+      browserNodeSessionLease: "lease-1",
+      browserOwnedGatewayRequest,
+    });
+
+    await expect(
+      route.closeTarget({ targetId: "opaque target/1", profile: "work" }),
+    ).resolves.toEqual({ status: "closed" });
+
+    expect(browserOwnedGatewayRequest).toHaveBeenCalledWith({
+      method: "DELETE",
+      path: "/tabs/opaque%20target%2F1",
+      query: { targetIdMode: "raw" },
+      profile: "work",
+      nodeId: "node-1",
+      browserNodeSessionLease: "lease-1",
+      timeoutMs: 20_000,
+    });
+    expect(runtimeMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
+  it("binds durable retained-tab cleanup to the exact ownership body", async () => {
+    const browserOwnedGatewayRequest = vi.fn(async () => ({ status: "closed" }));
+    const route = createBrowserNodeSessionTabRoute({
+      nodeTarget: { nodeId: "node-1" },
+      browserNodeSessionLease: "lease-1",
+      browserOwnedGatewayRequest,
+    });
+    const ownership = {
+      status: "durable" as const,
+      nativeTargetId: "native-1",
+      profileFingerprint: "profile-fingerprint",
+      browserInstanceFingerprint: "browser-fingerprint",
+    };
+
+    await expect(
+      route.closeTarget({ targetId: "opaque-1", profile: "work", ownership }),
+    ).resolves.toEqual({
+      status: "closed",
+    });
+
+    expect(browserOwnedGatewayRequest).toHaveBeenCalledWith({
+      method: "POST",
+      path: "/__openclaw/session-tab/close-owned",
+      body: { ownership },
+      profile: "work",
+      nodeId: "node-1",
+      browserNodeSessionLease: "lease-1",
+      timeoutMs: 20_000,
+    });
+    expect(runtimeMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back when the retained Browser-owned route is revoked", async () => {
+    const browserOwnedGatewayRequest = vi
+      .fn()
+      .mockRejectedValue(new Error("browser node route lease is stale"));
+    const route = createBrowserNodeSessionTabRoute({
+      nodeTarget: { nodeId: "node-1" },
+      browserNodeSessionLease: "lease-1",
+      browserOwnedGatewayRequest,
+    });
+
+    await expect(route.closeTarget({ targetId: "tab-1" })).rejects.toThrow(
+      "browser node route lease is stale",
+    );
+    expect(runtimeMocks.callGatewayTool).not.toHaveBeenCalled();
+    expect(runtimeMocks.fetchBrowserJson).not.toHaveBeenCalled();
+  });
+
   it("keeps a requested action inside separate node and Gateway watchdogs", async () => {
     const signal = new AbortController().signal;
 
