@@ -31,6 +31,22 @@ describe("Credential Steward redaction policy", () => {
     }
   });
 
+  it("classifies a PEM private-key marker without retaining its value", () => {
+    const privateKeyMarker = ["-----BEGIN ", ["PRIVATE", "KEY"].join(" "), "-----"].join("");
+    const rawValue = ["raw-", "private-key-value"].join("");
+    const decision = evaluateCredentialStewardExposure({
+      value: `${privateKeyMarker}\n${rawValue}\n${privateKeyMarker.replace("BEGIN", "END")}`,
+    });
+
+    expect(decision).toMatchObject({
+      exposureKind: "credential_material",
+      credentialClassesInvolved: ["private key"],
+      blocked: true,
+      reasonCode: "credential_material_detected",
+    });
+    expect(JSON.stringify(decision)).not.toContain(rawValue);
+  });
+
   it("fails closed without recursing forever on cyclic credential input", () => {
     const credential: Record<string, unknown> = { token: "raw-cycle-token-123456" };
     credential.self = credential;
