@@ -885,6 +885,10 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               isPluginRecordLifecycleEpochActive(registry, consumerRecord, epoch),
             );
           };
+          const isBrowserNodeDelegationActive = () =>
+            registry.browserNodeDelegations.includes(registration) &&
+            isProviderRuntimeActive() &&
+            isConsumerRuntimeActive();
           return {
             request: async (params) => {
               if (!registry.browserNodeDelegations.includes(registration)) {
@@ -896,10 +900,12 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               if (!isConsumerRuntimeActive()) {
                 throw new Error("Browser node delegation consumer lifecycle is no longer active.");
               }
-              return await withPluginRuntimeGatewayRequestAuthority(isConsumerRuntimeActive, () =>
-                runWithPluginScope(() =>
-                  registration.delegation.request({ ...params, consumerPluginId: pluginId }),
-                ),
+              return await withPluginRuntimeGatewayRequestAuthority(
+                isBrowserNodeDelegationActive,
+                () =>
+                  runWithPluginScope(() =>
+                    registration.delegation.request({ ...params, consumerPluginId: pluginId }),
+                  ),
               );
             },
           } satisfies NonNullable<PluginRuntime["browser"]>;
