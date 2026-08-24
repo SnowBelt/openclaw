@@ -3,20 +3,26 @@ import { describe, expect, it, vi } from "vitest";
 describe("Browser Steward runtime approval", () => {
   const hostBinding = { backend: { kind: "host" as const } };
 
+  function approvePreparedRuntimeParams(
+    module: typeof import("./browser-steward-approval.js"),
+    rawParams: Record<string, unknown>,
+    binding: import("./browser-steward-approval.js").BrowserStewardRuntimeApprovalBinding,
+  ): Record<string, unknown> {
+    const prepared = module.prepareBrowserStewardRuntimeParams(rawParams, binding) as Record<
+      string,
+      unknown
+    >;
+    module.approveBrowserStewardRuntimeParams(prepared);
+    return prepared;
+  }
+
   it("survives separate plugin module instances without becoming JSON-forgeable", async () => {
     const firstModule = await import("./browser-steward-approval.js");
     const rawParams = {
       action: "act",
       request: { kind: "type", text: "synthetic-secret" },
     };
-    const approvedParams = firstModule.markBrowserStewardRuntimeApproved(
-      rawParams,
-      {
-        action: "act",
-        credentialMaterial: "REDACTED",
-      },
-      hostBinding,
-    );
+    const approvedParams = approvePreparedRuntimeParams(firstModule, rawParams, hostBinding);
 
     vi.resetModules();
     const secondModule = await import("./browser-steward-approval.js");
@@ -28,7 +34,7 @@ describe("Browser Steward runtime approval", () => {
     const serializedParams = JSON.stringify(approvedParams);
     expect(JSON.parse(serializedParams)).toEqual({
       action: "act",
-      credentialMaterial: "REDACTED",
+      request: { kind: "type", text: "REDACTED" },
     });
     expect(secondModule.isBrowserStewardRuntimeApproved({ approved: true })).toBe(false);
   });
@@ -39,14 +45,7 @@ describe("Browser Steward runtime approval", () => {
       action: "act",
       request: { kind: "type", text: "synthetic-secret" },
     };
-    const approvedParams = module.markBrowserStewardRuntimeApproved(
-      rawParams,
-      {
-        action: "act",
-        credentialMaterial: "REDACTED",
-      },
-      hostBinding,
-    );
+    const approvedParams = approvePreparedRuntimeParams(module, rawParams, hostBinding);
     const rewrittenRequest = { kind: "type", text: "policy-replacement" };
 
     const rewritten = {
@@ -66,14 +65,7 @@ describe("Browser Steward runtime approval", () => {
       action: "act",
       request: { kind: "type", text: "synthetic-secret" },
     };
-    const approvedParams = module.markBrowserStewardRuntimeApproved(
-      rawParams,
-      {
-        action: "act",
-        request: { kind: "type", text: "REDACTED" },
-      },
-      hostBinding,
-    );
+    const approvedParams = approvePreparedRuntimeParams(module, rawParams, hostBinding);
     const request = approvedParams.request as Record<string, unknown>;
     request.kind = "evaluate";
 
@@ -88,14 +80,7 @@ describe("Browser Steward runtime approval", () => {
       action: "act",
       request: { kind: "type", text: "original-secret" },
     };
-    const approvedParams = module.markBrowserStewardRuntimeApproved(
-      rawParams,
-      {
-        action: "act",
-        request: { kind: "type", text: "REDACTED" },
-      },
-      hostBinding,
-    );
+    const approvedParams = approvePreparedRuntimeParams(module, rawParams, hostBinding);
     rawParams.request.text = "mutated-after-approval";
 
     const firstResolved = module.resolveBrowserStewardRuntimeApprovedParams(approvedParams);
@@ -113,14 +98,10 @@ describe("Browser Steward runtime approval", () => {
   it("keeps pending params redacted until the Browser approval itself resolves", async () => {
     const module = await import("./browser-steward-approval.js");
     const rawParams = { action: "act", password: "synthetic-secret" };
-    const pendingParams = module.markBrowserStewardRuntimeApprovalPending(
+    const pendingParams = module.prepareBrowserStewardRuntimeParams(
       rawParams,
-      {
-        action: "act",
-        password: "REDACTED",
-      },
       hostBinding,
-    );
+    ) as Record<string, unknown>;
 
     expect(module.isBrowserStewardRuntimeApproved(pendingParams)).toBe(false);
     for (const symbol of Object.getOwnPropertySymbols(pendingParams)) {
@@ -192,30 +173,30 @@ describe("Browser Steward runtime approval", () => {
     const serialized = JSON.stringify(approval);
     expect(serialized).not.toContain("raw-browser-secret");
     expect(serialized).not.toContain("user-123");
-    expect(module.isBrowserStewardGatewayApprovalValid({ approval, ...request })).toBe(true);
+    expect(module.consumeBrowserStewardGatewayApproval({ approval, ...request })).toBe(true);
     expect(
-      module.isBrowserStewardGatewayApprovalValid({
+      module.consumeBrowserStewardGatewayApproval({
         approval,
         ...request,
         pairingGeneration: "different-pairing",
       }),
     ).toBe(false);
     expect(
-      module.isBrowserStewardGatewayApprovalValid({
+      module.consumeBrowserStewardGatewayApproval({
         approval,
         ...request,
         nowMs: approval.expiresAtMs,
       }),
     ).toBe(false);
     expect(
-      module.isBrowserStewardGatewayApprovalValid({
+      module.consumeBrowserStewardGatewayApproval({
         approval,
         ...request,
         body: { kind: "type", text: "different-secret" },
       }),
     ).toBe(false);
     expect(
-      module.isBrowserStewardGatewayApprovalValid({
+      module.consumeBrowserStewardGatewayApproval({
         approval: { ...approval, action: "navigate" },
         ...request,
       }),
@@ -239,10 +220,14 @@ describe("Browser Steward runtime approval", () => {
     const approval = module.createBrowserStewardGatewayApproval(request);
 
     expect(approval.action).toBe("open");
-    expect(module.isBrowserStewardGatewayApprovalValid({ approval, ...request })).toBe(true);
+    expect(module.consumeBrowserStewardGatewayApproval({ approval, ...request })).toBe(true);
+    const normalizedApproval = module.createBrowserStewardGatewayApproval({
+      ...request,
+      path: "/tabs/open",
+    });
     expect(
-      module.isBrowserStewardGatewayApprovalValid({
-        approval,
+      module.consumeBrowserStewardGatewayApproval({
+        approval: normalizedApproval,
         ...request,
         path: "/tabs/open",
       }),

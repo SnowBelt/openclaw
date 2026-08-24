@@ -5,10 +5,7 @@ import {
   resetDiagnosticEventsForTest,
   type DiagnosticEventPayload,
 } from "../infra/diagnostic-events.js";
-import {
-  assertGatewaySessionStewardBoundary,
-  resolveGatewaySessionStewardBoundary,
-} from "./session-steward-boundary.js";
+import { assertGatewaySessionStewardBoundary } from "./session-steward-boundary.js";
 
 describe("Gateway Session Steward boundary", () => {
   beforeEach(() => {
@@ -48,25 +45,25 @@ describe("Gateway Session Steward boundary", () => {
   });
 
   it("allows global and same-agent boundaries while redacting the selector", () => {
-    expect(
-      resolveGatewaySessionStewardBoundary({
-        sessionKey: "global",
-        requestedAgentId: "main",
-        surface: "sessions.create",
-      }),
-    ).toMatchObject({
+    const global = assertGatewaySessionStewardBoundary({
+      sessionKey: "global",
+      requestedAgentId: "main",
+      surface: "sessions.create",
+    });
+    expect(global).toMatchObject({
+      ok: true,
       boundary: {
         affectedSession: "GLOBAL",
         agentRelation: "unbound",
       },
     });
-    expect(
-      resolveGatewaySessionStewardBoundary({
-        sessionKey: "Agent:Main:direct:person-123",
-        requestedAgentId: "MAIN",
-        surface: "sessions.files.get",
-      }),
-    ).toMatchObject({
+    const sameAgent = assertGatewaySessionStewardBoundary({
+      sessionKey: "Agent:Main:direct:person-123",
+      requestedAgentId: "MAIN",
+      surface: "sessions.files.get",
+    });
+    expect(sameAgent).toMatchObject({
+      ok: true,
       boundary: {
         affectedSession: "agent:main:REDACTED",
         ownerAgentId: "main",

@@ -1,11 +1,11 @@
-export type CredentialStewardExposureKind = "none" | "credential_like" | "credential_material";
+type CredentialStewardExposureKind = "none" | "credential_like" | "credential_material";
 
-export type CredentialStewardReasonCode =
+type CredentialStewardReasonCode =
   | "no_credential_material"
   | "credential_like_label"
   | "credential_material_detected";
 
-export type CredentialStewardDecision = {
+type CredentialStewardDecision = {
   exposureKind: CredentialStewardExposureKind;
   credentialClassesInvolved: string[];
   dataSensitivity: "low" | "medium" | "critical";
@@ -14,7 +14,7 @@ export type CredentialStewardDecision = {
   redactedSummary: string;
 };
 
-export type EvaluateCredentialStewardExposureParams = {
+type EvaluateCredentialStewardExposureParams = {
   value?: unknown;
   labels?: readonly string[];
 };

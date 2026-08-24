@@ -19,14 +19,14 @@ type GatewaySessionStewardBoundaryParams = {
   config?: OpenClawConfig;
 } & GatewaySessionStewardBoundaryTelemetry;
 
-export type GatewaySessionStewardBoundaryFacts = {
+type GatewaySessionStewardBoundaryFacts = {
   affectedSession: string;
   ownerAgentId: string;
   requestedAgentId: string;
   agentRelation: SessionStewardAgentRelation;
 };
 
-export type GatewaySessionStewardBoundaryCheck =
+type GatewaySessionStewardBoundaryCheck =
   | {
       ok: true;
       boundary: GatewaySessionStewardBoundaryFacts;
@@ -92,7 +92,7 @@ function emitSessionStewardBoundaryDecision(params: {
   });
 }
 
-export function resolveGatewaySessionStewardBoundary(params: GatewaySessionStewardBoundaryParams): {
+function resolveGatewaySessionStewardBoundary(params: GatewaySessionStewardBoundaryParams): {
   boundary: GatewaySessionStewardBoundaryFacts;
   decision: SessionStewardBoundaryDecision;
 } {

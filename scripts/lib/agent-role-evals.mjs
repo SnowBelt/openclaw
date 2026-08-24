@@ -536,20 +536,7 @@ const CRITICAL_AGENT_CONTRACT_IDS = Object.freeze([
   "market-research-analyst",
 ]);
 
-export const DEFAULT_LIVE_AGENT_ROLE_EVAL_AGENTS = Object.freeze([
-  "main",
-  "judge",
-  "program-manager",
-  "memory-knowledge-curator",
-  "market-research-analyst",
-  "session-steward",
-  "credential-steward",
-  "browser-session-credential-steward",
-  "browser-session-credential-steward-safety-boundary",
-]);
-
 export const DEFAULT_SELF_CONTAINED_LIVE_MODEL = "ollama/qwen3.5:4b";
-export const DEFAULT_SELF_CONTAINED_OLLAMA_MIN_MEM_MB = 8192;
 export const DEFAULT_SELF_CONTAINED_LIVE_PARAMS = Object.freeze({
   temperature: 0,
   maxTokens: 128,
@@ -719,18 +706,18 @@ export function createSelfContainedLiveEvalEnvironment(contracts, options = {}) 
   };
 }
 
-export function resolveConfiguredAgents(config) {
+function resolveConfiguredAgents(config) {
   return Array.isArray(config?.agents?.list) ? config.agents.list : [];
 }
 
-export function resolveAgentPrimaryModel(agent, defaults = {}) {
+function resolveAgentPrimaryModel(agent, defaults = {}) {
   if (typeof agent?.model === "string") {
     return agent.model;
   }
   return agent?.model?.primary ?? defaults?.model?.primary ?? null;
 }
 
-export function resolveAgentFallbackModels(agent, defaults = {}) {
+function resolveAgentFallbackModels(agent, defaults = {}) {
   if (typeof agent?.model === "string") {
     return [];
   }
@@ -741,7 +728,7 @@ export function resolveAgentFallbackModels(agent, defaults = {}) {
       : [];
 }
 
-export function collectConfiguredModelRefs(config) {
+function collectConfiguredModelRefs(config) {
   const refs = new Set();
   for (const [providerId, provider] of Object.entries(config?.models?.providers ?? {})) {
     for (const model of provider?.models ?? []) {

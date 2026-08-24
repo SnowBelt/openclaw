@@ -2,11 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   evaluateBrowserStewardRuntimeGuard,
-  isBrowserStewardSession,
   redactBrowserStewardCredentialMaterial,
-  redactBrowserStewardDiagnosticResult,
   shouldApplyBrowserStewardRuntimeGuard,
-  resolveBrowserStewardSessionBoundary,
   resolveBrowserStewardProxyAction,
 } from "./browser-steward-runtime-guard.js";
 
@@ -24,6 +21,7 @@ type BrowserStewardBoundaryFixture = {
 type CredentialStewardFixture = {
   name: string;
   value?: unknown;
+  valueParts?: string[];
   labels?: string[];
   expected: {
     exposureKind: "none" | "credential_like" | "credential_material";
@@ -52,17 +50,18 @@ const browserBoundaryFixtures = boundaryFixtures.filter(
 
 describe("Browser Steward runtime guard", () => {
   it("recognizes only exact Browser Steward agent session keys", () => {
-    expect(isBrowserStewardSession("agent:browser-session-credential-steward:abc")).toBe(true);
-    expect(isBrowserStewardSession("agent:browser-session-credential-steward")).toBe(true);
-    expect(isBrowserStewardSession("Agent:Browser-Session-Credential-Steward:Main")).toBe(true);
-    expect(isBrowserStewardSession("agent:main:abc")).toBe(false);
-    expect(isBrowserStewardSession("agent:not-browser-session-credential-steward:main")).toBe(
-      false,
-    );
-    expect(isBrowserStewardSession("agent:browser-session-credential-stewardish:main")).toBe(false);
-    expect(isBrowserStewardSession("agent:main:browser-session-credential-steward")).toBe(false);
-    expect(isBrowserStewardSession("agent:browser-session-credential-steward:")).toBe(false);
-    expect(isBrowserStewardSession("browser-session-credential-steward")).toBe(false);
+    const boundaryKind = (sessionKey: string) =>
+      evaluateBrowserStewardRuntimeGuard({ action: "status", agentSessionKey: sessionKey })
+        .sessionBoundary.kind;
+    expect(boundaryKind("agent:browser-session-credential-steward:abc")).toBe("browser_steward");
+    expect(boundaryKind("agent:browser-session-credential-steward")).toBe("browser_steward");
+    expect(boundaryKind("Agent:Browser-Session-Credential-Steward:Main")).toBe("browser_steward");
+    expect(boundaryKind("agent:main:abc")).toBe("other_agent");
+    expect(boundaryKind("agent:not-browser-session-credential-steward:main")).toBe("other_agent");
+    expect(boundaryKind("agent:browser-session-credential-stewardish:main")).toBe("other_agent");
+    expect(boundaryKind("agent:main:browser-session-credential-steward")).toBe("other_agent");
+    expect(boundaryKind("agent:browser-session-credential-steward:")).toBe("unknown");
+    expect(boundaryKind("browser-session-credential-steward")).toBe("unscoped");
   });
 
   it("enables the guard for Browser Steward global sessions by agent id", () => {
@@ -81,7 +80,10 @@ describe("Browser Steward runtime guard", () => {
   });
 
   it.each(browserBoundaryFixtures)("matches shared boundary fixture: $name", (fixture) => {
-    const boundary = resolveBrowserStewardSessionBoundary(fixture.sessionKey ?? undefined);
+    const boundary = evaluateBrowserStewardRuntimeGuard({
+      action: "status",
+      agentSessionKey: fixture.sessionKey ?? undefined,
+    }).sessionBoundary;
     expect(boundary).toEqual(fixture.browserExpected);
     for (const rawValue of fixture.rawMustNotContain ?? []) {
       expect(JSON.stringify(boundary)).not.toContain(rawValue);
@@ -373,15 +375,14 @@ describe("Browser Steward runtime guard", () => {
     expect(serialized).not.toContain(rawPassword);
   });
 
-  it("never captures opaque browser output in diagnostics", () => {
+  it("never captures opaque browser output in runtime decisions", () => {
     const rawSecret = "correct-horse-battery-staple";
-    const redacted = redactBrowserStewardDiagnosticResult({
-      content: [{ type: "text", text: JSON.stringify({ result: rawSecret }) }],
-      details: { result: rawSecret },
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "snapshot",
+      request: { result: rawSecret },
     });
 
-    expect(redacted).toEqual({ redacted: true });
-    expect(JSON.stringify(redacted)).not.toContain(rawSecret);
+    expect(JSON.stringify(decision)).not.toContain(rawSecret);
   });
 
   it.each(credentialFixtures)("matches shared credential fixture: $name", (fixture) => {

@@ -31,8 +31,6 @@ import type {
 import { buildRuntimeCompatibleMcpToolInventory } from "../../agents/tools-effective-mcp-inventory.js";
 import { resolveReplyToMode } from "../../auto-reply/reply/reply-threading.js";
 import { resolveRuntimeConfigCacheKey } from "../../config/config.js";
-import type { SessionToolOverrides } from "../../config/sessions/types.js";
-import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { toErrorObject } from "../../infra/errors.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import { logDebug, logWarn } from "../../logger.js";
@@ -49,6 +47,10 @@ import {
   resolveRequestedAgentIdOrRespondError,
   resolveTrustedToolsEffectiveContext,
 } from "./tools-effective-context.js";
+import type {
+  ToolsEffectiveDependencies,
+  TrustedToolsEffectiveContext,
+} from "./tools-effective-types.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
@@ -74,19 +76,6 @@ const defaultToolsEffectiveDependencies = {
   resolveSessionModelRef,
 };
 
-type SessionMcpRuntimeView = Pick<
-  NonNullable<ReturnType<typeof peekSessionMcpRuntime>>,
-  "configFingerprint" | "peekCatalog" | "workspaceDir"
->;
-export type ToolsEffectiveDependencies = Omit<
-  typeof defaultToolsEffectiveDependencies,
-  "peekSessionMcpRuntime"
-> & {
-  peekSessionMcpRuntime: (
-    params: Parameters<typeof peekSessionMcpRuntime>[0],
-  ) => SessionMcpRuntimeView | undefined;
-};
-
 const TOOLS_EFFECTIVE_FRESH_TTL_MS = 10_000;
 const TOOLS_EFFECTIVE_STALE_TTL_MS = 120_000;
 const TOOLS_EFFECTIVE_SLOW_LOG_MS = 250;
@@ -94,31 +83,6 @@ const TOOLS_EFFECTIVE_CACHE_LIMIT = 128;
 const MCP_CONFIG_SUMMARY_CACHE_LIMIT = 128;
 
 let nowForToolsEffectiveCache = () => Date.now();
-
-export type TrustedToolsEffectiveContext = {
-  cfg: OpenClawConfig;
-  agentId: string;
-  sessionKey: string;
-  sessionId: string;
-  workspaceDir: string;
-  runtimeConfigCacheKey: string;
-  pluginRegistryVersion: number;
-  channelRegistryVersion: number;
-  nodePluginToolsVersion: number;
-  modelProvider?: string;
-  modelId?: string;
-  messageProvider?: string;
-  accountId?: string;
-  currentChannelId?: string;
-  currentThreadTs?: string;
-  groupId?: string | null;
-  groupChannel?: string | null;
-  groupSpace?: string | null;
-  replyToMode?: "off" | "first" | "all" | "batched";
-  spawnedBy?: string | null;
-  agentHarnessId?: string;
-  toolOverrides?: SessionToolOverrides;
-};
 
 type ToolsEffectiveCacheEntry = {
   value: BaseToolsEffectiveResolution;

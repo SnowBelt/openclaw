@@ -37,7 +37,7 @@ export type BrowserStewardRuntimeApprovalBinding = {
 };
 
 /** Gateway-issued approval facts carried to a separate browser node. */
-export type BrowserStewardGatewayApproval = {
+type BrowserStewardGatewayApproval = {
   issuer: "gateway.operator.admin";
   command: "browser.proxy" | "browser.proxy.upload.v1";
   action: string;
@@ -204,7 +204,7 @@ function readBrowserStewardGatewayApproval(
 }
 
 /** Validates that node-host approval facts match this exact browser request. */
-export function isBrowserStewardGatewayApprovalValid(
+function isBrowserStewardGatewayApprovalValid(
   params: BrowserStewardGatewayApprovalValidationParams,
 ): boolean {
   if (!isBrowserStewardProxyCommand(params.command)) {
@@ -343,41 +343,17 @@ function attachBrowserStewardRuntimeApproval(
   return approvedParams;
 }
 
-/**
- * Adds an in-process approval marker that model JSON cannot construct.
- * The marker remains non-serializable so diagnostics never expose it.
- */
-export function markBrowserStewardRuntimeApproved(
-  rawParams: Record<string, unknown>,
-  binding: BrowserStewardRuntimeApprovalBinding,
-): Record<string, unknown>;
-export function markBrowserStewardRuntimeApproved(
-  rawParams: Record<string, unknown>,
-  publicParams: Record<string, unknown>,
-  binding: BrowserStewardRuntimeApprovalBinding,
-): Record<string, unknown>;
-export function markBrowserStewardRuntimeApproved(
-  rawParams: Record<string, unknown>,
-  publicParamsOrBinding: Record<string, unknown> | BrowserStewardRuntimeApprovalBinding,
-  binding?: BrowserStewardRuntimeApprovalBinding,
-): Record<string, unknown> {
-  const publicParams = binding ? (publicParamsOrBinding as Record<string, unknown>) : rawParams;
-  const resolvedBinding =
-    binding ?? (publicParamsOrBinding as BrowserStewardRuntimeApprovalBinding);
-  return attachBrowserStewardRuntimeApproval(rawParams, publicParams, true, resolvedBinding);
-}
-
 /** Attach a marker that remains unusable until this policy's approval resolves. */
-export function markBrowserStewardRuntimeApprovalPending(
+function markBrowserStewardRuntimeApprovalPending(
   rawParams: Record<string, unknown>,
   binding: BrowserStewardRuntimeApprovalBinding,
 ): Record<string, unknown>;
-export function markBrowserStewardRuntimeApprovalPending(
+function markBrowserStewardRuntimeApprovalPending(
   rawParams: Record<string, unknown>,
   publicParams: Record<string, unknown>,
   binding: BrowserStewardRuntimeApprovalBinding,
 ): Record<string, unknown>;
-export function markBrowserStewardRuntimeApprovalPending(
+function markBrowserStewardRuntimeApprovalPending(
   rawParams: Record<string, unknown>,
   publicParamsOrBinding: Record<string, unknown> | BrowserStewardRuntimeApprovalBinding,
   binding?: BrowserStewardRuntimeApprovalBinding,
@@ -437,15 +413,6 @@ export function getBrowserStewardRuntimeApprovalPromptBinding(
     return undefined;
   }
   return structuredClone(approval.binding);
-}
-
-/** Confirms that approval still targets the exact backend and tab origin. */
-export function matchesBrowserStewardRuntimeApprovalBinding(
-  params: unknown,
-  binding: BrowserStewardRuntimeApprovalBinding,
-): boolean {
-  const approvedBinding = getBrowserStewardRuntimeApprovalBinding(params);
-  return approvedBinding !== undefined && isDeepStrictEqual(approvedBinding, binding);
 }
 
 /** Restores private params after the generic diagnostic wrapper has captured only redacted input. */
