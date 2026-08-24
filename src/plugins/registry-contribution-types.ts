@@ -18,6 +18,7 @@ import type {
   EmbeddingProviderIndexIdentity,
   EmbeddingProviderRuntime,
 } from "./embedding-provider-types.js";
+import type { PluginOrigin } from "./plugin-origin.types.js";
 
 /** A narrow, in-process Browser-owned request surface for approved plugin consumers. */
 export type BrowserNodeDelegationRequest = {
@@ -38,6 +39,12 @@ export type BrowserNodeDelegation = {
 
 export type PluginBrowserNodeDelegationRegistration = {
   pluginId: string;
+  provider: {
+    origin: PluginOrigin;
+    source: string;
+    rootDir?: string;
+    trustedOfficialInstall?: boolean;
+  };
   delegation: BrowserNodeDelegation;
 };
 

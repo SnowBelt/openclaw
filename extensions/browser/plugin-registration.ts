@@ -426,11 +426,11 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
       const trustedAgentId = normalizeOptionalString(ctx.agentId);
       const trustedSessionKey = normalizeOptionalString(ctx.sessionKey);
       const hasTrustedAgentRuntime = Boolean(trustedAgentId || trustedSessionKey);
-      if (hasTrustedAgentRuntime && trustedAgentId?.toLowerCase() !== BROWSER_STEWARD_AGENT_ID) {
+      if (hasTrustedAgentRuntime) {
         return {
           ok: false,
           code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-          message: "browser node control requires Browser Steward runtime authority",
+          message: "browser node control requires an approved Browser tool operation",
         };
       }
       const rawParams = isRecord(ctx.params) ? ctx.params : undefined;
