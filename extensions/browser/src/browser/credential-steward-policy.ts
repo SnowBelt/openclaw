@@ -71,22 +71,71 @@ const SIGNED_URL_QUERY_KEYS = new Set([
   "x-goog-expires",
   "x-goog-signature",
 ]);
+// OAuth callback codes and tokens are bearer-like credentials even before exchange.
+const OAUTH_CREDENTIAL_QUERY_KEYS = new Set([
+  "access_token",
+  "auth_code",
+  "authorization_code",
+  "code_verifier",
+  "id_token",
+  "oauth_token",
+  "oauth_verifier",
+  "refresh_token",
+]);
+const OAUTH_CONTEXT_QUERY_KEYS = new Set([
+  "client_id",
+  "code_challenge",
+  "code_challenge_method",
+  "iss",
+  "nonce",
+  "redirect_uri",
+  "response_type",
+  "scope",
+  "session_state",
+  "state",
+]);
+const OAUTH_CALLBACK_PATH_RE =
+  /(?:^|[\\/._-])(?:auth|authorize|authorization|callback|oidc|oauth2?|signin-oidc|sso)(?:[\\/._-]|$)/iu;
+
+function hasOAuthContext(parsed: URL, parameterSets: URLSearchParams[]): boolean {
+  return (
+    OAUTH_CALLBACK_PATH_RE.test(parsed.pathname) ||
+    parameterSets.some((params) =>
+      [...params.keys()].some((key) => OAUTH_CONTEXT_QUERY_KEYS.has(key.toLowerCase())),
+    )
+  );
+}
 
 function classifySignedUrl(value: string): string | undefined {
   const candidates = value.match(/\bhttps?:\/\/[^\s"'<>]+/gi) ?? [];
   for (const candidate of candidates) {
     try {
       const url = new URL(candidate.replace(/[),.;]+$/g, ""));
-      for (const [key, queryValue] of url.searchParams) {
-        if (!queryValue.trim()) {
-          continue;
-        }
-        if (SIGNED_URL_QUERY_KEYS.has(key.toLowerCase())) {
-          return "token";
-        }
-        const credentialClass = classifyCredentialLabel(key);
-        if (credentialClass) {
-          return credentialClass;
+      const parameterSets = [
+        url.searchParams,
+        ...(url.hash ? [new URLSearchParams(url.hash.slice(1))] : []),
+      ];
+      const oauthContext = hasOAuthContext(url, parameterSets);
+      for (const params of parameterSets) {
+        for (const [key, queryValue] of params) {
+          if (!queryValue.trim()) {
+            continue;
+          }
+          const normalizedKey = key.toLowerCase();
+          if (normalizedKey === "client_secret") {
+            return "secret";
+          }
+          if (
+            SIGNED_URL_QUERY_KEYS.has(normalizedKey) ||
+            OAUTH_CREDENTIAL_QUERY_KEYS.has(normalizedKey) ||
+            (normalizedKey === "code" && oauthContext)
+          ) {
+            return "token";
+          }
+          const credentialClass = classifyCredentialLabel(key);
+          if (credentialClass) {
+            return credentialClass;
+          }
         }
       }
     } catch {

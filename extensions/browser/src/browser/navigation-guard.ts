@@ -15,12 +15,64 @@ import { matchesHostnameAllowlist, normalizeHostname } from "../sdk-security-run
 
 const NETWORK_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 const SAFE_NON_NETWORK_URLS = new Set(["about:blank"]);
+const NAVIGATION_CREDENTIAL_QUERY_KEYS = new Set([
+  "access_token",
+  "auth_code",
+  "authorization_code",
+  "client_secret",
+  "code_verifier",
+  "id_token",
+  "oauth_token",
+  "oauth_verifier",
+  "refresh_token",
+]);
+const OAUTH_CONTEXT_QUERY_KEYS = new Set([
+  "client_id",
+  "code_challenge",
+  "code_challenge_method",
+  "iss",
+  "nonce",
+  "redirect_uri",
+  "response_type",
+  "scope",
+  "session_state",
+  "state",
+]);
+const OAUTH_CALLBACK_PATH_RE =
+  /(?:^|[\\/._-])(?:auth|authorize|authorization|callback|oidc|oauth2?|signin-oidc|sso)(?:[\\/._-]|$)/iu;
 const BROWSER_NAVIGATION_CREDENTIALS_BLOCKED_MESSAGE =
   "Navigation blocked: URL-embedded credentials are not supported for page navigation. Set HTTP Basic auth with `openclaw browser set credentials <username> <password>` or use an authenticated browser profile.";
 
 function isAllowedNonNetworkNavigationUrl(parsed: URL): boolean {
   // Keep non-network navigation explicit; about:blank is the only allowed bootstrap URL.
   return SAFE_NON_NETWORK_URLS.has(parsed.href);
+}
+
+function hasOAuthContext(parsed: URL, parameterSets: URLSearchParams[]): boolean {
+  return (
+    OAUTH_CALLBACK_PATH_RE.test(parsed.pathname) ||
+    parameterSets.some((params) =>
+      [...params.keys()].some((key) => OAUTH_CONTEXT_QUERY_KEYS.has(key.toLowerCase())),
+    )
+  );
+}
+
+function hasNavigationCredentialQuery(parsed: URL): boolean {
+  const parameterSets = [
+    parsed.searchParams,
+    ...(parsed.hash ? [new URLSearchParams(parsed.hash.slice(1))] : []),
+  ];
+  const oauthContext = hasOAuthContext(parsed, parameterSets);
+  return parameterSets.some((params) =>
+    [...params].some(([key, value]) => {
+      const normalizedKey = key.toLowerCase();
+      return (
+        value.trim().length > 0 &&
+        (NAVIGATION_CREDENTIAL_QUERY_KEYS.has(normalizedKey) ||
+          (normalizedKey === "code" && oauthContext))
+      );
+    }),
+  );
 }
 
 /** Raised when a browser navigation URL fails syntax or policy validation. */
@@ -46,7 +98,7 @@ export function parseBrowserNavigationUrl(url: string): URL {
     throw new InvalidBrowserNavigationUrlError(`Invalid URL: ${diagnostic}`);
   }
 
-  if (parsed.username || parsed.password) {
+  if (parsed.username || parsed.password || hasNavigationCredentialQuery(parsed)) {
     throw new InvalidBrowserNavigationUrlError(BROWSER_NAVIGATION_CREDENTIALS_BLOCKED_MESSAGE);
   }
   return parsed;

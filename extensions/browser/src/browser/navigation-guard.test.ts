@@ -263,6 +263,39 @@ describe("browser navigation guard", () => {
     expect(lookupFn).not.toHaveBeenCalled();
   });
 
+  it("blocks OAuth authorization codes before lookup", async () => {
+    const lookupFn = createLookupFn("93.184.216.34");
+    const result = assertBrowserNavigationAllowed({
+      url: "https://auth.example/callback?code=raw-oauth-code-123456",
+      lookupFn,
+    });
+    await expect(result).rejects.toThrow("URL-embedded credentials are not supported");
+    await expect(result).rejects.not.toThrow("raw-oauth-code-123456");
+    expect(lookupFn).not.toHaveBeenCalled();
+  });
+
+  it("allows ordinary code query parameters", async () => {
+    const lookupFn = createLookupFn("93.184.216.34");
+    await expect(
+      assertBrowserNavigationAllowed({
+        url: "https://shop.example/redeem?code=SUMMER",
+        lookupFn,
+      }),
+    ).resolves.toBeUndefined();
+    expect(lookupFn).toHaveBeenCalledWith("shop.example", { all: true });
+  });
+
+  it("blocks OAuth bearer tokens in URL fragments before lookup", async () => {
+    const lookupFn = createLookupFn("93.184.216.34");
+    const result = assertBrowserNavigationAllowed({
+      url: "https://app.example/callback#access_token=raw-fragment-token-123456&id_token=raw-id-token",
+      lookupFn,
+    });
+    await expect(result).rejects.toThrow("URL-embedded credentials are not supported");
+    await expect(result).rejects.not.toThrow("raw-fragment-token-123456");
+    expect(lookupFn).not.toHaveBeenCalled();
+  });
+
   it("redacts malformed credential-bearing URLs from diagnostics", async () => {
     const result = assertBrowserNavigationAllowed({
       url: "https://user:secret@",

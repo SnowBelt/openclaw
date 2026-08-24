@@ -275,6 +275,59 @@ describe("Browser Steward runtime guard", () => {
     expect(JSON.stringify(redacted)).not.toContain(rawSecret);
   });
 
+  it("redacts OAuth authorization codes embedded in callback URLs", () => {
+    const rawUrl = "https://auth.example/callback?code=raw-oauth-code-123456";
+    const redacted = redactBrowserStewardCredentialMaterial({
+      action: "navigate",
+      url: rawUrl,
+    });
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "navigate",
+      request: { url: rawUrl },
+    });
+
+    expect(redacted).toEqual({ action: "navigate", url: "REDACTED" });
+    expect(decision).toMatchObject({
+      credentialExposureKind: "credential_material",
+      approvalRequired: true,
+      telemetryEvent: "browser_steward.blocked_credential_exposure",
+    });
+    expect(JSON.stringify(decision)).not.toContain("raw-oauth-code-123456");
+  });
+
+  it("does not classify ordinary code query parameters as credentials", () => {
+    const rawUrl = "https://shop.example/redeem?code=SUMMER";
+    const redacted = redactBrowserStewardCredentialMaterial({ url: rawUrl });
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "navigate",
+      request: { url: rawUrl },
+    });
+
+    expect(redacted).toEqual({ url: rawUrl });
+    expect(decision).toMatchObject({
+      credentialExposureKind: "none",
+      approvalRequired: true,
+      telemetryEvent: "browser_steward.approval_gate",
+    });
+  });
+
+  it("redacts OAuth bearer tokens embedded in URL fragments", () => {
+    const rawUrl =
+      "https://app.example/callback#access_token=raw-fragment-token-123456&id_token=raw-id-token";
+    const redacted = redactBrowserStewardCredentialMaterial({ url: rawUrl });
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "navigate",
+      request: { url: rawUrl },
+    });
+
+    expect(redacted).toEqual({ url: "REDACTED" });
+    expect(decision).toMatchObject({
+      credentialExposureKind: "credential_material",
+      approvalRequired: true,
+    });
+    expect(JSON.stringify(decision)).not.toContain("raw-fragment-token-123456");
+  });
+
   it("redacts every upload path while classifying credential-like filenames", () => {
     const rawPaths = ["/tmp/private-key.pem", "/tmp/report.pdf"];
     const redacted = redactBrowserStewardCredentialMaterial({

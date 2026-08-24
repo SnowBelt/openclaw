@@ -123,11 +123,27 @@ describe("Browser Steward runtime approval", () => {
       action: "act",
       request: { kind: "type", text: "original-secret" },
     });
-    (firstResolved.request as Record<string, unknown>).text = "mutated-resolved-copy";
-    expect(module.resolveBrowserStewardRuntimeApprovedParams(approvedParams)).toEqual({
-      action: "act",
-      request: { kind: "type", text: "original-secret" },
-    });
+    expect(module.isBrowserStewardRuntimeApproved(approvedParams)).toBe(false);
+    expect(module.resolveBrowserStewardRuntimeApprovedParams(approvedParams)).toBe(approvedParams);
+  });
+
+  it("consumes allow-once approval during final execution resolution", async () => {
+    const module = await import("./browser-steward-approval.js");
+    const rawParams = { action: "act", request: { kind: "type", text: "one-shot-secret" } };
+    const prepared = approvePreparedRuntimeParams(module, rawParams, hostBinding);
+    const finalized = module.finalizeBrowserStewardRuntimeParams(
+      structuredClone(prepared),
+      prepared,
+    ) as Record<string, unknown>;
+
+    expect(module.isBrowserStewardRuntimeApproved(prepared)).toBe(false);
+    expect(module.isBrowserStewardRuntimeApproved(finalized)).toBe(true);
+    expect(module.resolveBrowserStewardRuntimeApprovedParams(finalized)).toEqual(rawParams);
+    expect(module.isBrowserStewardRuntimeApproved(finalized)).toBe(false);
+    expect(module.resolveBrowserStewardRuntimeApprovedParams(finalized)).toBe(finalized);
+    const reused = module.finalizeBrowserStewardRuntimeParams(structuredClone(prepared), prepared);
+    expect(module.isBrowserStewardRuntimeApproved(reused)).toBe(false);
+    expect(reused).toEqual(structuredClone(prepared));
   });
 
   it("keeps pending params redacted until the Browser approval itself resolves", async () => {
