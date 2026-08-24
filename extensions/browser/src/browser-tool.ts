@@ -235,7 +235,7 @@ async function acquireBrowserNodeSessionLease(
   signal?: AbortSignal,
   existingLease?: string,
 ): Promise<string> {
-  const response = await browserToolDeps.callGatewayTool<Record<string, unknown>>(
+  const response = await browserToolDeps.callGatewayTool(
     "browser.request",
     { timeoutMs: 10_000 },
     {
