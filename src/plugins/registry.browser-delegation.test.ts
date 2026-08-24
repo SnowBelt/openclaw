@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { registerBrowserNodeDelegation } from "../plugin-sdk/browser-node-delegation-runtime.js";
 import { createPluginRecord } from "./loader-records.js";
 import { markPluginRegistryActive } from "./registry-lifecycle.js";
 import { createPluginRegistry } from "./registry.js";
@@ -29,12 +30,14 @@ describe("plugin registry Browser node delegation", () => {
       configSchema: false,
     });
     const request = vi.fn(async (params: unknown) => params);
-    pluginRegistry
-      .createApi(browserRecord, { config: {} as OpenClawConfig })
-      .registerBrowserNodeDelegation?.({
-        consumerPluginIds: ["google-meet"],
-        request,
-      });
+    const browserApi = pluginRegistry.createApi(browserRecord, {
+      config: {} as OpenClawConfig,
+    });
+    expect("registerBrowserNodeDelegation" in browserApi).toBe(false);
+    registerBrowserNodeDelegation(browserApi, {
+      consumerPluginIds: ["google-meet"],
+      request,
+    });
 
     const consumerRecord = createPluginRecord({
       id: "google-meet",
@@ -96,12 +99,15 @@ describe("plugin registry Browser node delegation", () => {
       configSchema: false,
     });
     const request = vi.fn(async (params: unknown) => params);
-    pluginRegistry
-      .createApi(browserRecord, { config: {} as OpenClawConfig })
-      .registerBrowserNodeDelegation?.({
+    registerBrowserNodeDelegation(
+      pluginRegistry.createApi(browserRecord, {
+        config: {} as OpenClawConfig,
+      }),
+      {
         consumerPluginIds: ["google-meet"],
         request,
-      });
+      },
+    );
     const consumerRecord = createPluginRecord({
       id: "google-meet",
       source: "/plugins/google-meet/index.js",
@@ -150,7 +156,7 @@ describe("plugin registry Browser node delegation", () => {
       }),
       { config: {} as OpenClawConfig },
     );
-    api.registerBrowserNodeDelegation?.({
+    registerBrowserNodeDelegation(api, {
       consumerPluginIds: ["google-meet"],
       request: async () => undefined,
     });
@@ -163,5 +169,76 @@ describe("plugin registry Browser node delegation", () => {
         message: "browser node delegation may only be registered by the browser plugin",
       }),
     );
+  });
+
+  it("prints a redacted final-effect proof for allowed and revoked Browser I/O", async () => {
+    const pluginRegistry = createTestRegistry();
+    const browserRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const request = vi.fn(async () => ({ ok: true }));
+    registerBrowserNodeDelegation(
+      pluginRegistry.createApi(browserRecord, { config: {} as OpenClawConfig }),
+      {
+        consumerPluginIds: ["google-meet"],
+        request,
+      },
+    );
+    const consumerRecord = createPluginRecord({
+      id: "google-meet",
+      source: "/plugins/google-meet/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const consumerRuntime = pluginRegistry.createApi(consumerRecord, {
+      config: {} as OpenClawConfig,
+    }).runtime;
+    pluginRegistry.registry.plugins.push(consumerRecord);
+    markPluginRegistryActive(pluginRegistry.registry);
+    const browserCapability = consumerRuntime.browser;
+
+    await browserCapability?.request({
+      method: "GET",
+      path: "/profiles",
+      timeoutMs: 1_000,
+      nodeId: "node-1",
+    });
+    pluginRegistry.rollbackPluginGlobalSideEffects("google-meet", consumerRecord);
+    await expect(
+      browserCapability?.request({
+        method: "GET",
+        path: "/profiles",
+        timeoutMs: 1_000,
+        nodeId: "node-1",
+      }),
+    ).rejects.toThrow();
+
+    const proof = {
+      allowed: {
+        decision: "allow",
+        browserIo: request.mock.calls.length === 1 ? "called" : "not_called",
+      },
+      rejected: {
+        decision: "reject",
+        browserIo: request.mock.calls.length === 1 ? "not_called" : "called",
+        ordering: "reject_before_io",
+      },
+      redaction: "opaque-identifiers-only",
+    } as const;
+    expect(proof).toEqual({
+      allowed: { decision: "allow", browserIo: "called" },
+      rejected: {
+        decision: "reject",
+        browserIo: "not_called",
+        ordering: "reject_before_io",
+      },
+      redaction: "opaque-identifiers-only",
+    });
+    process.stdout.write(`BROWSER_STEWARD_FINAL_EFFECT_PROOF ${JSON.stringify(proof)}\n`);
   });
 });

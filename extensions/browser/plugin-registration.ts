@@ -4,6 +4,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
+import { registerBrowserNodeDelegation } from "openclaw/plugin-sdk/browser-node-delegation-runtime";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 import { addTimerTimeoutGraceMs } from "openclaw/plugin-sdk/number-runtime";
 import type {
@@ -562,7 +563,7 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
     const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
     return createLazyBrowserTool({ ...createBrowserToolOptions(ctx), approvalAuthority }, config);
   }) as OpenClawPluginToolFactory);
-  api.registerBrowserNodeDelegation?.({
+  registerBrowserNodeDelegation(api, {
     consumerPluginIds: ["google-meet", "teams-meetings", "zoom-meetings"],
     request: async ({ method, path, body, timeoutMs, nodeId }) =>
       await api.runtime.gateway.request(
