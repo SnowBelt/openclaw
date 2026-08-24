@@ -151,7 +151,7 @@ export type DiagnosticSecurityEventInput = Omit<
   eventId?: string;
 };
 
-export type DiagnosticSessionStewardBoundaryEvent = DiagnosticBaseEvent & {
+type DiagnosticSessionStewardBoundaryEvent = DiagnosticBaseEvent & {
   type: "session_steward.boundary_decision" | "session_steward.boundary_rejected";
   surface: string;
   action?: string;

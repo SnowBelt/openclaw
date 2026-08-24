@@ -133,6 +133,14 @@ profiles, or change credential storage. It is a safety boundary that always
 blocks reporting raw credential material; browser execution authorization is a
 separate trusted approval decision.
 
+The Browser-owned node delegation capability is an internal, in-process seam for
+the bundled meeting integrations registered by Browser (`google-meet`,
+`teams-meetings`, and `zoom-meetings`). It is not a general-purpose node
+invocation API: Browser controls the consumer allowlist, injects the consumer
+identity, requires the Browser Steward approval boundary, and revokes retained
+handles when the Browser or consumer lifecycle changes. Meeting integrations
+must use this capability instead of calling raw `browser.proxy` node commands.
+
 ## Troubleshooting
 
 If a Gateway call returns `INVALID_REQUEST` with `session key agent does not

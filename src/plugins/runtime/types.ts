@@ -120,7 +120,7 @@ export type RuntimeGatewayRequestOptions = {
   scopes?: OperatorScope[];
 };
 
-export type BrowserNodeDelegationRuntime = {
+type BrowserNodeDelegationRuntime = {
   request: (params: BrowserNodeDelegationRequest) => Promise<unknown>;
 };
 
