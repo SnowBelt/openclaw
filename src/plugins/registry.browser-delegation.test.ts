@@ -226,6 +226,57 @@ describe("plugin registry Browser node delegation", () => {
     expect(effectAuthority?.()).toBe(false);
   });
 
+  it("revokes the final effect authority when the Browser provider is replaced", async () => {
+    const pluginRegistry = createTestRegistry();
+    const browserRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    let effectAuthority: (() => boolean) | undefined;
+    const request = vi.fn(async () => {
+      effectAuthority = getPluginRuntimeGatewayRequestScope()?.pluginRuntimeAuthority;
+      replacementRecord &&
+        pluginRegistry.createApi(replacementRecord, { config: {} as OpenClawConfig });
+      return { ok: true };
+    });
+    registerBrowserNodeDelegation(
+      pluginRegistry.createApi(browserRecord, { config: {} as OpenClawConfig }),
+      { consumerPluginIds: ["google-meet"], request },
+    );
+    const consumerRecord = createPluginRecord({
+      id: "google-meet",
+      source: "/plugins/google-meet/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const replacementRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/replacement.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const consumerRuntime = pluginRegistry.createApi(consumerRecord, {
+      config: {} as OpenClawConfig,
+    }).runtime;
+    pluginRegistry.registry.plugins.push(consumerRecord);
+    markPluginRegistryActive(pluginRegistry.registry);
+
+    await consumerRuntime.browser?.request({
+      method: "GET",
+      path: "/profiles",
+      timeoutMs: 1_000,
+      nodeId: "node-1",
+    });
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(effectAuthority?.()).toBe(false);
+  });
+
   it("rejects delegation registration from a non-Browser plugin", () => {
     const pluginRegistry = createTestRegistry();
     const api = pluginRegistry.createApi(
