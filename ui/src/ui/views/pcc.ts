@@ -1253,7 +1253,11 @@ function pendingPermissionForDetail(
     .toSorted((left, right) => {
       const leftCurrent = left.milestoneId === currentMilestoneId ? 0 : 1;
       const rightCurrent = right.milestoneId === currentMilestoneId ? 0 : 1;
-      return leftCurrent - rightCurrent || left.createdAt.localeCompare(right.createdAt);
+      return (
+        leftCurrent - rightCurrent ||
+        comparePccDatesDesc(right.createdAt, left.createdAt) ||
+        left.id.localeCompare(right.id)
+      );
     })[0];
 }
 
@@ -1439,6 +1443,21 @@ function projectIsStale(project: PccProjectSummary): boolean {
     return false;
   }
   return Date.now() - updatedAt > PCC_STALE_PROJECT_DAYS * 24 * 60 * 60 * 1_000;
+}
+
+function comparePccDatesDesc(left: unknown, right: unknown): number {
+  const leftTime = typeof left === "string" ? Date.parse(left) : Number.NaN;
+  const rightTime = typeof right === "string" ? Date.parse(right) : Number.NaN;
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
+    return rightTime - leftTime;
+  }
+  if (Number.isFinite(leftTime)) {
+    return -1;
+  }
+  if (Number.isFinite(rightTime)) {
+    return 1;
+  }
+  return 0;
 }
 
 function projectNeedsAttention(project: PccProjectSummary): boolean {
@@ -4428,7 +4447,7 @@ function getAttentionProjects(projects: readonly PccProjectSummary[]): PccProjec
     if (rank !== 0) {
       return rank;
     }
-    return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+    return comparePccDatesDesc(a.updatedAt, b.updatedAt) || a.id.localeCompare(b.id);
   });
 }
 
@@ -10159,7 +10178,8 @@ function renderProjectsDirectory(props: PccDashboardProps) {
   projects.sort(
     (left, right) =>
       Number(favorites.has(right.id)) - Number(favorites.has(left.id)) ||
-      right.updatedAt.localeCompare(left.updatedAt),
+      comparePccDatesDesc(left.updatedAt, right.updatedAt) ||
+      left.id.localeCompare(right.id),
   );
   return html`<main class="pcc-work-overview" data-pcc-projects-directory>
     <section class="pcc-work-section">

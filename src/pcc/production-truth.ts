@@ -7,6 +7,7 @@ import type {
   PccStatus,
 } from "../../packages/gateway-protocol/src/schema/types.js";
 import { pccResponsibilityForItem } from "./metadata.js";
+import { comparePccTimestampsDesc, normalizePccTimestamp } from "./timestamps.js";
 
 export type PccProductionTruthStatus =
   | "current"
@@ -218,16 +219,29 @@ function latestEvidenceSha(
 ): string | null {
   return (
     evidence
-      .filter((entry) => evidenceKindMatches(entry, allowedKinds) && metadataString(entry.sha))
-      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.sha ?? null
+      .filter(
+        (entry) =>
+          evidenceKindMatches(entry, allowedKinds) &&
+          metadataString(entry.sha) &&
+          normalizePccTimestamp(entry.createdAt),
+      )
+      .toSorted(
+        (left, right) =>
+          comparePccTimestampsDesc(left.createdAt, right.createdAt) ||
+          left.id.localeCompare(right.id),
+      )[0]?.sha ?? null
   );
 }
 
 function latestEvidenceTimestamp(evidence: readonly PccEvidence[]): string | null {
-  return (
-    evidence.toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-      ?.createdAt ?? null
-  );
+  const latest = evidence
+    .filter((entry) => normalizePccTimestamp(entry.createdAt))
+    .toSorted(
+      (left, right) =>
+        comparePccTimestampsDesc(left.createdAt, right.createdAt) ||
+        left.id.localeCompare(right.id),
+    )[0];
+  return normalizePccTimestamp(latest?.createdAt);
 }
 
 function milestoneHasEvidence(
