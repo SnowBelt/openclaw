@@ -36,6 +36,7 @@ describe("Session Steward boundary policy", () => {
     const decision = resolveSessionStewardBoundary({
       sessionKey: "agent:main:direct:person-123:thread:thread-456",
       requestedAgentId: "worker",
+      configuredAgentIds: ["main", "worker"],
     });
     const serialized = JSON.stringify(decision);
     expect(decision).toMatchObject({

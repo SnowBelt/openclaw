@@ -61,6 +61,16 @@ function hasActiveBrowserNodeRuntimeAuthority(
   client: Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
   context: Parameters<GatewayRequestHandlers["browser.request"]>[0]["context"],
 ): boolean {
+  const pluginAuthority = client?.internal?.pluginRuntimeAuthority;
+  if (pluginAuthority) {
+    try {
+      if (pluginAuthority() !== true) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
   const identity = client?.internal?.agentRuntimeIdentity;
   return !identity || context.validateAgentRuntimeApprovalAuthority?.(identity) === true;
 }
@@ -490,6 +500,15 @@ export async function handleBrowserGatewayRequest({
       }
       return;
     }
+  }
+
+  if (!isBrowserNodeDispatchAuthorized()) {
+    respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.INVALID_REQUEST, "agent runtime authority is no longer active"),
+    );
+    return;
   }
 
   // `browser.request` already requires operator.admin. The owning host may run

@@ -4,6 +4,7 @@ import { registerBrowserNodeDelegation } from "../plugin-sdk/browser-node-delega
 import { createPluginRecord } from "./loader-records.js";
 import { markPluginRegistryActive } from "./registry-lifecycle.js";
 import { createPluginRegistry } from "./registry.js";
+import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 import { createPluginRuntime } from "./runtime/index.js";
 
 function createTestRegistry() {
@@ -142,6 +143,54 @@ describe("plugin registry Browser node delegation", () => {
       }),
     ).rejects.toThrow("Browser node delegation consumer lifecycle is no longer active.");
     expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries consumer lifecycle authority into the Browser effect boundary", async () => {
+    const pluginRegistry = createTestRegistry();
+    const browserRecord = createPluginRecord({
+      id: "browser",
+      source: "/plugins/browser/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    let effectAuthority: (() => boolean) | undefined;
+    const request = vi.fn(async () => {
+      effectAuthority = getPluginRuntimeGatewayRequestScope()?.pluginRuntimeAuthority;
+      return { ok: true };
+    });
+    registerBrowserNodeDelegation(
+      pluginRegistry.createApi(browserRecord, {
+        config: {} as OpenClawConfig,
+      }),
+      {
+        consumerPluginIds: ["google-meet"],
+        request,
+      },
+    );
+    const consumerRecord = createPluginRecord({
+      id: "google-meet",
+      source: "/plugins/google-meet/index.js",
+      origin: "bundled",
+      enabled: true,
+      configSchema: false,
+    });
+    const consumerRuntime = pluginRegistry.createApi(consumerRecord, {
+      config: {} as OpenClawConfig,
+    }).runtime;
+    pluginRegistry.registry.plugins.push(consumerRecord);
+    markPluginRegistryActive(pluginRegistry.registry);
+
+    await consumerRuntime.browser?.request({
+      method: "GET",
+      path: "/profiles",
+      timeoutMs: 1_000,
+      nodeId: "node-1",
+    });
+
+    expect(effectAuthority?.()).toBe(true);
+    pluginRegistry.rollbackPluginGlobalSideEffects("google-meet", consumerRecord);
+    expect(effectAuthority?.()).toBe(false);
   });
 
   it("rejects delegation registration from a non-Browser plugin", () => {

@@ -151,6 +151,7 @@ const UNKNOWN_SESSION_BOUNDARY: BrowserStewardSessionBoundary = {
   ownerAgentId: "UNKNOWN",
   affectedSession: "UNKNOWN",
 };
+const UNKNOWN_AGENT_SESSION_BOUNDARY = "agent:UNKNOWN:REDACTED";
 
 const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
@@ -191,8 +192,8 @@ function resolveBrowserStewardSessionBoundary(
   }
   return {
     kind: "other_agent",
-    ownerAgentId,
-    affectedSession: `agent:${ownerAgentId}:REDACTED`,
+    ownerAgentId: "UNKNOWN",
+    affectedSession: UNKNOWN_AGENT_SESSION_BOUNDARY,
   };
 }
 

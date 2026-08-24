@@ -55,6 +55,9 @@ function sessionBoundaryErrorMessage(decision: SessionStewardBoundaryDecision): 
     return "malformed session boundary";
   }
   if (decision.agentRelation === "cross_agent") {
+    if (decision.ownerAgentId === "UNKNOWN" || decision.requestedAgentId === "UNKNOWN") {
+      return "cross-agent session boundary";
+    }
     return `agent "${decision.requestedAgentId}" does not match session key agent "${decision.ownerAgentId}"`;
   }
   return "session key agent does not match agentId";

@@ -86,14 +86,19 @@ type TestNode = {
 };
 
 function createContext(
-  invokeResult?: unknown,
+  invokeResult?: unknown | (() => unknown | Promise<unknown>),
   connectedNodes?: TestNode[],
   leaseIsCurrent = true,
   validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
 ) {
-  const invoke = vi.fn(async (_request: unknown) =>
-    invokeResult === undefined ? { ok: true, payload: { result: { ok: true } } } : invokeResult,
-  );
+  const invoke = vi.fn(async (_request: unknown) => {
+    if (typeof invokeResult === "function") {
+      return await invokeResult();
+    }
+    return invokeResult === undefined
+      ? { ok: true, payload: { result: { ok: true } } }
+      : invokeResult;
+  });
   const listConnected = vi.fn(
     () =>
       connectedNodes ?? [
@@ -123,11 +128,15 @@ function createContext(
 
 async function runBrowserRequest(
   params: Record<string, unknown>,
-  invokeResult?: unknown,
+  invokeResult?: unknown | (() => unknown | Promise<unknown>),
   connectedNodes?: TestNode[],
   client?: {
     connect?: { scopes?: string[] };
-    internal?: { agentRuntimeIdentity?: unknown; pluginRuntimeOwnerId?: string };
+    internal?: {
+      agentRuntimeIdentity?: unknown;
+      pluginRuntimeOwnerId?: string;
+      pluginRuntimeAuthority?: () => boolean;
+    };
   } | null,
   leaseIsCurrent = true,
   validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
@@ -630,6 +639,91 @@ describe("browser.request profile selection", () => {
 
     const { respond, nodeRegistry } = await request;
     expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+    expect(firstRespondCall(respond)).toEqual([
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "INVALID_REQUEST",
+        message: "agent runtime authority is no longer active",
+      }),
+    ]);
+  });
+
+  it("does not dispatch or fall back after Browser plugin lifecycle authority is revoked", async () => {
+    let releasePreparation!: () => void;
+    const preparation = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    uploadMocks.prepareBrowserProxyUploadRequest.mockImplementationOnce(async ({ body }) => {
+      await preparation;
+      return { body };
+    });
+    let authorityActive = true;
+    const request = runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body: { url: "https://example.com" },
+      },
+      {
+        ok: false,
+        error: {
+          code: "UNAVAILABLE",
+          message: "Browser control host is not reachable on 127.0.0.1:18791.",
+        },
+      },
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          pluginRuntimeOwnerId: "browser",
+          pluginRuntimeAuthority: () => authorityActive,
+        },
+      },
+    );
+    await vi.waitFor(() => expect(uploadMocks.prepareBrowserProxyUploadRequest).toHaveBeenCalled());
+    authorityActive = false;
+    releasePreparation();
+
+    const { respond, nodeRegistry } = await request;
+    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+    expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
+    expect(firstRespondCall(respond)).toEqual([
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "INVALID_REQUEST",
+        message: "agent runtime authority is no longer active",
+      }),
+    ]);
+  });
+
+  it("blocks host fallback when Browser plugin lifecycle authority is revoked after node I/O", async () => {
+    let authorityActive = true;
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      { method: "GET", path: "/" },
+      () => {
+        authorityActive = false;
+        return {
+          ok: false,
+          error: {
+            code: "UNAVAILABLE",
+            message: "Browser control host is not reachable on 127.0.0.1:18791.",
+          },
+        };
+      },
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          pluginRuntimeOwnerId: "browser",
+          pluginRuntimeAuthority: () => authorityActive,
+        },
+      },
+    );
+
+    expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
+    expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
     expect(firstRespondCall(respond)).toEqual([
       false,
       undefined,
