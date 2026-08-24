@@ -10,7 +10,12 @@ import {
   createBrowserNodeSessionTabRoute,
 } from "./browser-node-proxy.js";
 import { resolveBrowserNodeTarget } from "./browser-node-routing.js";
-import { applyBrowserTabToolBinding, parseBrowserTabToolBinding } from "./browser-tool-binding.js";
+import {
+  applyBrowserTabToolBinding,
+  applyBrowserTabToolBindingToParams,
+  parseBrowserTabToolBinding,
+  type BrowserTabToolBinding,
+} from "./browser-tool-binding.js";
 import { describeBrowserTool } from "./browser-tool-description.js";
 import {
   createBrowserToolSessionTabs,
@@ -45,6 +50,7 @@ import {
   browserStart,
   browserStatus,
   browserStop,
+  callGatewayTool,
   describeImageFile,
   getRuntimeConfig,
   getBrowserProfileCapabilities,
@@ -68,8 +74,15 @@ import {
 import { appendNavigatedPageState, executeSnapshotAction } from "./browser-tool.snapshot.js";
 import { resolveBrowserNavigationTimeoutMs } from "./browser/act-policy.js";
 import {
+  finalizeBrowserStewardRuntimeParams,
+  getBrowserStewardRuntimeApprovalBinding,
   isBrowserStewardRuntimeApproved,
+  matchesBrowserStewardRuntimeApprovalBindingAtExecution,
+  prepareBrowserStewardRuntimeParams,
+  resolveBrowserStewardRuntimePolicyParams,
   resolveBrowserStewardRuntimeApprovedParams,
+  resolveBrowserStewardRuntimeApprovalBinding,
+  type BrowserStewardRuntimeApprovalBinding,
 } from "./browser/browser-steward-approval.js";
 import {
   assertBrowserStewardRuntimeAllowed,
@@ -100,6 +113,7 @@ const browserToolDeps = {
   browserStart,
   browserStatus,
   browserStop,
+  callGatewayTool,
   describeImageFile,
   getRuntimeConfig,
   imageResultFromFile,
@@ -215,6 +229,45 @@ type BrowserNodeTarget = {
   pendingDeclaredCommands: string[];
 };
 
+async function acquireBrowserNodeSessionLease(
+  nodeId: string,
+  signal?: AbortSignal,
+  existingLease?: string,
+): Promise<string> {
+  const response = await browserToolDeps.callGatewayTool<Record<string, unknown>>(
+    "browser.request",
+    { timeoutMs: 10_000 },
+    {
+      routeOnly: true,
+      nodeId,
+      ...(existingLease
+        ? {
+            browserNodeSessionLease: existingLease,
+            renewBrowserNodeSessionLease: true,
+          }
+        : {}),
+    },
+    { scopes: ["operator.admin"], ...(signal ? { signal } : {}) },
+  );
+  const envelope = response as { payload?: unknown; payloadJSON?: unknown } | undefined;
+  let payload = envelope?.payload ?? response;
+  if (payload === undefined && typeof envelope?.payloadJSON === "string") {
+    try {
+      payload = JSON.parse(envelope.payloadJSON);
+    } catch {
+      payload = undefined;
+    }
+  }
+  const lease =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as { browserNodeSessionLease?: unknown }).browserNodeSessionLease
+      : undefined;
+  if (typeof lease !== "string" || !lease.trim()) {
+    throw new Error("browser node route lease unavailable");
+  }
+  return lease.trim();
+}
+
 async function resolveBrowserToolNodeTarget(params: {
   requestedNode?: string;
   target?: "sandbox" | "host" | "node";
@@ -261,6 +314,130 @@ async function resolveBrowserToolNodeTarget(params: {
         pendingDeclaredCommands: node.pendingDeclaredCommands ?? [],
       }
     : null;
+}
+
+async function resolveBrowserStewardToolBinding(params: {
+  input: Record<string, unknown>;
+  agentSessionKey?: string;
+  agentId?: string;
+  sandboxBridgeUrl?: string;
+  allowHostControl?: boolean;
+  signal?: AbortSignal;
+}): Promise<BrowserStewardRuntimeApprovalBinding | undefined> {
+  if (
+    !shouldApplyBrowserStewardRuntimeGuard({
+      sessionKey: params.agentSessionKey,
+      agentId: params.agentId,
+    })
+  ) {
+    return undefined;
+  }
+  const action = typeof params.input.action === "string" ? params.input.action.trim() : "";
+  const requestedTargetValue =
+    typeof params.input.target === "string" ? params.input.target.trim().toLowerCase() : "";
+  const requestedTarget = ["sandbox", "host", "node"].includes(requestedTargetValue)
+    ? requestedTargetValue
+    : "";
+  const requestedNode =
+    typeof params.input.node === "string" ? params.input.node.trim() : undefined;
+  const requestedProfile =
+    typeof params.input.profile === "string" ? params.input.profile.trim() : undefined;
+  const runtimeConfig = browserToolDeps.getRuntimeConfig();
+  const resolvedBrowser = resolveBrowserConfig(runtimeConfig.browser, runtimeConfig);
+  const resolvedProfile = resolveProfile(
+    resolvedBrowser,
+    requestedProfile ?? resolvedBrowser.defaultProfile,
+  );
+  const isUserBrowserProfile = Boolean(
+    resolvedProfile && getBrowserProfileCapabilities(resolvedProfile).usesChromeMcp,
+  );
+  let target = requestedTarget as "sandbox" | "host" | "node" | "";
+  if (action === "importprofile") {
+    target = "host";
+  }
+  let nodeTarget: BrowserNodeTarget | null = null;
+  if (target !== "host" && target !== "sandbox") {
+    try {
+      nodeTarget = await resolveBrowserToolNodeTarget({
+        requestedNode,
+        target: target || undefined,
+        sandboxBridgeUrl: params.sandboxBridgeUrl,
+        allowHostControl: params.allowHostControl,
+        signal: params.signal,
+      });
+    } catch (error) {
+      params.signal?.throwIfAborted();
+      const configuredNode = runtimeConfig.gateway?.nodes?.browser?.node?.trim();
+      if (!(isUserBrowserProfile && !target && !requestedNode && !configuredNode)) {
+        throw error;
+      }
+    }
+  }
+  if (isUserBrowserProfile && !target && !requestedNode && !nodeTarget) {
+    target = "host";
+  }
+  const browserNodeSessionLease = nodeTarget
+    ? await acquireBrowserNodeSessionLease(nodeTarget.nodeId, params.signal)
+    : undefined;
+  const backendKind = nodeTarget
+    ? "node"
+    : target || (params.sandboxBridgeUrl ? "sandbox" : "host");
+  const origin =
+    backendKind === "node"
+      ? undefined
+      : resolveBrowserBaseUrl({
+          target: backendKind as "sandbox" | "host",
+          sandboxBridgeUrl: params.sandboxBridgeUrl,
+          allowHostControl: params.allowHostControl,
+        });
+  const bindingInput = {
+    ...params.input,
+    target: backendKind,
+    ...(nodeTarget ? { node: nodeTarget.nodeId, targetRef: nodeTarget.nodeId } : {}),
+    ...(origin ? { origin } : {}),
+    ...(browserNodeSessionLease ? { browserNodeSessionLease } : {}),
+    ...(backendKind === "node"
+      ? action === "profiles"
+        ? {}
+        : { profile: requestedProfile ?? resolvedBrowser.defaultProfile }
+      : { profile: requestedProfile ?? resolvedBrowser.defaultProfile }),
+  };
+  return resolveBrowserStewardRuntimeApprovalBinding(bindingInput);
+}
+
+export async function prepareBrowserStewardToolParams(params: {
+  input: unknown;
+  agentSessionKey?: string;
+  agentId?: string;
+  sandboxBridgeUrl?: string;
+  allowHostControl?: boolean;
+  runToolBinding?: BrowserTabToolBinding;
+  signal?: AbortSignal;
+}): Promise<unknown> {
+  const input =
+    params.runToolBinding && params.input && typeof params.input === "object"
+      ? applyBrowserTabToolBindingToParams(params.input, params.runToolBinding)
+      : params.input;
+  if (
+    !shouldApplyBrowserStewardRuntimeGuard({
+      sessionKey: params.agentSessionKey,
+      agentId: params.agentId,
+    })
+  ) {
+    return input;
+  }
+  const binding =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? await resolveBrowserStewardToolBinding({
+          input: input as Record<string, unknown>,
+          agentSessionKey: params.agentSessionKey,
+          agentId: params.agentId,
+          sandboxBridgeUrl: params.sandboxBridgeUrl,
+          allowHostControl: params.allowHostControl,
+          signal: params.signal,
+        })
+      : undefined;
+  return prepareBrowserStewardRuntimeParams(input, binding);
 }
 
 function resolveBrowserBaseUrl(params: {
@@ -392,6 +569,8 @@ export function createBrowserTool(opts?: {
     chatType?: string;
   };
   agentId?: string;
+  /** Trusted Gateway owner identity; never read from model arguments. */
+  senderIsOwner?: boolean;
   runToolBinding?: unknown;
   toolCapabilities?: BrowserToolCapabilities;
 }): AnyAgentTool {
@@ -431,24 +610,39 @@ export function createBrowserTool(opts?: {
     description: describeBrowserTool({ targetDefault, hostHint, capabilities }),
     parameters: createBrowserToolSchema(capabilities),
     outputSchema: BrowserToolOutputSchema,
+    prepareBeforeToolCallParams: async (params, context) =>
+      await prepareBrowserStewardToolParams({
+        input: params,
+        agentSessionKey: opts?.agentSessionKey,
+        agentId: opts?.agentId,
+        sandboxBridgeUrl: opts?.sandboxBridgeUrl,
+        allowHostControl: opts?.allowHostControl,
+        ...(bindingResult?.ok ? { runToolBinding: bindingResult.binding } : {}),
+        signal: context.signal,
+      }),
+    finalizeBeforeToolCallParams: finalizeBrowserStewardRuntimeParams,
     execute: async (_toolCallId, args, signal) => {
       const publicParams = bindingResult?.ok
         ? applyBrowserTabToolBinding(args as Record<string, unknown>, bindingResult.binding)
         : (args as Record<string, unknown>);
       const approved = isBrowserStewardRuntimeApproved(publicParams);
+      const approvedBinding = approved
+        ? getBrowserStewardRuntimeApprovalBinding(publicParams)
+        : undefined;
       const appliesBrowserStewardRuntimeGuard = shouldApplyBrowserStewardRuntimeGuard({
         sessionKey: opts?.agentSessionKey,
         agentId: opts?.agentId,
       });
       let browserStewardRuntimeDecision: BrowserStewardRuntimeDecision | undefined;
       if (appliesBrowserStewardRuntimeGuard) {
+        const policyParams = resolveBrowserStewardRuntimePolicyParams(publicParams);
         browserStewardRuntimeDecision = assertBrowserStewardRuntimeAllowed({
           action: readStringParam(publicParams, "action", { required: true }),
           profile: readStringParam(publicParams, "profile"),
           agentSessionKey: opts?.agentSessionKey,
           agentId: opts?.agentId,
           approved,
-          request: publicParams.request ?? publicParams,
+          request: policyParams.request ?? policyParams,
         });
       }
       const params = approved
@@ -528,8 +722,39 @@ export function createBrowserTool(opts?: {
             allowHostControl: opts?.allowHostControl,
           });
 
+      if (approved) {
+        if (nodeTarget && approvedBinding?.browserNodeSessionLease) {
+          await acquireBrowserNodeSessionLease(
+            nodeTarget.nodeId,
+            signal,
+            approvedBinding.browserNodeSessionLease,
+          );
+        }
+        const actualBinding = resolveBrowserStewardRuntimeApprovalBinding({
+          ...publicParams,
+          target: nodeTarget ? "node" : (target ?? (opts?.sandboxBridgeUrl ? "sandbox" : "host")),
+          ...(nodeTarget ? { node: nodeTarget.nodeId, targetRef: nodeTarget.nodeId } : {}),
+          ...(baseUrl ? { origin: baseUrl } : {}),
+          ...(approvedBinding?.browserNodeSessionLease
+            ? { browserNodeSessionLease: approvedBinding.browserNodeSessionLease }
+            : {}),
+          ...(nodeTarget
+            ? action === "profiles"
+              ? {}
+              : { profile: requestedProfile ?? effectiveProfile }
+            : { profile: effectiveProfile }),
+        });
+        if (
+          !approvedBinding ||
+          !matchesBrowserStewardRuntimeApprovalBindingAtExecution(approvedBinding, actualBinding)
+        ) {
+          throw new Error("Browser Steward approval route changed; request approval again");
+        }
+      }
+
       const allowAutomaticHostFallback = Boolean(
         nodeTarget &&
+        !approved &&
         !target &&
         !requestedNode &&
         !configuredNode &&
@@ -541,15 +766,27 @@ export function createBrowserTool(opts?: {
             allowAutomaticHostFallback,
             agentSessionKey: opts?.agentSessionKey,
             agentId: opts?.agentId,
+            browserNodeSessionLease: approvedBinding?.browserNodeSessionLease,
             signal,
           })
         : null;
       if (proxyRequest) {
-        // The node resolves omissions against its own config; Gateway defaults
-        // never cross this execution-owner boundary.
-        profile = requestedProfile;
+        // Normal node requests resolve omissions on the node; approved Steward
+        // requests pin the profile before approval so the effect cannot drift.
+        profile = browserStewardRuntimeDecision
+          ? action === "profiles"
+            ? undefined
+            : (requestedProfile ?? effectiveProfile)
+          : requestedProfile;
       }
-      const nodeRoute = nodeTarget ? createBrowserNodeSessionTabRoute(nodeTarget) : undefined;
+      const nodeRoute = nodeTarget
+        ? createBrowserNodeSessionTabRoute({
+            nodeTarget,
+            agentSessionKey: opts?.agentSessionKey,
+            agentId: opts?.agentId,
+            browserNodeSessionLease: approvedBinding?.browserNodeSessionLease,
+          })
+        : undefined;
       const toolTimeoutMs =
         requestedTimeoutMs ??
         (EXISTING_SESSION_MANAGE_ACTIONS.has(action) &&

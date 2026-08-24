@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import {
   addTimerTimeoutGraceMs,
   MAX_TIMER_TIMEOUT_MS,
@@ -7,14 +6,12 @@ import {
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import {
-  BROWSER_PROXY_COMMAND,
   BROWSER_PROXY_UPLOAD_COMMAND,
   browserProxyUploadUnavailableMessage,
 } from "./browser-node-commands.js";
 import { isBrowserControlHostUnavailableError } from "./browser-node-fallback.js";
 import type { BrowserNodeTarget } from "./browser-node-routing.js";
 import {
-  BROWSER_PROXY_ERROR_ENVELOPE,
   BROWSER_PROXY_OWNED_TAB_CLOSE_PATH,
   parseBrowserProxyFailure,
   parseBrowserProxyRoute,
@@ -56,6 +53,7 @@ export type BrowserProxyRequest = ((params: {
   profile?: string;
   agentSessionKey?: string;
   agentId?: string;
+  browserNodeSessionLease?: string;
   signal?: AbortSignal;
 }) => Promise<unknown>) & {
   isHostFallbackActive: () => boolean;
@@ -92,6 +90,7 @@ async function callBrowserProxy(params: {
   profile?: string;
   agentSessionKey?: string;
   agentId?: string;
+  browserNodeSessionLease?: string;
   signal?: AbortSignal;
 }): Promise<BrowserProxyEnvelope> {
   // Reserve both watchdog windows before clamping so timer saturation cannot
@@ -120,31 +119,28 @@ async function callBrowserProxy(params: {
     body: params.body,
     signal: params.signal,
   });
-  const command = preparedUpload.upload ? BROWSER_PROXY_UPLOAD_COMMAND : BROWSER_PROXY_COMMAND;
   let payload: { payload?: unknown; payloadJSON?: unknown } | null;
   try {
     payload = await callGatewayTool<{ payload?: unknown; payloadJSON?: unknown }>(
-      "node.invoke",
+      "browser.request",
       { timeoutMs: gatewayTimeoutMs },
       {
         nodeId: params.nodeId,
-        command,
-        // Keep the browser action, node watchdog, and Gateway RPC on distinct
-        // budgets so a detailed node timeout can cross both outer boundaries.
+        allowAutomaticHostFallback: params.allowAutomaticHostFallback,
+        includeRoute: true,
+        // Keep the browser action and Gateway RPC on distinct budgets so a
+        // detailed node timeout can cross the outer Gateway boundary.
         timeoutMs: nodeInvokeTimeoutMs,
-        params: {
-          method: params.method,
-          path: params.path,
-          query: params.query,
-          body: preparedUpload.body,
-          upload: preparedUpload.upload,
-          timeoutMs: proxyTimeoutMs,
-          profile: params.profile,
-          agentSessionKey: params.agentSessionKey,
-          agentId: params.agentId,
-          errorEnvelope: BROWSER_PROXY_ERROR_ENVELOPE,
-        },
-        idempotencyKey: crypto.randomUUID(),
+        method: params.method,
+        path: params.path,
+        query: params.query,
+        body: preparedUpload.body,
+        upload: preparedUpload.upload,
+        profile: params.profile,
+        agentSessionKey: params.agentSessionKey,
+        agentId: params.agentId,
+        browserNodeSessionLease: params.browserNodeSessionLease,
+        browserProxyTimeoutMs: proxyTimeoutMs,
       },
       {
         scopes: ["operator.admin"],
@@ -194,6 +190,7 @@ export function createBrowserNodeProxyRequest(params: {
   allowAutomaticHostFallback: boolean;
   agentSessionKey?: string;
   agentId?: string;
+  browserNodeSessionLease?: string;
   signal?: AbortSignal;
 }): BrowserProxyRequest {
   let hostFallbackActive = false;
@@ -217,9 +214,13 @@ export function createBrowserNodeProxyRequest(params: {
         allowAutomaticHostFallback: params.allowAutomaticHostFallback,
         agentSessionKey: params.agentSessionKey,
         agentId: params.agentId,
+        browserNodeSessionLease: params.browserNodeSessionLease,
         ...requestWithSignal,
       });
       route = parseBrowserProxyRoute(proxy);
+      if (route?.status === "host-fallback") {
+        hostFallbackActive = true;
+      }
       const failure = parseBrowserProxyFailure(proxy);
       if (failure) {
         const { status, body } = failure.error;
@@ -249,16 +250,22 @@ export function createBrowserNodeProxyRequest(params: {
   });
 }
 
-export function createBrowserNodeSessionTabRoute(
-  nodeTarget: BrowserNodeTarget,
-): Extract<BrowserSessionTabRoute, { kind: "node-proxy" }> {
+export function createBrowserNodeSessionTabRoute(params: {
+  nodeTarget: BrowserNodeTarget;
+  agentSessionKey?: string;
+  agentId?: string;
+  browserNodeSessionLease?: string;
+}): Extract<BrowserSessionTabRoute, { kind: "node-proxy" }> {
   return {
     kind: "node-proxy",
-    nodeId: nodeTarget.nodeId,
+    nodeId: params.nodeTarget.nodeId,
     closeTarget: async (tab) => {
       const cleanupProxy = createBrowserNodeProxyRequest({
-        nodeTarget,
+        nodeTarget: params.nodeTarget,
         allowAutomaticHostFallback: false,
+        agentSessionKey: params.agentSessionKey,
+        agentId: params.agentId,
+        browserNodeSessionLease: params.browserNodeSessionLease,
       });
       if (tab.ownership?.status === "durable") {
         return parseBrowserSessionTabCloseResult(

@@ -71,6 +71,7 @@ type NodeInvokeParams = {
   signal?: AbortSignal;
   idempotencyKey?: string;
   sessionKey?: string;
+  pairingGeneration?: string;
   onDispatchReady?: (invokeId: string) => void;
   isDispatchAuthorized?: () => boolean;
 };
@@ -334,6 +335,10 @@ async function invokeNodeRegistryCore(
     timeoutMs,
     idempotencyKey: params.idempotencyKey,
     sessionKey: normalizeOptionalString(params.sessionKey),
+    pairingGeneration:
+      normalizeOptionalString(params.expectedPairingGeneration) ??
+      normalizeOptionalString(params.pairingGeneration) ??
+      normalizeOptionalString(node.pairingGeneration),
   };
   const systemRunEvent = resolvePendingSystemRunEvent({
     command: params.command,

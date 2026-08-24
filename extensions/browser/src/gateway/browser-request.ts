@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { clampTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { BROWSER_REQUEST_GATEWAY_SCOPE } from "../browser-gateway-contract.js";
 import {
   BROWSER_PROXY_COMMAND,
   BROWSER_PROXY_UPLOAD_COMMAND,
@@ -15,19 +16,23 @@ import { isBrowserControlHostUnavailableError } from "../browser-node-fallback.j
 import { resolveBrowserNodeTarget } from "../browser-node-routing.js";
 import {
   BROWSER_PROXY_ERROR_ENVELOPE,
+  createBrowserProxyFailure,
   parseBrowserProxyFailure,
   type BrowserProxyEnvelope,
   type BrowserProxySuccess,
+  type BrowserProxyUploadV1,
 } from "../browser-proxy-envelope.js";
 import {
   isBrowserProxyUploadRequest,
   prepareBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
+import { createBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
 import {
   assertBrowserStewardRuntimeAllowed,
   resolveBrowserStewardProxyAction,
   shouldApplyBrowserStewardRuntimeGuard,
 } from "../browser/browser-steward-runtime-guard.js";
+import { normalizeBrowserRequestPath } from "../browser/request-policy.js";
 import {
   ErrorCodes,
   createBrowserControlContext,
@@ -38,6 +43,7 @@ import {
   isNodeCommandAllowed,
   isPersistentBrowserProfileMutation,
   persistBrowserProxyResultFiles,
+  resolveBrowserConfig,
   resolveNodeCommandAllowlist,
   resolveRequestedBrowserProfile,
   respondUnavailableOnNodeInvokeError,
@@ -55,9 +61,24 @@ type BrowserRequestParams = {
   path?: string;
   query?: Record<string, unknown>;
   body?: unknown;
+  upload?: BrowserProxyUploadV1;
   timeoutMs?: number;
+  profile?: string;
+  browserProxyTimeoutMs?: number;
   agentSessionKey?: string;
   agentId?: string;
+  /** Internal Browser tool route selection; never supplied by model arguments. */
+  nodeId?: string;
+  /** Internal opaque lease binding one approved Browser tool call to a node session. */
+  browserNodeSessionLease?: string;
+  /** Internal pre-approval route lease request; never supplied by model arguments. */
+  routeOnly?: boolean;
+  /** Internal post-approval renewal of the same exact route lease. */
+  renewBrowserNodeSessionLease?: boolean;
+  /** Prevent a node-bound Browser tool call from changing backend after approval. */
+  allowAutomaticHostFallback?: boolean;
+  /** Internal response envelope for Browser tool route tracking. */
+  includeRoute?: boolean;
 };
 
 /** Handles one browser.request gateway call and streams a success/error response. */
@@ -65,6 +86,7 @@ export async function handleBrowserGatewayRequest({
   params,
   respond,
   context,
+  client,
 }: Parameters<GatewayRequestHandlers["browser.request"]>[0]) {
   const typed = params as BrowserRequestParams;
   const methodRaw = (normalizeOptionalString(typed.method) ?? "").toUpperCase();
@@ -72,6 +94,78 @@ export async function handleBrowserGatewayRequest({
   const query = typed.query && typeof typed.query === "object" ? typed.query : undefined;
   const body = typed.body;
   const timeoutMs = clampTimerTimeoutMs(typed.timeoutMs);
+  const requestedNode = normalizeOptionalString(typed.nodeId);
+  const browserNodeSessionLease = normalizeOptionalString(typed.browserNodeSessionLease);
+  const routeOnly = typed.routeOnly === true;
+  const operatorAdmin = client?.connect?.scopes?.includes(BROWSER_REQUEST_GATEWAY_SCOPE) === true;
+  const appliesBrowserStewardGuard = shouldApplyBrowserStewardRuntimeGuard({
+    sessionKey: typed.agentSessionKey,
+    agentId: typed.agentId,
+  });
+  const requestedProfile = resolveRequestedBrowserProfile({
+    query,
+    body,
+    profile: typed.profile,
+  });
+  const cfg = getRuntimeConfig();
+
+  if (routeOnly) {
+    if (!operatorAdmin) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "browser route leasing requires operator admin authority",
+        ),
+      );
+      return;
+    }
+    if (!requestedNode) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "nodeId required"));
+      return;
+    }
+    let nodeTarget: NodeSession | null;
+    try {
+      nodeTarget = resolveBrowserNodeTarget({
+        nodes: context.nodeRegistry.listConnected(),
+        policy: cfg.gateway?.nodes?.browser,
+        requestedNode,
+        explicitTarget: true,
+      });
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
+      return;
+    }
+    if (!nodeTarget) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, "No connected browser-capable nodes."),
+      );
+      return;
+    }
+    const lease = typed.renewBrowserNodeSessionLease
+      ? browserNodeSessionLease
+        ? context.nodeRegistry.renewBrowserNodeSessionLease(
+            nodeTarget.nodeId,
+            browserNodeSessionLease,
+          )
+          ? browserNodeSessionLease
+          : undefined
+        : undefined
+      : context.nodeRegistry.createBrowserNodeSessionLease(nodeTarget.nodeId);
+    if (!lease) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, "browser node pairing authority unavailable"),
+      );
+      return;
+    }
+    respond(true, { browserNodeSessionLease: lease, nodeId: nodeTarget.nodeId }, undefined);
+    return;
+  }
 
   if (!methodRaw || !path) {
     respond(
@@ -89,23 +183,14 @@ export async function handleBrowserGatewayRequest({
     );
     return;
   }
-  if (
-    shouldApplyBrowserStewardRuntimeGuard({
-      sessionKey: typed.agentSessionKey,
-      agentId: typed.agentId,
-    })
-  ) {
+  if (appliesBrowserStewardGuard) {
     try {
       assertBrowserStewardRuntimeAllowed({
         action: resolveBrowserStewardProxyAction({ method: methodRaw, path, body }),
-        profile: normalizeOptionalString(
-          query?.profile ??
-            (body && typeof body === "object"
-              ? (body as Record<string, unknown>).profile
-              : undefined),
-        ),
+        profile: requestedProfile,
         agentSessionKey: typed.agentSessionKey,
         agentId: typed.agentId,
+        approved: operatorAdmin,
         request: body,
       });
     } catch (error) {
@@ -113,7 +198,12 @@ export async function handleBrowserGatewayRequest({
       return;
     }
   }
-  const cfg = getRuntimeConfig();
+  const normalizedPath = normalizeBrowserRequestPath(path);
+  const stewardProfile = appliesBrowserStewardGuard
+    ? normalizedPath === "/profiles"
+      ? ""
+      : (requestedProfile ?? resolveBrowserConfig(cfg.browser, cfg).defaultProfile)
+    : requestedProfile;
   const configuredNode = normalizeOptionalString(cfg.gateway?.nodes?.browser?.node);
   // System-profile listing and import can only run where the local Keychain and
   // Chrome profiles live, so they must never route to a browser node. Force
@@ -125,6 +215,8 @@ export async function handleBrowserGatewayRequest({
       nodeTarget = resolveBrowserNodeTarget({
         nodes: context.nodeRegistry.listConnected(),
         policy: cfg.gateway?.nodes?.browser,
+        requestedNode,
+        explicitTarget: requestedNode !== undefined,
       });
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
@@ -143,16 +235,36 @@ export async function handleBrowserGatewayRequest({
     );
     return;
   }
+  if (browserNodeSessionLease) {
+    if (
+      !operatorAdmin ||
+      !appliesBrowserStewardGuard ||
+      !nodeTarget ||
+      !context.nodeRegistry.resolveBrowserNodeSessionLease(
+        nodeTarget.nodeId,
+        browserNodeSessionLease,
+      )
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "browser node route lease is stale; request approval again",
+        ),
+      );
+      return;
+    }
+  }
 
   let preparedUpload: Awaited<ReturnType<typeof prepareBrowserProxyUploadRequest>> | null = null;
   let proxyCommand = BROWSER_PROXY_COMMAND;
   if (nodeTarget) {
-    if (
-      isBrowserProxyUploadRequest({ method: methodRaw, path, body }) &&
-      !nodeTarget.commands?.includes(BROWSER_PROXY_UPLOAD_COMMAND)
-    ) {
+    const requestsUpload =
+      typed.upload !== undefined || isBrowserProxyUploadRequest({ method: methodRaw, path, body });
+    if (requestsUpload && !nodeTarget.commands?.includes(BROWSER_PROXY_UPLOAD_COMMAND)) {
       const message = browserProxyUploadUnavailableMessage(nodeTarget.declaredCommands);
-      if (configuredNode) {
+      if (configuredNode || typed.allowAutomaticHostFallback === false || browserNodeSessionLease) {
         respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, message));
         return;
       }
@@ -162,13 +274,27 @@ export async function handleBrowserGatewayRequest({
       nodeTarget = null;
     }
   }
+  if (browserNodeSessionLease && !nodeTarget) {
+    respond(
+      false,
+      undefined,
+      errorShape(
+        ErrorCodes.INVALID_REQUEST,
+        "browser node route lease is stale; request approval again",
+      ),
+    );
+    return;
+  }
   if (nodeTarget) {
     try {
-      preparedUpload = await prepareBrowserProxyUploadRequest({
-        method: methodRaw,
-        path,
-        body,
-      });
+      preparedUpload =
+        typed.upload === undefined
+          ? await prepareBrowserProxyUploadRequest({
+              method: methodRaw,
+              path,
+              body,
+            })
+          : { body, upload: typed.upload };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, message));
@@ -199,27 +325,60 @@ export async function handleBrowserGatewayRequest({
       return;
     }
 
+    const idempotencyKey = crypto.randomUUID();
+    if (operatorAdmin && !nodeTarget.pairingGeneration) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, "browser node pairing authority unavailable"),
+      );
+      return;
+    }
     const proxyParams = {
       method: methodRaw,
       path,
       query,
       body: preparedUpload.body,
       upload: preparedUpload.upload,
-      timeoutMs,
-      profile: resolveRequestedBrowserProfile({ query, body }),
+      timeoutMs: typed.browserProxyTimeoutMs ?? timeoutMs,
+      profile: appliesBrowserStewardGuard ? stewardProfile : requestedProfile,
       agentSessionKey: typed.agentSessionKey,
       agentId: typed.agentId,
+      ...(operatorAdmin && appliesBrowserStewardGuard
+        ? {
+            browserStewardApproval: createBrowserStewardGatewayApproval({
+              command: proxyCommand,
+              method: methodRaw,
+              path,
+              query,
+              body: preparedUpload.body,
+              upload: preparedUpload.upload,
+              profile: stewardProfile,
+              agentSessionKey: typed.agentSessionKey,
+              agentId: typed.agentId,
+              nodeId: nodeTarget.nodeId,
+              pairingGeneration: nodeTarget.pairingGeneration ?? "",
+              invocationId: idempotencyKey,
+            }),
+          }
+        : {}),
       errorEnvelope: BROWSER_PROXY_ERROR_ENVELOPE,
     };
     const res = await context.nodeRegistry.invoke({
       nodeId: nodeTarget.nodeId,
+      expectedConnId: nodeTarget.connId,
+      expectedPairingGeneration: nodeTarget.pairingGeneration,
       command: proxyCommand,
       params: proxyParams,
       timeoutMs,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey,
+      pairingGeneration: nodeTarget.pairingGeneration,
     });
     const allowAutomaticHostFallback =
-      !configuredNode && isBrowserControlHostUnavailableError(res.error);
+      typed.allowAutomaticHostFallback !== false &&
+      !configuredNode &&
+      requestedNode === undefined &&
+      isBrowserControlHostUnavailableError(res.error);
     if (allowAutomaticHostFallback && !res.ok) {
       // This node-host error is raised before route dispatch. Other failures
       // stay on the node path because retrying could duplicate an action.
@@ -227,6 +386,20 @@ export async function handleBrowserGatewayRequest({
         `browser node ${nodeTarget.displayName ?? nodeTarget.nodeId} control host unavailable; falling back to Gateway host`,
       );
     } else {
+      if (typed.includeRoute && !res.ok) {
+        const payload = res.payloadJSON ? safeParseJson(res.payloadJSON) : res.payload;
+        const structuredFailure = parseBrowserProxyFailure(payload);
+        if (structuredFailure) {
+          respond(true, structuredFailure, undefined);
+          return;
+        }
+        const nodeMessage = normalizeOptionalString(res.error?.message);
+        const statusMatch = /^(?:[A-Z_]+:\s*)?(\d{3}):\s*(.+)$/.exec(nodeMessage ?? "");
+        const status = statusMatch ? Number(statusMatch[1]) : 502;
+        const message = statusMatch?.[2] ?? nodeMessage ?? "browser proxy failed";
+        respond(true, createBrowserProxyFailure(status, { error: message }), undefined);
+        return;
+      }
       if (!respondUnavailableOnNodeInvokeError(respond, res)) {
         return;
       }
@@ -247,7 +420,15 @@ export async function handleBrowserGatewayRequest({
       const success = proxy as BrowserProxySuccess;
       try {
         const result = await persistBrowserProxyResultFiles(success.result, success.files);
-        respond(true, result);
+        respond(
+          true,
+          typed.includeRoute
+            ? {
+                result,
+                ...(success.route ? { route: success.route } : {}),
+              }
+            : result,
+        );
       } catch {
         respond(
           false,
@@ -312,7 +493,10 @@ export async function handleBrowserGatewayRequest({
     return;
   }
 
-  respond(true, result.body);
+  respond(
+    true,
+    typed.includeRoute ? { result: result.body, route: { status: "host-fallback" } } : result.body,
+  );
 }
 
 /** Gateway request handler map contributed by the Browser plugin. */

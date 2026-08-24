@@ -26,6 +26,7 @@ import {
   ensureBrowserProxyUploadCleanup,
   stageBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
+import { consumeBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
 import {
   assertBrowserStewardRuntimeAllowed,
   resolveBrowserStewardProxyAction,
@@ -61,6 +62,13 @@ type BrowserProxyParams = {
   upload?: BrowserProxyUploadV1;
   agentSessionKey?: string;
   agentId?: string;
+  browserStewardApproval?: unknown;
+};
+
+type BrowserStewardNodeInvocationContext = {
+  nodeId: string;
+  invocationId: string;
+  pairingGeneration: string;
 };
 
 function readOwnedTabCloseRequest(value: unknown) {
@@ -285,6 +293,7 @@ export async function runBrowserProxyCommand(
   paramsJSON?: string | null,
   command = BROWSER_PROXY_COMMAND,
   invocationSignal?: AbortSignal,
+  invocationContext?: BrowserStewardNodeInvocationContext,
 ): Promise<string> {
   invocationSignal?.throwIfAborted();
   void ensureBrowserProxyUploadCleanup();
@@ -327,11 +336,27 @@ export async function runBrowserProxyCommand(
       agentId: params.agentId,
     })
   ) {
+    const gatewayApprovalValid = consumeBrowserStewardGatewayApproval({
+      approval: params.browserStewardApproval,
+      command,
+      method,
+      path,
+      query: params.query,
+      body,
+      upload: params.upload,
+      profile: effectiveProfile,
+      agentSessionKey: params.agentSessionKey,
+      agentId: params.agentId,
+      ...(invocationContext ? { nodeId: invocationContext.nodeId } : {}),
+      ...(invocationContext ? { pairingGeneration: invocationContext.pairingGeneration } : {}),
+      ...(invocationContext ? { invocationId: invocationContext.invocationId } : {}),
+    });
     assertBrowserStewardRuntimeAllowed({
       action: resolveBrowserStewardProxyAction({ method, path, body }),
       profile: effectiveProfile,
       agentSessionKey: params.agentSessionKey,
       agentId: params.agentId,
+      approved: gatewayApprovalValid,
       request: body,
     });
   }

@@ -194,6 +194,8 @@ describe("node host invoke", () => {
 
     expect(handle).toHaveBeenCalledWith("{}", undefined, {
       sendNodeEvent,
+      nodeId: "node-1",
+      invocationId: "invoke-canvas",
       sessionKey: "agent:main:canvas",
     });
   });
