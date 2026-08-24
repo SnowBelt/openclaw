@@ -175,6 +175,9 @@ export function createPluginApiFactory(
       runtime: resolvePluginRuntime(record.id),
       logger: normalizeLogger(registryParams.logger),
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),
+      browserNodeDelegationRegistrar: registrationCapabilities.capabilityHandlers
+        ? (delegation) => registerBrowserNodeDelegation(record, delegation)
+        : undefined,
       handlers: {
         ...(registrationCapabilities.capabilityHandlers
           ? {
@@ -195,8 +198,6 @@ export function createPluginApiFactory(
                 registerAgentHarness(record, harness, options),
               registerDetachedTaskRuntime: (runtime) =>
                 registerDetachedTaskRuntime(record, runtime),
-              registerBrowserNodeDelegation: (delegation) =>
-                registerBrowserNodeDelegation(record, delegation),
               registerSpeechProvider: (provider) => registerSpeechProvider(record, provider),
               registerRealtimeTranscriptionProvider: (provider) =>
                 registerRealtimeTranscriptionProvider(record, provider),

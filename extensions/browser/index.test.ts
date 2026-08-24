@@ -1,6 +1,7 @@
 // Browser tests cover index plugin behavior.
 import fs from "node:fs";
 import path from "node:path";
+import { attachBrowserNodeDelegationRegistrar } from "openclaw/plugin-sdk/browser-node-delegation-runtime";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -112,10 +113,10 @@ function createApi() {
     registerGatewayMethod,
     registerTrustedToolPolicy,
     registerNodeInvokePolicy,
-    registerBrowserNodeDelegation,
     registerService,
     registerTool,
   });
+  attachBrowserNodeDelegationRegistrar(api, registerBrowserNodeDelegation);
   return {
     api,
     openKeyedStore,

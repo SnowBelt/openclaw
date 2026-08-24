@@ -164,6 +164,7 @@
   "allow-from",
   "allowlist-config-edit",
   "browser-config",
+  "browser-node-delegation-runtime",
   "boolean-param",
   "channel-contract-testing",
   "channel-dm-policy",

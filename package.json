@@ -906,6 +906,9 @@
     "./plugin-sdk/browser-config": {
       "default": "./dist/plugin-sdk/browser-config.js"
     },
+    "./plugin-sdk/browser-node-delegation-runtime": {
+      "default": "./dist/plugin-sdk/browser-node-delegation-runtime.js"
+    },
     "./plugin-sdk/boolean-param": {
       "types": "./dist/plugin-sdk/boolean-param.d.ts",
       "default": "./dist/plugin-sdk/boolean-param.js"
