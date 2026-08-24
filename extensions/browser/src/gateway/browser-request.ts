@@ -56,6 +56,14 @@ import {
 
 const logger = createSubsystemLogger("browser");
 
+function hasActiveBrowserNodeRuntimeAuthority(
+  client: Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
+  context: Parameters<GatewayRequestHandlers["browser.request"]>[0]["context"],
+): boolean {
+  const identity = client?.internal?.agentRuntimeIdentity;
+  return !identity || context.validateAgentRuntimeApprovalAuthority?.(identity) === true;
+}
+
 type BrowserRequestParams = {
   method?: string;
   path?: string;
@@ -108,6 +116,8 @@ export async function handleBrowserGatewayRequest({
     profile: typed.profile,
   });
   const cfg = getRuntimeConfig();
+  const isBrowserNodeDispatchAuthorized = () =>
+    hasActiveBrowserNodeRuntimeAuthority(client, context);
 
   if (routeOnly) {
     if (!operatorAdmin) {
@@ -364,6 +374,14 @@ export async function handleBrowserGatewayRequest({
         : {}),
       errorEnvelope: BROWSER_PROXY_ERROR_ENVELOPE,
     };
+    if (!isBrowserNodeDispatchAuthorized()) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "agent runtime authority is no longer active"),
+      );
+      return;
+    }
     const res = await context.nodeRegistry.invoke({
       nodeId: nodeTarget.nodeId,
       expectedConnId: nodeTarget.connId,
@@ -373,6 +391,7 @@ export async function handleBrowserGatewayRequest({
       timeoutMs,
       idempotencyKey,
       pairingGeneration: nodeTarget.pairingGeneration,
+      isDispatchAuthorized: isBrowserNodeDispatchAuthorized,
     });
     const allowAutomaticHostFallback =
       typed.allowAutomaticHostFallback !== false &&
