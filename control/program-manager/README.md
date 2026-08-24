@@ -19,12 +19,17 @@ the same rules in every bootstrap file.
    `check-config --config control/program-manager/runtime-config.json`.
 2. Stage the workspace with an explicit destination and backup directory:
    `node scripts/program-manager-workspace.mjs install --workspace <path> --backup-dir <path>`.
-3. Apply the values in `runtime-config.json` to the existing
-   `program-manager` entry with the normal OpenClaw config tool.
-4. Point that entry at the staged workspace, validate the canonical config,
-   restart the local gateway if needed, and run the local smoke.
-5. Keep the backup directory until the soak check passes. Roll back only with
-   `node scripts/program-manager-workspace.mjs rollback ...`.
+3. Apply only the controlled Program Manager fields to an existing Director
+   config with a dedicated backup:
+   `node scripts/program-manager-workspace.mjs apply-config --config <path> --backup-dir <path>`.
+   The command supports both `agents.list` and `agents.entries`, preserves the
+   agent identity/workspace, and rolls back automatically if its contract check
+   fails.
+4. Validate the active config with the OpenClaw binary, restart the local
+   gateway only when that config is the managed service authority, and run the
+   local smoke.
+5. Keep the backup directory until the soak check passes. Roll back the
+   workspace with `rollback ...` or the config with `rollback-config ...`.
 
 The installer manages `CONTRACT.md` and the six bootstrap files. Durable goal,
 task-flow, progress-card, and session state remain in their owner SQLite

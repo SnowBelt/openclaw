@@ -49,6 +49,18 @@ const REQUIRED_DENIED_TOOLS = Object.freeze([
   "web_search",
   "write",
 ]);
+const CONFIG_MANAGED_FIELDS = Object.freeze([
+  "skills",
+  "skillsLimits",
+  "bootstrapMaxChars",
+  "bootstrapTotalMaxChars",
+  "contextLimits",
+  "model",
+  "params",
+  "thinkingDefault",
+  "subagents",
+  "tools",
+]);
 const MAX_BOOTSTRAP_FILE_BYTES = 4_000;
 const MAX_BOOTSTRAP_TOTAL_BYTES = 10_000;
 const SECRET_KEY = /token|password|cookie|credential|secret|private/i;
@@ -183,6 +195,16 @@ function parseJson(text, label) {
   } catch (error) {
     return { parseError: `${label}: ${error instanceof Error ? error.message : String(error)}` };
   }
+}
+
+function configuredAgentEntry(config, agentId) {
+  if (Array.isArray(config?.agents?.list)) {
+    return config.agents.list.find((entry) => entry?.id === agentId);
+  }
+  if (isObject(config?.agents?.entries)) {
+    return config.agents.entries[agentId];
+  }
+  return undefined;
 }
 
 function configuredAgentEntries(config) {
@@ -601,6 +623,180 @@ export async function checkRuntimeConfig(configPath) {
   return { ok: issues.length === 0, issues };
 }
 
+function configIssues(config) {
+  const registry = validateConfiguredAgentRegistry(config);
+  return [...registry.issues, ...validateRuntimeEntry(registry.programManager)];
+}
+
+function replaceRuntimeFields(target, source) {
+  for (const field of CONFIG_MANAGED_FIELDS) {
+    target[field] = structuredClone(source[field]);
+  }
+}
+
+async function writeTextAtomically(filePath, text, mode) {
+  const temporary = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.program-manager-${process.pid}-${Date.now()}.tmp`,
+  );
+  try {
+    await fsp.writeFile(temporary, text, { encoding: "utf8", mode });
+    await fsp.chmod(temporary, mode);
+    await fsp.rename(temporary, filePath);
+  } finally {
+    await fsp.rm(temporary, { force: true });
+  }
+}
+
+async function prepareConfigBackup(configPath, backupRoot) {
+  if (!configPath || !backupRoot) {
+    throw new Error("config apply/rollback requires --config and --backup-dir");
+  }
+  await assertNoSymlinkPath(configPath, path.dirname(path.resolve(configPath)), "Config path");
+  await assertRegularFile(configPath, "Config file");
+  await assertNoSymlinkPath(
+    backupRoot,
+    path.dirname(path.resolve(backupRoot)),
+    "Config backup root",
+  );
+  const backupRootInitiallyPresent = Boolean(await lstatIfPresent(backupRoot));
+  await fsp.mkdir(backupRoot, { recursive: true });
+  await assertNoSymlinkPath(
+    backupRoot,
+    path.dirname(path.resolve(backupRoot)),
+    "Config backup root",
+  );
+  const backupFile = path.join(backupRoot, "config.before.json5");
+  const restorePath = path.join(backupRoot, "restore.json");
+  if ((await lstatIfPresent(backupFile)) || (await lstatIfPresent(restorePath))) {
+    throw new Error("Config backup directory is already in use.");
+  }
+  await fsp.copyFile(configPath, backupFile);
+  const stat = await fsp.stat(configPath);
+  await fsp.writeFile(
+    restorePath,
+    `${JSON.stringify(
+      {
+        configPath: path.resolve(configPath),
+        backupFile: "config.before.json5",
+        mode: stat.mode & 0o777,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  return { backupRootInitiallyPresent, backupFile, restorePath, mode: stat.mode & 0o777 };
+}
+
+async function restoreConfigBackup({ configPath, backupRoot, restorePath }) {
+  await assertNoSymlinkPath(configPath, path.dirname(path.resolve(configPath)), "Config path");
+  await assertNoSymlinkPath(
+    backupRoot,
+    path.dirname(path.resolve(backupRoot)),
+    "Config backup root",
+  );
+  await assertNoSymlinkPath(restorePath, backupRoot, "Config restore record");
+  await assertRegularFile(restorePath, "Config restore record");
+  const restore = JSON.parse(await fsp.readFile(restorePath, "utf8"));
+  if (
+    !isObject(restore) ||
+    restore.configPath !== path.resolve(configPath) ||
+    restore.backupFile !== "config.before.json5" ||
+    typeof restore.mode !== "number"
+  ) {
+    throw new Error("Config restore record is invalid.");
+  }
+  const backupFile = path.join(backupRoot, restore.backupFile);
+  await assertNoSymlinkPath(backupFile, backupRoot, "Config backup file");
+  await assertRegularFile(backupFile, "Config backup file");
+  const backupText = await fsp.readFile(backupFile, "utf8");
+  if (parseJson(backupText, backupFile).parseError) {
+    throw new Error("Config backup file is not valid JSON5.");
+  }
+  await writeTextAtomically(configPath, backupText, restore.mode);
+  return { ok: true, restoredConfig: path.resolve(configPath), backupRoot };
+}
+
+export async function applyRuntimeConfig({
+  sourceRoot = DEFAULT_SOURCE_ROOT,
+  configPath,
+  backupRoot,
+}) {
+  const sourceCheck = await checkSource(sourceRoot);
+  if (!sourceCheck.ok) {
+    throw new Error(`Source check failed: ${JSON.stringify(sourceCheck.issues)}`);
+  }
+  const sourceText = await fsp.readFile(path.join(sourceRoot, "runtime-config.json"), "utf8");
+  const sourceConfig = parseJson(sourceText, "runtime-config.json");
+  if (sourceConfig.parseError) {
+    throw new Error(sourceConfig.parseError);
+  }
+  const sourceEntry = configuredAgentEntry(sourceConfig, "program-manager");
+  if (!isObject(sourceEntry)) {
+    throw new Error("Source runtime config has no Program Manager entry.");
+  }
+
+  const originalText = await fsp.readFile(configPath, "utf8");
+  const config = parseJson(originalText, configPath);
+  if (config.parseError) {
+    throw new Error(config.parseError);
+  }
+  const beforeIssues = configIssues(config);
+  if (
+    beforeIssues.some(
+      (entry) =>
+        entry.code === "agent_registry_missing" ||
+        entry.code === "agent_missing" ||
+        entry.code === "delegation_target_unconfigured",
+    )
+  ) {
+    throw new Error(`Active config registry check failed: ${JSON.stringify(beforeIssues)}`);
+  }
+  const target = configuredAgentEntry(config, "program-manager");
+  if (!isObject(target)) {
+    throw new Error("Active config has no Program Manager entry.");
+  }
+  const backup = await prepareConfigBackup(configPath, backupRoot);
+  try {
+    replaceRuntimeFields(target, sourceEntry);
+    const updatedText = `${JSON.stringify(config, null, 2)}\n`;
+    await writeTextAtomically(configPath, updatedText, backup.mode);
+    const updated = parseJson(await fsp.readFile(configPath, "utf8"), configPath);
+    if (updated.parseError) {
+      throw new Error(updated.parseError);
+    }
+    const issues = configIssues(updated);
+    if (issues.length > 0) {
+      throw new Error(`Updated config contract check failed: ${JSON.stringify(issues)}`);
+    }
+    return {
+      ok: true,
+      configPath: path.resolve(configPath),
+      backupRoot,
+      managedFields: CONFIG_MANAGED_FIELDS,
+    };
+  } catch (error) {
+    try {
+      await restoreConfigBackup({ configPath, backupRoot, restorePath: backup.restorePath });
+      if (!backup.backupRootInitiallyPresent) {
+        await fsp.rm(backupRoot, { recursive: true, force: true });
+      }
+    } catch (rollbackError) {
+      throw new Error(
+        `Config apply failed and automatic rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        { cause: rollbackError },
+      );
+    }
+    throw error;
+  }
+}
+
+export async function rollbackRuntimeConfig({ configPath, backupRoot }) {
+  const restorePath = path.join(backupRoot, "restore.json");
+  return restoreConfigBackup({ configPath, backupRoot, restorePath });
+}
+
 async function prepareDestination(destination, workspaceRoot, label) {
   await assertNoSymlinkPath(destination, workspaceRoot, label);
   const stat = await lstatIfPresent(destination);
@@ -831,7 +1027,7 @@ async function main(argv) {
   const args = parseArgs(argv);
   if (args.help) {
     console.log(
-      "Usage: node scripts/program-manager-workspace.mjs [check|check-config|install|verify-install|rollback] [options]",
+      "Usage: node scripts/program-manager-workspace.mjs [check|check-config|apply-config|rollback-config|install|verify-install|rollback] [options]",
     );
     return;
   }
@@ -843,6 +1039,17 @@ async function main(argv) {
       throw new Error("check-config requires --config");
     }
     result = await checkRuntimeConfig(args.configPath);
+  } else if (args.command === "apply-config") {
+    result = await applyRuntimeConfig({
+      sourceRoot: args.sourceRoot,
+      configPath: args.configPath,
+      backupRoot: args.backupRoot,
+    });
+  } else if (args.command === "rollback-config") {
+    result = await rollbackRuntimeConfig({
+      configPath: args.configPath,
+      backupRoot: args.backupRoot,
+    });
   } else if (args.command === "install") {
     result = await installWorkspace({
       sourceRoot: args.sourceRoot,
