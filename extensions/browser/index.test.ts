@@ -196,7 +196,10 @@ describe("browser plugin", () => {
     };
     expect(policy.commands).toEqual(["browser.proxy", "browser.proxy.upload.v1"]);
 
-    const invokeNode = vi.fn(async () => ({ ok: true, payload: { result: { ok: true } } }));
+    const invokeNode = vi.fn(async (_request: unknown) => ({
+      ok: true,
+      payload: { result: { ok: true } },
+    }));
     const params = {
       method: "POST",
       path: "/tabs/open",

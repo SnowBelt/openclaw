@@ -91,7 +91,7 @@ function createContext(
   leaseIsCurrent = true,
   validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
 ) {
-  const invoke = vi.fn(async () =>
+  const invoke = vi.fn(async (_request: unknown) =>
     invokeResult === undefined ? { ok: true, payload: { result: { ok: true } } } : invokeResult,
   );
   const listConnected = vi.fn(
@@ -125,7 +125,10 @@ async function runBrowserRequest(
   params: Record<string, unknown>,
   invokeResult?: unknown,
   connectedNodes?: TestNode[],
-  client?: Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
+  client?: {
+    connect?: { scopes?: string[] };
+    internal?: { agentRuntimeIdentity?: unknown; pluginRuntimeOwnerId?: string };
+  } | null,
   leaseIsCurrent = true,
   validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
 ) {
@@ -143,7 +146,7 @@ async function runBrowserRequest(
     params,
     respond: respond as never,
     context: { nodeRegistry } as never,
-    client,
+    client: (client ?? null) as Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
     req: { type: "req", id: "req-1", method: "browser.request" },
     isWebchatConnect: () => false,
   });

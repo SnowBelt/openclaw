@@ -157,7 +157,7 @@ const nodesUtilsMocks = vi.hoisted(() => ({
 
 const gatewayMocks = vi.hoisted(() => ({
   callGatewayTool: vi.fn(
-    async (): Promise<Record<string, unknown>> => ({
+    async (..._args: unknown[]): Promise<Record<string, unknown>> => ({
       ok: true,
       payload: { result: { ok: true, running: true } },
     }),
@@ -2366,19 +2366,21 @@ describe("browser tool url alias support", () => {
 
   it("carries the Gateway route lease from approval into the Browser node request", async () => {
     mockSingleBrowserProxyNode();
-    gatewayMocks.callGatewayTool.mockImplementation(async (_method, _options, request) => {
-      if ((request as { routeOnly?: boolean }).routeOnly) {
+    gatewayMocks.callGatewayTool.mockImplementation(
+      async (_method: unknown, _options: unknown, request: unknown) => {
+        if ((request as { routeOnly?: boolean }).routeOnly) {
+          return {
+            payload: { browserNodeSessionLease: "lease-1", nodeId: "node-1" },
+          };
+        }
         return {
-          payload: { browserNodeSessionLease: "lease-1", nodeId: "node-1" },
+          payload: {
+            route: { status: "resolved", profile: "openclaw", driver: "openclaw" },
+            result: { ok: true, targetId: "approved-node-tab" },
+          },
         };
-      }
-      return {
-        payload: {
-          route: { status: "resolved", profile: "openclaw", driver: "openclaw" },
-          result: { ok: true, targetId: "approved-node-tab" },
-        },
-      };
-    });
+      },
+    );
     const pending = await prepareBrowserStewardToolParams({
       input: { action: "open", target: "node", url: "https://example.com" },
       agentSessionKey: "agent:browser-session-credential-steward:lease-check",

@@ -103,7 +103,7 @@ describe("Microsoft Teams meeting Chrome startup cleanup", () => {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
       browser: {
         request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
-          await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+          await gatewayRequest("browser.request", params),
       },
       system: {
         runCommandWithTimeout: vi.fn(async () => ({
@@ -148,7 +148,7 @@ describe("Microsoft Teams meeting Chrome startup cleanup", () => {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
       browser: {
         request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
-          await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+          await gatewayRequest("browser.request", params),
       },
       system: {
         runCommandWithTimeout: vi.fn(async () => ({
@@ -175,7 +175,6 @@ describe("Microsoft Teams meeting Chrome startup cleanup", () => {
     expect(gatewayRequest).toHaveBeenCalledWith(
       "browser.request",
       expect.objectContaining({ method: "DELETE", path: "/tabs/teams-tab" }),
-      expect.anything(),
     );
     expect(state.tabOpen).toBe(false);
   });

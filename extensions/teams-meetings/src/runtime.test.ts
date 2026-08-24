@@ -83,7 +83,7 @@ function runtimeHarness(options?: { tabOpen?: boolean }) {
     },
     browser: {
       request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
-        await gatewayRequest("browser.request", params, { scopes: ["operator.admin"] }),
+        await gatewayRequest("browser.request", params),
     },
     system: {
       runCommandWithTimeout: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
@@ -183,7 +183,6 @@ describe("Microsoft Teams meeting session flow", () => {
     expect(harness.gatewayRequest).toHaveBeenCalledWith(
       "browser.request",
       expect.objectContaining({ path: "/tabs/open" }),
-      expect.objectContaining({ scopes: ["operator.admin"] }),
     );
   });
 
@@ -237,7 +236,6 @@ describe("Microsoft Teams meeting session flow", () => {
     expect(harness.gatewayRequest).not.toHaveBeenCalledWith(
       "browser.request",
       expect.objectContaining({ path: "/tabs/open" }),
-      expect.anything(),
     );
     expect(await runtime.leave(joined.session.id)).toMatchObject({
       browserLeft: true,
@@ -307,7 +305,6 @@ describe("Microsoft Teams meeting session flow", () => {
         path: "/act",
         body: expect.objectContaining({ targetId: "teams-tab" }),
       }),
-      expect.objectContaining({ scopes: ["operator.admin"] }),
     );
   });
 });
