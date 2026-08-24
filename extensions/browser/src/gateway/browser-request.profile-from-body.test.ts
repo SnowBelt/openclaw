@@ -85,7 +85,12 @@ type TestNode = {
   platform?: string;
 };
 
-function createContext(invokeResult?: unknown, connectedNodes?: TestNode[], leaseIsCurrent = true) {
+function createContext(
+  invokeResult?: unknown,
+  connectedNodes?: TestNode[],
+  leaseIsCurrent = true,
+  validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
+) {
   const invoke = vi.fn(async () =>
     invokeResult === undefined ? { ok: true, payload: { result: { ok: true } } } : invokeResult,
   );
@@ -112,6 +117,7 @@ function createContext(invokeResult?: unknown, connectedNodes?: TestNode[], leas
     createBrowserNodeSessionLease,
     renewBrowserNodeSessionLease,
     resolveBrowserNodeSessionLease,
+    validateAgentRuntimeApprovalAuthority,
   };
 }
 
@@ -121,9 +127,15 @@ async function runBrowserRequest(
   connectedNodes?: TestNode[],
   client?: Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
   leaseIsCurrent = true,
+  validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
 ) {
   const respond = vi.fn();
-  const nodeRegistry = createContext(invokeResult, connectedNodes, leaseIsCurrent);
+  const nodeRegistry = createContext(
+    invokeResult,
+    connectedNodes,
+    leaseIsCurrent,
+    validateAgentRuntimeApprovalAuthority,
+  );
   await expectDefined(
     browserHandlers["browser.request"],
     "browser request handler",
@@ -518,6 +530,55 @@ describe("browser.request profile selection", () => {
     expect(firstRespondCall(respond)).toEqual([
       true,
       { result: { targetId: "gateway-host-tab" }, route: { status: "host-fallback" } },
+    ]);
+  });
+
+  it("does not dispatch after Browser runtime authority is revoked during preparation", async () => {
+    let releasePreparation!: () => void;
+    const preparation = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    uploadMocks.prepareBrowserProxyUploadRequest.mockImplementationOnce(async ({ body }) => {
+      await preparation;
+      return { body };
+    });
+    let authorityActive = true;
+    const request = runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body: { url: "https://example.com" },
+        agentSessionKey: "agent:browser-session-credential-steward:node:opaque",
+        agentId: "browser-session-credential-steward",
+      },
+      undefined,
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          agentRuntimeIdentity: {
+            kind: "agentRuntime",
+            agentId: "browser-session-credential-steward",
+            sessionKey: "agent:browser-session-credential-steward:node:opaque",
+          },
+        },
+      } as never,
+      true,
+      () => authorityActive,
+    );
+    await vi.waitFor(() => expect(uploadMocks.prepareBrowserProxyUploadRequest).toHaveBeenCalled());
+    authorityActive = false;
+    releasePreparation();
+
+    const { respond, nodeRegistry } = await request;
+    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+    expect(firstRespondCall(respond)).toEqual([
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "INVALID_REQUEST",
+        message: "agent runtime authority is no longer active",
+      }),
     ]);
   });
 
