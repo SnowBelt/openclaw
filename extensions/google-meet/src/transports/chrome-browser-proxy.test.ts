@@ -81,12 +81,11 @@ describe("meetLeaveScript", () => {
 });
 
 describe("Google Meet Chrome browser proxy", () => {
-  it("reports malformed node proxy payloadJSON with an owned error", async () => {
-    const invoke = vi.fn(async () => ({
-      ok: true,
-      payloadJSON: "{not json",
-    }));
+  it("uses the Browser-owned gateway request path instead of raw node proxy", async () => {
+    const request = vi.fn(async () => ({ tabs: [] }));
+    const invoke = vi.fn();
     const runtime = {
+      gateway: { request },
       nodes: {
         invoke,
       },
@@ -100,30 +99,29 @@ describe("Google Meet Chrome browser proxy", () => {
         path: "/tabs",
         timeoutMs: 100,
       }),
-    ).rejects.toThrow("Google Meet browser proxy returned malformed payloadJSON.");
+    ).resolves.toEqual({ tabs: [] });
 
-    expect(invoke).toHaveBeenCalledWith({
-      nodeId: "node-1",
-      command: "browser.proxy",
-      params: {
+    expect(request).toHaveBeenCalledWith(
+      "browser.request",
+      {
         method: "GET",
         path: "/tabs",
         body: undefined,
         timeoutMs: 100,
+        nodeId: "node-1",
+        allowAutomaticHostFallback: false,
       },
-      timeoutMs: 5_100,
-      scopes: ["operator.admin"],
-    });
+      { timeoutMs: 5_100, scopes: ["operator.admin"] },
+    );
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("caps oversized node proxy gateway timeouts", async () => {
-    const invoke = vi.fn(async () => ({
-      ok: true,
-      payloadJSON: JSON.stringify({ result: { ok: true } }),
-    }));
+    const request = vi.fn(async () => ({ ok: true }));
     const runtime = {
+      gateway: { request },
       nodes: {
-        invoke,
+        invoke: vi.fn(),
       },
     } as unknown as PluginRuntime;
 
@@ -135,10 +133,10 @@ describe("Google Meet Chrome browser proxy", () => {
       timeoutMs: Number.MAX_SAFE_INTEGER,
     });
 
-    expect(invoke).toHaveBeenCalledWith(
-      expect.objectContaining({
-        timeoutMs: MAX_TIMER_TIMEOUT_MS,
-      }),
+    expect(request).toHaveBeenCalledWith(
+      "browser.request",
+      expect.objectContaining({ timeoutMs: Number.MAX_SAFE_INTEGER }),
+      expect.objectContaining({ timeoutMs: MAX_TIMER_TIMEOUT_MS }),
     );
   });
 });

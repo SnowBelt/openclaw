@@ -399,16 +399,10 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           message: "browser node control requires operator admin authority",
         };
       }
-      if (ctx.pluginRuntimeOwnerId) {
-        return await ctx.invokeNode({
-          params: ctx.params,
-          idempotencyKey: ctx.idempotencyKey,
-        });
-      }
       return {
         ok: false,
         code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-        message: "browser node control requires the approved Browser tool path",
+        message: "browser node control requires the Browser gateway request path",
       };
     },
   };
