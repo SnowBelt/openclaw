@@ -311,6 +311,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
     if (!params || typeof params !== "object") {
       return undefined;
     }
+    // SAFETY: params was narrowed to a non-null object before reading the private marker.
     const token = (params as Record<symbol, unknown>)[approvalMarker];
     return token && typeof token === "object" ? approvals.get(token) : undefined;
   };
@@ -357,6 +358,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
         approval?.approved &&
         params &&
         typeof params === "object" &&
+        // SAFETY: params was narrowed to a non-null object before comparing its public fields.
         matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval),
       );
     },
@@ -366,6 +368,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
         !approval?.approved ||
         !params ||
         typeof params !== "object" ||
+        // SAFETY: params was narrowed to a non-null object before comparing its public fields.
         !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
       ) {
         return undefined;
@@ -378,6 +381,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
         !approval ||
         !params ||
         typeof params !== "object" ||
+        // SAFETY: params was narrowed to a non-null object before comparing its public fields.
         !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
       ) {
         return undefined;
@@ -401,10 +405,12 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
       if (!params || typeof params !== "object" || Array.isArray(params)) {
         return params;
       }
+      // SAFETY: params was narrowed to a non-null, non-array object before reading tool fields.
       const record = params as Record<string, unknown>;
       const publicParams = redactBrowserStewardCredentialMaterial(record);
       return markPending(
         record,
+        // SAFETY: redactBrowserStewardCredentialMaterial returns the string-keyed public shape.
         publicParams as Record<string, unknown>,
         binding ?? resolveBrowserStewardRuntimeApprovalBinding(record),
       );
@@ -416,12 +422,14 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
         !params ||
         typeof params !== "object" ||
         Array.isArray(params) ||
+        // SAFETY: params was narrowed to a non-null, non-array object before comparison.
         !matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
       ) {
         return params;
       }
       return attachApproval(
         approval.rawParams,
+        // SAFETY: params was narrowed to a non-null, non-array object before attaching approval.
         params as Record<string, unknown>,
         true,
         approval.binding,
