@@ -22,7 +22,7 @@
         },
         "params": {
           "cacheRetention": "short",
-          "maxTokens": 3072,
+          "maxTokens": 1024,
           "text_verbosity": "low"
         },
         "thinkingDefault": "low",

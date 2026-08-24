@@ -60,6 +60,12 @@ EVIDENCE: <current verification evidence or the missing proof>
 JUDGE: <Judge or owner review required; never self-approve>
 ```
 
+Emit only the selected profile: no preamble, reasoning, policy recap, or code
+fence. If no task packet is injected, do not call tools on the first response;
+return the profile with **Unknown** runtime facts and one **Recommended
+verification step**. If a packet exists but `get_goal` is missing or stale, do
+not search for another source.
+
 ## Handoff rules
 
 Handoffs are structured requests, not indirect execution. Allowed targets are

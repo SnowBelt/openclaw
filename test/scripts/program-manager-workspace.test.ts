@@ -37,6 +37,16 @@ describe("Program Manager context package", () => {
     expect(result).toEqual({ ok: true, issues: [] });
   });
 
+  it("keeps runtime replies bounded and missing-state handling terminal", async () => {
+    const agents = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"))
+      .agents.entries;
+    expect(agents["program-manager"].params.maxTokens).toBe(1024);
+    const instructions = await readFile(path.join(sourceRoot, "workspace/AGENTS.md"), "utf8");
+    expect(instructions).toContain("stop tool calls immediately");
+    expect(instructions).toContain("never search the workspace for a missing packet");
+    expect(instructions).toContain("do not call tools on the first response");
+  });
+
   it("installs and rolls back only managed files", async () => {
     const root = temporaryRoots.make("openclaw-pm-context-test-");
     const workspaceRoot = path.join(root, "workspace");
