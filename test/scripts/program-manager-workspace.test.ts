@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -6,6 +6,7 @@ import {
   checkSource,
   installWorkspace,
   rollbackWorkspace,
+  verifyInstalledWorkspace,
 } from "../../scripts/program-manager-workspace.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
@@ -48,14 +49,49 @@ describe("Program Manager context package", () => {
     expect(await readFile(path.join(workspaceRoot, "AGENTS.md"), "utf8")).toContain(
       "# Program Manager",
     );
+    expect(await readFile(path.join(workspaceRoot, "CONTRACT.md"), "utf8")).toContain(
+      "# Program Manager contract",
+    );
     expect(await readFile(path.join(workspaceRoot, "unrelated.txt"), "utf8")).toBe("keep me\n");
+    expect(await verifyInstalledWorkspace({ sourceRoot, workspaceRoot })).toEqual({
+      ok: true,
+      issues: [],
+      managedFiles: 7,
+    });
 
     await rollbackWorkspace({ workspaceRoot, backupRoot });
     expect(await readFile(path.join(workspaceRoot, "AGENTS.md"), "utf8")).toBe("old context\n");
-    await expect(
-      readFile(path.join(workspaceRoot, "state/program-manager.json"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(workspaceRoot, "CONTRACT.md"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     expect(await readFile(path.join(workspaceRoot, "unrelated.txt"), "utf8")).toBe("keep me\n");
+  });
+
+  it("rejects symlinked managed destinations before copying", async () => {
+    const root = temporaryRoots.make("openclaw-pm-context-symlink-");
+    const workspaceRoot = path.join(root, "workspace");
+    const backupRoot = path.join(root, "backup");
+    const outside = path.join(root, "outside.txt");
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(outside, "must remain unchanged\n", "utf8");
+    await symlink(outside, path.join(workspaceRoot, "AGENTS.md"));
+
+    await expect(installWorkspace({ sourceRoot, workspaceRoot, backupRoot })).rejects.toThrow(
+      /symlink/i,
+    );
+    expect(await readFile(outside, "utf8")).toBe("must remain unchanged\n");
+  });
+
+  it("requires delegation targets to exist in the configured agent registry", async () => {
+    const root = temporaryRoots.make("openclaw-pm-context-registry-");
+    const configPath = path.join(root, "runtime-config.json");
+    const config = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"));
+    delete config.agents.entries["research-brief-agent"];
+    await writeFile(configPath, `${JSON.stringify(config)}\n`, "utf8");
+
+    const result = await checkRuntimeConfig(configPath);
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((entry) => entry.code)).toContain("delegation_target_unconfigured");
   });
 
   it("fails closed when state contains a sensitive field", async () => {

@@ -1,21 +1,27 @@
 #!/usr/bin/env node
 
+import { execFile as execFileCallback } from "node:child_process";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import JSON5 from "json5";
+
+const execFile = promisify(execFileCallback);
+const canonicalValidationCache = new Map();
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SOURCE_ROOT = path.resolve(SCRIPT_DIR, "..", "control", "program-manager");
 
 export const MANAGED_FILES = Object.freeze([
+  "CONTRACT.md",
   "workspace/AGENTS.md",
   "workspace/TOOLS.md",
   "workspace/SOUL.md",
   "workspace/IDENTITY.md",
   "workspace/USER.md",
   "workspace/HEARTBEAT.md",
-  "state/program-manager.json",
 ]);
 
 const BOOTSTRAP_FILES = Object.freeze(
@@ -23,10 +29,10 @@ const BOOTSTRAP_FILES = Object.freeze(
 );
 const ALLOWED_TOOLS = Object.freeze([
   "get_goal",
+  "progress_card",
   "read",
   "sessions_spawn",
   "sessions_yield",
-  "update_plan",
 ]);
 const REQUIRED_DENIED_TOOLS = Object.freeze([
   "apply_patch",
@@ -95,15 +101,56 @@ async function readFileIfPresent(filePath) {
   }
 }
 
-async function fileExists(filePath) {
+async function lstatIfPresent(filePath) {
   try {
-    const stat = await fsp.stat(filePath);
-    return stat.isFile();
+    return await fsp.lstat(filePath);
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return false;
+      return null;
     }
     throw error;
+  }
+}
+
+async function fileExists(filePath) {
+  const stat = await lstatIfPresent(filePath);
+  return Boolean(stat?.isFile());
+}
+
+async function assertNoSymlinkPath(targetPath, boundaryRoot, label) {
+  const target = path.resolve(targetPath);
+  const boundary = path.resolve(boundaryRoot);
+  const relative = path.relative(boundary, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`${label} escapes its allowed root.`);
+  }
+  const paths = [];
+  let cursor = target;
+  while (true) {
+    paths.push(cursor);
+    if (cursor === boundary || cursor === path.dirname(cursor)) {
+      break;
+    }
+    cursor = path.dirname(cursor);
+  }
+  for (const candidate of paths.toReversed()) {
+    const stat = await lstatIfPresent(candidate);
+    if (stat?.isSymbolicLink()) {
+      throw new Error(`${label} contains a symlinked path: ${candidate}`);
+    }
+  }
+}
+
+async function assertRegularFile(filePath, label) {
+  const stat = await lstatIfPresent(filePath);
+  if (!stat) {
+    throw new Error(`${label} is missing.`);
+  }
+  if (stat.isSymbolicLink()) {
+    throw new Error(`${label} must not be a symlink.`);
+  }
+  if (!stat.isFile()) {
+    throw new Error(`${label} must be a regular file.`);
   }
 }
 
@@ -132,9 +179,121 @@ function workspaceRelativePath(relativePath) {
 
 function parseJson(text, label) {
   try {
-    return JSON.parse(text);
+    return JSON5.parse(text);
   } catch (error) {
     return { parseError: `${label}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+function configuredAgentEntries(config) {
+  if (Array.isArray(config?.agents?.list)) {
+    return config.agents.list.filter((entry) => isObject(entry) && typeof entry.id === "string");
+  }
+  if (isObject(config?.agents?.entries)) {
+    return Object.entries(config.agents.entries).map(([id, entry]) =>
+      Object.assign({}, isObject(entry) ? entry : {}, { id }),
+    );
+  }
+  return [];
+}
+
+function validateConfiguredAgentRegistry(config) {
+  const entries = configuredAgentEntries(config);
+  const issues = [];
+  if (entries.length === 0) {
+    issues.push(
+      issue("agent_registry_missing", "Config must define agents.list or agents.entries."),
+    );
+  }
+  const ids = new Set(entries.map((entry) => entry.id));
+  const programManager = entries.find((entry) => entry.id === "program-manager");
+  if (!programManager) {
+    issues.push(issue("agent_missing", "Configured Program Manager entry was not found."));
+  }
+  for (const target of ["builder-agent", "research-brief-agent"]) {
+    if (!ids.has(target)) {
+      issues.push(
+        issue(
+          "delegation_target_unconfigured",
+          `Configured delegation target is missing from the agent registry: ${target}.`,
+          { agentId: target },
+        ),
+      );
+    }
+  }
+  return { entries, programManager, issues };
+}
+
+async function validateCanonicalConfig(configPath) {
+  const stat = await lstatIfPresent(configPath);
+  const cacheKey = stat
+    ? `${path.resolve(configPath)}:${stat.size}:${stat.mtimeNs ?? stat.mtimeMs}`
+    : `${path.resolve(configPath)}:missing`;
+  const cached = canonicalValidationCache.get(cacheKey);
+  if (cached) {
+    return [...cached];
+  }
+  const validationScript = [
+    'import fs from "node:fs/promises";',
+    'import { parseConfigJson5 } from "./src/config/config.ts";',
+    'import { validateConfigObjectRawWithPlugins } from "./src/config/validation.ts";',
+    'const source = await fs.readFile(process.argv[1], "utf8");',
+    "const parsed = parseConfigJson5(source);",
+    'if (!parsed.ok) { console.log(JSON.stringify({ valid: false, issues: [{ path: "<root>", message: "Config parsing failed." }] })); process.exitCode = 1; }',
+    'else { const result = validateConfigObjectRawWithPlugins(parsed.parsed, { pluginValidation: "core-only", semanticValidation: "strict" }); console.log(JSON.stringify({ valid: result.ok, issues: result.ok ? [] : result.issues })); if (!result.ok) process.exitCode = 1; }',
+  ].join(" ");
+  try {
+    const { stdout } = await execFile(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", validationScript, "--", configPath],
+      {
+        cwd: path.resolve(SCRIPT_DIR, ".."),
+        env: { ...process.env, OPENCLAW_CONFIG_PATH: configPath },
+        maxBuffer: 512 * 1024,
+      },
+    );
+    const result = JSON.parse(stdout);
+    if (result?.valid === true && result?.ok !== false) {
+      canonicalValidationCache.set(cacheKey, []);
+      return [];
+    }
+    const reportedIssues = Array.isArray(result?.issues) ? result.issues : [];
+    if (reportedIssues.length === 0) {
+      const issues = [
+        issue("config_schema_invalid", "Canonical OpenClaw config validation failed."),
+      ];
+      canonicalValidationCache.set(cacheKey, issues);
+      return [...issues];
+    }
+    const issues = reportedIssues.map((entry) =>
+      issue("config_schema_invalid", "Canonical OpenClaw config validation failed.", {
+        path: typeof entry?.path === "string" ? entry.path : "<unknown>",
+      }),
+    );
+    canonicalValidationCache.set(cacheKey, issues);
+    return [...issues];
+  } catch (error) {
+    const stdout = typeof error?.stdout === "string" ? error.stdout : "";
+    try {
+      const result = JSON.parse(stdout);
+      const reportedIssues = Array.isArray(result?.issues) ? result.issues : [];
+      if (reportedIssues.length > 0) {
+        const issues = reportedIssues.map((entry) =>
+          issue("config_schema_invalid", "Canonical OpenClaw config validation failed.", {
+            path: typeof entry?.path === "string" ? entry.path : "<unknown>",
+          }),
+        );
+        canonicalValidationCache.set(cacheKey, issues);
+        return [...issues];
+      }
+    } catch {
+      // Fall through to a stable, non-sensitive error below.
+    }
+    const issues = [
+      issue("config_validation_failed", "Canonical OpenClaw config validation could not run."),
+    ];
+    canonicalValidationCache.set(cacheKey, issues);
+    return [...issues];
   }
 }
 
@@ -211,9 +370,7 @@ export function validateState(value) {
 export function validateRuntimeEntry(value) {
   const issues = [];
   if (!isObject(value)) {
-    return [
-      issue("runtime_entry_invalid", "runtime-config.json must contain programManagerEntry."),
-    ];
+    return [issue("runtime_entry_invalid", "Program Manager config entry must be an object.")];
   }
   if (!Array.isArray(value.skills) || value.skills.length !== 0) {
     issues.push(issue("skills_not_empty", "Program Manager skills must be explicitly empty."));
@@ -250,6 +407,17 @@ export function validateRuntimeEntry(value) {
         "model_budget_changed",
         "Model parameters must keep the bounded low-verbosity profile.",
       ),
+    );
+  }
+  if (typeof value.model?.primary !== "string" || value.model.primary.length === 0) {
+    issues.push(issue("model_primary_missing", "Program Manager must define a primary model ref."));
+  }
+  if (
+    !Array.isArray(value.model?.fallbacks) ||
+    value.model.fallbacks.some((modelRef) => typeof modelRef !== "string" || modelRef.length === 0)
+  ) {
+    issues.push(
+      issue("model_fallbacks_invalid", "Program Manager model fallbacks must be non-empty refs."),
     );
   }
   if (value.thinkingDefault !== "low") {
@@ -353,8 +521,11 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       }),
     );
   }
-  const stateText = await readFileIfPresent(path.join(sourceRoot, "state/program-manager.json"));
-  if (stateText !== null) {
+  const statePath = path.join(sourceRoot, "state/program-manager.json");
+  const stateText = await readFileIfPresent(statePath);
+  if (stateText === null) {
+    issues.push(issue("state_fixture_missing", "Program Manager state fixture is missing."));
+  } else {
     const parsed = parseJson(stateText, "state/program-manager.json");
     if (parsed.parseError) {
       issues.push(issue("state_invalid_json", parsed.parseError));
@@ -362,14 +533,17 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       issues.push(...validateState(parsed));
     }
   }
-  const runtimeText = await readFileIfPresent(path.join(sourceRoot, "runtime-config.json"));
-  if (runtimeText !== null) {
-    const parsed = parseJson(runtimeText, "runtime-config.json");
-    if (parsed.parseError) {
-      issues.push(issue("runtime_invalid_json", parsed.parseError));
-    } else {
-      issues.push(...validateRuntimeEntry(parsed.programManagerEntry));
-    }
+  const runtimePath = path.join(sourceRoot, "runtime-config.json");
+  try {
+    const runtimeResult = await checkRuntimeConfig(runtimePath);
+    issues.push(...runtimeResult.issues);
+  } catch (error) {
+    issues.push(
+      issue(
+        "runtime_config_unreadable",
+        `Unable to read runtime-config.json: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
   }
   const contract = await readFileIfPresent(path.join(sourceRoot, "CONTRACT.md"));
   if (contract !== null) {
@@ -404,29 +578,127 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
 }
 
 export async function checkRuntimeConfig(configPath) {
-  const text = await fsp.readFile(configPath, "utf8");
+  let text;
+  try {
+    text = await fsp.readFile(configPath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { ok: false, issues: [issue("config_missing", "Runtime config file is missing.")] };
+    }
+    throw error;
+  }
   const config = parseJson(text, configPath);
   if (config.parseError) {
     return { ok: false, issues: [issue("config_invalid_json", config.parseError)] };
   }
-  if (isObject(config.programManagerEntry)) {
-    const result = validateRuntimeEntry(config.programManagerEntry);
-    return { ok: result.length === 0, issues: result };
+  const canonicalIssues = await validateCanonicalConfig(configPath);
+  if (canonicalIssues.length > 0) {
+    return { ok: false, issues: canonicalIssues };
   }
-  const entries = Array.isArray(config.agents?.list)
-    ? config.agents.list
-    : isObject(config.agents?.entries)
-      ? Object.entries(config.agents.entries).map(([id, entry]) => Object.assign({ id }, entry))
-      : [];
-  const entry = entries.find((candidate) => candidate?.id === "program-manager");
-  if (!entry) {
-    return {
-      ok: false,
-      issues: [issue("agent_missing", "Configured Program Manager entry was not found.")],
-    };
+  const registry = validateConfiguredAgentRegistry(config);
+  const result = validateRuntimeEntry(registry.programManager);
+  const issues = [...registry.issues, ...result];
+  return { ok: issues.length === 0, issues };
+}
+
+async function prepareDestination(destination, workspaceRoot, label) {
+  await assertNoSymlinkPath(destination, workspaceRoot, label);
+  const stat = await lstatIfPresent(destination);
+  if (stat?.isSymbolicLink()) {
+    throw new Error(`${label} must not be a symlink.`);
   }
-  const result = validateRuntimeEntry(entry);
-  return { ok: result.length === 0, issues: result };
+  if (stat && !stat.isFile()) {
+    throw new Error(`${label} must be a regular file.`);
+  }
+  return Boolean(stat);
+}
+
+async function restoreWorkspaceEntries({ workspaceRoot, backupRoot, files }) {
+  const allowed = new Set(MANAGED_FILES.map(workspaceRelativePath));
+  for (const entry of files.toReversed()) {
+    if (
+      !isObject(entry) ||
+      typeof entry.relativePath !== "string" ||
+      !allowed.has(entry.relativePath)
+    ) {
+      throw new Error("Backup restore record contains an unexpected managed path.");
+    }
+    const destination = destinationFor(workspaceRoot, entry.relativePath);
+    await prepareDestination(
+      destination,
+      workspaceRoot,
+      `Workspace destination ${entry.relativePath}`,
+    );
+    if (entry.existed === true) {
+      const backup = path.join(backupRoot, "files", entry.relativePath);
+      await assertNoSymlinkPath(backup, backupRoot, `Backup file ${entry.relativePath}`);
+      await assertRegularFile(backup, `Backup file ${entry.relativePath}`);
+      await fsp.mkdir(path.dirname(destination), { recursive: true });
+      await fsp.copyFile(backup, destination);
+    } else if (entry.existed === false) {
+      if (await fileExists(destination)) {
+        await fsp.unlink(destination);
+      }
+    } else {
+      throw new Error("Backup restore record contains an invalid existed flag.");
+    }
+  }
+}
+
+export async function verifyInstalledWorkspace({
+  sourceRoot = DEFAULT_SOURCE_ROOT,
+  workspaceRoot,
+}) {
+  if (!workspaceRoot) {
+    throw new Error("verify-install requires --workspace");
+  }
+  const issues = [];
+  for (const relativePath of MANAGED_FILES) {
+    const destinationRelativePath = workspaceRelativePath(relativePath);
+    const destination = destinationFor(workspaceRoot, destinationRelativePath);
+    try {
+      await prepareDestination(
+        destination,
+        workspaceRoot,
+        `Workspace destination ${destinationRelativePath}`,
+      );
+    } catch (error) {
+      issues.push(
+        issue(
+          "installed_destination_invalid",
+          error instanceof Error ? error.message : String(error),
+          {
+            file: destinationRelativePath,
+          },
+        ),
+      );
+      continue;
+    }
+    const sourceText = await readFileIfPresent(path.join(sourceRoot, relativePath));
+    const destinationText = await readFileIfPresent(destination);
+    if (sourceText === null || destinationText === null) {
+      issues.push(
+        issue(
+          "installed_file_missing",
+          `Installed managed file is missing: ${destinationRelativePath}.`,
+          {
+            file: destinationRelativePath,
+          },
+        ),
+      );
+    } else if (sourceText !== destinationText) {
+      issues.push(
+        issue(
+          "installed_file_mismatch",
+          `Installed managed file differs from source: ${destinationRelativePath}.`,
+          {
+            file: destinationRelativePath,
+          },
+        ),
+      );
+    }
+  }
+  return { ok: issues.length === 0, issues, managedFiles: MANAGED_FILES.length };
 }
 
 export async function installWorkspace({
@@ -441,50 +713,74 @@ export async function installWorkspace({
   if (!sourceCheck.ok) {
     throw new Error(`Source check failed: ${JSON.stringify(sourceCheck.issues)}`);
   }
-  if (await fileExists(path.join(backupRoot, "restore.json"))) {
+  await assertNoSymlinkPath(backupRoot, path.dirname(path.resolve(backupRoot)), "Backup root");
+  const restorePath = path.join(backupRoot, "restore.json");
+  const existingRestore = await lstatIfPresent(restorePath);
+  if (existingRestore) {
     throw new Error("Backup directory is already in use.");
   }
+  const backupRootInitiallyPresent = Boolean(await lstatIfPresent(backupRoot));
   await fsp.mkdir(path.join(backupRoot, "files"), { recursive: true });
+  await assertNoSymlinkPath(path.join(backupRoot, "files"), backupRoot, "Backup files root");
   const restore = { files: [] };
-  for (const relativePath of MANAGED_FILES) {
-    const destinationRelativePath = workspaceRelativePath(relativePath);
-    const destination = destinationFor(workspaceRoot, destinationRelativePath);
-    const source = path.join(sourceRoot, relativePath);
-    const existed = await fileExists(destination);
-    restore.files.push({ relativePath: destinationRelativePath, existed });
-    if (existed) {
-      const backup = path.join(backupRoot, "files", destinationRelativePath);
-      await fsp.mkdir(path.dirname(backup), { recursive: true });
-      await fsp.copyFile(destination, backup);
+  try {
+    for (const relativePath of MANAGED_FILES) {
+      const destinationRelativePath = workspaceRelativePath(relativePath);
+      const destination = destinationFor(workspaceRoot, destinationRelativePath);
+      const source = path.join(sourceRoot, relativePath);
+      await assertRegularFile(source, `Source file ${relativePath}`);
+      const existed = await prepareDestination(
+        destination,
+        workspaceRoot,
+        `Workspace destination ${destinationRelativePath}`,
+      );
+      if (existed) {
+        const backup = path.join(backupRoot, "files", destinationRelativePath);
+        await assertNoSymlinkPath(backup, backupRoot, `Backup file ${destinationRelativePath}`);
+        await fsp.mkdir(path.dirname(backup), { recursive: true });
+        await fsp.copyFile(destination, backup);
+      }
+      restore.files.push({ relativePath: destinationRelativePath, existed });
+      await fsp.mkdir(path.dirname(destination), { recursive: true });
+      await fsp.copyFile(source, destination);
     }
-    await fsp.mkdir(path.dirname(destination), { recursive: true });
-    await fsp.copyFile(source, destination);
+
+    const verification = await verifyInstalledWorkspace({ sourceRoot, workspaceRoot });
+    if (!verification.ok) {
+      throw new Error(`Install verification failed: ${JSON.stringify(verification.issues)}`);
+    }
+    await fsp.writeFile(restorePath, `${JSON.stringify(restore, null, 2)}\n`, "utf8");
+    return { ok: true, managedFiles: MANAGED_FILES.length, backupRoot };
+  } catch (error) {
+    try {
+      await restoreWorkspaceEntries({ workspaceRoot, backupRoot, files: restore.files });
+      if (!backupRootInitiallyPresent) {
+        await fsp.rm(backupRoot, { recursive: true, force: true });
+      }
+    } catch (rollbackError) {
+      throw new Error(
+        `Install failed and automatic rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        { cause: rollbackError },
+      );
+    }
+    throw error;
   }
-  await fsp.writeFile(
-    path.join(backupRoot, "restore.json"),
-    `${JSON.stringify(restore, null, 2)}\n`,
-    "utf8",
-  );
-  return { ok: true, managedFiles: MANAGED_FILES.length, backupRoot };
 }
 
 export async function rollbackWorkspace({ workspaceRoot, backupRoot }) {
   if (!workspaceRoot || !backupRoot) {
     throw new Error("rollback requires --workspace and --backup-dir");
   }
-  const restoreText = await fsp.readFile(path.join(backupRoot, "restore.json"), "utf8");
+  await assertNoSymlinkPath(backupRoot, path.dirname(path.resolve(backupRoot)), "Backup root");
+  const restorePath = path.join(backupRoot, "restore.json");
+  await assertNoSymlinkPath(restorePath, backupRoot, "Restore record");
+  await assertRegularFile(restorePath, "Restore record");
+  const restoreText = await fsp.readFile(restorePath, "utf8");
   const restore = JSON.parse(restoreText);
   if (!Array.isArray(restore.files)) {
     throw new Error("Backup restore record is invalid.");
   }
-  for (const entry of restore.files) {
-    const destination = destinationFor(workspaceRoot, entry.relativePath);
-    if (entry.existed) {
-      await fsp.copyFile(path.join(backupRoot, "files", entry.relativePath), destination);
-    } else if (await fileExists(destination)) {
-      await fsp.unlink(destination);
-    }
-  }
+  await restoreWorkspaceEntries({ workspaceRoot, backupRoot, files: restore.files });
   return { ok: true, restoredFiles: restore.files.length };
 }
 
@@ -535,7 +831,7 @@ async function main(argv) {
   const args = parseArgs(argv);
   if (args.help) {
     console.log(
-      "Usage: node scripts/program-manager-workspace.mjs [check|check-config|install|rollback] [options]",
+      "Usage: node scripts/program-manager-workspace.mjs [check|check-config|install|verify-install|rollback] [options]",
     );
     return;
   }
@@ -552,6 +848,11 @@ async function main(argv) {
       sourceRoot: args.sourceRoot,
       workspaceRoot: args.workspaceRoot,
       backupRoot: args.backupRoot,
+    });
+  } else if (args.command === "verify-install") {
+    result = await verifyInstalledWorkspace({
+      sourceRoot: args.sourceRoot,
+      workspaceRoot: args.workspaceRoot,
     });
   } else if (args.command === "rollback") {
     result = await rollbackWorkspace({

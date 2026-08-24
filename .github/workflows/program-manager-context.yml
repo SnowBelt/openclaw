@@ -44,5 +44,7 @@ jobs:
           install-bun: "false"
       - name: Validate source package
         run: node scripts/program-manager-workspace.mjs check --json
+      - name: Validate canonical runtime config
+        run: node scripts/program-manager-workspace.mjs check-config --config control/program-manager/runtime-config.json --json
       - name: Run focused tests
         run: pnpm test test/scripts/program-manager-workspace.test.ts -- --reporter=dot
