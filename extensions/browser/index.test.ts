@@ -584,6 +584,7 @@ describe("browser plugin", () => {
         chatType: "direct",
       },
       approvalAuthority: expect.any(Object),
+      browserOwnedGatewayRequest: expect.any(Function),
       toolCapabilities: expect.any(Object),
     });
   });
@@ -622,6 +623,7 @@ describe("browser plugin", () => {
         chatType: "direct",
       },
       approvalAuthority: expect.any(Object),
+      browserOwnedGatewayRequest: expect.any(Function),
       toolCapabilities: expect.any(Object),
     });
   });
@@ -673,6 +675,7 @@ describe("browser plugin", () => {
     expect(runtimeApiMocks.createBrowserTool).toHaveBeenCalledWith({
       runToolBinding: binding,
       approvalAuthority: expect.any(Object),
+      browserOwnedGatewayRequest: expect.any(Function),
       toolCapabilities: expect.any(Object),
     });
   });
@@ -733,6 +736,7 @@ describe("browser plugin", () => {
     expect(runtimeApiMocks.createBrowserTool).toHaveBeenCalledWith({
       runToolBinding: expect.objectContaining({ profile: "chrome", targetId: "target-7" }),
       approvalAuthority: expect.any(Object),
+      browserOwnedGatewayRequest: expect.any(Function),
       toolCapabilities: expect.objectContaining({
         tabBound: true,
       }),
@@ -815,6 +819,7 @@ describe("browser plugin", () => {
         chatType: "group",
       },
       approvalAuthority: expect.any(Object),
+      browserOwnedGatewayRequest: expect.any(Function),
       toolCapabilities: expect.any(Object),
     });
   });
