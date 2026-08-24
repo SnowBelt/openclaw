@@ -870,6 +870,12 @@ const lazyPatternLab = createLazyView(
   notifyLazyViewChanged,
 );
 const lazyPcc = createLazyView(() => import("./views/pcc.ts"), notifyLazyViewChanged);
+if (typeof window !== "undefined" && /(?:^|\/)pcc(?:\/|$)/u.test(window.location.pathname)) {
+  // The Work Overview is the primary PCC entrypoint. Start its lazy chunk while
+  // the gateway connection is being established so the first usable surface is
+  // not serialized behind module parsing.
+  lazyPcc.read();
+}
 const lazyMusicStudio = createLazyView(
   () => import("./views/music-studio.ts"),
   notifyLazyViewChanged,
