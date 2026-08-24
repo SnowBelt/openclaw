@@ -33,12 +33,13 @@ jobs:
     name: Program Manager context contract
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-node-env
         with:
+          cache-mode: restore
           node-version: ${{ env.NODE_VERSION }}
           install-bun: "false"
       - name: Validate source package
