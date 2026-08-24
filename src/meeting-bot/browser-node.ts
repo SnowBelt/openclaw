@@ -1,4 +1,3 @@
-import { addTimerTimeoutGraceMs } from "@openclaw/normalization-core/number-coercion";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type {
   MeetingBrowserRequestCaller,
@@ -133,21 +132,17 @@ export async function callMeetingBrowserProxyOnNode(
 ) {
   // Browser owns the proxy boundary. Meeting plugins must not invoke the raw
   // browser.proxy node command with their generic plugin identity.
-  return await params.runtime.gateway.request(
-    "browser.request",
-    {
-      method: params.method,
-      path: params.path,
-      body: params.body,
-      timeoutMs: params.timeoutMs,
-      nodeId: params.nodeId,
-      allowAutomaticHostFallback: false,
-    },
-    {
-      timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? 1,
-      scopes: ["operator.admin"],
-    },
-  );
+  const browser = params.runtime.browser;
+  if (!browser) {
+    throw new Error("Browser-owned node delegation is unavailable");
+  }
+  return await browser.request({
+    method: params.method,
+    path: params.path,
+    ...(params.body !== undefined ? { body: params.body } : {}),
+    timeoutMs: params.timeoutMs,
+    nodeId: params.nodeId,
+  });
 }
 
 export function createMeetingBrowserNodeCaller(params: {

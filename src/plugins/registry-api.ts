@@ -102,6 +102,7 @@ export function createPluginApiFactory(
     registerSessionSchedulerJob,
     registerSessionAction,
     registerTypedHook,
+    registerBrowserNodeDelegation,
     registerMemoryCapability,
     registerMemoryPromptSupplement,
     registerMemoryPromptPreparation,
@@ -194,6 +195,8 @@ export function createPluginApiFactory(
                 registerAgentHarness(record, harness, options),
               registerDetachedTaskRuntime: (runtime) =>
                 registerDetachedTaskRuntime(record, runtime),
+              registerBrowserNodeDelegation: (delegation) =>
+                registerBrowserNodeDelegation(record, delegation),
               registerSpeechProvider: (provider) => registerSpeechProvider(record, provider),
               registerRealtimeTranscriptionProvider: (provider) =>
                 registerRealtimeTranscriptionProvider(record, provider),

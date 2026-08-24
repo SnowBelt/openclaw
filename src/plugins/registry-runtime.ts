@@ -819,6 +819,24 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               }),
           } satisfies PluginRuntime["gateway"];
         }
+        if (prop === "browser") {
+          const registration = registry.browserNodeDelegations.find((entry) =>
+            entry.delegation.consumerPluginIds.includes(pluginId),
+          );
+          if (!registration) {
+            return undefined;
+          }
+          return {
+            request: async (params) => {
+              if (!registry.browserNodeDelegations.includes(registration)) {
+                throw new Error("Browser node delegation is no longer active.");
+              }
+              return await runWithPluginScope(() =>
+                registration.delegation.request({ ...params, consumerPluginId: pluginId }),
+              );
+            },
+          } satisfies NonNullable<PluginRuntime["browser"]>;
+        }
         if (prop === "nodes") {
           const nodes = getRuntimeProperty();
           return {

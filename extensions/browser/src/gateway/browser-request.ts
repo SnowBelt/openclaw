@@ -29,6 +29,7 @@ import {
 import { createBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
 import {
   assertBrowserStewardRuntimeAllowed,
+  BROWSER_STEWARD_AGENT_ID,
   resolveBrowserStewardProxyAction,
   shouldApplyBrowserStewardRuntimeGuard,
 } from "../browser/browser-steward-runtime-guard.js";
@@ -106,10 +107,32 @@ export async function handleBrowserGatewayRequest({
   const browserNodeSessionLease = normalizeOptionalString(typed.browserNodeSessionLease);
   const routeOnly = typed.routeOnly === true;
   const operatorAdmin = client?.connect?.scopes?.includes(BROWSER_REQUEST_GATEWAY_SCOPE) === true;
-  const appliesBrowserStewardGuard = shouldApplyBrowserStewardRuntimeGuard({
-    sessionKey: typed.agentSessionKey,
-    agentId: typed.agentId,
-  });
+  const pluginRuntimeOwnerId = normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId);
+  const browserPluginRuntime = pluginRuntimeOwnerId === "browser";
+  if (pluginRuntimeOwnerId && !browserPluginRuntime) {
+    respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.INVALID_REQUEST, "browser control requires a Browser-owned capability"),
+    );
+    return;
+  }
+  const directOperator =
+    !pluginRuntimeOwnerId &&
+    operatorAdmin &&
+    !typed.agentSessionKey?.trim() &&
+    !typed.agentId?.trim();
+  const appliesBrowserStewardGuard =
+    shouldApplyBrowserStewardRuntimeGuard({
+      sessionKey: typed.agentSessionKey,
+      agentId: typed.agentId,
+    }) ||
+    browserPluginRuntime ||
+    directOperator;
+  const effectiveAgentId =
+    browserPluginRuntime || directOperator ? BROWSER_STEWARD_AGENT_ID : typed.agentId;
+  const effectiveAgentSessionKey =
+    browserPluginRuntime || directOperator ? undefined : typed.agentSessionKey;
   const requestedProfile = resolveRequestedBrowserProfile({
     query,
     body,
@@ -198,8 +221,8 @@ export async function handleBrowserGatewayRequest({
       assertBrowserStewardRuntimeAllowed({
         action: resolveBrowserStewardProxyAction({ method: methodRaw, path, body }),
         profile: requestedProfile,
-        agentSessionKey: typed.agentSessionKey,
-        agentId: typed.agentId,
+        agentSessionKey: effectiveAgentSessionKey,
+        agentId: effectiveAgentId,
         approved: operatorAdmin,
         request: body,
       });
@@ -352,8 +375,8 @@ export async function handleBrowserGatewayRequest({
       upload: preparedUpload.upload,
       timeoutMs: typed.browserProxyTimeoutMs ?? timeoutMs,
       profile: appliesBrowserStewardGuard ? stewardProfile : requestedProfile,
-      agentSessionKey: typed.agentSessionKey,
-      agentId: typed.agentId,
+      agentSessionKey: effectiveAgentSessionKey,
+      agentId: effectiveAgentId,
       ...(operatorAdmin && appliesBrowserStewardGuard
         ? {
             browserStewardApproval: createBrowserStewardGatewayApproval({
@@ -364,8 +387,8 @@ export async function handleBrowserGatewayRequest({
               body: preparedUpload.body,
               upload: preparedUpload.upload,
               profile: stewardProfile,
-              agentSessionKey: typed.agentSessionKey,
-              agentId: typed.agentId,
+              agentSessionKey: effectiveAgentSessionKey,
+              agentId: effectiveAgentId,
               nodeId: nodeTarget.nodeId,
               pairingGeneration: nodeTarget.pairingGeneration ?? "",
               invocationId: idempotencyKey,

@@ -73,6 +73,7 @@ function createApi() {
   const registerGatewayMethod = vi.fn();
   const registerTrustedToolPolicy = vi.fn();
   const registerNodeInvokePolicy = vi.fn();
+  const registerBrowserNodeDelegation = vi.fn();
   const registerService = vi.fn();
   const registerTool = vi.fn();
   const openKeyedStore = vi.fn(() => ({
@@ -106,6 +107,7 @@ function createApi() {
     registerGatewayMethod,
     registerTrustedToolPolicy,
     registerNodeInvokePolicy,
+    registerBrowserNodeDelegation,
     registerService,
     registerTool,
   });
@@ -117,6 +119,7 @@ function createApi() {
     registerGatewayMethod,
     registerTrustedToolPolicy,
     registerNodeInvokePolicy,
+    registerBrowserNodeDelegation,
     registerService,
     registerTool,
   };
@@ -169,7 +172,20 @@ describe("browser plugin", () => {
     expect(runtimeApiMocks.createBrowserPluginService).not.toHaveBeenCalled();
   });
 
-  it("blocks raw node control and requires the Browser gateway request path", async () => {
+  it("registers Browser-owned node delegation only for supported meeting plugins", () => {
+    const { api, registerBrowserNodeDelegation } = createApi();
+    registerBrowserPlugin(api);
+
+    expect(registerBrowserNodeDelegation).toHaveBeenCalledOnce();
+    expect(registerBrowserNodeDelegation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        consumerPluginIds: ["google-meet", "teams-meetings", "zoom-meetings"],
+        request: expect.any(Function),
+      }),
+    );
+  });
+
+  it("routes direct admin node control through Browser Steward approval", async () => {
     const { api, registerNodeInvokePolicy } = createApi();
     registerBrowserPlugin(api);
 
@@ -180,7 +196,7 @@ describe("browser plugin", () => {
     };
     expect(policy.commands).toEqual(["browser.proxy", "browser.proxy.upload.v1"]);
 
-    const invokeNode = vi.fn(async (params: unknown) => params);
+    const invokeNode = vi.fn(async () => ({ ok: true, payload: { result: { ok: true } } }));
     const params = {
       method: "POST",
       path: "/tabs/open",
@@ -189,7 +205,7 @@ describe("browser plugin", () => {
       agentSessionKey: "agent:browser-session-credential-steward:policy-run:user-123",
       agentId: "browser-session-credential-steward",
     };
-    const blocked = await policy.handle({
+    const allowed = await policy.handle({
       nodeId: "node-1",
       command: "browser.proxy",
       params,
@@ -201,12 +217,14 @@ describe("browser plugin", () => {
       invokeNode,
     });
 
-    expect(blocked).toEqual({
-      ok: false,
-      code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-      message: "browser node control requires the Browser gateway request path",
-    });
-    expect(invokeNode).not.toHaveBeenCalled();
+    expect(allowed).toMatchObject({ ok: true });
+    const forwarded = invokeNode.mock.calls[0]?.[0] as {
+      params?: Record<string, unknown>;
+    };
+    expect(forwarded.params?.agentId).toBe("browser-session-credential-steward");
+    expect(forwarded.params?.agentSessionKey).toBeUndefined();
+    expect(forwarded.params?.browserStewardApproval).toBeDefined();
+    invokeNode.mockClear();
 
     const pluginParams = { method: "GET", path: "/profiles" };
     const pluginResult = await policy.handle({
@@ -223,7 +241,7 @@ describe("browser plugin", () => {
     expect(pluginResult).toEqual({
       ok: false,
       code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-      message: "browser node control requires the Browser gateway request path",
+      message: "browser node control requires the Browser-owned capability",
     });
     expect(invokeNode).not.toHaveBeenCalled();
 
@@ -241,7 +259,7 @@ describe("browser plugin", () => {
     expect(invokeNode).not.toHaveBeenCalled();
   });
 
-  it("rejects raw node.invoke browser control without a trusted Browser Steward session", async () => {
+  it("rejects plugin-owned raw node.invoke browser control", async () => {
     const { api, registerNodeInvokePolicy } = createApi();
     registerBrowserPlugin(api);
     const policy = registerNodeInvokePolicy.mock.calls[0]?.[0] as {
@@ -260,13 +278,14 @@ describe("browser plugin", () => {
         },
         idempotencyKey: "raw-invoke-1",
         node: { nodeId: "node-1", pairingGeneration: "pairing-1" },
+        pluginRuntimeOwnerId: "google-meet",
         client: { scopes: ["operator.admin"] },
         invokeNode,
       }),
     ).resolves.toEqual({
       ok: false,
       code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-      message: "browser node control requires the Browser gateway request path",
+      message: "browser node control requires the Browser-owned capability",
     });
     expect(invokeNode).not.toHaveBeenCalled();
   });

@@ -42,6 +42,7 @@ import type {
 } from "./manifest.js";
 import type { PluginKind } from "./plugin-kind.types.js";
 import type {
+  PluginBrowserNodeDelegationRegistration,
   ContextEngineRegistration,
   MemoryCorpusSupplementRegistration,
   MemoryPluginCapabilityRegistration,
@@ -558,6 +559,7 @@ export type PluginRegistry = {
   detachedTaskRuntimes: DetachedTaskLifecycleRuntimeRegistration[];
   legacyInternalHooks: PluginLegacyInternalHookRegistration[];
   memoryCapabilities: MemoryPluginCapabilityRegistration[];
+  browserNodeDelegations: PluginBrowserNodeDelegationRegistration[];
   memoryCorpusSupplements: MemoryCorpusSupplementRegistration[];
   memoryPromptPreparations: MemoryPromptPreparationRegistration[];
   memoryPromptSupplements: MemoryPromptSupplementRegistration[];

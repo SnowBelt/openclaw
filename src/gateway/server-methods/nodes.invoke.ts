@@ -129,7 +129,8 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
     if (
       isBrowserProxyNodeInvokeCommand(command) &&
       !trustedAgentRuntime &&
-      !trustedPluginRuntimeOwner
+      !trustedPluginRuntimeOwner &&
+      !nodeInvokePolicy.clientHasOperatorAdminScope(client)
     ) {
       respond(
         false,
@@ -341,6 +342,17 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
           return;
         }
         if (!(await continuePairingWork())) {
+          return;
+        }
+        if (isBrowserProxyNodeInvokeCommand(command) && !policyResult) {
+          respond(
+            false,
+            undefined,
+            errorShape(
+              ErrorCodes.INVALID_REQUEST,
+              "browser node control requires an active Browser Steward policy",
+            ),
+          );
           return;
         }
         if (policyResult) {

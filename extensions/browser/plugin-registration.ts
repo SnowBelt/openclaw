@@ -5,6 +5,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
+import { addTimerTimeoutGraceMs } from "openclaw/plugin-sdk/number-runtime";
 import type {
   AnyAgentTool,
   OpenClawPluginApi,
@@ -36,6 +37,7 @@ import {
 } from "./src/browser-tool.schema.js";
 import {
   approveBrowserStewardRuntimeParams,
+  createBrowserStewardGatewayApproval,
   getBrowserStewardRuntimeApprovalPromptBinding,
   isBrowserStewardRuntimeApproved,
   resolveBrowserStewardRuntimePolicyParams,
@@ -43,11 +45,13 @@ import {
 } from "./src/browser/browser-steward-approval.js";
 import {
   evaluateBrowserStewardRuntimeGuard,
+  BROWSER_STEWARD_AGENT_ID,
   redactBrowserStewardCredentialMaterial,
   shouldApplyBrowserStewardRuntimeGuard,
 } from "./src/browser/browser-steward-runtime-guard.js";
 import { resolveBrowserConfig, resolveProfile } from "./src/browser/config.js";
 import { getBrowserProfileCapabilities } from "./src/browser/profile-capabilities.js";
+import { normalizeBrowserRequestPath } from "./src/browser/request-policy.js";
 import { initializeBrowserSessionTabStore } from "./src/browser/session-tab-store.js";
 import {
   configureSystemProfileImportStateStore,
@@ -399,10 +403,96 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           message: "browser node control requires operator admin authority",
         };
       }
+      if (ctx.pluginRuntimeOwnerId) {
+        return {
+          ok: false,
+          code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
+          message: "browser node control requires the Browser-owned capability",
+        };
+      }
+      const rawParams =
+        ctx.params && typeof ctx.params === "object" && !Array.isArray(ctx.params)
+          ? (ctx.params as Record<string, unknown>)
+          : undefined;
+      const method = typeof rawParams?.method === "string" ? rawParams.method.toUpperCase() : "";
+      const path = typeof rawParams?.path === "string" ? rawParams.path : "";
+      if (!method || !path) {
+        return {
+          ok: false,
+          code: "BROWSER_STEWARD_INVALID_REQUEST",
+          message: "browser node control requires method and path",
+        };
+      }
+      if (method !== "GET" && method !== "POST" && method !== "DELETE") {
+        return {
+          ok: false,
+          code: "BROWSER_STEWARD_INVALID_REQUEST",
+          message: "browser node control method is unsupported",
+        };
+      }
+      const normalizedPath = normalizeBrowserRequestPath(path);
+      const requestedProfile =
+        typeof rawParams?.profile === "string" ? rawParams.profile : undefined;
+      const profile =
+        normalizedPath === "/profiles"
+          ? ""
+          : (requestedProfile ??
+            resolveBrowserConfig(ctx.config.browser, ctx.config).defaultProfile);
+      const commandParams = {
+        method,
+        path,
+        ...(rawParams?.query !== undefined ? { query: rawParams.query } : {}),
+        ...(rawParams?.body !== undefined ? { body: rawParams.body } : {}),
+        ...(rawParams?.upload !== undefined ? { upload: rawParams.upload } : {}),
+        ...(rawParams?.browserProxyTimeoutMs !== undefined
+          ? { browserProxyTimeoutMs: rawParams.browserProxyTimeoutMs }
+          : {}),
+        profile,
+        agentId: BROWSER_STEWARD_AGENT_ID,
+      } satisfies Record<string, unknown>;
+      let approval: Record<string, unknown>;
+      try {
+        approval = createBrowserStewardGatewayApproval({
+          command: ctx.command,
+          method,
+          path,
+          query: rawParams?.query,
+          body: rawParams?.body,
+          upload: rawParams?.upload,
+          profile,
+          agentId: BROWSER_STEWARD_AGENT_ID,
+          nodeId: ctx.nodeId,
+          pairingGeneration: ctx.node?.pairingGeneration ?? "",
+          invocationId: ctx.idempotencyKey ?? "",
+        }) as unknown as Record<string, unknown>;
+      } catch {
+        return {
+          ok: false,
+          code: "BROWSER_STEWARD_INVALID_REQUEST",
+          message: "browser node control approval could not be created",
+        };
+      }
+      const forwardedParams = {
+        ...commandParams,
+        browserStewardApproval: approval,
+      };
+      const result = await ctx.invokeNode({
+        params: forwardedParams,
+        timeoutMs: ctx.timeoutMs,
+        idempotencyKey: ctx.idempotencyKey,
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          code: result.code,
+          message: result.message,
+          ...(result.details ? { details: result.details } : {}),
+        };
+      }
       return {
-        ok: false,
-        code: "BROWSER_STEWARD_APPROVAL_REQUIRED",
-        message: "browser node control requires the Browser gateway request path",
+        ok: true,
+        ...(result.payload !== undefined ? { payload: result.payload } : {}),
+        ...(result.payloadJSON !== undefined ? { payloadJSON: result.payloadJSON } : {}),
       };
     },
   };
@@ -463,6 +553,26 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
     const config = ctx.getRuntimeConfig?.() ?? ctx.runtimeConfig ?? ctx.config;
     return createLazyBrowserTool(createBrowserToolOptions(ctx), config);
   }) as OpenClawPluginToolFactory);
+  api.registerBrowserNodeDelegation?.({
+    consumerPluginIds: ["google-meet", "teams-meetings", "zoom-meetings"],
+    request: async ({ method, path, body, timeoutMs, nodeId }) =>
+      await api.runtime.gateway.request(
+        BROWSER_REQUEST_GATEWAY_METHOD,
+        {
+          method,
+          path,
+          ...(body !== undefined ? { body } : {}),
+          timeoutMs,
+          ...(nodeId ? { nodeId } : {}),
+          agentId: BROWSER_STEWARD_AGENT_ID,
+          allowAutomaticHostFallback: false,
+        },
+        {
+          timeoutMs: addTimerTimeoutGraceMs(timeoutMs) ?? 1,
+          scopes: [BROWSER_REQUEST_GATEWAY_SCOPE],
+        },
+      ),
+  });
   api.registerTrustedToolPolicy(createBrowserStewardTrustedToolPolicy());
   api.registerNodeInvokePolicy(createBrowserProxyNodeInvokePolicy());
   api.registerCli(

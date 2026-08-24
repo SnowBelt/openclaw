@@ -26,7 +26,7 @@ type BrowserStewardRuntimeRequest = {
   request?: unknown;
 };
 
-const BROWSER_STEWARD_AGENT_ID = "browser-session-credential-steward";
+export const BROWSER_STEWARD_AGENT_ID = "browser-session-credential-steward";
 
 type BrowserStewardSessionBoundaryKind =
   | "browser_steward"

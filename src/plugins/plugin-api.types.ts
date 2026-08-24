@@ -78,6 +78,7 @@ import type {
 import type { UnifiedModelCatalogProviderPlugin } from "./provider-catalog.types.js";
 import type { ProviderPlugin } from "./provider-plugin.types.js";
 import type {
+  BrowserNodeDelegation,
   ContextEngineFactory,
   MemoryCorpusSupplement,
   MemoryPluginCapability,
@@ -439,6 +440,8 @@ export type OpenClawPluginApi = {
   ) => Promise<PluginSessionTurnUnscheduleByTagResult>;
   /** Register the active detached task runtime for this plugin (exclusive slot). */
   registerDetachedTaskRuntime: (runtime: DetachedTaskLifecycleRuntime) => void;
+  /** Register a Browser-owned node request capability for named plugin consumers. */
+  registerBrowserNodeDelegation?: (delegation: BrowserNodeDelegation) => void;
   /** Register the active memory capability for this memory plugin (exclusive slot). */
   registerMemoryCapability: (capability: MemoryPluginCapability) => void;
   /** Register an additive memory-adjacent prompt section (non-exclusive). */

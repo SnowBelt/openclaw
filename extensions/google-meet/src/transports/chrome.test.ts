@@ -1,5 +1,5 @@
 // Google Meet tests cover chrome plugin behavior.
-import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
+import { addTimerTimeoutGraceMs, MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { resolveGoogleMeetConfig } from "../config.js";
@@ -27,7 +27,24 @@ function browserRuntime(request: TestGatewayRequest): PluginRuntime {
       options?: unknown,
     ) => (await request(method, params ?? {}, options)) as T,
   };
-  return { gateway } as PluginRuntime;
+  const browser: NonNullable<PluginRuntime["browser"]> = {
+    request: async (params) => {
+      const { nodeId, ...requestParams } = params;
+      return await request(
+        "browser.request",
+        {
+          ...requestParams,
+          body: params.body,
+          ...(nodeId ? { nodeId } : {}),
+        },
+        {
+          timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? 1,
+          scopes: ["operator.admin"],
+        },
+      );
+    },
+  };
+  return { gateway, browser } as PluginRuntime;
 }
 
 describe("google meet chrome transport", () => {

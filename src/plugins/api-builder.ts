@@ -81,6 +81,7 @@ type BuildPluginApiParams = {
       | "scheduleSessionTurn"
       | "unscheduleSessionTurnsByTag"
       | "registerDetachedTaskRuntime"
+      | "registerBrowserNodeDelegation"
       | "registerMemoryCapability"
       | "registerMemoryPromptSupplement"
       | "registerMemoryPromptPreparation"
@@ -177,6 +178,9 @@ const noopScheduleSessionTurn: OpenClawPluginApi["scheduleSessionTurn"] = async 
 const noopUnscheduleSessionTurnsByTag: OpenClawPluginApi["unscheduleSessionTurnsByTag"] =
   async () => ({ removed: 0, failed: 0 });
 const noopRegisterDetachedTaskRuntime: OpenClawPluginApi["registerDetachedTaskRuntime"] = () => {};
+const noopRegisterBrowserNodeDelegation: NonNullable<
+  OpenClawPluginApi["registerBrowserNodeDelegation"]
+> = () => {};
 const noopRegisterMemoryCapability: OpenClawPluginApi["registerMemoryCapability"] = () => {};
 const noopRegisterMemoryPromptSupplement: OpenClawPluginApi["registerMemoryPromptSupplement"] =
   () => {};
@@ -290,6 +294,8 @@ export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi 
       handlers.unscheduleSessionTurnsByTag ?? noopUnscheduleSessionTurnsByTag,
     registerDetachedTaskRuntime:
       handlers.registerDetachedTaskRuntime ?? noopRegisterDetachedTaskRuntime,
+    registerBrowserNodeDelegation:
+      handlers.registerBrowserNodeDelegation ?? noopRegisterBrowserNodeDelegation,
     registerMemoryCapability: handlers.registerMemoryCapability ?? noopRegisterMemoryCapability,
     registerMemoryPromptSupplement:
       handlers.registerMemoryPromptSupplement ?? noopRegisterMemoryPromptSupplement,
