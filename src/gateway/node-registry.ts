@@ -1201,7 +1201,6 @@ export class NodeRegistry {
     signal?: AbortSignal;
     idempotencyKey?: string;
     sessionKey?: string;
-    pairingGeneration?: string;
     /** Receives the id after pairing validation and a successful dispatch. */
     onDispatchReady?: (invokeId: string) => void;
     /** Revalidates caller authority at the registry-owned transport handoff. */

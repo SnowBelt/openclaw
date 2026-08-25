@@ -479,9 +479,6 @@ export async function applyPluginNodeInvokePolicy(params: {
       ...(params.nodeSession.pairingGeneration
         ? { expectedPairingGeneration: params.nodeSession.pairingGeneration }
         : {}),
-      ...(params.nodeSession.pairingGeneration
-        ? { pairingGeneration: params.nodeSession.pairingGeneration }
-        : {}),
       command: params.command,
       params: override.params ?? params.params,
       timeoutMs,

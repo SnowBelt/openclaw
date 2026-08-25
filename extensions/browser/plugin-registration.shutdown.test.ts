@@ -5,8 +5,12 @@ import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBrowserPlugin } from "./plugin-registration.js";
 
+type BrowserToolFactoryOptions = {
+  browserOwnedGatewayRequest?: (params: Record<string, unknown>) => Promise<unknown>;
+};
+
 const runtimeMocks = vi.hoisted(() => ({
-  createBrowserTool: vi.fn(() => ({
+  createBrowserTool: vi.fn((_: BrowserToolFactoryOptions = {}) => ({
     execute: vi.fn(async () => ({ type: "json", value: { ok: true } })),
   })),
   handleGatewayExtensionUpgrade: vi.fn(async () => true),
@@ -87,7 +91,14 @@ describe("browser relay shutdown registration", () => {
   it("does not issue retained cleanup requests after the Browser provider retires", async () => {
     const gatewayRequest = vi.fn(async () => ({ status: "closed" }));
     const callbacks = registerLifecycleCallbacks(gatewayRequest);
-    const tool = callbacks.toolFactory({} as never);
+    if (typeof callbacks.toolFactory !== "function") {
+      throw new Error("expected Browser tool factory function");
+    }
+    const createdTool = callbacks.toolFactory({} as never);
+    const tool = Array.isArray(createdTool) ? createdTool[0] : createdTool;
+    if (!tool) {
+      throw new Error("expected Browser tool");
+    }
     await tool.execute?.("call-1", { action: "tabs" }, new AbortController().signal);
     const request = runtimeMocks.createBrowserTool.mock.calls.at(-1)?.[0]
       ?.browserOwnedGatewayRequest as
