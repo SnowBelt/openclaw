@@ -418,4 +418,55 @@ describe("browser.request operation approval", () => {
       }),
     ]);
   });
+
+  it("binds pre-staged uploads to the upload command approval", async () => {
+    const body = { ref: "e12" };
+    const upload = {
+      envelope: "browser-upload-v1",
+      files: [{ name: "report.txt", contentBase64: "aGVsbG8=" }],
+    };
+    const identity = {
+      agentId: "browser-session-credential-steward",
+      sessionKey: "agent:browser-session-credential-steward:node:opaque",
+    };
+    const claim = createBrowserStewardGatewayApprovalClaim({
+      command: "browser.proxy.upload.v1",
+      method: "POST",
+      path: "/hooks/file-chooser",
+      body,
+      upload,
+      profile: "openclaw",
+      agentId: identity.agentId,
+      agentSessionKey: identity.sessionKey,
+      nodeId: "node-1",
+      allowAutomaticHostFallback: false,
+    });
+
+    const { nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/hooks/file-chooser",
+        body,
+        upload,
+        profile: "openclaw",
+        nodeId: "node-1",
+        allowAutomaticHostFallback: false,
+      },
+      undefined,
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          agentRuntimeIdentity: {
+            kind: "agentRuntime",
+            ...identity,
+            gatewayToolOperationApproval: { owner: "browser", ...claim },
+          },
+        },
+      },
+    );
+
+    expect(invokeParams(nodeRegistry).command).toBe("browser.proxy.upload.v1");
+    expect(invokeParams(nodeRegistry).params?.browserStewardApproval).toBeDefined();
+  });
 });

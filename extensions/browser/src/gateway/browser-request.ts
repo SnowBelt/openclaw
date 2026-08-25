@@ -318,11 +318,12 @@ export async function handleBrowserGatewayRequest({
     }
   }
 
+  const requestsUpload =
+    typed.upload !== undefined || isBrowserProxyUploadRequest({ method: methodRaw, path, body });
   let preparedUpload: Awaited<ReturnType<typeof prepareBrowserProxyUploadRequest>> | null = null;
-  let proxyCommand = BROWSER_PROXY_COMMAND;
+  // Select the node command before capability checks and approval fingerprints.
+  const proxyCommand = requestsUpload ? BROWSER_PROXY_UPLOAD_COMMAND : BROWSER_PROXY_COMMAND;
   if (nodeTarget) {
-    const requestsUpload =
-      typed.upload !== undefined || isBrowserProxyUploadRequest({ method: methodRaw, path, body });
     if (requestsUpload && !nodeTarget.commands?.includes(BROWSER_PROXY_UPLOAD_COMMAND)) {
       const message = browserProxyUploadUnavailableMessage(nodeTarget.declaredCommands);
       if (configuredNode || typed.allowAutomaticHostFallback === false || browserNodeSessionLease) {
@@ -360,9 +361,6 @@ export async function handleBrowserGatewayRequest({
       const message = err instanceof Error ? err.message : String(err);
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, message));
       return;
-    }
-    if (preparedUpload.upload) {
-      proxyCommand = BROWSER_PROXY_UPLOAD_COMMAND;
     }
   }
 
