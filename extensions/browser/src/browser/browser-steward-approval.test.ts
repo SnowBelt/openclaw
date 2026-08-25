@@ -306,23 +306,23 @@ describe("Browser Steward runtime approval", () => {
     const claim = module.createBrowserStewardGatewayApprovalClaim(request);
 
     expect(JSON.stringify(claim)).not.toContain("opaque");
-    expect(module.consumeBrowserStewardGatewayApprovalClaim({ approval: claim, ...request })).toBe(
-      true,
-    );
-    expect(module.consumeBrowserStewardGatewayApprovalClaim({ approval: claim, ...request })).toBe(
-      false,
-    );
+    expect(
+      module.consumeBrowserStewardGatewayApprovalClaimAuthority({ approval: claim, ...request }),
+    ).toBeDefined();
+    expect(
+      module.consumeBrowserStewardGatewayApprovalClaimAuthority({ approval: claim, ...request }),
+    ).toBeUndefined();
 
     const expiredClaim = module.createBrowserStewardGatewayApprovalClaim({
       ...request,
       nowMs: 10_000,
     });
     expect(
-      module.consumeBrowserStewardGatewayApprovalClaim({
+      module.consumeBrowserStewardGatewayApprovalClaimAuthority({
         approval: expiredClaim,
         ...request,
         nowMs: expiredClaim.expiresAtMs,
       }),
-    ).toBe(false);
+    ).toBeUndefined();
   });
 });

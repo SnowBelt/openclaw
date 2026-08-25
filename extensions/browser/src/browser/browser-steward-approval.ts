@@ -202,13 +202,6 @@ export function consumeBrowserStewardGatewayApprovalClaimAuthority(
   });
 }
 
-/** Redeems the private proof exactly once for the exact Browser Gateway request. */
-export function consumeBrowserStewardGatewayApprovalClaim(
-  params: BrowserStewardGatewayApprovalClaimValidationParams,
-): boolean {
-  return consumeBrowserStewardGatewayApprovalClaimAuthority(params) !== undefined;
-}
-
 function isBrowserStewardProxyCommand(
   command: string,
 ): command is BrowserStewardGatewayApproval["command"] {
