@@ -71,20 +71,18 @@ async function collectSnapshotUrls(page: Page): Promise<SnapshotUrlEntry[]> {
   const urls = await page
     .evaluate(() => {
       const seen = new Set<string>();
-      const out: SnapshotUrlEntry[] = [];
+      const out: Array<{ text: string; href: string }> = [];
       for (const anchor of Array.from(document.querySelectorAll("a[href]"))) {
         const href = anchor instanceof HTMLAnchorElement ? anchor.href : "";
         if (!href || seen.has(href)) {
           continue;
         }
-        const safeHref = redactBrowserNavigationUrl(href);
-        const text =
-          (anchor.textContent || anchor.getAttribute("aria-label") || "")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 121) || safeHref;
+        const text = (anchor.textContent || anchor.getAttribute("aria-label") || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 121);
         seen.add(href);
-        out.push({ text, url: safeHref });
+        out.push({ text, href });
         if (out.length >= 100) {
           break;
         }
@@ -94,8 +92,9 @@ async function collectSnapshotUrls(page: Page): Promise<SnapshotUrlEntry[]> {
     .catch(() => []);
   return Array.isArray(urls)
     ? urls.map((entry) => {
-        entry.text = truncateUtf16Safe(entry.text, 120) || entry.url;
-        return entry;
+        const safeUrl = redactBrowserNavigationUrl(entry.href);
+        const text = truncateUtf16Safe(entry.text, 120) || safeUrl;
+        return { text, url: safeUrl };
       })
     : [];
 }
