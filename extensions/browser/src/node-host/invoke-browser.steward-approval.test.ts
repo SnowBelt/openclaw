@@ -203,6 +203,44 @@ describe("node-host Browser Steward approval", () => {
     expect(mocks.dispatch).not.toHaveBeenCalled();
   });
 
+  it("does not start the Browser service when approval is already expired", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(31_001);
+    vi.resetModules();
+    const [
+      { createBrowserStewardGatewayApproval: createFreshApproval },
+      { runBrowserProxyCommand: runFreshBrowserProxyCommand },
+    ] = await Promise.all([
+      import("../browser/browser-steward-approval.js"),
+      import("./invoke-browser.js"),
+    ]);
+    const approval = createFreshApproval({
+      command: "browser.proxy",
+      ...baseParams,
+      invocationId: "invoke-expired-before-startup",
+      nowMs: 1_000,
+    });
+
+    await expect(
+      runFreshBrowserProxyCommand(
+        JSON.stringify({
+          ...baseParams,
+          invocationId: "invoke-expired-before-startup",
+          browserStewardApproval: approval,
+        }),
+        "browser.proxy",
+        undefined,
+        {
+          nodeId: "node-1",
+          pairingGeneration: "pairing-1",
+          invocationId: "invoke-expired-before-startup",
+        },
+      ),
+    ).rejects.toThrow(/approval_required/);
+    expect(mocks.startBrowserControlService).not.toHaveBeenCalled();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
   it("rejects an approval that expires during startup before final browser I/O", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
