@@ -422,12 +422,14 @@ export function validateRuntimeEntry(value) {
   if (
     value.params?.maxTokens !== 1024 ||
     value.params?.text_verbosity !== "low" ||
-    value.params?.cacheRetention !== "short"
+    value.params?.cacheRetention !== "short" ||
+    value.params?.chat_template_kwargs?.enable_thinking !== false ||
+    value.params?.chat_template_kwargs?.preserve_thinking !== false
   ) {
     issues.push(
       issue(
         "model_budget_changed",
-        "Model parameters must keep the 1024-token bounded low-verbosity profile.",
+        "Model parameters must keep the bounded low-verbosity, thinking-off profile.",
       ),
     );
   }

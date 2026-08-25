@@ -22,6 +22,10 @@
         },
         "params": {
           "cacheRetention": "short",
+          "chat_template_kwargs": {
+            "enable_thinking": false,
+            "preserve_thinking": false
+          },
           "maxTokens": 1024,
           "text_verbosity": "low"
         },
