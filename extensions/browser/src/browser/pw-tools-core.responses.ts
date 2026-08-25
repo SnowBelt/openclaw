@@ -9,6 +9,14 @@ import { normalizeTimeoutMs } from "./pw-tools-core.shared.js";
 import { matchBrowserUrlPattern } from "./url-pattern.js";
 
 const URL_RESPONSE_HEADER_NAMES = new Set(["content-location", "link", "location", "refresh"]);
+const CREDENTIAL_RESPONSE_HEADER_NAMES = new Set([
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+  "set-cookie",
+]);
+const CREDENTIAL_RESPONSE_HEADER_NAME_RE =
+  /(?:^|[-_])(?:access[-_]?token|api[-_]?key|auth(?:orization)?|cookie|credential|csrf[-_]?token|id[-_]?token|password|refresh[-_]?token|secret|token)(?:$|[-_])/iu;
 
 function redactResponseUrl(value: string): string {
   const trimmed = value.trim();
@@ -48,7 +56,14 @@ function redactResponseUrl(value: string): string {
 }
 
 function redactResponseHeaderValue(name: string, value: string): string {
-  switch (name.toLowerCase()) {
+  const normalizedName = name.trim().toLowerCase();
+  if (
+    CREDENTIAL_RESPONSE_HEADER_NAMES.has(normalizedName) ||
+    CREDENTIAL_RESPONSE_HEADER_NAME_RE.test(normalizedName)
+  ) {
+    return "REDACTED";
+  }
+  switch (normalizedName) {
     case "location":
     case "content-location":
       return redactResponseUrl(value);
@@ -84,7 +99,12 @@ function redactResponseHeaders(
   let changed = false;
   const redacted = Object.fromEntries(
     Object.entries(headers).map(([name, value]) => {
-      if (!URL_RESPONSE_HEADER_NAMES.has(name.toLowerCase())) {
+      const normalizedName = name.trim().toLowerCase();
+      if (
+        !URL_RESPONSE_HEADER_NAMES.has(normalizedName) &&
+        !CREDENTIAL_RESPONSE_HEADER_NAMES.has(normalizedName) &&
+        !CREDENTIAL_RESPONSE_HEADER_NAME_RE.test(normalizedName)
+      ) {
         return [name, value];
       }
       const redactedValue = redactResponseHeaderValue(name, value);

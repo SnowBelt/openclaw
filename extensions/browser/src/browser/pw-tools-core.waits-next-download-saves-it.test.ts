@@ -642,6 +642,61 @@ describe("pw-tools-core", () => {
     expect(JSON.stringify(result)).not.toContain(rawOAuthCode);
   });
 
+  it("redacts credential-bearing response headers", async () => {
+    let responseHandler: ((resp: unknown) => void) | undefined;
+    const on = vi.fn((event: string, handler: (resp: unknown) => void) => {
+      if (event === "response") {
+        responseHandler = handler;
+      }
+    });
+    const off = vi.fn();
+    setPwToolsCoreCurrentPage({ on, off });
+
+    const rawCookie = "raw-session-cookie-123456";
+    const rawBearer = "raw-bearer-token-123456";
+    const rawProxyCredential = "raw-proxy-credential-123456";
+    const rawApiKey = "raw-api-key-123456";
+    const p = mod.responseBodyViaPlaywright({
+      cdpUrl: "http://127.0.0.1:18792",
+      targetId: "T1",
+      url: "**/protected",
+      timeoutMs: 1000,
+    });
+
+    await Promise.resolve();
+    if (!responseHandler) {
+      throw new Error("expected Playwright response handler");
+    }
+    responseHandler({
+      url: () => "https://example.com/protected",
+      status: () => 200,
+      headers: () => ({
+        "Set-Cookie": `session=${rawCookie}; Path=/; HttpOnly`,
+        Cookie: `session=${rawCookie}`,
+        Authorization: `Bearer ${rawBearer}`,
+        "Proxy-Authorization": `Basic ${rawProxyCredential}`,
+        "X-Api-Key": rawApiKey,
+        "content-type": "application/json",
+      }),
+      body: async () => Buffer.from("ok"),
+    });
+
+    const result = await p;
+    expect(result.headers).toMatchObject({
+      "Set-Cookie": "REDACTED",
+      Cookie: "REDACTED",
+      Authorization: "REDACTED",
+      "Proxy-Authorization": "REDACTED",
+      "X-Api-Key": "REDACTED",
+      "content-type": "application/json",
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(rawCookie);
+    expect(serialized).not.toContain(rawBearer);
+    expect(serialized).not.toContain(rawProxyCredential);
+    expect(serialized).not.toContain(rawApiKey);
+  });
+
   it("does not split a surrogate pair when truncating response body text", async () => {
     let responseHandler: ((resp: unknown) => void) | undefined;
     const on = vi.fn((event: string, handler: (resp: unknown) => void) => {
