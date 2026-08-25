@@ -574,6 +574,67 @@ describe("browser.request profile selection", () => {
     ]);
   });
 
+  it("falls back when an auto-selected node is passed through as an internal node id", async () => {
+    startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
+    dispatchBrowserRouteMock.mockResolvedValueOnce({
+      status: 200,
+      body: { targetId: "gateway-host-tab" },
+    });
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body: { url: "https://example.com" },
+        nodeId: "node-1",
+        allowAutomaticHostFallback: true,
+        includeRoute: true,
+      },
+      {
+        ok: false,
+        error: {
+          code: "UNAVAILABLE",
+          message: "Browser control host is not reachable on 127.0.0.1:18791.",
+        },
+      },
+    );
+
+    expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
+    expect(dispatchBrowserRouteMock).toHaveBeenCalledOnce();
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { result: { targetId: "gateway-host-tab" }, route: { status: "host-fallback" } },
+    ]);
+  });
+
+  it("does not host-fallback an approved Browser-owned route", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "GET",
+        path: "/",
+        nodeId: "node-1",
+        allowAutomaticHostFallback: true,
+      },
+      {
+        ok: false,
+        error: {
+          code: "UNAVAILABLE",
+          message: "Browser control host is not reachable on 127.0.0.1:18791.",
+        },
+      },
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: { pluginRuntimeOwnerId: "browser" },
+      },
+    );
+
+    expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
+    expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
+    expect(firstRespondCall(respond)[2]?.message).toContain(
+      "Browser control host is not reachable",
+    );
+  });
+
   it("does not dispatch after Browser runtime authority is revoked during preparation", async () => {
     let releasePreparation!: () => void;
     const preparation = new Promise<void>((resolve) => {
