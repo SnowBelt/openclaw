@@ -1,4 +1,6 @@
+import type { BrowserNodeDelegationRequest } from "openclaw/plugin-sdk/browser-node-delegation-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
+import { attachBrowserNodeDelegationForTest } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { teamsMeetingsConfig } from "./config.js";
 import { TeamsMeetingsRuntime } from "./runtime.js";
@@ -76,19 +78,21 @@ function runtimeHarness(options?: { tabOpen?: boolean }) {
     }
     throw new Error(`unexpected browser request ${String(params.method)} ${String(params.path)}`);
   });
+  const browser = {
+    request: async (params: BrowserNodeDelegationRequest) =>
+      await gatewayRequest("browser.request", params),
+  };
   const runtime = {
     gateway: {
       isAvailable: vi.fn(async () => true),
       request: gatewayRequest,
     },
-    browser: {
-      request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
-        await gatewayRequest("browser.request", params),
-    },
+    browser,
     system: {
       runCommandWithTimeout: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
     },
   } as unknown as PluginRuntime;
+  attachBrowserNodeDelegationForTest(runtime, browser);
   return {
     runtime,
     gatewayRequest,

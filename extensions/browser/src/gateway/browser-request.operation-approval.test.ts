@@ -1,6 +1,6 @@
 // Browser tests cover browser request.profile from body plugin behavior.
 import { expectDefined } from "@openclaw/normalization-core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserStewardGatewayApprovalClaim } from "../browser/browser-steward-approval.js";
 
 const {
@@ -179,6 +179,10 @@ function firstRespondCall(respond: ReturnType<typeof vi.fn>): RespondCall {
 }
 
 describe("browser.request operation approval", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     loadConfigMock.mockReturnValue({
       gateway: { nodes: { browser: { mode: "auto" } } },
@@ -468,5 +472,118 @@ describe("browser.request operation approval", () => {
 
     expect(invokeParams(nodeRegistry).command).toBe("browser.proxy.upload.v1");
     expect(invokeParams(nodeRegistry).params?.browserStewardApproval).toBeDefined();
+  });
+
+  it("does not dispatch an approved host operation after its claim expires during startup", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    let releaseStartup!: () => void;
+    const startup = new Promise<void>((resolve) => {
+      releaseStartup = resolve;
+    });
+    startBrowserControlServiceFromConfigMock.mockImplementationOnce(async () => {
+      await startup;
+      return true;
+    });
+    dispatchBrowserRouteMock.mockResolvedValue({ status: 200, body: { ok: true } });
+    const body = { url: "https://example.com" };
+    const identity = {
+      agentId: "browser-session-credential-steward",
+      sessionKey: "agent:browser-session-credential-steward:host:opaque",
+    };
+    const claim = createBrowserStewardGatewayApprovalClaim({
+      command: "browser.proxy",
+      method: "POST",
+      path: "/tabs/open",
+      body,
+      profile: "openclaw",
+      agentId: identity.agentId,
+      agentSessionKey: identity.sessionKey,
+      allowAutomaticHostFallback: false,
+      nowMs: 0,
+    });
+    const pending = runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body,
+        profile: "openclaw",
+        allowAutomaticHostFallback: false,
+      },
+      undefined,
+      [],
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          agentRuntimeIdentity: {
+            kind: "agentRuntime",
+            ...identity,
+            gatewayToolOperationApproval: { owner: "browser", ...claim },
+          },
+        },
+      },
+    );
+    await Promise.resolve();
+    vi.setSystemTime(30_001);
+    releaseStartup();
+    const result = await pending;
+
+    expect(dispatchBrowserRouteMock).not.toHaveBeenCalled();
+    expect(firstRespondCall(result.respond)).toEqual([
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "INVALID_REQUEST",
+        message: "agent runtime authority is no longer active",
+      }),
+    ]);
+  });
+
+  it("preserves a completed node result when runtime authority expires after dispatch", async () => {
+    let authorityActive = true;
+    const body = { url: "https://example.com" };
+    const identity = {
+      agentId: "browser-session-credential-steward",
+      sessionKey: "agent:browser-session-credential-steward:node:opaque",
+    };
+    const claim = createBrowserStewardGatewayApprovalClaim({
+      command: "browser.proxy",
+      method: "POST",
+      path: "/tabs/open",
+      body,
+      profile: "openclaw",
+      agentId: identity.agentId,
+      agentSessionKey: identity.sessionKey,
+      allowAutomaticHostFallback: false,
+    });
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body,
+        profile: "openclaw",
+        allowAutomaticHostFallback: false,
+      },
+      () => {
+        authorityActive = false;
+        return { ok: true, payload: { result: { targetId: "node-tab" } } };
+      },
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          agentRuntimeIdentity: {
+            kind: "agentRuntime",
+            ...identity,
+            gatewayToolOperationApproval: { owner: "browser", ...claim },
+          },
+        },
+      },
+      true,
+      () => authorityActive,
+    );
+
+    expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
+    expect(firstRespondCall(respond)).toEqual([true, { targetId: "node-tab" }]);
   });
 });

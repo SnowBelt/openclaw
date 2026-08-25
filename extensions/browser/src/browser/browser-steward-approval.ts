@@ -165,15 +165,15 @@ function readBrowserStewardGatewayApprovalClaim(
 }
 
 /** Redeems the private proof exactly once for the exact Browser Gateway request. */
-export function consumeBrowserStewardGatewayApprovalClaim(
+export function consumeBrowserStewardGatewayApprovalClaimAuthority(
   params: BrowserStewardGatewayApprovalClaimValidationParams,
-): boolean {
+): BrowserStewardGatewayApprovalAuthority | undefined {
   if (!isBrowserStewardProxyCommand(params.command)) {
-    return false;
+    return undefined;
   }
   const claim = readBrowserStewardGatewayApprovalClaim(params.approval);
   if (!claim) {
-    return false;
+    return undefined;
   }
   const nowMs = params.nowMs ?? Date.now();
   for (const [authorityId, expiresAtMs] of consumedBrowserStewardGatewayOperationAuthorities) {
@@ -187,10 +187,26 @@ export function consumeBrowserStewardGatewayApprovalClaim(
     consumedBrowserStewardGatewayOperationAuthorities.has(claim.authorityId) ||
     claim.requestFingerprint !== expectedFingerprint
   ) {
-    return false;
+    return undefined;
   }
   consumedBrowserStewardGatewayOperationAuthorities.set(claim.authorityId, claim.expiresAtMs);
-  return true;
+  return Object.freeze({
+    isActive: () => {
+      const expiresAtMs = consumedBrowserStewardGatewayOperationAuthorities.get(claim.authorityId);
+      const active = expiresAtMs !== undefined && expiresAtMs > Date.now();
+      if (!active && expiresAtMs !== undefined) {
+        consumedBrowserStewardGatewayOperationAuthorities.delete(claim.authorityId);
+      }
+      return active && expiresAtMs === claim.expiresAtMs;
+    },
+  });
+}
+
+/** Redeems the private proof exactly once for the exact Browser Gateway request. */
+export function consumeBrowserStewardGatewayApprovalClaim(
+  params: BrowserStewardGatewayApprovalClaimValidationParams,
+): boolean {
+  return consumeBrowserStewardGatewayApprovalClaimAuthority(params) !== undefined;
 }
 
 function isBrowserStewardProxyCommand(
