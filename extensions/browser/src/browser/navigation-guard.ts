@@ -12,34 +12,21 @@ import {
   type SsrFPolicy,
 } from "../infra/net/ssrf.js";
 import { matchesHostnameAllowlist, normalizeHostname } from "../sdk-security-runtime.js";
+import {
+  BROWSER_OAUTH_CALLBACK_PATH_RE,
+  BROWSER_OAUTH_CREDENTIAL_QUERY_KEYS,
+  BROWSER_OPAQUE_CREDENTIAL_PATH_RE,
+  getBrowserUrlParameterSets,
+  hasBrowserOAuthContext,
+  isBrowserCredentialQueryKey,
+} from "./browser-url-credentials.js";
 
 const NETWORK_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 const SAFE_NON_NETWORK_URLS = new Set(["about:blank"]);
-const NAVIGATION_CREDENTIAL_QUERY_KEYS = new Set([
-  "access_token",
-  "auth_code",
-  "authorization_code",
+const NAVIGATION_BLOCKED_QUERY_KEYS = new Set([
+  ...BROWSER_OAUTH_CREDENTIAL_QUERY_KEYS,
   "client_secret",
-  "code_verifier",
-  "id_token",
-  "oauth_token",
-  "oauth_verifier",
-  "refresh_token",
 ]);
-const OAUTH_CONTEXT_QUERY_KEYS = new Set([
-  "client_id",
-  "code_challenge",
-  "code_challenge_method",
-  "iss",
-  "nonce",
-  "redirect_uri",
-  "response_type",
-  "scope",
-  "session_state",
-  "state",
-]);
-const OAUTH_CALLBACK_PATH_RE =
-  /(?:^|[\\/._-])(?:auth|authorize|authorization|callback|oidc|oauth2?|signin-oidc|sso)(?:[\\/._-]|$)/iu;
 const BROWSER_NAVIGATION_CREDENTIALS_BLOCKED_MESSAGE =
   "Navigation blocked: URL-embedded credentials are not supported for page navigation. Set HTTP Basic auth with `openclaw browser set credentials <username> <password>` or use an authenticated browser profile.";
 
@@ -48,36 +35,36 @@ function isAllowedNonNetworkNavigationUrl(parsed: URL): boolean {
   return SAFE_NON_NETWORK_URLS.has(parsed.href);
 }
 
-function hasOAuthContext(parsed: URL, parameterSets: URLSearchParams[]): boolean {
-  return (
-    OAUTH_CALLBACK_PATH_RE.test(parsed.pathname) ||
-    parameterSets.some((params) =>
-      [...params.keys()].some((key) => OAUTH_CONTEXT_QUERY_KEYS.has(key.toLowerCase())),
-    )
-  );
-}
-
 function hasNavigationCredentialQuery(parsed: URL): boolean {
-  const hashParams = getNavigationHashParts(parsed.hash).params;
-  const parameterSets = [parsed.searchParams, ...(hashParams ? [hashParams] : [])];
+  const parameterSets = getBrowserUrlParameterSets(parsed);
   return parameterSets.some((params) =>
     [...params].some(([key, value]) => {
       const normalizedKey = key.toLowerCase();
-      return value.trim().length > 0 && NAVIGATION_CREDENTIAL_QUERY_KEYS.has(normalizedKey);
+      return value.trim().length > 0 && NAVIGATION_BLOCKED_QUERY_KEYS.has(normalizedKey);
     }),
   );
 }
 
 function getNavigationHashParts(hash: string): {
-  prefix: string;
+  route: string;
+  rawQuery?: string;
+  hasQueryDelimiter: boolean;
   params?: URLSearchParams;
 } {
   const fragment = hash.startsWith("#") ? hash.slice(1) : hash;
   const queryIndex = fragment.indexOf("?");
-  const prefix = queryIndex >= 0 ? `${fragment.slice(0, queryIndex)}?` : "";
-  const query = queryIndex >= 0 ? fragment.slice(queryIndex + 1) : fragment;
+  const route =
+    queryIndex >= 0
+      ? fragment.slice(0, queryIndex)
+      : fragment.startsWith("/") || !fragment.includes("=")
+        ? fragment
+        : "";
+  const hasQueryDelimiter = queryIndex >= 0;
+  const query = queryIndex >= 0 ? fragment.slice(queryIndex + 1) : route ? "" : fragment;
   return {
-    prefix,
+    route,
+    ...(queryIndex >= 0 || !route ? { rawQuery: query } : {}),
+    hasQueryDelimiter,
     ...(query.includes("=") ? { params: new URLSearchParams(query) } : {}),
   };
 }
@@ -89,15 +76,17 @@ function redactNavigationParameterSet(
   const redacted = new URLSearchParams();
   let changed = false;
   for (const [key, value] of params) {
-    const normalizedKey = key.toLowerCase();
-    const shouldRedact =
-      NAVIGATION_CREDENTIAL_QUERY_KEYS.has(normalizedKey) ||
-      (normalizedKey === "code" && oauthContext);
+    const shouldRedact = isBrowserCredentialQueryKey(key, oauthContext);
     const redactedValue = shouldRedact ? "REDACTED" : value;
     changed ||= redactedValue !== value;
     redacted.append(key, redactedValue);
   }
   return { value: redacted.toString(), changed };
+}
+
+function redactOpaqueCredentialPath(value: string): { value: string; changed: boolean } {
+  const redacted = value.replace(BROWSER_OPAQUE_CREDENTIAL_PATH_RE, "$1REDACTED");
+  return { value: redacted, changed: redacted !== value };
 }
 
 /** Redact URL credentials while preserving safe navigation context for output. */
@@ -110,29 +99,38 @@ export function redactBrowserNavigationUrl(url: string): string {
     const parsed = new URL(rawUrl);
     const originalUsername = parsed.username;
     const originalPassword = parsed.password;
+    const originalPathname = parsed.pathname;
     const originalSearch = parsed.search;
     const originalHash = parsed.hash;
     parsed.username = "";
     parsed.password = "";
     const hashParts = getNavigationHashParts(parsed.hash);
-    const parameterSets = [parsed.searchParams, ...(hashParts.params ? [hashParts.params] : [])];
-    const hashRoute = hashParts.prefix.endsWith("?")
-      ? hashParts.prefix.slice(0, -1)
-      : hashParts.prefix;
+    const parameterSets = getBrowserUrlParameterSets(parsed);
+    const hashRoute = hashParts.route;
     const oauthContext =
-      hasOAuthContext(parsed, parameterSets) || OAUTH_CALLBACK_PATH_RE.test(hashRoute);
+      hasBrowserOAuthContext(parsed, parameterSets) ||
+      BROWSER_OAUTH_CALLBACK_PATH_RE.test(hashRoute);
+    const redactedPathname = redactOpaqueCredentialPath(parsed.pathname);
+    if (redactedPathname.changed) {
+      parsed.pathname = redactedPathname.value;
+    }
     const redactedSearch = redactNavigationParameterSet(parsed.searchParams, oauthContext);
     if (redactedSearch.changed) {
       parsed.search = `?${redactedSearch.value}`;
     }
-    if (hashParts.params) {
-      const redactedHash = redactNavigationParameterSet(hashParts.params, oauthContext);
-      if (redactedHash.changed) {
-        parsed.hash = `#${hashParts.prefix}${redactedHash.value}`;
-      }
+    const redactedHashRoute = redactOpaqueCredentialPath(hashParts.route);
+    const redactedHash = hashParts.params
+      ? redactNavigationParameterSet(hashParts.params, oauthContext)
+      : undefined;
+    if (redactedHashRoute.changed || redactedHash?.changed) {
+      const route = redactedHashRoute.value;
+      const query = redactedHash?.value ?? hashParts.rawQuery;
+      const querySeparator = hashParts.hasQueryDelimiter ? "?" : "";
+      parsed.hash = `#${route}${query !== undefined ? `${querySeparator}${query}` : ""}`;
     }
     return originalUsername === parsed.username &&
       originalPassword === parsed.password &&
+      originalPathname === parsed.pathname &&
       originalSearch === parsed.search &&
       originalHash === parsed.hash
       ? rawUrl

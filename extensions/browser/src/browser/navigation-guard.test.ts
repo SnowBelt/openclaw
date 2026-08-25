@@ -309,6 +309,26 @@ describe("browser navigation guard", () => {
     ).toBe("https://app.example/#access_token=REDACTED&id_token=REDACTED");
   });
 
+  it("redacts signed URLs and opaque bearer paths from output", () => {
+    const signedUrl = redactBrowserNavigationUrl(
+      "https://storage.example/blob.txt?sv=2024-01-01&sig=raw-signature-123456",
+    );
+    expect(signedUrl).toBe("https://storage.example/blob.txt?sv=REDACTED&sig=REDACTED");
+    expect(signedUrl).not.toContain("raw-signature-123456");
+
+    const opaquePath = redactBrowserNavigationUrl(
+      "https://accounts.example/password-reset/raw-reset-token-123456/confirm",
+    );
+    expect(opaquePath).toBe("https://accounts.example/password-reset/REDACTED/confirm");
+    expect(opaquePath).not.toContain("raw-reset-token-123456");
+
+    const opaqueHashRoute = redactBrowserNavigationUrl(
+      "https://app.example/#/magic-login/raw-magic-token-123456",
+    );
+    expect(opaqueHashRoute).toBe("https://app.example/#/magic-login/REDACTED");
+    expect(opaqueHashRoute).not.toContain("raw-magic-token-123456");
+  });
+
   it("blocks OAuth bearer tokens in URL fragments before lookup", async () => {
     const lookupFn = createLookupFn("93.184.216.34");
     const result = assertBrowserNavigationAllowed({

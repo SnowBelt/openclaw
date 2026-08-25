@@ -59,11 +59,11 @@ function normalizeBoundaryAgentId(
   if (!isValidAgentId(normalized)) {
     return { comparisonId: "", exposedId: "" };
   }
-  // Ordinary agent ids are safe normalized routing facts. Keep known
-  // credential-shaped ids comparison-only so secrets never cross the boundary.
+  // Wire-controlled agent ids remain comparison-only until config confirms
+  // that they are trusted routing identities; diagnostics expose UNKNOWN.
   return {
     comparisonId: normalized,
-    exposedId: isCredentialLikeAgentId(normalized) ? UNKNOWN : normalized,
+    exposedId: UNKNOWN,
   };
 }
 

@@ -50,11 +50,12 @@ describe("Session Steward boundary policy", () => {
     expect(serialized).not.toContain("thread-456");
   });
 
-  it("exposes ordinary unconfigured agent ids without exposing credential-shaped ids", () => {
+  it("exposes configured agent ids without exposing credential-shaped ids", () => {
     expect(
       resolveSessionStewardBoundary({
         sessionKey: "agent:main:direct:user-1",
         requestedAgentId: "worker",
+        configuredAgentIds: ["main", "worker"],
       }),
     ).toMatchObject({
       ownerAgentId: "main",
@@ -73,5 +74,21 @@ describe("Session Steward boundary policy", () => {
       agentRelation: "same_agent",
       affectedSession: "agent:UNKNOWN:REDACTED",
     });
+  });
+
+  it("keeps unconfigured agent ids out of serialized boundary facts", () => {
+    const decision = resolveSessionStewardBoundary({
+      sessionKey: "agent:ordinary-unconfigured-owner:direct:peer-123",
+      requestedAgentId: "ordinary-unconfigured-owner",
+    });
+    expect(decision).toMatchObject({
+      kind: "agent",
+      ownerAgentId: "UNKNOWN",
+      requestedAgentId: "UNKNOWN",
+      agentRelation: "same_agent",
+      affectedSession: "agent:UNKNOWN:REDACTED",
+    });
+    expect(JSON.stringify(decision)).not.toContain("ordinary-unconfigured-owner");
+    expect(JSON.stringify(decision)).not.toContain("peer-123");
   });
 });

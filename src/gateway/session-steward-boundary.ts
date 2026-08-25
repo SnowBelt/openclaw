@@ -1,5 +1,6 @@
 // Gateway wrappers keep Session Steward policy errors redacted and protocol-shaped.
 import { ErrorCodes, errorShape } from "../../packages/gateway-protocol/src/index.js";
+import { listAgentIds } from "../agents/agent-scope-config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { emitTrustedDiagnosticEvent } from "../infra/diagnostic-events.js";
 import {
@@ -99,11 +100,7 @@ function resolveGatewaySessionStewardBoundary(params: GatewaySessionStewardBound
   boundary: GatewaySessionStewardBoundaryFacts;
   decision: SessionStewardBoundaryDecision;
 } {
-  const configuredAgentIds = params.config?.agents?.list
-    ?.map((entry) => entry?.id)
-    .filter(
-      (agentId): agentId is string => typeof agentId === "string" && agentId.trim().length > 0,
-    );
+  const configuredAgentIds = params.config ? listAgentIds(params.config) : undefined;
   const decision = resolveSessionStewardBoundary({
     sessionKey: params.sessionKey,
     requestedAgentId: params.requestedAgentId,
