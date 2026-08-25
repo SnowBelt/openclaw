@@ -180,7 +180,6 @@ function createLazyBrowserTool(
       channel?: string;
       chatType?: string;
     };
-    agentId?: string;
     approvalAuthority?: BrowserStewardRuntimeApprovalAuthority;
     browserOwnedGatewayRequest?: BrowserOwnedGatewayRequest;
     senderIsOwner?: boolean;
@@ -320,7 +319,6 @@ function createBrowserToolOptions(ctx: OpenClawPluginToolContext): {
     channel?: string;
     chatType?: string;
   };
-  agentId?: string;
   senderIsOwner?: boolean;
   runToolBinding?: unknown;
 } {
@@ -352,7 +350,6 @@ function createBrowserToolOptions(ctx: OpenClawPluginToolContext): {
           },
         }
       : {}),
-    ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
     ...(ctx.senderIsOwner !== undefined ? { senderIsOwner: ctx.senderIsOwner } : {}),
     ...(ctx.toolBindings && Object.hasOwn(ctx.toolBindings, "browser")
       ? { runToolBinding: ctx.toolBindings.browser }

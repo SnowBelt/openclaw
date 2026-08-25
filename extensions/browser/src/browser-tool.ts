@@ -574,7 +574,6 @@ export function createBrowserTool(opts?: {
     channel?: string;
     chatType?: string;
   };
-  agentId?: string;
   /** Trusted Gateway owner identity; never read from model arguments. */
   senderIsOwner?: boolean;
   runToolBinding?: unknown;
