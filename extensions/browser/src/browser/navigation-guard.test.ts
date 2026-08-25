@@ -329,6 +329,52 @@ describe("browser navigation guard", () => {
     expect(opaqueHashRoute).not.toContain("raw-magic-token-123456");
   });
 
+  it.each([
+    ["token", "raw-token-123456"],
+    ["password", "raw-password-123456"],
+    ["api_key", "raw-api-key-123456"],
+    ["authorization", "raw-authorization-123456"],
+    ["cookie", "raw-cookie-123456"],
+  ])("redacts generic credential query key %s", (key, rawValue) => {
+    const redacted = redactBrowserNavigationUrl(
+      `https://example.test/callback?${key}=${rawValue}&next=keep`,
+    );
+    expect(redacted).toBe(`https://example.test/callback?${key}=REDACTED&next=keep`);
+    expect(redacted).not.toContain(rawValue);
+  });
+
+  it.each(["token", "password", "api_key", "authorization", "cookie"])(
+    "blocks generic credential query key %s before lookup",
+    async (key) => {
+      const lookupFn = createLookupFn("93.184.216.34");
+      const rawValue = `raw-${key}-123456`;
+      const result = assertBrowserNavigationAllowed({
+        url: `https://example.test/redeem?${key}=${rawValue}`,
+        lookupFn,
+      });
+      await expect(result).rejects.toThrow("URL-embedded credentials are not supported");
+      await expect(result).rejects.not.toThrow(rawValue);
+      expect(lookupFn).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["page_token", "continuation_token", "wallet"])(
+    "allows ordinary non-credential query key %s",
+    async (key) => {
+      const lookupFn = createLookupFn("93.184.216.34");
+      await expect(
+        assertBrowserNavigationAllowed({
+          url: `https://example.test/redeem?${key}=public-value`,
+          lookupFn,
+        }),
+      ).resolves.toBeUndefined();
+      expect(lookupFn).toHaveBeenCalledWith("example.test", { all: true });
+      expect(redactBrowserNavigationUrl(`https://example.test/redeem?${key}=public-value`)).toBe(
+        `https://example.test/redeem?${key}=public-value`,
+      );
+    },
+  );
+
   it("blocks OAuth bearer tokens in URL fragments before lookup", async () => {
     const lookupFn = createLookupFn("93.184.216.34");
     const result = assertBrowserNavigationAllowed({

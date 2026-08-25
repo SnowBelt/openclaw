@@ -56,6 +56,51 @@ export const BROWSER_OAUTH_CALLBACK_PATH_RE =
 export const BROWSER_OPAQUE_CREDENTIAL_PATH_RE =
   /((?:^|\/)(?:password[-_]?reset|reset|magic[-_]?login|verify|verification|invite|invitation)\/)([^/?#]+)(?=\/|$)/iu;
 
+type BrowserUrlCredentialClass =
+  | "api key"
+  | "password"
+  | "token"
+  | "cookie"
+  | "private key"
+  | "secret";
+
+const BROWSER_GENERIC_CREDENTIAL_QUERY_KEYS = new Map<string, BrowserUrlCredentialClass>([
+  ["api_key", "api key"],
+  ["apikey", "api key"],
+  ["x_api_key", "api key"],
+  ["password", "password"],
+  ["passphrase", "password"],
+  ["passwd", "password"],
+  ["authorization", "token"],
+  ["bearer", "token"],
+  ["auth_token", "token"],
+  ["access_token", "token"],
+  ["refresh_token", "token"],
+  ["id_token", "token"],
+  ["oauth_token", "token"],
+  ["oauth_verifier", "token"],
+  ["session_token", "token"],
+  ["csrf_token", "token"],
+  ["xsrf_token", "token"],
+  ["bearer_token", "token"],
+  ["token", "token"],
+  ["cookie", "cookie"],
+  ["session_cookie", "cookie"],
+  ["private_key", "private key"],
+  ["privatekey", "private key"],
+  ["seed", "private key"],
+  ["seed_phrase", "private key"],
+  ["mnemonic", "private key"],
+  ["recovery_phrase", "private key"],
+  ["secret", "secret"],
+  ["credential", "secret"],
+]);
+
+function classifyGenericCredentialQueryKey(key: string): BrowserUrlCredentialClass | undefined {
+  const normalizedKey = key.toLowerCase().replace(/[\s-]+/g, "_");
+  return BROWSER_GENERIC_CREDENTIAL_QUERY_KEYS.get(normalizedKey);
+}
+
 export function getBrowserUrlParameterSets(parsed: URL): URLSearchParams[] {
   const sets = [parsed.searchParams];
   const fragment = parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash;
@@ -80,13 +125,29 @@ export function hasBrowserOAuthContext(
 }
 
 export function isBrowserCredentialQueryKey(key: string, oauthContext: boolean): boolean {
+  return classifyBrowserCredentialQueryKey(key, oauthContext) !== undefined;
+}
+
+export function isBrowserGenericCredentialQueryKey(key: string): boolean {
+  return classifyGenericCredentialQueryKey(key) !== undefined;
+}
+
+function classifyBrowserCredentialQueryKey(
+  key: string,
+  oauthContext: boolean,
+): BrowserUrlCredentialClass | undefined {
   const normalizedKey = key.toLowerCase();
-  return (
-    normalizedKey === "client_secret" ||
+  if (normalizedKey === "client_secret") {
+    return "secret";
+  }
+  if (
     BROWSER_SIGNED_URL_QUERY_KEYS.has(normalizedKey) ||
     BROWSER_OAUTH_CREDENTIAL_QUERY_KEYS.has(normalizedKey) ||
     (normalizedKey === "code" && oauthContext)
-  );
+  ) {
+    return "token";
+  }
+  return classifyGenericCredentialQueryKey(key);
 }
 
 export function classifyBrowserUrlCredential(
@@ -107,16 +168,13 @@ export function classifyBrowserUrlCredential(
           if (!queryValue.trim()) {
             continue;
           }
-          const normalizedKey = key.toLowerCase();
-          if (normalizedKey === "client_secret") {
-            return "secret";
-          }
-          if (isBrowserCredentialQueryKey(key, oauthContext)) {
-            return "token";
-          }
-          const credentialClass = classifyLabel(key);
+          const credentialClass = classifyBrowserCredentialQueryKey(key, oauthContext);
           if (credentialClass) {
             return credentialClass;
+          }
+          const labelClass = classifyLabel(key);
+          if (labelClass) {
+            return labelClass;
           }
         }
       }
