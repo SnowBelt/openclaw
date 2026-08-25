@@ -2151,11 +2151,13 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     if (firstLoad) {
       restorePccLocation(state);
     }
-    const overviewRequest = state.client.request<
-      PccOverviewGetResult | { projects?: PccProjectSummary[] }
-    >("pcc.overview.get", {});
-    const summaryRequest = state.client.request<PccSummaryGetResult>("pcc.summary.get", {});
-    const overviewResult = await overviewRequest;
+    const [overviewResult, summaryResult] = await Promise.all([
+      state.client.request<PccOverviewGetResult | { projects?: PccProjectSummary[] }>(
+        "pcc.overview.get",
+        {},
+      ),
+      state.client.request<PccSummaryGetResult>("pcc.summary.get", {}),
+    ]);
     const projects = Array.isArray(overviewResult.projects)
       ? overviewResult.projects.map(safeProjectSummary)
       : [];
@@ -2165,14 +2167,6 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
         : null;
     state.pccOverview = overview;
     state.pccProjects = projects;
-    state.pccPortfolioSummary = overview?.portfolio ?? summarizePortfolio(projects);
-    // The overview read model is the interactive surface. Do not make the first
-    // paint wait for secondary capacity/model and release metadata from summary.
-    // Those details remain loaded below without delaying project visibility.
-    state.pccLoading = false;
-    state.pccUpdatedAt = Date.now();
-    state.requestUpdate?.();
-    const summaryResult = await summaryRequest;
     state.pccPortfolioSummary =
       overview?.portfolio ?? summaryResult.portfolio ?? summarizePortfolio(projects);
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
@@ -2211,6 +2205,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
         }
       }
     }
+    state.pccUpdatedAt = Date.now();
     await updatePccPresence(state);
     if (activeSurface === "project" && state.pccSelectedProjectId) {
       void loadPccExecutionProjection(state, state.pccSelectedProjectId);

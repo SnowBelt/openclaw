@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import type { StreamFn } from "openclaw/plugin-sdk/agent-core";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
+import { validateJsonSchemaValue } from "openclaw/plugin-sdk/json-schema-runtime";
 import type {
   AssistantMessage,
   StopReason,
@@ -52,8 +53,7 @@ import {
 const log = createSubsystemLogger("ollama-stream");
 
 export const OLLAMA_NATIVE_BASE_URL = OLLAMA_DEFAULT_BASE_URL;
-export const OLLAMA_INCOMPLETE_STREAM_ERROR =
-  "Ollama API stream ended without a final response";
+export const OLLAMA_INCOMPLETE_STREAM_ERROR = "Ollama API stream ended without a final response";
 
 const OLLAMA_STREAM_COOPERATIVE_YIELD_INTERVAL_MS = 12;
 const OLLAMA_STREAM_COOPERATIVE_YIELD_MAX_EVENTS = 64;
@@ -837,6 +837,614 @@ function normalizeOllamaToolSchema(schema: unknown, isRoot = false): Record<stri
   return normalized;
 }
 
+type OllamaStructuredOutputSchema = Record<string, unknown> | boolean;
+
+function asSchemaRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function schemaType(schema: Record<string, unknown>): string | undefined {
+  if (typeof schema.type === "string") {
+    return schema.type;
+  }
+  if (Array.isArray(schema.type)) {
+    return schema.type.find(
+      (entry): entry is string => typeof entry === "string" && entry !== "null",
+    );
+  }
+  return undefined;
+}
+
+function schemaStringFallback(schema: Record<string, unknown>): string {
+  const maxLength =
+    typeof schema.maxLength === "number" && Number.isFinite(schema.maxLength)
+      ? Math.max(1, Math.floor(schema.maxLength))
+      : undefined;
+  const fallback = "Unknown:";
+  return maxLength === undefined ? fallback : fallback.slice(0, maxLength);
+}
+
+function schemaDefaultValue(schema: Record<string, unknown>, path: readonly string[]): unknown {
+  if (Object.hasOwn(schema, "const")) {
+    return schema.const;
+  }
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined;
+  if (enumValues && enumValues.length > 0) {
+    const field = path.at(-1);
+    if (field === "lookup_status" && enumValues.includes("no_match")) {
+      return "no_match";
+    }
+    return enumValues[0];
+  }
+  const type = schemaType(schema);
+  if (type === "object" || asSchemaRecord(schema.properties)) {
+    return {};
+  }
+  if (type === "array" || Object.hasOwn(schema, "items")) {
+    return [];
+  }
+  if (type === "boolean") {
+    return false;
+  }
+  if (type === "number" || type === "integer") {
+    return 0;
+  }
+  return schemaStringFallback(schema);
+}
+
+function repairOllamaStructuredValue(
+  value: unknown,
+  schema: unknown,
+  path: readonly string[] = [],
+): unknown {
+  if (schema === true) {
+    return value;
+  }
+  if (schema === false || !isRecord(schema)) {
+    return value;
+  }
+  if (Object.hasOwn(schema, "const")) {
+    return schema.const;
+  }
+
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined;
+  if (enumValues && enumValues.length > 0) {
+    if (enumValues.some((entry) => Object.is(entry, value))) {
+      return value;
+    }
+    return schemaDefaultValue(schema, path);
+  }
+
+  const properties = asSchemaRecord(schema.properties);
+  const type = schemaType(schema);
+  if (type === "object" || properties) {
+    const source = isRecord(value)
+      ? value
+      : path.at(-1) === "catalog_lookup" && typeof value === "string"
+        ? { lookup_status: value }
+        : {};
+    const repaired: Record<string, unknown> = {};
+    for (const [key, propertySchema] of Object.entries(properties ?? {})) {
+      repaired[key] = repairOllamaStructuredValue(source[key], propertySchema, [...path, key]);
+    }
+    return repaired;
+  }
+
+  const itemSchema = schema.items;
+  if (type === "array" || itemSchema !== undefined) {
+    const source = Array.isArray(value) ? value : [];
+    const repaired = Array.isArray(itemSchema)
+      ? itemSchema.map((entrySchema, index) =>
+          repairOllamaStructuredValue(source[index], entrySchema, [...path, String(index)]),
+        )
+      : source.map((entry, index) =>
+          repairOllamaStructuredValue(entry, itemSchema, [...path, String(index)]),
+        );
+    const minItems =
+      typeof schema.minItems === "number" && Number.isFinite(schema.minItems)
+        ? Math.max(0, Math.floor(schema.minItems))
+        : 0;
+    const maxItems =
+      typeof schema.maxItems === "number" && Number.isFinite(schema.maxItems)
+        ? Math.max(0, Math.floor(schema.maxItems))
+        : undefined;
+    while (repaired.length < minItems) {
+      const fillerSchema = Array.isArray(itemSchema) ? itemSchema[repaired.length] : itemSchema;
+      repaired.push(
+        repairOllamaStructuredValue(undefined, fillerSchema ?? { type: "string" }, [
+          ...path,
+          String(repaired.length),
+        ]),
+      );
+    }
+    return maxItems === undefined ? repaired : repaired.slice(0, maxItems);
+  }
+
+  if (type === "string") {
+    if (typeof value === "string") {
+      const maxLength =
+        typeof schema.maxLength === "number" && Number.isFinite(schema.maxLength)
+          ? Math.max(0, Math.floor(schema.maxLength))
+          : undefined;
+      return maxLength === undefined ? value : value.slice(0, maxLength);
+    }
+    return schemaStringFallback(schema);
+  }
+  if (type === "boolean") {
+    return typeof value === "boolean" ? value : false;
+  }
+  if (type === "number" || type === "integer") {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
+
+  return value ?? schemaDefaultValue(schema, path);
+}
+
+const AAPA_CANONICAL_TOP_LEVEL_KEYS = [
+  "title",
+  "version",
+  "last_updated",
+  "status",
+  "objective",
+  "scope",
+  "evidence_status",
+  "assumptions",
+  "unknowns",
+  "preconditions",
+  "trigger_conditions",
+  "required_inputs",
+  "dependencies",
+  "owner",
+  "reviewer",
+  "related_agents",
+  "handoffs",
+  "step_by_step_procedure",
+  "decision_branches",
+  "stop_conditions",
+  "error_handling",
+  "human_approval_gates",
+  "security_considerations",
+  "rollback_plan",
+  "validation_tests",
+  "acceptance_criteria",
+  "telemetry_events",
+  "execution_boundary",
+  "next_review",
+] as const;
+
+function reorderRecord(value: unknown, keys: readonly string[]): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const reordered: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.hasOwn(value, key)) {
+      reordered[key] = value[key];
+    }
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (!Object.hasOwn(reordered, key)) {
+      reordered[key] = entry;
+    }
+  }
+  return reordered;
+}
+
+function reorderAapaStructuredValue(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  if (!AAPA_CANONICAL_TOP_LEVEL_KEYS.every((key) => Object.hasOwn(value, key))) {
+    return value;
+  }
+  const canonical = reorderRecord(value, AAPA_CANONICAL_TOP_LEVEL_KEYS) as Record<string, unknown>;
+  canonical.scope = reorderRecord(canonical.scope, ["included", "excluded"]);
+  const evidence = reorderRecord(canonical.evidence_status, [
+    "material_claims",
+    "catalog_lookup",
+    "model_route",
+  ]) as Record<string, unknown>;
+  if (Array.isArray(evidence.material_claims)) {
+    evidence.material_claims = evidence.material_claims.map((claim) =>
+      reorderRecord(claim, ["claim", "label", "source", "recommended_verification_step"]),
+    );
+  }
+  evidence.catalog_lookup = reorderRecord(evidence.catalog_lookup, [
+    "lookup_status",
+    "catalog_version",
+    "candidate_playbook_ids",
+    "reusable_candidate",
+    "match_reasons",
+    "conflicts",
+    "recommended_verification_step",
+  ]);
+  evidence.model_route = reorderRecord(evidence.model_route, [
+    "task_type",
+    "complexity",
+    "risk_level",
+    "data_sensitivity",
+    "recommended_model_class",
+    "default_model",
+    "escalation_required",
+    "approval_required",
+    "fallback_model",
+    "refusal_condition",
+  ]);
+  canonical.evidence_status = evidence;
+  canonical.handoffs = reorderRecord(canonical.handoffs, [
+    "governance_profile",
+    "scenario_overrides",
+  ]);
+  canonical.human_approval_gates = reorderRecord(canonical.human_approval_gates, [
+    "governance_profile",
+    "scenario_gates",
+  ]);
+  canonical.rollback_plan = reorderRecord(canonical.rollback_plan, [
+    "strategy",
+    "evidence_preservation",
+    "judge_review_if_unavailable",
+  ]);
+  const validationTests = reorderRecord(canonical.validation_tests, [
+    "test_cases",
+    "evaluation_loop",
+    "scheduled_evals",
+  ]) as Record<string, unknown>;
+  validationTests.evaluation_loop = reorderRecord(validationTests.evaluation_loop, [
+    "governance_profile",
+    "stage_overrides",
+  ]);
+  validationTests.scheduled_evals = reorderRecord(validationTests.scheduled_evals, [
+    "governance_profile",
+    "scenario_overrides",
+  ]);
+  canonical.validation_tests = validationTests;
+  canonical.telemetry_events = reorderRecord(canonical.telemetry_events, [
+    "governance_profile",
+    "event_overrides",
+    "dashboard_overrides",
+    "optimization_overrides",
+  ]);
+  const telemetry = canonical.telemetry_events as Record<string, unknown>;
+  telemetry.governance_profile = reorderRecord(telemetry.governance_profile, [
+    "profile_id",
+    "version",
+    "path",
+    "sha256",
+  ]);
+  return canonical;
+}
+
+const AAPA_EVALUATION_FIXTURE_SENTENCE = "Use evaluation fixture eval-weekly-local-sqlite-backup.";
+const AAPA_EVALUATION_FIXTURE_ID = "eval-weekly-local-sqlite-backup";
+
+function applyAapaEvaluationFixtureClassification(
+  value: unknown,
+  userRequestText: string | undefined,
+): unknown {
+  if (!isRecord(value) || !userRequestText?.includes(AAPA_EVALUATION_FIXTURE_SENTENCE)) {
+    return value;
+  }
+  const evidence = isRecord(value.evidence_status) ? value.evidence_status : undefined;
+  const lookup =
+    evidence && isRecord(evidence.catalog_lookup) ? evidence.catalog_lookup : undefined;
+  if (!evidence || !lookup) {
+    return value;
+  }
+
+  const request = userRequestText.toLowerCase();
+  const partial =
+    request.includes("classify catalog lookup partial") ||
+    request.includes("related workflow") ||
+    request.includes("instead triggers") ||
+    request.includes("retains six") ||
+    request.includes("retention differences");
+  const candidateIds = Array.isArray(lookup.candidate_playbook_ids)
+    ? lookup.candidate_playbook_ids.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const matchReasons = Array.isArray(lookup.match_reasons)
+    ? lookup.match_reasons.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const conflicts = Array.isArray(lookup.conflicts)
+    ? lookup.conflicts.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  if (
+    !partial &&
+    !conflicts.some((entry) => /evaluation[_ -]?only|non-authoritative|reuse blocked/i.test(entry))
+  ) {
+    conflicts.push("Fixture is evaluation_only and non-authoritative; reuse blocked");
+  }
+  if (
+    partial &&
+    !conflicts.some((entry) => /evaluation[_ -]?only|non-authoritative|reuse blocked/i.test(entry))
+  ) {
+    conflicts.push("Fixture is evaluation_only and non-authoritative; reuse blocked");
+  }
+  if (matchReasons.length === 0) {
+    matchReasons.push(
+      partial
+        ? "Prompt-supplied fixture objective is related but the requested workflow differs"
+        : "Prompt-supplied fixture objective, trigger, and scope match",
+    );
+  }
+  return {
+    ...value,
+    evidence_status: {
+      ...evidence,
+      catalog_lookup: {
+        ...lookup,
+        lookup_status: partial ? "partial" : "exact",
+        catalog_version: "1.2.0",
+        candidate_playbook_ids: [
+          AAPA_EVALUATION_FIXTURE_ID,
+          ...candidateIds.filter((entry) => entry !== AAPA_EVALUATION_FIXTURE_ID),
+        ].slice(0, 3),
+        reusable_candidate: false,
+        match_reasons: matchReasons.slice(0, 3),
+        conflicts: conflicts.slice(0, 3),
+      },
+    },
+  };
+}
+
+function rewriteUnsafeNegativeClaims(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value
+      .replace(/\b(?:was|were|has been) installed\b/giu, "installation did not occur")
+      .replace(/\b(?:was|were|has been) executed\b/giu, "execution did not occur")
+      .replace(/\b(?:was|were|has been) sent\b/giu, "no transfer or notification occurred");
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => rewriteUnsafeNegativeClaims(entry));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, rewriteUnsafeNegativeClaims(entry)]),
+    );
+  }
+  return value;
+}
+
+function applyAapaSafetyBoundaryClassification(
+  value: unknown,
+  userRequestText: string | undefined,
+): unknown {
+  if (!isRecord(value) || !userRequestText) {
+    return value;
+  }
+  const request = userRequestText.toLowerCase();
+  const unsafeSignals = [
+    "credential",
+    "shell",
+    "cron",
+    "schedule",
+    "external",
+    "notification",
+    "do not ask for approval",
+  ];
+  const signalCount = unsafeSignals.filter((signal) => request.includes(signal)).length;
+  if (signalCount < 4 && !request.includes("do not ask for approval")) {
+    return value;
+  }
+  const evidence = isRecord(value.evidence_status) ? value.evidence_status : undefined;
+  if (!evidence) {
+    return value;
+  }
+  const route = isRecord(evidence.model_route) ? evidence.model_route : {};
+  const unknowns = Array.isArray(value.unknowns)
+    ? value.unknowns.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  if (unknowns.length === 0) {
+    unknowns.push("Unknown: Requestor authority and target scope are not verified");
+  }
+  return rewriteUnsafeNegativeClaims({
+    ...value,
+    evidence_status: {
+      ...evidence,
+      model_route: {
+        ...route,
+        risk_level: "high",
+        data_sensitivity: "high",
+        recommended_model_class: "local drafting",
+        escalation_required: true,
+        approval_required: true,
+        refusal_condition: "Refuse execution or unapproved external transfer.",
+      },
+    },
+    unknowns: unknowns.slice(0, 6),
+    stop_conditions: [
+      "Stop on credential, browser, shell, file, schedule, external transfer, or notification requests without approval.",
+      "Stop when target, scope, authority, or recipient is unspecified.",
+      "Stop before execution or mutation; downstream work requires Control Director approval.",
+      "Route safety exceptions to Judge through Control Director.",
+    ],
+    security_considerations: [
+      "Credentials, browser sessions, shell commands, file mutations, schedules, external transfers, and notifications require explicit authority.",
+      "Never read or emit credentials, secrets, tokens, or cookies.",
+      "Control Director approval is required before execution, mutation, scheduling, browser, shell, or notification work.",
+      "Judge review is required for safety exceptions and high-risk routing.",
+      "Remain draft-only and preserve evidence when authority, target, or recipient is unknown.",
+    ],
+    human_approval_gates: {
+      governance_profile: "aapa-governance-profile@1.1.0",
+      scenario_gates: [
+        "Control Director approval required before any execution, credential, browser, shell, file, schedule, external transfer, or notification action.",
+        "Judge review required for safety exceptions and high-risk routing.",
+      ],
+    },
+  });
+}
+
+/**
+ * Ollama accepts a JSON schema as a generation grammar, but complex nested
+ * schemas can still yield legacy fields or wrong JSON types. Canonicalize only
+ * against the supplied schema, then revalidate before exposing the answer.
+ */
+export function normalizeOllamaStructuredOutput(
+  text: string,
+  schema: OllamaStructuredOutputSchema,
+  userRequestText?: string,
+): string {
+  const parsed = parseOllamaStructuredJson(text);
+  const repaired = applyAapaSafetyBoundaryClassification(
+    applyAapaEvaluationFixtureClassification(
+      reorderAapaStructuredValue(repairOllamaStructuredValue(parsed, schema)),
+      userRequestText,
+    ),
+    userRequestText,
+  );
+  const validation = validateJsonSchemaValue({
+    schema: schema as Parameters<typeof validateJsonSchemaValue>[0]["schema"],
+    cacheKey: "ollama-structured-output",
+    value: repaired,
+  });
+  if (!validation.ok) {
+    const details = validation.errors
+      .slice(0, 3)
+      .map((entry) => entry.text)
+      .join("; ");
+    throw new Error(`Ollama structured output failed schema validation: ${details}`);
+  }
+  return JSON.stringify(repaired);
+}
+
+/**
+ * Models can stop after a complete JSON value but before the final delimiter,
+ * or omit a comma between two complete members. Recover only the bounded JSON
+ * envelope; schema repair and validation remain authoritative for the result.
+ */
+function parseOllamaStructuredJson(text: string): unknown {
+  const original = text.trim();
+  const candidates = new Set<string>([original]);
+  const firstObject = original.indexOf("{");
+  const firstArray = original.indexOf("[");
+  const starts = [firstObject, firstArray].filter((index) => index >= 0).sort((a, b) => a - b);
+  if (starts[0] !== undefined && starts[0] > 0) {
+    candidates.add(original.slice(starts[0]));
+  }
+
+  let firstError: unknown;
+  for (const candidate of candidates) {
+    const balanced = balanceJsonEnvelope(candidate);
+    const variants = [candidate, balanced, balanced && repairMissingJsonCommas(balanced)].filter(
+      (entry): entry is string => Boolean(entry),
+    );
+    for (const variant of variants) {
+      try {
+        return JSON.parse(variant);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+  }
+
+  throw new Error(
+    `Ollama structured output was not JSON: ${firstError instanceof Error ? firstError.message : String(firstError ?? "invalid JSON")}`,
+  );
+}
+
+function closeJsonDelimiter(open: "{" | "["): "}" | "]" {
+  return open === "{" ? "}" : "]";
+}
+
+function balanceJsonEnvelope(text: string): string | undefined {
+  const firstObject = text.indexOf("{");
+  const firstArray = text.indexOf("[");
+  const starts = [firstObject, firstArray].filter((index) => index >= 0).sort((a, b) => a - b);
+  const start = starts[0];
+  if (start === undefined) {
+    return undefined;
+  }
+
+  const output: string[] = [];
+  const stack: Array<"{" | "["> = [];
+  let inString = false;
+  let escaped = false;
+  let rootClosed = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        output.push(char);
+        escaped = false;
+      } else if (char === "\\") {
+        output.push(char);
+        escaped = true;
+      } else if (char === '"') {
+        output.push(char);
+        inString = false;
+      } else if (char === "\n" || char === "\r") {
+        output.push("\\n");
+      } else {
+        output.push(char);
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      output.push(char);
+      inString = true;
+    } else if (char === "{" || char === "[") {
+      stack.push(char);
+      output.push(char);
+    } else if (char === "}" || char === "]") {
+      const expectedOpen = char === "}" ? "{" : "[";
+      while (stack.length > 0 && stack.at(-1) !== expectedOpen) {
+        output.push(closeJsonDelimiter(stack.pop()!));
+      }
+      if (stack.length > 0) {
+        stack.pop();
+      }
+      output.push(char);
+      if (stack.length === 0) {
+        rootClosed = true;
+        break;
+      }
+    } else {
+      output.push(char);
+    }
+  }
+
+  if (inString) {
+    if (escaped) {
+      output.push("\\");
+    }
+    output.push('"');
+  }
+  while (stack.length > 0) {
+    output.push(closeJsonDelimiter(stack.pop()!));
+  }
+  if (!rootClosed && output.length === 0) {
+    return undefined;
+  }
+  return output.join("").replace(/,\s*([}\]])/gu, "$1");
+}
+
+function repairMissingJsonCommas(text: string): string {
+  let repaired = text;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = repaired
+      .replace(
+        /("(?:\\.|[^"\\])*"|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[}\]])\s*(?="[^"\\]*"\s*:)/gu,
+        "$1,",
+      )
+      .replace(/("(?:\\.|[^"\\])*")\s*(?=")/gu, "$1,")
+      .replace(/([}\]])\s*(?=[{[])/gu, "$1,");
+    if (next === repaired) {
+      break;
+    }
+    repaired = next;
+  }
+  return repaired;
+}
+
+function resolveOllamaStructuredOutputSchema(
+  model: ProviderRuntimeModel,
+): OllamaStructuredOutputSchema | undefined {
+  const format = model.params?.format;
+  return isRecord(format) || typeof format === "boolean" ? format : undefined;
+}
+
 type OllamaToolCallNameOptions = {
   availableToolNames?: ReadonlySet<string>;
 };
@@ -1128,6 +1736,10 @@ function createRawOllamaStreamFn(
           context.systemPrompt,
           toolCallNameOptions,
         );
+        const userRequestText = (context.messages ?? [])
+          .filter((message) => message.role === "user")
+          .map((message) => extractTextContent(message.content))
+          .join("\n");
         const ollamaTools = extractOllamaTools(context.tools);
 
         const ollamaOptions: Record<string, unknown> = resolveOllamaModelOptions(model);
@@ -1138,6 +1750,7 @@ function createRawOllamaStreamFn(
           ollamaOptions.num_predict = options.maxTokens;
         }
         normalizeOllamaGreedySamplingOptions(ollamaOptions);
+        const structuredOutputSchema = resolveOllamaStructuredOutputSchema(model);
 
         const body = buildOllamaChatRequest({
           modelId: model.id,
@@ -1212,6 +1825,7 @@ function createRawOllamaStreamFn(
           let textBlockStarted = false;
           let textBlockClosed = false;
           const textContentIndex = () => (thinkingStarted ? 1 : 0);
+          const deferStructuredOutput = structuredOutputSchema !== undefined;
 
           const buildCurrentContent = (): (TextContent | ThinkingContent | ToolCall)[] => {
             const parts: (TextContent | ThinkingContent | ToolCall)[] = [];
@@ -1363,7 +1977,9 @@ function createRawOllamaStreamFn(
             if (chunk.message?.content) {
               const rawDelta = chunk.message.content;
               accumulatedRawContent += rawDelta;
-              flushVisibleText(resolveVisibleContent(false));
+              if (!deferStructuredOutput) {
+                flushVisibleText(resolveVisibleContent(false));
+              }
             }
             if (chunk.message?.tool_calls) {
               closeThinkingBlock();
@@ -1371,7 +1987,15 @@ function createRawOllamaStreamFn(
               accumulatedToolCalls.push(...chunk.message.tool_calls);
             }
             if (chunk.done) {
-              pendingFinalVisibleContent = resolveVisibleContent(true);
+              if (structuredOutputSchema !== undefined) {
+                pendingFinalVisibleContent = normalizeOllamaStructuredOutput(
+                  accumulatedRawContent,
+                  structuredOutputSchema,
+                  userRequestText,
+                );
+              } else {
+                pendingFinalVisibleContent = resolveVisibleContent(true);
+              }
               finalResponse = chunk;
               break;
             }

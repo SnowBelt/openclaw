@@ -409,7 +409,7 @@ describe("renderPccDashboard", () => {
         },
         proofGaps: [],
         health: "On track",
-        updatedAt: new Date().toISOString(),
+        updatedAt: "2026-08-02T14:00:00.000Z",
       },
       {
         ...workOverview.projects[0],

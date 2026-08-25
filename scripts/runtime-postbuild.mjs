@@ -12,6 +12,7 @@ import {
   copyStaticExtensionAssetsToRuntimeOverlay,
   listStaticExtensionAssetOutputs,
 } from "./lib/static-extension-assets.mjs";
+import { copyWorkspaceTemplateAssets } from "./lib/workspace-template-assets.mjs";
 import { writeTextFileIfChanged } from "./runtime-postbuild-shared.mjs";
 import { stageBundledPluginRuntime } from "./stage-bundled-plugin-runtime.mjs";
 import { writeOfficialChannelCatalog } from "./write-official-channel-catalog.mjs";
@@ -565,6 +566,9 @@ export function runRuntimePostBuild(params = {}) {
   runPhase("bundled plugin metadata", () => copyBundledPluginMetadata(params));
   runPhase("official channel catalog", () => writeOfficialChannelCatalog(params));
   runPhase("bundled plugin runtime overlay", () => stageBundledPluginRuntime(params));
+  runPhase("workspace template assets", () =>
+    copyWorkspaceTemplateAssets({ rootDir: ROOT, ...params }),
+  );
   runPhase("static extension assets", () => {
     if (!shouldCopyStaticExtensionAssets(params)) {
       return;

@@ -10,7 +10,7 @@ import { isPccExecutionPlanStatus } from "./execution-plan.js";
 import { pccMetadataObject, pccMetadataString } from "./metadata.js";
 import { buildPccLedgerReadIndex, pccIndexedItems } from "./read-model/ledger-index.js";
 import { summarizePccPortfolio, summarizePccProject } from "./read-model/project-summary.js";
-import { comparePccTimestampsDesc, normalizePccTimestamp } from "./timestamps.js";
+import { normalizePccTimestamp } from "./timestamps.js";
 
 type PccOverviewProject = PccOverviewGetResult["projects"][number];
 type PccOverviewAttentionItem = PccOverviewGetResult["attention"][number];
@@ -169,8 +169,8 @@ export function buildPccOverview(
   const activeAgents: PccOverviewAgentAssignment[] = [];
   const projects = userProjects.map((project) => {
     const summary = summarizePccProject(ledger, project, index);
-    const plans = executionPlans(project).toSorted(
-      (a, b) => comparePccTimestampsDesc(a.updatedAt, b.updatedAt) || a.id.localeCompare(b.id),
+    const plans = executionPlans(project).toSorted((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt),
     );
     const plan = plans[0];
     const milestone = currentMilestone(ledger, project.id);
@@ -283,17 +283,10 @@ export function buildPccOverview(
   };
   projects.sort(
     (a, b) =>
-      priority[a.workState] - priority[b.workState] ||
-      comparePccTimestampsDesc(a.updatedAt, b.updatedAt) ||
-      a.id.localeCompare(b.id),
+      priority[a.workState] - priority[b.workState] || b.updatedAt.localeCompare(a.updatedAt),
   );
-  attention.sort(
-    (a, b) => comparePccTimestampsDesc(a.updatedAt, b.updatedAt) || a.id.localeCompare(b.id),
-  );
-  activeAgents.sort(
-    (a, b) =>
-      comparePccTimestampsDesc(a.lastActivityAt, b.lastActivityAt) || a.id.localeCompare(b.id),
-  );
+  attention.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  activeAgents.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
 
   const overviewByProjectId = new Map(projects.map((project) => [project.id, project]));
   const recentActivity: PccOverviewActivity[] = [];

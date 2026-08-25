@@ -259,6 +259,59 @@ describe("self-improvement proposals", () => {
     });
   });
 
+  it("persists bounded structured curator review metadata without private references", async () => {
+    const [proposal] = buildSelfImprovementProposalsFromGroups({
+      groups: [
+        group({
+          category: "knowledge_hygiene",
+          route: {
+            role: "memory_curator",
+            targetAgentId: "memory-knowledge-curator",
+            targetAgentLabel: "Memory/Knowledge Curator",
+            reason: "Memory and skill curation.",
+          },
+        }),
+      ],
+      now,
+    });
+    expect(proposal).toBeDefined();
+    if (!proposal) {
+      return;
+    }
+    const unsafeToken = "abcdefghijklmnopqrstuvwxyz123456";
+    await upsertSelfImprovementProposals({ stateDir: tmpDir, proposals: [proposal] });
+    await updateSelfImprovementCuratorStatus({
+      stateDir: tmpDir,
+      id: proposal.id,
+      curatorStatus: "needs_more_evidence",
+      proof: "Bounded reviewer proof.",
+      review: {
+        evidence: [
+          {
+            sourceClass: "instruction",
+            sourceRef: `/Users/openclaw/private-review.md token=${unsafeToken}`,
+            observedAt: now,
+          },
+        ],
+        confidence: "high",
+        freshness: "current",
+        privacy: "private_reference_only",
+        contradiction: false,
+        reason: `The source needs review token=${unsafeToken}.`,
+        nextAction: "Request a bounded shared-safe source.",
+        reviewedAt: now + 1_000,
+      },
+      now: now + 1_000,
+    });
+
+    const serialized = JSON.stringify(await listSelfImprovementProposals({ stateDir: tmpDir }));
+    expect(serialized).toContain("curationReview");
+    expect(serialized).toContain("private_reference_only");
+    expect(serialized).toContain("[local-path]");
+    expect(serialized).not.toContain("/Users/openclaw");
+    expect(serialized).not.toContain(unsafeToken);
+  });
+
   it("redacts curator proof, promotion proof, and curator reasons", async () => {
     const [proposal] = buildSelfImprovementProposalsFromGroups({
       groups: [

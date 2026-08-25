@@ -46,6 +46,21 @@ describe("resolveWorkspaceTemplateDir", () => {
     expect(resolved).toBe(templatesDir);
   });
 
+  it("prefers templates packaged beside the built runtime module", async () => {
+    const root = await makeTempRoot();
+    await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "openclaw" }));
+
+    const distDir = path.join(root, "dist");
+    const templatesDir = path.join(distDir, "templates");
+    await fs.mkdir(templatesDir, { recursive: true });
+    await fs.writeFile(path.join(templatesDir, "HEARTBEAT.md"), "# packaged\n");
+
+    const moduleUrl = pathToFileURL(path.join(distDir, "workspace-templates.mjs")).toString();
+    const resolved = await resolveWorkspaceTemplateDir({ cwd: root, moduleUrl });
+
+    expect(resolved).toBe(templatesDir);
+  });
+
   it("falls back to package-root runtime path when templates directory is missing", async () => {
     const root = await makeTempRoot();
     await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "openclaw" }));

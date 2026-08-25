@@ -142,7 +142,6 @@ import { readReleaseGovernanceStatus } from "../../pcc/release-governance/store.
 import { readPccRuntimeIdentity, type PccRuntimeIdentity } from "../../pcc/runtime-identity.js";
 import { readPccUpdateSafety } from "../../pcc/update-safety.js";
 import { listTaskRecords } from "../../tasks/runtime-internal.js";
-import { abortTrackedChatRunById } from "../chat-abort.js";
 import { listAgentsForGateway } from "../session-utils.js";
 import type {
   GatewayClient,
@@ -547,13 +546,6 @@ function broadcastPccChanged(
 type PccExecutionStoredResult = { project: PccProject; plan: PccExecutionPlan };
 
 const PCC_EXECUTION_ORPHAN_GRACE_MS = 2 * 60 * 1_000;
-// PCC supervised work is a bounded, one-task-at-a-time MVP loop. Do not inherit
-// the Gateway's general chat timeout here: a stalled local model must become a
-// truthful terminal execution result instead of leaving the project Working.
-// The PCC watchdog emits the timeout cancellation event directly; the normal
-// terminal reconciliation then records the cancelled run with unavailable
-// provider usage. The chat timeout remains bounded as a second safety net.
-const PCC_EXECUTION_RUN_TIMEOUT_MS = 60 * 1_000;
 const PCC_EXECUTION_RUN_STATUSES = new Set(["prepared", "dispatching", "running"]);
 
 function persistStoredPccExecutionPlan(
@@ -589,35 +581,6 @@ function pccExecutionRunIsTracked(context: GatewayRequestContext, plan: PccExecu
     }
   }
   return false;
-}
-
-function schedulePccExecutionTimeout(
-  context: GatewayRequestContext,
-  plan: PccExecutionPlan,
-  runId: string,
-): void {
-  const timer = setTimeout(() => {
-    abortTrackedChatRunById(
-      {
-        chatAbortControllers: context.chatAbortControllers,
-        chatRunBuffers: context.chatRunBuffers,
-        chatRunState: {
-          abortedRuns: context.chatAbortedRuns,
-          clearRun: context.clearChatRunState,
-        },
-        removeChatRun: context.removeChatRun,
-        agentRunSeq: context.agentRunSeq,
-        broadcast: context.broadcast,
-        nodeSendToSession: context.nodeSendToSession,
-      },
-      {
-        runId,
-        sessionKey: plan.coordinator.sessionId,
-        stopReason: "timeout",
-      },
-    );
-  }, PCC_EXECUTION_RUN_TIMEOUT_MS);
-  timer.unref?.();
 }
 
 /** Reconciles persisted plans that survived a Gateway lifecycle without their run. */
@@ -768,7 +731,6 @@ async function dispatchPccExecutionPlan(params: {
             taskTitle: params.taskTitle,
             model: params.plan.partitions[0]?.modelId ?? "local model selected by Gateway",
           }),
-          timeoutMs: PCC_EXECUTION_RUN_TIMEOUT_MS,
           deliver: false,
           suppressCommandInterpretation: true,
           idempotencyKey: params.plan.id,
@@ -2436,7 +2398,6 @@ export const pccHandlers: GatewayRequestHandlers = {
         unregisterPccExecutionRun(dispatching.plan.id);
       }
       registerRun(acknowledgement.runId);
-      schedulePccExecutionTimeout(context, dispatching.plan, acknowledgement.runId);
       const running = withLedger(
         (ledger) => {
           const project = projectOrError(ledger, params.projectId);

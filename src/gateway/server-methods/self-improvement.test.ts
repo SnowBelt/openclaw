@@ -12,6 +12,7 @@ import {
 import { upsertSelfImprovementProposals } from "../../self-improvement/proposals.js";
 import { upsertSelfImprovementRecommendations } from "../../self-improvement/store.js";
 import type {
+  SelfImprovementCurationReview,
   SelfImprovementProposal,
   SelfImprovementRecommendation,
 } from "../../self-improvement/types.js";
@@ -98,6 +99,22 @@ function proposal(overrides: Partial<SelfImprovementProposal> = {}): SelfImprove
     approvalRequired: true,
     testsRequired: false,
     analysisMode: "deterministic",
+    ...overrides,
+  };
+}
+
+function curationReview(
+  overrides: Partial<SelfImprovementCurationReview> = {},
+): SelfImprovementCurationReview {
+  return {
+    evidence: [{ sourceClass: "instruction", sourceRef: "test-source" }],
+    confidence: "high",
+    freshness: "current",
+    privacy: "shared_safe",
+    contradiction: false,
+    reason: "Evidence is current and bounded.",
+    nextAction: "Keep the workshop draft pending operator approval.",
+    reviewedAt: now,
     ...overrides,
   };
 }
@@ -512,6 +529,22 @@ describe("selfImprovement server methods", () => {
     expect(response.error?.message).toContain("curator proof is required");
   });
 
+  it("requires structured review after proof before workshop acceptance", async () => {
+    await upsertSelfImprovementProposals({
+      stateDir: tmpDir,
+      proposals: [proposal()],
+    });
+
+    const response = await callSelfImprovementHandler("selfImprovement.curator.update", {
+      id: "sip_memory",
+      curatorStatus: "accepted_for_workshop",
+      proof: "Proof without structured review.",
+    });
+
+    expect(response.ok).toBe(false);
+    expect(response.error?.message).toContain("structured provenance");
+  });
+
   it("updates curator status with workshop linkage and sanitized audit metadata", async () => {
     const proof = "Reviewed against Skill Workshop pending-mode rules.";
     await upsertSelfImprovementProposals({
@@ -523,6 +556,7 @@ describe("selfImprovement server methods", () => {
       id: "sip_memory",
       curatorStatus: "accepted_for_workshop",
       proof,
+      curationReview: curationReview(),
       workshopProposalId: "swp_memory_1",
       workshopProposalStatus: "pending",
     });
@@ -533,6 +567,7 @@ describe("selfImprovement server methods", () => {
         id: "sip_memory",
         curatorStatus: "accepted_for_workshop",
         curatorProof: proof,
+        curationReview: curationReview(),
         workshopProposalId: "swp_memory_1",
       },
     });
@@ -558,6 +593,7 @@ describe("selfImprovement server methods", () => {
         proposal({
           curatorStatus: "accepted_for_workshop",
           curatorProof: "Accepted after review.",
+          curationReview: curationReview(),
           workshopProposalId: "swp_memory_1",
           workshopProposalStatus: "quarantined",
         }),
@@ -571,7 +607,56 @@ describe("selfImprovement server methods", () => {
     });
 
     expect(response.ok).toBe(false);
-    expect(response.error?.message).toContain("non-quarantined Skill Workshop proposal link");
+    expect(response.error?.message).toContain("applied Skill Workshop proposal link");
+  });
+
+  it("rejects stale or privacy-blocked structured reviews before workshop acceptance", async () => {
+    await upsertSelfImprovementProposals({
+      stateDir: tmpDir,
+      proposals: [proposal()],
+    });
+
+    const stale = await callSelfImprovementHandler("selfImprovement.curator.update", {
+      id: "sip_memory",
+      curatorStatus: "accepted_for_workshop",
+      proof: "Stale review proof.",
+      curationReview: curationReview({ freshness: "stale_risk" }),
+    });
+    expect(stale.ok).toBe(false);
+    expect(stale.error?.message).toContain("stale-risk");
+
+    const blocked = await callSelfImprovementHandler("selfImprovement.curator.update", {
+      id: "sip_memory",
+      curatorStatus: "accepted_for_workshop",
+      proof: "Sensitive review proof.",
+      curationReview: curationReview({ privacy: "blocked_sensitive" }),
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error?.message).toContain("sensitive evidence");
+  });
+
+  it("requires an applied workshop proposal before promotion", async () => {
+    await upsertSelfImprovementProposals({
+      stateDir: tmpDir,
+      proposals: [
+        proposal({
+          curatorStatus: "accepted_for_workshop",
+          curatorProof: "Accepted after review.",
+          curationReview: curationReview(),
+          workshopProposalId: "swp_memory_1",
+          workshopProposalStatus: "pending",
+        }),
+      ],
+    });
+
+    const response = await callSelfImprovementHandler("selfImprovement.curator.update", {
+      id: "sip_memory",
+      curatorStatus: "promoted",
+      proof: "Promotion evidence.",
+    });
+
+    expect(response.ok).toBe(false);
+    expect(response.error?.message).toContain("applied Skill Workshop proposal link");
   });
 
   it("returns production-check readiness without mutating recommendations", async () => {

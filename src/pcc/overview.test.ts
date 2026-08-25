@@ -246,15 +246,4 @@ describe("PCC overview read model", () => {
     expect(() => buildPccOverview(canonical, 4)).not.toThrow();
     expect(canonical.receipts[0]?.completedAt).toBe(createdAt);
   });
-
-  it("keeps projects visible when legacy sort timestamps are missing or invalid", () => {
-    const ledger = ledgerWithProjects(2);
-    (ledger.projects[1] as unknown as Record<string, unknown>).updatedAt = undefined;
-    (ledger.projects[2] as unknown as Record<string, unknown>).updatedAt = "not-a-date";
-
-    const overview = buildPccOverview(ledger, 46);
-
-    expect(overview.projects).toHaveLength(2);
-    expect(overview.projects.map((item) => item.id)).toEqual(["user-1", "user-2"]);
-  });
 });

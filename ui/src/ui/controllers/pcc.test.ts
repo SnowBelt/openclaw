@@ -565,42 +565,6 @@ describe("loadPccDashboard", () => {
     expect(state.pccUpdatedAt).toEqual(expect.any(Number));
   });
 
-  it("reveals the overview before secondary summary metadata finishes", async () => {
-    let resolveSummary: (value: unknown) => void = () => {
-      throw new Error("summary request did not start");
-    };
-    const summaryRequest = new Promise((resolve) => {
-      resolveSummary = resolve;
-    });
-    const request = vi.fn((method: string) => {
-      if (method === "pcc.overview.get") {
-        return Promise.resolve({
-          projects: [summary],
-          generatedAt: "2026-08-24T00:00:00.000Z",
-          portfolio,
-          system: {},
-        });
-      }
-      if (method === "pcc.summary.get") {
-        return summaryRequest;
-      }
-      return Promise.resolve({ presence: [] });
-    });
-    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
-
-    const loading = loadPccDashboard(state);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(state.pccProjects).toHaveLength(1);
-    expect(state.pccLoading).toBe(false);
-    expect(state.pccUpdatedAt).toEqual(expect.any(Number));
-
-    resolveSummary({ portfolio });
-    await loading;
-    expect(state.pccError).toBeNull();
-  });
-
   it("opens the work overview without auto-selecting the internal PCC Product record", async () => {
     const pccSummary = {
       ...summary,

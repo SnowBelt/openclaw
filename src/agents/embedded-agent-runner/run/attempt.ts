@@ -798,20 +798,20 @@ function collectAttemptExplicitToolAllowlistSources(params: {
     inheritedToolPolicy,
   } = params.capabilityProfile.policy;
   return collectExplicitToolAllowlistSources([
-    { label: "tools.allow", allow: globalPolicy?.allow },
-    { label: "tools.byProvider.allow", allow: globalProviderPolicy?.allow },
+    { label: "tools.allow", policy: globalPolicy },
+    { label: "tools.byProvider.allow", policy: globalProviderPolicy },
     {
       label: agentId ? `agents.${agentId}.tools.allow` : "agent tools.allow",
-      allow: agentPolicy?.allow,
+      policy: agentPolicy,
     },
     {
       label: agentId ? `agents.${agentId}.tools.byProvider.allow` : "agent tools.byProvider.allow",
-      allow: agentProviderPolicy?.allow,
+      policy: agentProviderPolicy,
     },
-    { label: "group tools.allow", allow: groupPolicy?.allow },
-    { label: "sandbox tools.allow", allow: sandboxPolicy?.allow },
-    { label: "subagent tools.allow", allow: subagentPolicy?.allow },
-    { label: "inherited tools.allow", allow: inheritedToolPolicy?.allow },
+    { label: "group tools.allow", policy: groupPolicy },
+    { label: "sandbox tools.allow", policy: sandboxPolicy },
+    { label: "subagent tools.allow", policy: subagentPolicy },
+    { label: "inherited tools.allow", policy: inheritedToolPolicy },
     { label: "runtime toolsAllow", allow: params.toolsAllow, enforceWhenToolsDisabled: true },
   ]);
 }

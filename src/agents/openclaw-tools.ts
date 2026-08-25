@@ -43,6 +43,7 @@ import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { createCrestodianTool } from "./tools/crestodian-tool.js";
 import { createCronTool, type CronCreatorToolAllowlistEntry } from "./tools/cron-tool.js";
+import { createCuratorTools } from "./tools/curator-tools.js";
 import { createEmbeddedCallGateway } from "./tools/embedded-gateway-stub.js";
 import { wrapToolWithGatewayCallerIdentity } from "./tools/gateway-caller-context.js";
 import { createGatewayTool } from "./tools/gateway-tool.js";
@@ -504,6 +505,7 @@ export function createOpenClawTools(
           }),
         ]),
     ...(includeUpdatePlanTool ? [createUpdatePlanTool()] : []),
+    ...createCuratorTools({ callGateway: effectiveCallGateway }),
     createSessionsListTool({
       agentSessionKey: options?.agentSessionKey,
       sandboxed: options?.sandboxed,

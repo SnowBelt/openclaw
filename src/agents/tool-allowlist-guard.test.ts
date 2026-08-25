@@ -1,6 +1,7 @@
 // Tool allowlist guard tests cover fail-closed behavior when explicit
 // allowlists leave no callable tools for the selected runtime/model.
 import { describe, expect, it } from "vitest";
+import { pickSandboxToolPolicy } from "./sandbox-tool-policy.js";
 import {
   buildEmptyExplicitToolAllowlistError,
   collectExplicitToolAllowlistSources,
@@ -55,6 +56,38 @@ describe("tool allowlist guard", () => {
 
     expect(error?.message).toContain("agents.db.tools.allow: query_db");
     expect(error?.message).toContain("the selected model does not support tools");
+  });
+
+  it("does not treat additive alsoAllow policy as an explicit required allowlist", () => {
+    const policy = pickSandboxToolPolicy({ alsoAllow: ["patternlab_status"] });
+    const sources = collectExplicitToolAllowlistSources([{ label: "tools.allow", policy }]);
+
+    expect(sources).toEqual([
+      {
+        label: "tools.allow",
+        entries: ["*", "patternlab_status"],
+        implicitAllowAllFromAlsoAllow: true,
+      },
+    ]);
+    expect(
+      buildEmptyExplicitToolAllowlistError({
+        sources,
+        callableToolNames: [],
+        toolsEnabled: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps an operator-authored wildcard explicit", () => {
+    const error = buildEmptyExplicitToolAllowlistError({
+      sources: collectExplicitToolAllowlistSources([
+        { label: "tools.allow", policy: { allow: ["*"] } },
+      ]),
+      callableToolNames: [],
+      toolsEnabled: false,
+    });
+
+    expect(error?.message).toContain("tools.allow: *");
   });
 
   it("allows text-only runs without explicit allowlists", () => {

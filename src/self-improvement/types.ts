@@ -406,6 +406,34 @@ export type SelfImprovementCuratorStatus =
   | "superseded"
   | "promoted";
 
+export type SelfImprovementCurationSourceClass = SelfImprovementRecommendationSource["kind"];
+
+export type SelfImprovementCurationConfidence = "low" | "medium" | "high";
+
+export type SelfImprovementCurationFreshness = "current" | "stale_risk" | "unknown";
+
+export type SelfImprovementCurationPrivacy =
+  | "shared_safe"
+  | "private_reference_only"
+  | "blocked_sensitive";
+
+export type SelfImprovementCurationEvidence = {
+  sourceClass: SelfImprovementCurationSourceClass;
+  sourceRef: string;
+  observedAt?: number;
+};
+
+export type SelfImprovementCurationReview = {
+  evidence: SelfImprovementCurationEvidence[];
+  confidence: SelfImprovementCurationConfidence;
+  freshness: SelfImprovementCurationFreshness;
+  privacy: SelfImprovementCurationPrivacy;
+  contradiction: boolean;
+  reason: string;
+  nextAction: string;
+  reviewedAt: number;
+};
+
 export type SelfImprovementProposalKind =
   | "implementation"
   | "verification"
@@ -439,6 +467,7 @@ export type SelfImprovementProposal = {
   curatorProof?: string;
   curatorReason?: string;
   curatorUpdatedAt?: number;
+  curationReview?: SelfImprovementCurationReview;
   workshopProposalId?: string;
   workshopProposalStatus?: "pending" | "quarantined" | "applied" | "rejected";
   promotionProof?: string;

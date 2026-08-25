@@ -10,6 +10,11 @@ import { isSelfImprovementJsonToSqliteMigrationApplied } from "./ledger-migratio
 import { listSelfImprovementLedgerRows, replaceSelfImprovementLedgerRows } from "./ledger.js";
 import { sanitizeRecommendationText, sanitizeRecommendationTexts } from "./text.js";
 import type {
+  SelfImprovementCurationConfidence,
+  SelfImprovementCurationFreshness,
+  SelfImprovementCurationPrivacy,
+  SelfImprovementCurationReview,
+  SelfImprovementCurationSourceClass,
   SelfImprovementCuratorStatus,
   SelfImprovementProposal,
   SelfImprovementProposalKind,
@@ -76,6 +81,98 @@ function isWorkshopProposalStatus(
   );
 }
 
+const CURATION_SOURCE_CLASSES: readonly SelfImprovementCurationSourceClass[] = [
+  "task",
+  "task_group",
+  "cron_job",
+  "skill_workshop",
+  "skill_workshop_queue",
+  "project_health",
+  "configuration",
+  "agent",
+  "instruction",
+  "workflow",
+  "knowledge",
+  "architecture",
+  "risk",
+  "outcome",
+];
+
+function isCurationSourceClass(value: unknown): value is SelfImprovementCurationSourceClass {
+  return (
+    typeof value === "string" &&
+    CURATION_SOURCE_CLASSES.some((sourceClass) => sourceClass === value)
+  );
+}
+
+function isCurationConfidence(value: unknown): value is SelfImprovementCurationConfidence {
+  return value === "low" || value === "medium" || value === "high";
+}
+
+function isCurationFreshness(value: unknown): value is SelfImprovementCurationFreshness {
+  return value === "current" || value === "stale_risk" || value === "unknown";
+}
+
+function isCurationPrivacy(value: unknown): value is SelfImprovementCurationPrivacy {
+  return (
+    value === "shared_safe" || value === "private_reference_only" || value === "blocked_sensitive"
+  );
+}
+
+function parseCurationReview(value: unknown): SelfImprovementCurationReview | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const evidence = Array.isArray(value.evidence)
+    ? value.evidence
+        .map((entry) => {
+          if (!isRecord(entry) || !isCurationSourceClass(entry.sourceClass)) {
+            return null;
+          }
+          const sourceRef = sanitizeRecommendationText(entry.sourceRef, 160);
+          if (!sourceRef) {
+            return null;
+          }
+          const observedAt =
+            typeof entry.observedAt === "number" && Number.isFinite(entry.observedAt)
+              ? Math.max(0, Math.floor(entry.observedAt))
+              : undefined;
+          return {
+            sourceClass: entry.sourceClass,
+            sourceRef,
+            ...(observedAt !== undefined ? { observedAt } : {}),
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+        .slice(0, 8)
+    : [];
+  const reason = sanitizeRecommendationText(value.reason, 360);
+  const nextAction = sanitizeRecommendationText(value.nextAction, 240);
+  if (
+    evidence.length === 0 ||
+    !isCurationConfidence(value.confidence) ||
+    !isCurationFreshness(value.freshness) ||
+    !isCurationPrivacy(value.privacy) ||
+    typeof value.contradiction !== "boolean" ||
+    !reason ||
+    !nextAction ||
+    typeof value.reviewedAt !== "number" ||
+    !Number.isFinite(value.reviewedAt)
+  ) {
+    return undefined;
+  }
+  return {
+    evidence,
+    confidence: value.confidence,
+    freshness: value.freshness,
+    privacy: value.privacy,
+    contradiction: value.contradiction,
+    reason,
+    nextAction,
+    reviewedAt: Math.max(0, Math.floor(value.reviewedAt)),
+  };
+}
+
 function parseProposal(value: unknown): SelfImprovementProposal | null {
   if (!isRecord(value) || typeof value.id !== "string" || !isProposalStatus(value.status)) {
     return null;
@@ -89,6 +186,7 @@ function parseProposal(value: unknown): SelfImprovementProposal | null {
   const kind = proposal.kind;
   const groupKey = proposal.groupKey;
   const route = proposal.route as SelfImprovementProposal["route"];
+  const curationReview = parseCurationReview(proposal.curationReview);
   return {
     ...(proposal as SelfImprovementProposal),
     id,
@@ -130,6 +228,7 @@ function parseProposal(value: unknown): SelfImprovementProposal | null {
     ...(typeof proposal.curatorUpdatedAt === "number" && Number.isFinite(proposal.curatorUpdatedAt)
       ? { curatorUpdatedAt: Math.max(0, Math.floor(proposal.curatorUpdatedAt)) }
       : {}),
+    ...(curationReview ? { curationReview } : {}),
     ...(typeof proposal.workshopProposalId === "string"
       ? { workshopProposalId: sanitizeRecommendationText(proposal.workshopProposalId, 160) }
       : {}),
@@ -387,6 +486,7 @@ export async function upsertSelfImprovementProposals(params: {
         ...(existing.curatorProof ? { curatorProof: existing.curatorProof } : {}),
         ...(existing.curatorReason ? { curatorReason: existing.curatorReason } : {}),
         ...(existing.curatorUpdatedAt ? { curatorUpdatedAt: existing.curatorUpdatedAt } : {}),
+        ...(existing.curationReview ? { curationReview: existing.curationReview } : {}),
         ...(existing.workshopProposalId ? { workshopProposalId: existing.workshopProposalId } : {}),
         ...(existing.workshopProposalStatus
           ? { workshopProposalStatus: existing.workshopProposalStatus }
@@ -460,6 +560,7 @@ export async function updateSelfImprovementCuratorStatus(params: {
   reason?: string;
   workshopProposalId?: string;
   workshopProposalStatus?: NonNullable<SelfImprovementProposal["workshopProposalStatus"]>;
+  review?: SelfImprovementCurationReview;
   note?: string;
   stateDir?: string;
   storePath?: string;
@@ -470,6 +571,10 @@ export async function updateSelfImprovementCuratorStatus(params: {
   return await withSelfImprovementStoreMutation(storePath, async () => {
     const file = await readStore(storePath, stateDir);
     const now = params.now ?? Date.now();
+    const review = params.review ? parseCurationReview(params.review) : undefined;
+    if (params.review && !review) {
+      throw new Error("invalid curator curation review");
+    }
     let updated: SelfImprovementProposal | null = null;
     const proposals = file.proposals.map((proposal) => {
       if (proposal.id !== params.id.trim()) {
@@ -494,6 +599,7 @@ export async function updateSelfImprovementCuratorStatus(params: {
         ...(params.workshopProposalStatus
           ? { workshopProposalStatus: params.workshopProposalStatus }
           : {}),
+        ...(review ? { curationReview: review } : {}),
         ...(note ? { safetyNotes: [...proposal.safetyNotes, note] } : {}),
       };
       return updated;

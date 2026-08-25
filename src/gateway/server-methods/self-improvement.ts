@@ -81,6 +81,7 @@ import type {
   SelfImprovementRecommendationStatus,
   SelfImprovementProposalKind,
   SelfImprovementProposalStatus,
+  SelfImprovementCurationReview,
   SelfImprovementCuratorStatus,
   SelfImprovementRouteRole,
 } from "../../self-improvement/types.js";
@@ -184,6 +185,28 @@ function proposalContainsSensitiveMarker(proposal: {
     .filter((entry): entry is string => Boolean(entry))
     .join("\n");
   return SENSITIVE_MARKER_PATTERN.test(text);
+}
+
+function hasCompleteCurationReview(review: unknown): review is SelfImprovementCurationReview {
+  if (!review || typeof review !== "object" || Array.isArray(review)) {
+    return false;
+  }
+  const value = review as Partial<SelfImprovementCurationReview>;
+  return (
+    Array.isArray(value.evidence) &&
+    value.evidence.length > 0 &&
+    typeof value.confidence === "string" &&
+    typeof value.freshness === "string" &&
+    typeof value.privacy === "string" &&
+    typeof value.contradiction === "boolean" &&
+    typeof value.reason === "string" &&
+    value.reason.trim().length > 0 &&
+    typeof value.nextAction === "string" &&
+    value.nextAction.trim().length > 0 &&
+    typeof value.reviewedAt === "number" &&
+    Number.isFinite(value.reviewedAt) &&
+    value.reviewedAt >= 0
+  );
 }
 
 function normalizeStatusList(
@@ -1301,6 +1324,7 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
     );
     const workshopProposalStatus =
       params.workshopProposalStatus ?? existing.workshopProposalStatus ?? "pending";
+    const curationReview = params.curationReview ?? existing.curationReview;
     if (
       (params.curatorStatus === "accepted_for_workshop" || params.curatorStatus === "promoted") &&
       !hasProof
@@ -1316,15 +1340,46 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
       return;
     }
     if (
-      params.curatorStatus === "promoted" &&
-      (!hasWorkshopProposal || workshopProposalStatus === "quarantined")
+      (params.curatorStatus === "accepted_for_workshop" || params.curatorStatus === "promoted") &&
+      !hasCompleteCurationReview(curationReview)
     ) {
       respond(
         false,
         undefined,
         errorShape(
           ErrorCodes.INVALID_REQUEST,
-          "a non-quarantined Skill Workshop proposal link is required before promotion proof can close a curator proposal",
+          "structured provenance, confidence, freshness, privacy, contradiction, reason, and next action are required before workshop acceptance or promotion",
+        ),
+      );
+      return;
+    }
+    if (
+      params.curatorStatus === "accepted_for_workshop" &&
+      curationReview &&
+      (curationReview.contradiction ||
+        curationReview.freshness !== "current" ||
+        curationReview.privacy === "blocked_sensitive")
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "contradictory, stale-risk, or sensitive evidence cannot be accepted for workshop",
+        ),
+      );
+      return;
+    }
+    if (
+      params.curatorStatus === "promoted" &&
+      (!hasWorkshopProposal || workshopProposalStatus !== "applied")
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "an applied Skill Workshop proposal link is required before promotion proof can close a curator proposal",
         ),
       );
       return;
@@ -1366,6 +1421,7 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
       reason: params.reason,
       workshopProposalId: params.workshopProposalId,
       workshopProposalStatus: params.workshopProposalStatus,
+      review: curationReview,
       note: params.note,
       stateDir,
     });

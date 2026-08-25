@@ -152,33 +152,6 @@ describe("PCC production truth", () => {
     );
   });
 
-  it("ignores malformed historical evidence timestamps without changing verified truth", () => {
-    const truth = buildPccProductionTruth({
-      project,
-      milestones: [milestone()],
-      evidence: [
-        {
-          ...evidence("remote_ci"),
-          id: "legacy-malformed-evidence",
-          createdAt: null as unknown as string,
-          sha: "legacy-sha",
-        },
-        evidence("remote_ci"),
-        evidence("browser_proof"),
-      ],
-      receipts: [receipt],
-      runtimeSha: VERIFIED_SHA,
-      remoteProofPassed: true,
-      runtimeProofPassed: true,
-      browserProofScreenshotPath: "/tmp/pcc-proof.png",
-    });
-
-    expect(truth.latestVerifiedSha).toBe(VERIFIED_SHA);
-    expect(truth.proofRecordedAt).toBe("2026-06-27T00:00:00.000Z");
-    expect(truth.currentRemoteProofEvidenceIds).toEqual(["remote_ci-1"]);
-    expect(truth.status).toBe("current");
-  });
-
   it("fails closed when a local profile has no exact local source proof", () => {
     const truth = buildPccProductionTruth({
       project: {

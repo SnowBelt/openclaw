@@ -15,77 +15,13 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
-
-runtime_identity=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
-import json, sys
-try:
-    pointer = json.load(open(sys.argv[1]))
-    print(pointer.get("runtimeRoot", ""))
-    print(pointer.get("sourceSha", ""))
-except Exception:
-    pass
-PY
-)
-runtime_root=$(printf '%s\n' "$runtime_identity" | sed -n '1p')
-runtime_source_sha=$(printf '%s\n' "$runtime_identity" | sed -n '2p')
-plist_uses_launcher=false
-if [ -f "$plist" ] && python3 - "$plist" "$launcher" <<'PY'
-import plistlib, sys
-try:
-    with open(sys.argv[1], "rb") as f:
-        args = plistlib.load(f).get("ProgramArguments", [])
-except (OSError, plistlib.InvalidFileException):
-    raise SystemExit(1)
-raise SystemExit(0 if sys.argv[2] in args else 1)
-PY
-then
-  plist_uses_launcher=true
-fi
-
-# A guard can be launched immediately after the Gateway LaunchAgent is
-# bootstrapped. During that bounded window the pointer and plist are already
-# correct, but the Gateway process and health endpoint may not be observable
-# yet. Waiting here keeps a transient startup race from falling through to
-# recovery, which requires an operation-specific Release Governor bundle that
-# a persistent LaunchAgent must not retain.
-runtime_is_ready() {
-  [ -n "$runtime_root" ] || return 1
-  [ "$plist_uses_launcher" = true ] || return 1
-  "$launcher" --verify >/dev/null 2>&1 || return 1
-  pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1 || return 1
-  curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'
-}
-
-guard_startup_wait_attempts=45
-guard_startup_wait_seconds=2
-wait_for_runtime_ready() {
-  if runtime_is_ready; then
-    return 0
-  fi
-  for _ in $(seq 1 "$guard_startup_wait_attempts"); do
-    sleep "$guard_startup_wait_seconds"
-    if runtime_is_ready; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-# A promotion or restart owns the lifecycle lock while its Gateway is
-# converging. Do not compete with it or fall through to recovery without the
-# operation-specific evidence that only the mutating command has. A bounded,
-# read-only readiness wait lets the LaunchAgent start safely during that
-# handoff; an unready runtime still fails closed with the original status.
 if custom_runtime_lifecycle_begin "$runtime_home" guard "" ""; then
   :
 else
   lifecycle_status=$?
-  if [ "$lifecycle_status" -eq 75 ] && wait_for_runtime_ready; then
-    exit 0
-  fi
+  [ "$lifecycle_status" -eq 75 ] && exit 0
   exit "$lifecycle_status"
 fi
-
 lifecycle_result=guard-failed
 cleanup_guard() {
   status=$?
@@ -115,7 +51,33 @@ complete_guard() {
   exit 1
 }
 
-if wait_for_runtime_ready; then
+runtime_identity=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+import json, sys
+try:
+    pointer = json.load(open(sys.argv[1]))
+    print(pointer.get("runtimeRoot", ""))
+    print(pointer.get("sourceSha", ""))
+except Exception:
+    pass
+PY
+)
+runtime_root=$(printf '%s\n' "$runtime_identity" | sed -n '1p')
+runtime_source_sha=$(printf '%s\n' "$runtime_identity" | sed -n '2p')
+plist_uses_launcher=false
+if [ -f "$plist" ] && python3 - "$plist" "$launcher" <<'PY'
+import plistlib, sys
+try:
+    with open(sys.argv[1], "rb") as f:
+        args = plistlib.load(f).get("ProgramArguments", [])
+except (OSError, plistlib.InvalidFileException):
+    raise SystemExit(1)
+raise SystemExit(0 if sys.argv[2] in args else 1)
+PY
+then
+  plist_uses_launcher=true
+fi
+if "$launcher" --verify >/dev/null 2>&1 && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1
+then
   complete_guard
 fi
 

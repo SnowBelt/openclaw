@@ -18,22 +18,3 @@ export function pccTimestampIssueCode(value: unknown): PccTimestampIssueCode | n
   }
   return normalizePccTimestamp(value) ? null : "receipt_completed_at_invalid";
 }
-
-/**
- * Sorts usable PCC timestamps newest first without inventing an order for
- * malformed legacy values. Callers should add a stable identifier tie-breaker.
- */
-export function comparePccTimestampsDesc(left: unknown, right: unknown): number {
-  const leftTimestamp = normalizePccTimestamp(left);
-  const rightTimestamp = normalizePccTimestamp(right);
-  if (leftTimestamp && rightTimestamp) {
-    return rightTimestamp.localeCompare(leftTimestamp);
-  }
-  if (leftTimestamp) {
-    return -1;
-  }
-  if (rightTimestamp) {
-    return 1;
-  }
-  return 0;
-}

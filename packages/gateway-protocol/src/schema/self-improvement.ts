@@ -369,6 +369,53 @@ export const SelfImprovementCuratorStatusSchema = Type.Union([
   Type.Literal("promoted"),
 ]);
 
+export const SelfImprovementCurationReviewSchema = Type.Object(
+  {
+    evidence: Type.Array(
+      Type.Object(
+        {
+          sourceClass: Type.Union([
+            Type.Literal("task"),
+            Type.Literal("task_group"),
+            Type.Literal("cron_job"),
+            Type.Literal("skill_workshop"),
+            Type.Literal("skill_workshop_queue"),
+            Type.Literal("project_health"),
+            Type.Literal("configuration"),
+            Type.Literal("agent"),
+            Type.Literal("instruction"),
+            Type.Literal("workflow"),
+            Type.Literal("knowledge"),
+            Type.Literal("architecture"),
+            Type.Literal("risk"),
+            Type.Literal("outcome"),
+          ]),
+          sourceRef: Type.String({ minLength: 1, maxLength: 160 }),
+          observedAt: Type.Optional(Type.Integer({ minimum: 0 })),
+        },
+        { additionalProperties: false },
+      ),
+      { minItems: 1, maxItems: 8 },
+    ),
+    confidence: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]),
+    freshness: Type.Union([
+      Type.Literal("current"),
+      Type.Literal("stale_risk"),
+      Type.Literal("unknown"),
+    ]),
+    privacy: Type.Union([
+      Type.Literal("shared_safe"),
+      Type.Literal("private_reference_only"),
+      Type.Literal("blocked_sensitive"),
+    ]),
+    contradiction: Type.Boolean(),
+    reason: Type.String({ minLength: 1, maxLength: 360 }),
+    nextAction: Type.String({ minLength: 1, maxLength: 240 }),
+    reviewedAt: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
 export const SelfImprovementProposalKindSchema = Type.Union([
   Type.Literal("implementation"),
   Type.Literal("verification"),
@@ -809,6 +856,7 @@ export const SelfImprovementCuratorUpdateParamsSchema = Type.Object(
         Type.Literal("rejected"),
       ]),
     ),
+    curationReview: Type.Optional(SelfImprovementCurationReviewSchema),
     note: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
@@ -1073,6 +1121,7 @@ export const SelfImprovementProposalSchema = Type.Object(
     curatorProof: Type.Optional(Type.String()),
     curatorReason: Type.Optional(Type.String()),
     curatorUpdatedAt: Type.Optional(Type.Integer({ minimum: 0 })),
+    curationReview: Type.Optional(SelfImprovementCurationReviewSchema),
     workshopProposalId: Type.Optional(Type.String()),
     workshopProposalStatus: Type.Optional(
       Type.Union([

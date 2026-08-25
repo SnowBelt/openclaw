@@ -4,20 +4,27 @@
  * Collects operator/user allowlist sources and explains when no callable tools remain.
  */
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
-import { normalizeToolList, normalizeToolName } from "./tool-policy.js";
+import { IMPLICIT_ALLOW_ALL_FROM_ALSO_ALLOW } from "./sandbox-tool-policy.js";
+import { normalizeToolList, normalizeToolName, type ToolPolicyLike } from "./tool-policy.js";
 
 type ExplicitToolAllowlistSource = {
   label: string;
   entries: string[];
   enforceWhenToolsDisabled?: boolean;
+  implicitAllowAllFromAlsoAllow?: boolean;
 };
 
 /** Normalize explicit allowlist sources, dropping empty source entries. */
 export function collectExplicitToolAllowlistSources(
-  sources: Array<{ label: string; allow?: string[]; enforceWhenToolsDisabled?: boolean }>,
+  sources: Array<{
+    label: string;
+    allow?: string[];
+    policy?: ToolPolicyLike;
+    enforceWhenToolsDisabled?: boolean;
+  }>,
 ): ExplicitToolAllowlistSource[] {
   return sources.flatMap((source) => {
-    const entries = normalizeStringEntries(source.allow);
+    const entries = normalizeStringEntries(source.allow ?? source.policy?.allow);
     if (entries.length === 0) {
       return [];
     }
@@ -26,6 +33,9 @@ export function collectExplicitToolAllowlistSources(
         label: source.label,
         entries,
         ...(source.enforceWhenToolsDisabled === true ? { enforceWhenToolsDisabled: true } : {}),
+        ...(source.policy?.[IMPLICIT_ALLOW_ALL_FROM_ALSO_ALLOW] === true
+          ? { implicitAllowAllFromAlsoAllow: true }
+          : {}),
       },
     ];
   });
@@ -38,10 +48,11 @@ export function buildEmptyExplicitToolAllowlistError(params: {
   toolsEnabled: boolean;
   disableTools?: boolean;
 }): Error | null {
-  const sources =
+  const sources = (
     params.disableTools === true
       ? params.sources.filter((source) => source.enforceWhenToolsDisabled === true)
-      : params.sources;
+      : params.sources
+  ).filter((source) => source.implicitAllowAllFromAlsoAllow !== true);
   const callableToolNames = normalizeToolList(params.callableToolNames);
   if (sources.length === 0 || callableToolNames.length > 0) {
     return null;
