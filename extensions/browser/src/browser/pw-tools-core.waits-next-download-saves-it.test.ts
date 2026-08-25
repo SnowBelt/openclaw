@@ -697,6 +697,50 @@ describe("pw-tools-core", () => {
     expect(serialized).not.toContain(rawApiKey);
   });
 
+  it("redacts credential-bearing response URLs when body reads fail", async () => {
+    let responseHandler: ((resp: unknown) => void) | undefined;
+    const on = vi.fn((event: string, handler: (resp: unknown) => void) => {
+      if (event === "response") {
+        responseHandler = handler;
+      }
+    });
+    const off = vi.fn();
+    setPwToolsCoreCurrentPage({ on, off });
+
+    const rawOAuthCode = "raw-rejected-body-oauth-code-123456";
+    const rawResponseUrl = `https://auth.example/callback?code=${rawOAuthCode}`;
+    const p = mod.responseBodyViaPlaywright({
+      cdpUrl: "http://127.0.0.1:18792",
+      targetId: "T1",
+      url: "**/callback**",
+      timeoutMs: 1000,
+    });
+
+    await Promise.resolve();
+    if (!responseHandler) {
+      throw new Error("expected Playwright response handler");
+    }
+    responseHandler({
+      url: () => rawResponseUrl,
+      status: () => 200,
+      headers: () => ({}),
+      body: async () => {
+        throw new Error("body read failed");
+      },
+    });
+
+    let error: unknown;
+    try {
+      await p;
+    } catch (caught) {
+      error = caught;
+    }
+    expect(String(error)).toContain(
+      `Failed to read response body for "https://auth.example/callback?code=REDACTED": Error: body read failed`,
+    );
+    expect(String(error)).not.toContain(rawOAuthCode);
+  });
+
   it("does not split a surrogate pair when truncating response body text", async () => {
     let responseHandler: ((resp: unknown) => void) | undefined;
     const on = vi.fn((event: string, handler: (resp: unknown) => void) => {

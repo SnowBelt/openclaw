@@ -209,7 +209,12 @@ export async function responseBodyViaPlaywright(opts: {
       bodyText = new TextDecoder("utf-8").decode(buf.subarray(0, maxBytes));
     }
   } catch (err) {
-    throw new Error(`Failed to read response body for "${url}": ${String(err)}`, { cause: err });
+    throw new Error(
+      `Failed to read response body for "${redactResponseUrl(url)}": ${String(err)}`,
+      {
+        cause: err,
+      },
+    );
   }
 
   const trimmed = bodyText.length > maxChars ? truncateUtf16Safe(bodyText, maxChars) : bodyText;
