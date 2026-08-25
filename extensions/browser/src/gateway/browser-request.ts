@@ -475,10 +475,23 @@ export async function handleBrowserGatewayRequest({
       pairingGeneration: nodeTarget.pairingGeneration,
       isDispatchAuthorized: isBrowserNodeDispatchAuthorized,
     });
+    if (!isBrowserNodeDispatchAuthorized()) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "agent runtime authority is no longer active"),
+      );
+      return;
+    }
+    const automaticHostFallbackRequested =
+      typed.allowAutomaticHostFallback === true ||
+      (typed.allowAutomaticHostFallback === undefined &&
+        !configuredNode &&
+        requestedNode === undefined);
     const allowAutomaticHostFallback =
-      typed.allowAutomaticHostFallback !== false &&
-      !configuredNode &&
-      requestedNode === undefined &&
+      automaticHostFallbackRequested &&
+      !browserStewardOperationApproved &&
+      !browserNodeSessionLease &&
       isBrowserControlHostUnavailableError(res.error);
     if (allowAutomaticHostFallback && !res.ok) {
       // This node-host error is raised before route dispatch. Other failures
