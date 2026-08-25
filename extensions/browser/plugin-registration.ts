@@ -459,15 +459,14 @@ function createBrowserProxyNodeInvokePolicy(): OpenClawPluginNodeInvokePolicy {
           : (requestedProfile ??
             resolveBrowserConfig(ctx.config.browser, ctx.config).defaultProfile);
       const invocationId = normalizeOptionalString(ctx.idempotencyKey) ?? randomUUID();
+      const browserProxyTimeoutMs = rawParams?.browserProxyTimeoutMs ?? rawParams?.timeoutMs;
       const commandParams = {
         method,
         path,
         ...(rawParams?.query !== undefined ? { query: rawParams.query } : {}),
         ...(rawParams?.body !== undefined ? { body: rawParams.body } : {}),
         ...(rawParams?.upload !== undefined ? { upload: rawParams.upload } : {}),
-        ...(rawParams?.browserProxyTimeoutMs !== undefined
-          ? { browserProxyTimeoutMs: rawParams.browserProxyTimeoutMs }
-          : {}),
+        ...(browserProxyTimeoutMs !== undefined ? { timeoutMs: browserProxyTimeoutMs } : {}),
         profile,
         agentId: BROWSER_STEWARD_AGENT_ID,
       } satisfies Record<string, unknown>;

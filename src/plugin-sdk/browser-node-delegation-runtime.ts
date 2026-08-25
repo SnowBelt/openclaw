@@ -1,5 +1,7 @@
 import type { BrowserNodeDelegation } from "../plugins/registry-contribution-types.js";
 
+export type { BrowserNodeDelegationRequest } from "../plugins/registry-contribution-types.js";
+
 /** Internal registrar installed only on the Browser plugin's host API object. */
 export type BrowserNodeDelegationRegistrar = (delegation: BrowserNodeDelegation) => void;
 

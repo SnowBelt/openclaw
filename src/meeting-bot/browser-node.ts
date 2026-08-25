@@ -1,3 +1,4 @@
+import { resolveBrowserNodeDelegationRuntime } from "../plugins/runtime/browser-node-delegation.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type {
   MeetingBrowserRequestCaller,
@@ -132,7 +133,7 @@ export async function callMeetingBrowserProxyOnNode(
 ) {
   // Browser owns the proxy boundary. Meeting plugins must not invoke the raw
   // browser.proxy node command with their generic plugin identity.
-  const browser = params.runtime.browser;
+  const browser = resolveBrowserNodeDelegationRuntime(params.runtime);
   if (!browser) {
     throw new Error("Browser-owned node delegation is unavailable");
   }

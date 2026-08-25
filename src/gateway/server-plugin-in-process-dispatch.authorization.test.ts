@@ -466,6 +466,7 @@ describe("typed in-process agent authorization", () => {
           {
             forceSyntheticClient: true,
             pluginRuntimeOwnerId: "duplex-fixture",
+            pluginRuntimeAuthority: () => authorityCurrent,
             syntheticScopes: ["operator.write", "operator.approvals"],
             nodeInvokeStream: {
               onProgress: vi.fn(),
@@ -496,7 +497,7 @@ describe("typed in-process agent authorization", () => {
 
     authorityCurrent = false;
     expect(resolveNodeInvokeRuntimeAuthorityError({ context, client: dispatched.client })).toBe(
-      "agent runtime approval authority closed before node dispatch",
+      "plugin runtime authority closed before node dispatch",
     );
   });
 

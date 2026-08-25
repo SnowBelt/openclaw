@@ -211,6 +211,7 @@ describe("browser plugin", () => {
       path: "/tabs/open",
       body: { url: "https://example.com" },
       profile: "openclaw",
+      browserProxyTimeoutMs: 12_345,
     };
     const allowed = await policy.handle({
       nodeId: "node-1",
@@ -228,6 +229,8 @@ describe("browser plugin", () => {
     };
     expect(forwarded.params?.agentId).toBe("browser-session-credential-steward");
     expect(forwarded.params?.agentSessionKey).toBeUndefined();
+    expect(forwarded.params?.timeoutMs).toBe(12_345);
+    expect(forwarded.params?.browserProxyTimeoutMs).toBeUndefined();
     expect(forwarded.params?.browserStewardApproval).toBeDefined();
     invokeNode.mockClear();
 

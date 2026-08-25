@@ -27,8 +27,9 @@ import {
   prepareBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
 import {
-  consumeBrowserStewardGatewayApprovalClaim,
+  consumeBrowserStewardGatewayApprovalClaimAuthority,
   createBrowserStewardGatewayApproval,
+  type BrowserStewardGatewayApprovalAuthority,
 } from "../browser/browser-steward-approval.js";
 import {
   assertBrowserStewardRuntimeAllowed,
@@ -161,6 +162,7 @@ export async function handleBrowserGatewayRequest({
   const operatorApproved = operatorAdmin && !trustedAgentRuntime;
   let browserStewardOperationApproved =
     operatorApproved || browserPluginRuntime || hasBrowserStewardOperationClaim;
+  let browserStewardOperationAuthority: BrowserStewardGatewayApprovalAuthority | undefined;
   const requestedProfile = resolveRequestedBrowserProfile({
     query,
     body,
@@ -365,7 +367,7 @@ export async function handleBrowserGatewayRequest({
   }
 
   if (hasBrowserStewardOperationClaim) {
-    browserStewardOperationApproved = consumeBrowserStewardGatewayApprovalClaim({
+    browserStewardOperationAuthority = consumeBrowserStewardGatewayApprovalClaimAuthority({
       approval: browserStewardOperationClaim,
       command: proxyCommand,
       method: methodRaw,
@@ -380,6 +382,7 @@ export async function handleBrowserGatewayRequest({
       browserNodeSessionLease,
       allowAutomaticHostFallback: typed.allowAutomaticHostFallback,
     });
+    browserStewardOperationApproved = browserStewardOperationAuthority !== undefined;
     try {
       assertBrowserStewardRuntimeAllowed({
         action: resolveBrowserStewardProxyAction({ method: methodRaw, path, body }),
@@ -472,7 +475,9 @@ export async function handleBrowserGatewayRequest({
       idempotencyKey,
       isDispatchAuthorized: isBrowserNodeDispatchAuthorized,
     });
-    if (!isBrowserNodeDispatchAuthorized()) {
+    if (!res.ok && !isBrowserNodeDispatchAuthorized()) {
+      // A failed dispatch still needs an active authority before any retry or
+      // host fallback decision; a completed result must remain observable.
       respond(
         false,
         undefined,
@@ -554,7 +559,9 @@ export async function handleBrowserGatewayRequest({
     }
   }
 
-  if (!isBrowserNodeDispatchAuthorized()) {
+  const isBrowserHostDispatchAuthorized = () =>
+    isBrowserNodeDispatchAuthorized() && (browserStewardOperationAuthority?.isActive() ?? true);
+  if (!isBrowserHostDispatchAuthorized()) {
     respond(
       false,
       undefined,
@@ -571,7 +578,7 @@ export async function handleBrowserGatewayRequest({
     respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "browser control is disabled"));
     return;
   }
-  if (!isBrowserNodeDispatchAuthorized()) {
+  if (!isBrowserHostDispatchAuthorized()) {
     respond(
       false,
       undefined,
@@ -590,6 +597,14 @@ export async function handleBrowserGatewayRequest({
 
   let result;
   try {
+    if (!isBrowserHostDispatchAuthorized()) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "agent runtime authority is no longer active"),
+      );
+      return;
+    }
     result = timeoutMs
       ? await withTimeout(
           (signal) =>

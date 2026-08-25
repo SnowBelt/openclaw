@@ -1,6 +1,8 @@
+import type { BrowserNodeDelegationRequest } from "openclaw/plugin-sdk/browser-node-delegation-runtime";
 // Google Meet tests cover chrome plugin behavior.
 import { addTimerTimeoutGraceMs, MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
+import { attachBrowserNodeDelegationForTest } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { resolveGoogleMeetConfig } from "../config.js";
 import { launchChromeMeet, recoverCurrentMeetTab } from "./chrome.js";
@@ -27,8 +29,8 @@ function browserRuntime(request: TestGatewayRequest): PluginRuntime {
       options?: unknown,
     ) => (await request(method, params ?? {}, options)) as T,
   };
-  const browser: NonNullable<PluginRuntime["browser"]> = {
-    request: async (params) => {
+  const browser = {
+    request: async (params: BrowserNodeDelegationRequest) => {
       const { nodeId, ...requestParams } = params;
       return await request(
         "browser.request",
@@ -44,7 +46,9 @@ function browserRuntime(request: TestGatewayRequest): PluginRuntime {
       );
     },
   };
-  return { gateway, browser } as PluginRuntime;
+  const runtime = { gateway, browser } as unknown as PluginRuntime;
+  attachBrowserNodeDelegationForTest(runtime, browser);
+  return runtime;
 }
 
 describe("google meet chrome transport", () => {

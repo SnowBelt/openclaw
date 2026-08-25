@@ -4,6 +4,7 @@ import { registerBrowserNodeDelegation } from "../plugin-sdk/browser-node-delega
 import { createPluginRecord } from "./loader-records.js";
 import { markPluginRegistryActive } from "./registry-lifecycle.js";
 import { createPluginRegistry } from "./registry.js";
+import { resolveBrowserNodeDelegationRuntime } from "./runtime/browser-node-delegation.js";
 import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 import { createPluginRuntime } from "./runtime/index.js";
 
@@ -50,7 +51,7 @@ describe("plugin registry Browser node delegation", () => {
     const consumerRuntime = pluginRegistry.createApi(consumerRecord, {
       config: {} as OpenClawConfig,
     }).runtime;
-    const browserCapability = consumerRuntime.browser;
+    const browserCapability = resolveBrowserNodeDelegationRuntime(consumerRuntime);
     pluginRegistry.registry.plugins.push(consumerRecord);
     markPluginRegistryActive(pluginRegistry.registry);
     await browserCapability?.request({
@@ -77,7 +78,7 @@ describe("plugin registry Browser node delegation", () => {
       }),
       { config: {} as OpenClawConfig },
     ).runtime;
-    expect(unrelatedRuntime.browser).toBeUndefined();
+    expect(resolveBrowserNodeDelegationRuntime(unrelatedRuntime)).toBeUndefined();
 
     pluginRegistry.registry.browserNodeDelegations.length = 0;
     await expect(
@@ -120,7 +121,7 @@ describe("plugin registry Browser node delegation", () => {
     pluginRegistry.registry.plugins.push(consumerRecord);
     markPluginRegistryActive(pluginRegistry.registry);
 
-    expect(consumerRuntime.browser).toBeDefined();
+    expect(resolveBrowserNodeDelegationRuntime(consumerRuntime)).toBeDefined();
   });
 
   it("rejects a retained capability after the consumer lifecycle is rolled back", async () => {
@@ -154,7 +155,7 @@ describe("plugin registry Browser node delegation", () => {
     }).runtime;
     pluginRegistry.registry.plugins.push(consumerRecord);
     markPluginRegistryActive(pluginRegistry.registry);
-    const browserCapability = consumerRuntime.browser;
+    const browserCapability = resolveBrowserNodeDelegationRuntime(consumerRuntime);
 
     await expect(
       browserCapability?.request({
@@ -214,7 +215,7 @@ describe("plugin registry Browser node delegation", () => {
     pluginRegistry.registry.plugins.push(consumerRecord);
     markPluginRegistryActive(pluginRegistry.registry);
 
-    await consumerRuntime.browser?.request({
+    await resolveBrowserNodeDelegationRuntime(consumerRuntime)?.request({
       method: "GET",
       path: "/profiles",
       timeoutMs: 1_000,
@@ -267,7 +268,7 @@ describe("plugin registry Browser node delegation", () => {
     pluginRegistry.registry.plugins.push(consumerRecord);
     markPluginRegistryActive(pluginRegistry.registry);
 
-    await consumerRuntime.browser?.request({
+    await resolveBrowserNodeDelegationRuntime(consumerRuntime)?.request({
       method: "GET",
       path: "/profiles",
       timeoutMs: 1_000,
@@ -371,8 +372,8 @@ describe("plugin registry Browser node delegation", () => {
     pluginRegistry.registry.plugins.push(trustedReplacementRecord);
     markPluginRegistryActive(pluginRegistry.registry);
 
-    expect(untrustedConsumerRuntime.browser).toBeUndefined();
-    expect(trustedReplacementRuntime.browser).toBeDefined();
+    expect(resolveBrowserNodeDelegationRuntime(untrustedConsumerRuntime)).toBeUndefined();
+    expect(resolveBrowserNodeDelegationRuntime(trustedReplacementRuntime)).toBeDefined();
   });
 
   it("rejects a retained capability after the Browser provider is replaced", async () => {
@@ -404,7 +405,7 @@ describe("plugin registry Browser node delegation", () => {
     }).runtime;
     pluginRegistry.registry.plugins.push(consumerRecord);
     markPluginRegistryActive(pluginRegistry.registry);
-    const browserCapability = consumerRuntime.browser;
+    const browserCapability = resolveBrowserNodeDelegationRuntime(consumerRuntime);
     expect(browserCapability).toBeDefined();
 
     const replacementRecord = createPluginRecord({
@@ -416,7 +417,7 @@ describe("plugin registry Browser node delegation", () => {
     });
     pluginRegistry.createApi(replacementRecord, { config: {} as OpenClawConfig });
 
-    expect(consumerRuntime.browser).toBeUndefined();
+    expect(resolveBrowserNodeDelegationRuntime(consumerRuntime)).toBeUndefined();
     await expect(
       browserCapability?.request({
         method: "GET",
@@ -457,7 +458,7 @@ describe("plugin registry Browser node delegation", () => {
     }).runtime;
     pluginRegistry.registry.plugins.push(consumerRecord);
     markPluginRegistryActive(pluginRegistry.registry);
-    const browserCapability = consumerRuntime.browser;
+    const browserCapability = resolveBrowserNodeDelegationRuntime(consumerRuntime);
 
     await browserCapability?.request({
       method: "GET",

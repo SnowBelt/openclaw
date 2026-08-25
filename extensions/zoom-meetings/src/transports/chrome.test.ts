@@ -1,8 +1,19 @@
+import type { BrowserNodeDelegationRequest } from "openclaw/plugin-sdk/browser-node-delegation-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
+import { attachBrowserNodeDelegationForTest } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { zoomMeetingsConfig } from "../config.js";
 
 const resolveZoomMeetingsConfig = zoomMeetingsConfig.resolveConfig;
+
+function bindBrowserDelegation(runtime: PluginRuntime): void {
+  const browser = (
+    runtime as unknown as {
+      browser: { request: (params: BrowserNodeDelegationRequest) => Promise<unknown> };
+    }
+  ).browser;
+  attachBrowserNodeDelegationForTest(runtime, browser);
+}
 
 const engineMocks = vi.hoisted(() => ({
   localDispose: vi.fn(async () => {}),
@@ -102,7 +113,7 @@ describe("Zoom meeting Chrome startup cleanup", () => {
     const runtime = {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
       browser: {
-        request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
+        request: async (params: BrowserNodeDelegationRequest) =>
           await gatewayRequest("browser.request", params),
       },
       system: {
@@ -113,6 +124,7 @@ describe("Zoom meeting Chrome startup cleanup", () => {
         })),
       },
     } as unknown as PluginRuntime;
+    bindBrowserDelegation(runtime);
 
     await expect(
       launchZoomMeetingInChrome({
@@ -155,7 +167,7 @@ describe("Zoom meeting Chrome startup cleanup", () => {
     const runtime = {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
       browser: {
-        request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
+        request: async (params: BrowserNodeDelegationRequest) =>
           await gatewayRequest("browser.request", params),
       },
       system: {
@@ -166,6 +178,7 @@ describe("Zoom meeting Chrome startup cleanup", () => {
         })),
       },
     } as unknown as PluginRuntime;
+    bindBrowserDelegation(runtime);
 
     await expect(
       launchZoomMeetingInChrome({
@@ -218,14 +231,13 @@ describe("Zoom meeting Chrome startup cleanup", () => {
         })),
       },
       browser: {
-        request: async (
-          params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0],
-        ) => {
+        request: async (params: BrowserNodeDelegationRequest) => {
           const response = await invoke({ command: "browser.proxy", params });
           return (response.payload as { result?: unknown }).result;
         },
       },
     } as unknown as PluginRuntime;
+    bindBrowserDelegation(runtime);
 
     await expect(
       launchZoomMeetingOnNode({
@@ -288,14 +300,13 @@ describe("Zoom meeting Chrome startup cleanup", () => {
         })),
       },
       browser: {
-        request: async (
-          params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0],
-        ) => {
+        request: async (params: BrowserNodeDelegationRequest) => {
           const response = await invoke({ command: "browser.proxy", params });
           return (response.payload as { result?: unknown }).result;
         },
       },
     } as unknown as PluginRuntime;
+    bindBrowserDelegation(runtime);
 
     await expect(
       launchZoomMeetingOnNode({

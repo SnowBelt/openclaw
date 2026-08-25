@@ -5,7 +5,6 @@ import type { NodePluginToolDescriptor } from "../../../packages/gateway-protoco
 import type { AgentWaitResult } from "../../agents/run-wait.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { OperatorScope } from "../../gateway/operator-scopes.js";
-import type { BrowserNodeDelegationRequest } from "../registry-contribution-types.js";
 import type { PluginRuntimeCore, RuntimeLogger } from "./types-core.js";
 
 export type { RuntimeLogger };
@@ -120,10 +119,6 @@ export type RuntimeGatewayRequestOptions = {
   scopes?: OperatorScope[];
 };
 
-type BrowserNodeDelegationRuntime = {
-  request: (params: BrowserNodeDelegationRequest) => Promise<unknown>;
-};
-
 /** Trusted in-process runtime surface injected into native plugins. */
 export type PluginRuntime = PluginRuntimeCore & {
   gateway: {
@@ -136,8 +131,6 @@ export type PluginRuntime = PluginRuntimeCore & {
       options?: RuntimeGatewayRequestOptions,
     ) => Promise<T>;
   };
-  /** Browser-owned node request capability, exposed only to registered consumers. */
-  browser?: BrowserNodeDelegationRuntime;
   subagent: {
     run: (params: SubagentRunParams) => Promise<SubagentRunResult>;
     waitForRun: (params: SubagentWaitParams) => Promise<AgentWaitResult>;
