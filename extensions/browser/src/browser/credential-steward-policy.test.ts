@@ -47,6 +47,21 @@ describe("Credential Steward redaction policy", () => {
     expect(JSON.stringify(decision)).not.toContain(rawValue);
   });
 
+  it("classifies opaque password-reset URL paths as bearer material", () => {
+    const rawToken = "raw-reset-token-123456";
+    const decision = evaluateCredentialStewardExposure({
+      value: `https://accounts.example/password-reset/${rawToken}`,
+    });
+
+    expect(decision).toMatchObject({
+      exposureKind: "credential_material",
+      credentialClassesInvolved: ["token"],
+      blocked: true,
+      reasonCode: "credential_material_detected",
+    });
+    expect(JSON.stringify(decision)).not.toContain(rawToken);
+  });
+
   it("fails closed without recursing forever on cyclic credential input", () => {
     const credential: Record<string, unknown> = { token: "raw-cycle-token-123456" };
     credential.self = credential;
