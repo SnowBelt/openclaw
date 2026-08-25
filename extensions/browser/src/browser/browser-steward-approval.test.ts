@@ -224,34 +224,36 @@ describe("Browser Steward runtime approval", () => {
     const serialized = JSON.stringify(approval);
     expect(serialized).not.toContain("raw-browser-secret");
     expect(serialized).not.toContain("user-123");
-    expect(module.consumeBrowserStewardGatewayApproval({ approval, ...request })).toBe(true);
     expect(
-      module.consumeBrowserStewardGatewayApproval({
+      module.consumeBrowserStewardGatewayApprovalAuthority({ approval, ...request }),
+    ).toBeDefined();
+    expect(
+      module.consumeBrowserStewardGatewayApprovalAuthority({
         approval,
         ...request,
         pairingGeneration: "different-pairing",
       }),
-    ).toBe(false);
+    ).toBeUndefined();
     expect(
-      module.consumeBrowserStewardGatewayApproval({
+      module.consumeBrowserStewardGatewayApprovalAuthority({
         approval,
         ...request,
         nowMs: approval.expiresAtMs,
       }),
-    ).toBe(false);
+    ).toBeUndefined();
     expect(
-      module.consumeBrowserStewardGatewayApproval({
+      module.consumeBrowserStewardGatewayApprovalAuthority({
         approval,
         ...request,
         body: { kind: "type", text: "different-secret" },
       }),
-    ).toBe(false);
+    ).toBeUndefined();
     expect(
-      module.consumeBrowserStewardGatewayApproval({
+      module.consumeBrowserStewardGatewayApprovalAuthority({
         approval: { ...approval, action: "navigate" },
         ...request,
       }),
-    ).toBe(false);
+    ).toBeUndefined();
   });
 
   it("canonicalizes trailing-slash proxy routes before approval fingerprinting", async () => {
@@ -271,18 +273,20 @@ describe("Browser Steward runtime approval", () => {
     const approval = module.createBrowserStewardGatewayApproval(request);
 
     expect(approval.action).toBe("open");
-    expect(module.consumeBrowserStewardGatewayApproval({ approval, ...request })).toBe(true);
+    expect(
+      module.consumeBrowserStewardGatewayApprovalAuthority({ approval, ...request }),
+    ).toBeDefined();
     const normalizedApproval = module.createBrowserStewardGatewayApproval({
       ...request,
       path: "/tabs/open",
     });
     expect(
-      module.consumeBrowserStewardGatewayApproval({
+      module.consumeBrowserStewardGatewayApprovalAuthority({
         approval: normalizedApproval,
         ...request,
         path: "/tabs/open",
       }),
-    ).toBe(true);
+    ).toBeDefined();
   });
 
   it("binds private Gateway operation proofs to one request and one use", async () => {
