@@ -1,6 +1,7 @@
 import { runInNewContext } from "node:vm";
 // Google Meet tests cover chrome browser proxy plugin behavior.
 import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
+import { attachBrowserNodeDelegationForTest } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { callBrowserProxyOnNode } from "./chrome-browser-proxy.js";
 import { meetLeaveScript } from "./google-meet-page-scripts.js";
@@ -83,12 +84,14 @@ describe("Google Meet Chrome browser proxy", () => {
   it("uses the Browser-owned gateway request path instead of raw node proxy", async () => {
     const request = vi.fn(async () => ({ tabs: [] }));
     const invoke = vi.fn();
+    const browser = { request };
     const runtime = {
-      browser: { request },
+      browser,
       nodes: {
         invoke,
       },
     } as unknown as PluginRuntime;
+    attachBrowserNodeDelegationForTest(runtime, browser);
 
     await expect(
       callBrowserProxyOnNode({
@@ -111,12 +114,14 @@ describe("Google Meet Chrome browser proxy", () => {
 
   it("caps oversized node proxy gateway timeouts", async () => {
     const request = vi.fn(async () => ({ ok: true }));
+    const browser = { request };
     const runtime = {
-      browser: { request },
+      browser,
       nodes: {
         invoke: vi.fn(),
       },
     } as unknown as PluginRuntime;
+    attachBrowserNodeDelegationForTest(runtime, browser);
 
     await callBrowserProxyOnNode({
       runtime,

@@ -30,6 +30,10 @@ const NAVIGATION_BLOCKED_QUERY_KEYS = new Set([
 ]);
 const BROWSER_NAVIGATION_CREDENTIALS_BLOCKED_MESSAGE =
   "Navigation blocked: URL-embedded credentials are not supported for page navigation. Set HTTP Basic auth with `openclaw browser set credentials <username> <password>` or use an authenticated browser profile.";
+const BROWSER_OPAQUE_CREDENTIAL_PATH_GLOBAL_RE = new RegExp(
+  BROWSER_OPAQUE_CREDENTIAL_PATH_RE.source,
+  "giu",
+);
 
 function isAllowedNonNetworkNavigationUrl(parsed: URL): boolean {
   // Keep non-network navigation explicit; about:blank is the only allowed bootstrap URL.
@@ -90,7 +94,7 @@ function redactNavigationParameterSet(
 }
 
 function redactOpaqueCredentialPath(value: string): { value: string; changed: boolean } {
-  const redacted = value.replace(BROWSER_OPAQUE_CREDENTIAL_PATH_RE, "$1REDACTED");
+  const redacted = value.replace(BROWSER_OPAQUE_CREDENTIAL_PATH_GLOBAL_RE, "$1REDACTED");
   return { value: redacted, changed: redacted !== value };
 }
 
