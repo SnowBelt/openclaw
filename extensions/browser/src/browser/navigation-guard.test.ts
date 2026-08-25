@@ -329,6 +329,17 @@ describe("browser navigation guard", () => {
     expect(opaqueHashRoute).not.toContain("raw-magic-token-123456");
   });
 
+  it("redacts every opaque bearer path in a URL", () => {
+    const redacted = redactBrowserNavigationUrl(
+      "https://accounts.example/password-reset/raw-reset-token-123456/invite/raw-invite-token-654321/confirm",
+    );
+    expect(redacted).toBe(
+      "https://accounts.example/password-reset/REDACTED/invite/REDACTED/confirm",
+    );
+    expect(redacted).not.toContain("raw-reset-token-123456");
+    expect(redacted).not.toContain("raw-invite-token-654321");
+  });
+
   it.each([
     ["token", "raw-token-123456"],
     ["password", "raw-password-123456"],
