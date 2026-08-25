@@ -148,10 +148,10 @@ match agentId`, check the caller is not mixing an `agent:<agentId>:...` selector
 owned by one agent with another explicit `agentId`.
 
 If a Gateway call returns `INVALID_REQUEST` with `malformed session boundary`,
-check that any agent-scoped selector has a non-empty owner segment. The valid
-shapes are `agent:<agentId>` or `agent:<agentId>:<session-scope>`. Empty owners
-and trailing empty session scopes, such as `agent::...` or `agent:<agentId>:`,
-are malformed.
+check that any agent-scoped selector has a non-empty owner segment and session
+scope. The valid shape is `agent:<agentId>:<session-scope>`. Empty owners,
+missing session scopes, and trailing empty session scopes, such as `agent::...`,
+`agent:<agentId>`, or `agent:<agentId>:`, are malformed.
 
 If diagnostics appear to contain raw session material, treat that as a redaction
 bug. Capture the diagnostic event type and surface, but do not paste secrets,
