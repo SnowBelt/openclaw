@@ -470,7 +470,6 @@ export async function handleBrowserGatewayRequest({
       params: proxyParams,
       timeoutMs,
       idempotencyKey,
-      pairingGeneration: nodeTarget.pairingGeneration,
       isDispatchAuthorized: isBrowserNodeDispatchAuthorized,
     });
     if (!isBrowserNodeDispatchAuthorized()) {

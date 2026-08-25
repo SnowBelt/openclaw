@@ -1,5 +1,6 @@
 import { ErrorCodes } from "openclaw/plugin-sdk/gateway-runtime";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import type { PluginRuntime } from "openclaw/plugin-sdk/plugin-runtime";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
 import type { TranscriptSourceProvider } from "openclaw/plugin-sdk/transcripts";
 import { describe, expect, it, vi } from "vitest";
@@ -70,7 +71,10 @@ function authorizationHarness(options?: { browserError?: Error }) {
     pluginConfig: { defaultMode: "transcribe", chrome: { waitForInCallMs: 1 } },
     runtime: {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
-      browser: { request: async (params) => await gatewayRequest("browser.request", params) },
+      browser: {
+        request: async (params: Parameters<NonNullable<PluginRuntime["browser"]>["request"]>[0]) =>
+          await gatewayRequest("browser.request", params),
+      },
     } as unknown as OpenClawPluginApi["runtime"],
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     registerGatewayMethod: (method: string, handler: unknown) =>

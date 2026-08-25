@@ -510,7 +510,7 @@ describe("browser.request profile selection", () => {
       nodeId: string;
       command: string;
       idempotencyKey: string;
-      pairingGeneration: string;
+      expectedPairingGeneration: string;
       params: Record<string, unknown>;
     };
     expect(invocation.params.profile).toBe("");
@@ -527,7 +527,7 @@ describe("browser.request profile selection", () => {
         agentSessionKey: invocation.params.agentSessionKey as string,
         agentId: invocation.params.agentId as string,
         nodeId: invocation.nodeId,
-        pairingGeneration: invocation.pairingGeneration,
+        pairingGeneration: invocation.expectedPairingGeneration,
         invocationId: invocation.idempotencyKey,
       }),
     ).toBeDefined();

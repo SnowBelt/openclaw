@@ -453,7 +453,6 @@ export const nodeInvokeHandlers: GatewayRequestHandlers = {
           timeoutMs: dispatchTimeoutMs,
           signal: invocationLifecycle,
           idempotencyKey: p.idempotencyKey,
-          pairingGeneration: generation.key,
           ...(sessionKey ? { sessionKey } : {}),
           ...(nodeInvokeStream && {
             onProgress: nodeInvokeStream.onProgress,
