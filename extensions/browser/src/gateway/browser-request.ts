@@ -488,10 +488,13 @@ export async function handleBrowserGatewayRequest({
       (typed.allowAutomaticHostFallback === undefined &&
         !configuredNode &&
         requestedNode === undefined);
+    const browserNodeRoutePinned =
+      browserPluginRuntime ||
+      hasBrowserStewardOperationClaim ||
+      browserNodeSessionLease !== undefined;
     const allowAutomaticHostFallback =
       automaticHostFallbackRequested &&
-      !browserStewardOperationApproved &&
-      !browserNodeSessionLease &&
+      !browserNodeRoutePinned &&
       isBrowserControlHostUnavailableError(res.error);
     if (allowAutomaticHostFallback && !res.ok) {
       // This node-host error is raised before route dispatch. Other failures

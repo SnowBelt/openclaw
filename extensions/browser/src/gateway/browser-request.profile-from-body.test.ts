@@ -551,6 +551,38 @@ describe("browser.request profile selection", () => {
     expect(firstRespondCall(respond)[2]?.message).toBe("browser control is disabled");
   });
 
+  it("keeps automatic host fallback for direct operator requests", async () => {
+    startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
+    dispatchBrowserRouteMock.mockResolvedValueOnce({
+      status: 200,
+      body: { targetId: "gateway-host-tab" },
+    });
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body: { url: "https://example.com" },
+        includeRoute: true,
+      },
+      {
+        ok: false,
+        error: {
+          code: "UNAVAILABLE",
+          message: "Browser control host is not reachable on 127.0.0.1:18791.",
+        },
+      },
+      undefined,
+      { connect: { scopes: ["operator.admin"] } },
+    );
+
+    expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
+    expect(dispatchBrowserRouteMock).toHaveBeenCalledOnce();
+    expect(firstRespondCall(respond)).toEqual([
+      true,
+      { result: { targetId: "gateway-host-tab" }, route: { status: "host-fallback" } },
+    ]);
+  });
+
   it("returns a host-fallback envelope for internal routed callers", async () => {
     startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
     dispatchBrowserRouteMock.mockResolvedValueOnce({
