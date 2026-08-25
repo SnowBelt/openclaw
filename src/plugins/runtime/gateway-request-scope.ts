@@ -86,11 +86,21 @@ export function withPluginRuntimeGatewayRequestAuthority<T>(
   run: () => T,
 ): T {
   const current = pluginRuntimeGatewayRequestScope.getStore();
+  const currentAuthority = current?.pluginRuntimeAuthority;
+  const combinedAuthority = currentAuthority
+    ? () => {
+        try {
+          return currentAuthority() && authority();
+        } catch {
+          return false;
+        }
+      }
+    : authority;
   return pluginRuntimeGatewayRequestScope.run(
     {
       ...current,
       isWebchatConnect: current?.isWebchatConnect ?? (() => false),
-      pluginRuntimeAuthority: authority,
+      pluginRuntimeAuthority: combinedAuthority,
     },
     run,
   );
