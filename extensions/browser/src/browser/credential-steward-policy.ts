@@ -96,6 +96,8 @@ const OAUTH_CONTEXT_QUERY_KEYS = new Set([
 ]);
 const OAUTH_CALLBACK_PATH_RE =
   /(?:^|[\\/._-])(?:auth|authorize|authorization|callback|oidc|oauth2?|signin-oidc|sso)(?:[\\/._-]|$)/iu;
+const OPAQUE_CREDENTIAL_PATH_RE =
+  /(?:^|\/)(?:password[-_]?reset|reset|magic[-_]?login|verify|verification|invite|invitation)\/[^/?#]+(?:\/|$)/iu;
 
 function hasOAuthContext(parsed: URL, parameterSets: URLSearchParams[]): boolean {
   return (
@@ -115,6 +117,9 @@ function classifySignedUrl(value: string): string | undefined {
         url.searchParams,
         ...(url.hash ? [new URLSearchParams(url.hash.slice(1))] : []),
       ];
+      if (OPAQUE_CREDENTIAL_PATH_RE.test(url.pathname)) {
+        return "token";
+      }
       const oauthContext = hasOAuthContext(url, parameterSets);
       for (const params of parameterSets) {
         for (const [key, queryValue] of params) {

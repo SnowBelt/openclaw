@@ -304,12 +304,33 @@ describe("Browser Steward runtime guard", () => {
       request: { url: rawUrl },
     });
 
-    expect(redacted).toEqual({ url: rawUrl });
+    expect(redacted).toEqual({ url: "https://shop.example" });
     expect(decision).toMatchObject({
       credentialExposureKind: "none",
       approvalRequired: true,
       telemetryEvent: "browser_steward.approval_gate",
     });
+  });
+
+  it("does not expose opaque credential-bearing URL paths to policy hooks", () => {
+    const rawUrl = "https://accounts.example/password-reset/raw-reset-token-123456";
+    const redacted = redactBrowserStewardCredentialMaterial({
+      action: "navigate",
+      url: rawUrl,
+    });
+    const decision = evaluateBrowserStewardRuntimeGuard({
+      action: "navigate",
+      request: { url: rawUrl },
+    });
+
+    expect(redacted).toEqual({ action: "navigate", url: "REDACTED" });
+    expect(decision).toMatchObject({
+      credentialExposureKind: "credential_material",
+      approvalRequired: true,
+      telemetryEvent: "browser_steward.blocked_credential_exposure",
+    });
+    expect(JSON.stringify(redacted)).not.toContain("raw-reset-token-123456");
+    expect(JSON.stringify(decision)).not.toContain("raw-reset-token-123456");
   });
 
   it("redacts OAuth bearer tokens embedded in URL fragments", () => {

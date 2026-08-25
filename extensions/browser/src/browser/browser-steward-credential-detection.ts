@@ -69,6 +69,17 @@ const OAUTH_CONTEXT_QUERY_KEYS = new Set([
 ]);
 const OAUTH_CALLBACK_PATH_RE =
   /(?:^|[\\/._-])(?:auth|authorize|authorization|callback|oidc|oauth2?|signin-oidc|sso)(?:[\\/._-]|$)/iu;
+const OPAQUE_CREDENTIAL_PATH_RE =
+  /(?:^|\/)(?:password[-_]?reset|reset|magic[-_]?login|verify|verification|invite|invitation)\/[^/?#]+(?:\/|$)/iu;
+const URL_FIELD_KEYS = new Set([
+  "url",
+  "href",
+  "origin",
+  "redirect_uri",
+  "redirect_url",
+  "return_url",
+  "callback_url",
+]);
 
 function hasOAuthContext(parsed: URL, parameterSets: URLSearchParams[]): boolean {
   return (
@@ -125,6 +136,9 @@ function classifySignedUrl(value: string): string | undefined {
         url.searchParams,
         ...(url.hash ? [new URLSearchParams(url.hash.slice(1))] : []),
       ];
+      if (OPAQUE_CREDENTIAL_PATH_RE.test(url.pathname)) {
+        return "token";
+      }
       const oauthContext = hasOAuthContext(url, parameterSets);
       for (const params of parameterSets) {
         for (const [key, queryValue] of params) {
@@ -244,6 +258,25 @@ function isSensitiveBrowserInputField(record: Record<string, unknown>, key: stri
   );
 }
 
+function isBrowserUrlField(key: string): boolean {
+  return URL_FIELD_KEYS.has(key.trim().toLowerCase().replace(/-/g, "_"));
+}
+
+function redactBrowserUrlField(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return "REDACTED";
+  }
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "REDACTED";
+    }
+    return parsed.origin;
+  } catch {
+    return "REDACTED";
+  }
+}
+
 function redactBrowserFillFields(value: unknown): unknown {
   if (!Array.isArray(value)) {
     return "REDACTED";
@@ -271,7 +304,12 @@ function redactBrowserFillFields(value: unknown): unknown {
     const result: Record<string, unknown> = {};
     seen.set(candidate, result);
     for (const [key, entry] of Object.entries(candidate)) {
-      result[key] = key === "value" ? "REDACTED" : redactFieldPart(entry);
+      result[key] =
+        key === "value"
+          ? "REDACTED"
+          : isBrowserUrlField(key)
+            ? redactBrowserUrlField(entry)
+            : redactFieldPart(entry);
     }
     return result;
   };
@@ -323,13 +361,16 @@ export function redactBrowserStewardCredentialMaterial(value: unknown): unknown 
         ((kind === "evaluate" || kind === "wait") && key === "fn") ||
         classifyCredentialLabel(key) ||
         isSensitiveBrowserInputField(record, key) ||
+        (typeof entry === "string" && classifyCredentialMaterial(entry)) ||
         (key === "value" && (labelsCredentialMaterial || typedCredentialMaterial))
           ? kind === "select" && key === "values" && Array.isArray(entry)
             ? entry.map(() => "REDACTED")
             : "REDACTED"
           : kind === "fill" && key === "fields"
             ? redactBrowserFillFields(entry)
-            : redact(entry);
+            : isBrowserUrlField(key)
+              ? redactBrowserUrlField(entry)
+              : redact(entry);
     }
     return result;
   };
