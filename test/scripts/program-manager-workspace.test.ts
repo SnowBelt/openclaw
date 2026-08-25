@@ -20,7 +20,12 @@ type TestAgentEntry = {
   name?: string;
   role?: string;
   workspace?: string;
-  params?: { maxTokens?: number; text_verbosity?: string };
+  params?: {
+    cacheRetention?: string;
+    chat_template_kwargs?: { enable_thinking?: boolean; preserve_thinking?: boolean };
+    maxTokens?: number;
+    text_verbosity?: string;
+  };
   tools?: { alsoAllow?: string[]; deny?: string[] };
   subagents?: { allowAgents?: string[]; delegationMode?: string; requireAgentId?: boolean };
 };
@@ -52,6 +57,10 @@ describe("Program Manager context package", () => {
     const agents = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"))
       .agents.entries;
     expect(agents["program-manager"].params.maxTokens).toBe(1024);
+    expect(agents["program-manager"].params.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+      preserve_thinking: false,
+    });
     const instructions = await readFile(path.join(sourceRoot, "workspace/AGENTS.md"), "utf8");
     expect(instructions).toContain("stop tool calls immediately");
     expect(instructions).toContain("never search the workspace for a missing packet");
@@ -105,6 +114,10 @@ describe("Program Manager context package", () => {
       throw new Error("Applied Program Manager entry is incomplete.");
     }
     expect(programManager.params.maxTokens).toBe(1024);
+    expect(programManager.params.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+      preserve_thinking: false,
+    });
     expect(programManager.tools.alsoAllow.toSorted()).toEqual([
       "get_goal",
       "progress_card",
