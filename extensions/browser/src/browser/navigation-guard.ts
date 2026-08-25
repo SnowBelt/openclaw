@@ -18,6 +18,7 @@ import {
   BROWSER_OPAQUE_CREDENTIAL_PATH_RE,
   getBrowserUrlParameterSets,
   hasBrowserOAuthContext,
+  isBrowserGenericCredentialQueryKey,
   isBrowserCredentialQueryKey,
 } from "./browser-url-credentials.js";
 
@@ -40,7 +41,11 @@ function hasNavigationCredentialQuery(parsed: URL): boolean {
   return parameterSets.some((params) =>
     [...params].some(([key, value]) => {
       const normalizedKey = key.toLowerCase();
-      return value.trim().length > 0 && NAVIGATION_BLOCKED_QUERY_KEYS.has(normalizedKey);
+      return (
+        value.trim().length > 0 &&
+        (NAVIGATION_BLOCKED_QUERY_KEYS.has(normalizedKey) ||
+          isBrowserGenericCredentialQueryKey(key))
+      );
     }),
   );
 }
