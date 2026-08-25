@@ -49,4 +49,29 @@ describe("Session Steward boundary policy", () => {
     expect(serialized).not.toContain("person-123");
     expect(serialized).not.toContain("thread-456");
   });
+
+  it("exposes ordinary unconfigured agent ids without exposing credential-shaped ids", () => {
+    expect(
+      resolveSessionStewardBoundary({
+        sessionKey: "agent:main:direct:user-1",
+        requestedAgentId: "worker",
+      }),
+    ).toMatchObject({
+      ownerAgentId: "main",
+      requestedAgentId: "worker",
+      agentRelation: "cross_agent",
+      affectedSession: "agent:main:REDACTED",
+    });
+    expect(
+      resolveSessionStewardBoundary({
+        sessionKey: "agent:sk-abcdefghijk:main",
+        requestedAgentId: "sk-abcdefghijk",
+      }),
+    ).toMatchObject({
+      ownerAgentId: "UNKNOWN",
+      requestedAgentId: "UNKNOWN",
+      agentRelation: "same_agent",
+      affectedSession: "agent:UNKNOWN:REDACTED",
+    });
+  });
 });

@@ -836,6 +836,10 @@ function createCapturedBrowserRuntime(
       isAvailable: async () => true,
       request: async (_method: string, params: Record<string, unknown>) => await request(params),
     },
+    browser: {
+      request: async (params: { body?: unknown; path: string }) =>
+        await request({ path: params.path, body: params.body }),
+    },
     system: {
       runCommandWithTimeout: async () => ({ code: 0, stdout: "BlackHole 2ch", stderr: "" }),
     },

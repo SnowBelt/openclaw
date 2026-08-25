@@ -1,3 +1,4 @@
+import { addTimerTimeoutGraceMs } from "openclaw/plugin-sdk/number-runtime";
 // Google Meet plugin module implements plugin harness behavior.
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
@@ -166,6 +167,49 @@ export function setupGoogleMeetPlugin(
         ? await options.gatewayRequestHandler(method, params, requestOptions)
         : await invokeGoogleMeetGatewayMethodForTest(methods, method, params, "google-meet"),
   );
+  const browser = {
+    request: async (params: {
+      method: "GET" | "POST" | "DELETE";
+      path: string;
+      body?: unknown;
+      timeoutMs: number;
+      nodeId: string;
+    }) => {
+      if (options.gatewayRequestHandler) {
+        return await options.gatewayRequestHandler(
+          "browser.request",
+          {
+            method: params.method,
+            path: params.path,
+            body: params.body,
+            timeoutMs: params.timeoutMs,
+          },
+          {
+            timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? 1,
+            scopes: ["operator.admin"],
+          },
+        );
+      }
+      const response = await nodesInvoke({
+        nodeId: params.nodeId || "node-1",
+        command: "browser.proxy",
+        params: {
+          method: params.method,
+          path: params.path,
+          body: params.body,
+          timeoutMs: params.timeoutMs,
+        },
+        timeoutMs: params.timeoutMs,
+      });
+      if (!response || typeof response !== "object" || !("payload" in response)) {
+        return response;
+      }
+      const payload = (response as { payload?: unknown }).payload;
+      return payload && typeof payload === "object" && "result" in payload
+        ? (payload as { result?: unknown }).result
+        : response;
+    },
+  };
   const api = createTestPluginApi({
     id: "google-meet",
     name: "Google Meet",
@@ -179,6 +223,7 @@ export function setupGoogleMeetPlugin(
         isAvailable: vi.fn(async () => options.gatewayAvailable === true),
         request: gatewayRequest,
       },
+      browser,
       system: {
         runCommandWithTimeout,
         formatNativeDependencyHint: vi.fn(() => "Install with brew install blackhole-2ch."),

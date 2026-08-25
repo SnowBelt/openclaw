@@ -238,8 +238,9 @@ describe("plugin registry Browser node delegation", () => {
     let effectAuthority: (() => boolean) | undefined;
     const request = vi.fn(async () => {
       effectAuthority = getPluginRuntimeGatewayRequestScope()?.pluginRuntimeAuthority;
-      replacementRecord &&
+      if (replacementRecord) {
         pluginRegistry.createApi(replacementRecord, { config: {} as OpenClawConfig });
+      }
       return { ok: true };
     });
     registerBrowserNodeDelegation(
