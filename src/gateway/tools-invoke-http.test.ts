@@ -1707,6 +1707,27 @@ describe("tools.invoke Gateway RPC", () => {
     expect(error?.message).toBe('agent "other" does not match session key agent "main"');
   });
 
+  it("rejects agent session keys without a session tail before tool resolution", async () => {
+    cfg = {
+      agents: {
+        list: [{ id: "main", default: true, tools: { allow: ["agents_list"] } }],
+      },
+    };
+
+    const call = await invokeToolsRpc({
+      name: "agents_list",
+      sessionKey: "agent:main",
+    });
+
+    expect(call?.[0]).toBe(true);
+    expect(call?.[1]).toMatchObject({
+      ok: false,
+      toolName: "agents_list",
+      error: { message: "malformed session boundary" },
+    });
+    expect(JSON.stringify(call)).not.toContain("agent:main");
+  });
+
   it("rejects malformed params at the RPC boundary", async () => {
     const call = await invokeToolsRpc({ name: "" });
 

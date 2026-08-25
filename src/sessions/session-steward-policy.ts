@@ -1,4 +1,4 @@
-import { isValidAgentId, normalizeAgentId } from "../routing/session-key.js";
+import { isValidAgentId, normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 
 type SessionStewardBoundaryKind = "agent" | "global" | "unscoped" | "unknown" | "malformed";
 
@@ -134,6 +134,10 @@ export function resolveSessionStewardBoundary(
       agentRelation: "unbound",
       affectedSession: "UNSCOPED",
     };
+  }
+
+  if (!parseAgentSessionKey(normalizedSessionKey)) {
+    return malformedDecision(requestedAgentId);
   }
 
   const rawOwnerAgentId = parts[1]?.trim() ?? "";

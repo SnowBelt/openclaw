@@ -87,6 +87,18 @@ describe("Gateway Session Steward boundary", () => {
     expect(JSON.stringify(result)).not.toContain("main:");
   });
 
+  it("rejects agent keys without a session tail", () => {
+    const result = assertGatewaySessionStewardBoundary({
+      sessionKey: "agent:main",
+      requestedAgentId: "main",
+      surface: "tools.invoke",
+      config: { agents: { list: [{ id: "main" }] } },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("agent:main");
+  });
+
   it("redacts unconfigured credential-shaped agent ids without exposing them", () => {
     const result = assertGatewaySessionStewardBoundary({
       sessionKey: "agent:sk-abcdefghijk:main",

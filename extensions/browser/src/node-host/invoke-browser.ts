@@ -369,6 +369,7 @@ export async function runBrowserProxyCommand(
     });
     browserStewardNodeAuthority = browserStewardApprovalAuthority;
   }
+  assertBrowserStewardNodeAuthority();
   await ensureBrowserControlService();
   assertBrowserStewardNodeAuthority();
   const effectiveResolvedProfile = effectiveProfile

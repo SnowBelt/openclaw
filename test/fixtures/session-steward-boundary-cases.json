@@ -32,14 +32,14 @@
     }
   },
   {
-    "name": "agent two segment key",
+    "name": "agent key without session tail",
     "sessionKey": "agent:main",
     "expected": {
-      "kind": "agent",
-      "ownerAgentId": "main",
+      "kind": "malformed",
+      "ownerAgentId": "UNKNOWN",
       "requestedAgentId": "UNKNOWN",
       "agentRelation": "unbound",
-      "affectedSession": "agent:main:REDACTED"
+      "affectedSession": "UNKNOWN"
     },
     "browserExpected": {
       "kind": "other_agent",
