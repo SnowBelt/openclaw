@@ -6,11 +6,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBrowserPlugin } from "./plugin-registration.js";
 
 const runtimeMocks = vi.hoisted(() => ({
+  createBrowserTool: vi.fn(() => ({
+    execute: vi.fn(async () => ({ type: "json", value: { ok: true } })),
+  })),
   handleGatewayExtensionUpgrade: vi.fn(async () => true),
   stopBrowserControlService: vi.fn(async () => undefined),
 }));
 
 vi.mock("./register.runtime.js", () => ({
+  createBrowserTool: runtimeMocks.createBrowserTool,
   stopBrowserControlService: runtimeMocks.stopBrowserControlService,
 }));
 
@@ -26,14 +30,19 @@ vi.mock("./src/browser/system-profile-import-state.js", () => ({
   configureSystemProfileImportStateStore: vi.fn(),
 }));
 
-function registerLifecycleCallbacks() {
+function registerLifecycleCallbacks(gatewayRequest = vi.fn(async () => ({ status: "closed" }))) {
   let route: Parameters<OpenClawPluginApi["registerHttpRoute"]>[0] | undefined;
   let service: OpenClawPluginService | undefined;
+  let toolFactory: Parameters<OpenClawPluginApi["registerTool"]>[0] | undefined;
   registerBrowserPlugin(
     createTestPluginApi({
       runtime: {
         state: { openKeyedStore: vi.fn() },
+        gateway: { request: gatewayRequest },
       } as never,
+      registerTool(value) {
+        toolFactory = value;
+      },
       registerHttpRoute(value) {
         route = value;
       },
@@ -45,7 +54,10 @@ function registerLifecycleCallbacks() {
   if (!route?.handleUpgrade || !service?.stop) {
     throw new Error("expected browser relay route and service lifecycle");
   }
-  return { handleUpgrade: route.handleUpgrade, stop: service.stop };
+  if (!toolFactory) {
+    throw new Error("expected Browser tool factory");
+  }
+  return { handleUpgrade: route.handleUpgrade, stop: service.stop, toolFactory };
 }
 
 describe("browser relay shutdown registration", () => {
@@ -70,5 +82,39 @@ describe("browser relay shutdown registration", () => {
 
     expect(runtimeMocks.handleGatewayExtensionUpgrade).toHaveBeenCalledWith(req, socket, head);
     expect(runtimeMocks.stopBrowserControlService).toHaveBeenCalledOnce();
+  });
+
+  it("does not issue retained cleanup requests after the Browser provider retires", async () => {
+    const gatewayRequest = vi.fn(async () => ({ status: "closed" }));
+    const callbacks = registerLifecycleCallbacks(gatewayRequest);
+    const tool = callbacks.toolFactory({} as never);
+    await tool.execute?.("call-1", { action: "tabs" }, new AbortController().signal);
+    const request = runtimeMocks.createBrowserTool.mock.calls.at(-1)?.[0]
+      ?.browserOwnedGatewayRequest as
+      | ((params: Record<string, unknown>) => Promise<unknown>)
+      | undefined;
+    if (!request) {
+      throw new Error("expected Browser-owned Gateway request callback");
+    }
+
+    await expect(
+      request({
+        method: "DELETE",
+        path: "/tabs/tab-1",
+        nodeId: "node-1",
+        timeoutMs: 1_000,
+      }),
+    ).resolves.toEqual({ status: "closed" });
+    await callbacks.stop({} as never);
+
+    await expect(
+      request({
+        method: "DELETE",
+        path: "/tabs/tab-2",
+        nodeId: "node-1",
+        timeoutMs: 1_000,
+      }),
+    ).rejects.toThrow("Browser plugin lifecycle is no longer active");
+    expect(gatewayRequest).toHaveBeenCalledOnce();
   });
 });

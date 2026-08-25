@@ -3,9 +3,97 @@
  */
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
+import { redactBrowserNavigationUrl } from "./navigation-guard.js";
 import { ensurePageState, getPageForTargetId } from "./pw-session.js";
 import { normalizeTimeoutMs } from "./pw-tools-core.shared.js";
 import { matchBrowserUrlPattern } from "./url-pattern.js";
+
+const URL_RESPONSE_HEADER_NAMES = new Set(["content-location", "link", "location", "refresh"]);
+
+function redactResponseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return value;
+  }
+  const direct = redactBrowserNavigationUrl(trimmed);
+  if (direct !== "[redacted invalid browser URL]") {
+    return direct;
+  }
+  if (/^[a-z][a-z\d+.-]*:/iu.test(trimmed)) {
+    return direct;
+  }
+  try {
+    const parsed = new URL(trimmed, "https://openclaw.invalid");
+    const redacted = redactBrowserNavigationUrl(parsed.toString());
+    if (redacted === "[redacted invalid browser URL]" || redacted === parsed.toString()) {
+      return value;
+    }
+    const redactedUrl = new URL(redacted);
+    if (trimmed.startsWith("#")) {
+      return redactedUrl.hash;
+    }
+    if (trimmed.startsWith("?")) {
+      return `${redactedUrl.search}${redactedUrl.hash}`;
+    }
+    if (trimmed.startsWith("//")) {
+      return `//${redactedUrl.host}${redactedUrl.pathname}${redactedUrl.search}${redactedUrl.hash}`;
+    }
+    const pathname = trimmed.startsWith("/")
+      ? redactedUrl.pathname
+      : redactedUrl.pathname.replace(/^\//u, "");
+    return `${pathname}${redactedUrl.search}${redactedUrl.hash}`;
+  } catch {
+    return value;
+  }
+}
+
+function redactResponseHeaderValue(name: string, value: string): string {
+  switch (name.toLowerCase()) {
+    case "location":
+    case "content-location":
+      return redactResponseUrl(value);
+    case "refresh":
+      return value.replace(
+        /(\burl\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^;,]*))/giu,
+        (
+          _match,
+          prefix: string,
+          doubleQuotedUrl: string | undefined,
+          singleQuotedUrl: string | undefined,
+          unquotedUrl: string | undefined,
+        ) => {
+          const quote =
+            doubleQuotedUrl !== undefined ? '"' : singleQuotedUrl !== undefined ? "'" : "";
+          const url = doubleQuotedUrl ?? singleQuotedUrl ?? unquotedUrl ?? "";
+          return `${prefix}${quote}${redactResponseUrl(url)}${quote}`;
+        },
+      );
+    case "link":
+      return value.replace(/<([^>]+)>/gu, (_match, url: string) => `<${redactResponseUrl(url)}>`);
+    default:
+      return value;
+  }
+}
+
+function redactResponseHeaders(
+  headers?: Record<string, string>,
+): Record<string, string> | undefined {
+  if (!headers) {
+    return headers;
+  }
+  let changed = false;
+  const redacted = Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => {
+      if (!URL_RESPONSE_HEADER_NAMES.has(name.toLowerCase())) {
+        return [name, value];
+      }
+      const redactedValue = redactResponseHeaderValue(name, value);
+      changed ||= redactedValue !== value;
+      return [name, redactedValue];
+    }),
+  );
+  return changed ? redacted : headers;
+}
 
 /** Waits for a response URL pattern and returns a bounded text body. */
 export async function responseBodyViaPlaywright(opts: {
@@ -106,9 +194,9 @@ export async function responseBodyViaPlaywright(opts: {
 
   const trimmed = bodyText.length > maxChars ? truncateUtf16Safe(bodyText, maxChars) : bodyText;
   return {
-    url,
+    url: redactBrowserNavigationUrl(url),
     status,
-    headers,
+    headers: redactResponseHeaders(headers),
     body: trimmed,
     truncated: bodyByteLength > maxBytes || bodyText.length > maxChars ? true : undefined,
   };

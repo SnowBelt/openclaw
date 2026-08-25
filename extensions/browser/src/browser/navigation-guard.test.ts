@@ -6,6 +6,7 @@ import {
   assertBrowserNavigationRedirectChainAllowed,
   assertBrowserNavigationResultAllowed,
   InvalidBrowserNavigationUrlError,
+  redactBrowserNavigationUrl,
 } from "./navigation-guard.js";
 
 function createLookupFn(address: string): LookupFn {
@@ -253,8 +254,9 @@ describe("browser navigation guard", () => {
 
   it("blocks network URLs with embedded credentials before lookup", async () => {
     const lookupFn = createLookupFn("93.184.216.34");
+    const credentialedUrl = ["https://user", "secret@example.com/private"].join(":");
     const result = assertBrowserNavigationAllowed({
-      url: "https://user:secret@example.com/private",
+      url: credentialedUrl,
       lookupFn,
     });
     await expect(result).rejects.toThrow("URL-embedded credentials are not supported");
@@ -263,15 +265,20 @@ describe("browser navigation guard", () => {
     expect(lookupFn).not.toHaveBeenCalled();
   });
 
-  it("blocks OAuth authorization codes before lookup", async () => {
+  it("allows OAuth authorization codes while redacting them from output", async () => {
     const lookupFn = createLookupFn("93.184.216.34");
-    const result = assertBrowserNavigationAllowed({
-      url: "https://auth.example/callback?code=raw-oauth-code-123456",
-      lookupFn,
-    });
-    await expect(result).rejects.toThrow("URL-embedded credentials are not supported");
-    await expect(result).rejects.not.toThrow("raw-oauth-code-123456");
-    expect(lookupFn).not.toHaveBeenCalled();
+    await expect(
+      assertBrowserNavigationAllowed({
+        url: "https://auth.example/callback?code=raw-oauth-code-123456",
+        lookupFn,
+      }),
+    ).resolves.toBeUndefined();
+    expect(lookupFn).toHaveBeenCalledWith("auth.example", { all: true });
+    const redacted = redactBrowserNavigationUrl(
+      "https://auth.example/callback?code=raw-oauth-code-123456",
+    );
+    expect(redacted).toBe("https://auth.example/callback?code=REDACTED");
+    expect(redacted).not.toContain("raw-oauth-code-123456");
   });
 
   it("allows ordinary code query parameters", async () => {
@@ -283,6 +290,23 @@ describe("browser navigation guard", () => {
       }),
     ).resolves.toBeUndefined();
     expect(lookupFn).toHaveBeenCalledWith("shop.example", { all: true });
+  });
+
+  it("preserves opaque hash routes while redacting hash-route OAuth codes", () => {
+    expect(redactBrowserNavigationUrl("https://app.example/#section")).toBe(
+      "https://app.example/#section",
+    );
+    expect(redactBrowserNavigationUrl("https://app.example/#/dashboard")).toBe(
+      "https://app.example/#/dashboard",
+    );
+    expect(
+      redactBrowserNavigationUrl("https://app.example/#/callback?code=raw-oauth-code-123456"),
+    ).toBe("https://app.example/#/callback?code=REDACTED");
+    expect(
+      redactBrowserNavigationUrl(
+        "https://app.example/#access_token=raw-fragment-token-123456&id_token=raw-id-token",
+      ),
+    ).toBe("https://app.example/#access_token=REDACTED&id_token=REDACTED");
   });
 
   it("blocks OAuth bearer tokens in URL fragments before lookup", async () => {
@@ -297,8 +321,9 @@ describe("browser navigation guard", () => {
   });
 
   it("redacts malformed credential-bearing URLs from diagnostics", async () => {
+    const credentialedUrl = ["https://user", "secret@"].join(":");
     const result = assertBrowserNavigationAllowed({
-      url: "https://user:secret@",
+      url: credentialedUrl,
     });
     await expect(result).rejects.toThrow("Invalid URL: [redacted credential-bearing URL]");
     await expect(result).rejects.not.toThrow("secret");

@@ -2,7 +2,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  consumeBrowserStewardGatewayApproval,
+  consumeBrowserStewardGatewayApprovalAuthority,
   createBrowserStewardGatewayApprovalClaim,
 } from "../browser/browser-steward-approval.js";
 
@@ -515,7 +515,7 @@ describe("browser.request profile selection", () => {
     };
     expect(invocation.params.profile).toBe("");
     expect(
-      consumeBrowserStewardGatewayApproval({
+      consumeBrowserStewardGatewayApprovalAuthority({
         approval: invocation.params.browserStewardApproval,
         command: invocation.command,
         method: invocation.params.method as string,
@@ -530,7 +530,7 @@ describe("browser.request profile selection", () => {
         pairingGeneration: invocation.pairingGeneration,
         invocationId: invocation.idempotencyKey,
       }),
-    ).toBe(true);
+    ).toBeDefined();
     expect(firstRespondCall(respond)[0]).toBe(true);
   });
 

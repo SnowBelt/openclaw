@@ -567,7 +567,10 @@ describe("pw-tools-core", () => {
     const resp = {
       url: () => "https://example.com/api/data",
       status: () => 200,
-      headers: () => ({ "content-type": "application/json" }),
+      headers: () => ({
+        "content-type": "application/json",
+        Location: "https://example.com/api/data",
+      }),
       body: async () => bodyBytes,
     };
 
@@ -588,8 +591,55 @@ describe("pw-tools-core", () => {
     const res = await p;
     expect(res.url).toBe("https://example.com/api/data");
     expect(res.status).toBe(200);
+    expect(res.headers).toEqual({
+      "content-type": "application/json",
+      Location: "https://example.com/api/data",
+    });
     expect(res.body).toBe('{"ok":true');
     expect(res.truncated).toBe(true);
+  });
+
+  it("redacts OAuth codes in response location headers", async () => {
+    let responseHandler: ((resp: unknown) => void) | undefined;
+    const on = vi.fn((event: string, handler: (resp: unknown) => void) => {
+      if (event === "response") {
+        responseHandler = handler;
+      }
+    });
+    const off = vi.fn();
+    setPwToolsCoreCurrentPage({ on, off });
+
+    const rawOAuthCode = "raw-oauth-code-123456";
+    const p = mod.responseBodyViaPlaywright({
+      cdpUrl: "http://127.0.0.1:18792",
+      targetId: "T1",
+      url: "**/oauth",
+      timeoutMs: 1000,
+    });
+
+    await Promise.resolve();
+    if (!responseHandler) {
+      throw new Error("expected Playwright response handler");
+    }
+    responseHandler({
+      url: () => "https://auth.example/oauth",
+      status: () => 302,
+      headers: () => ({
+        Location: `https://auth.example/callback?code=${rawOAuthCode}`,
+        Link: `<callback?code=${rawOAuthCode}>; rel="next"`,
+        Refresh: `0; url="/callback?code=${rawOAuthCode};secret"`,
+        "content-type": "text/html",
+      }),
+      body: async () => Buffer.from("redirecting"),
+    });
+
+    const result = await p;
+    expect(result.headers).toMatchObject({
+      Location: "https://auth.example/callback?code=REDACTED",
+      Link: '<callback?code=REDACTED>; rel="next"',
+      Refresh: '0; url="/callback?code=REDACTED"',
+    });
+    expect(JSON.stringify(result)).not.toContain(rawOAuthCode);
   });
 
   it("does not split a surrogate pair when truncating response body text", async () => {

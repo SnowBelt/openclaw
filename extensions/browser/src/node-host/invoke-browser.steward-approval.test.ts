@@ -1,5 +1,5 @@
 // Browser tests cover the node-host Browser Steward final-effect approval gate.
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
 
 const mocks = vi.hoisted(() => ({
@@ -90,6 +90,10 @@ describe("node-host Browser Steward approval", () => {
   beforeEach(() => {
     mocks.dispatch.mockReset();
     mocks.startBrowserControlService.mockClear().mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("rejects a Browser Steward mutation when Gateway approval is absent", async () => {
@@ -197,5 +201,84 @@ describe("node-host Browser Steward approval", () => {
       ),
     ).rejects.toThrow(/approval_required/);
     expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an approval that expires during startup before final browser I/O", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    vi.resetModules();
+    const [
+      { createBrowserStewardGatewayApproval: createFreshApproval },
+      { runBrowserProxyCommand: runFreshBrowserProxyCommand },
+    ] = await Promise.all([
+      import("../browser/browser-steward-approval.js"),
+      import("./invoke-browser.js"),
+    ]);
+    let releaseStartup!: (value: boolean) => void;
+    const startup = new Promise<boolean>((resolve) => {
+      releaseStartup = resolve;
+    });
+    mocks.startBrowserControlService.mockReturnValueOnce(startup);
+    mocks.dispatch.mockResolvedValue({ status: 200, body: { ok: true } });
+    const approval = createFreshApproval({
+      command: "browser.proxy",
+      ...baseParams,
+      invocationId: "invoke-expiring",
+    });
+    const trace = ["approved-before-startup"];
+    const request = runFreshBrowserProxyCommand(
+      JSON.stringify({
+        ...baseParams,
+        invocationId: "invoke-expiring",
+        browserStewardApproval: approval,
+      }),
+      "browser.proxy",
+      undefined,
+      { nodeId: "node-1", pairingGeneration: "pairing-1", invocationId: "invoke-expiring" },
+    );
+    await Promise.resolve();
+    expect(mocks.startBrowserControlService).toHaveBeenCalledOnce();
+    vi.setSystemTime(31_001);
+    releaseStartup(true);
+    trace.push("revoked-before-final-browser-io");
+
+    await expect(request).rejects.toThrow(/approval_required/);
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(trace).toEqual(["approved-before-startup", "revoked-before-final-browser-io"]);
+    expect(JSON.stringify(trace)).not.toContain("invoke-expiring");
+  });
+
+  it("preserves a completed browser result when the lease expires during dispatch", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    let releaseDispatch!: (value: { status: number; body: { ok: boolean } }) => void;
+    mocks.dispatch.mockReturnValueOnce(
+      new Promise<{ status: number; body: { ok: boolean } }>((resolve) => {
+        releaseDispatch = resolve;
+      }),
+    );
+    const approval = createBrowserStewardGatewayApproval({
+      command: "browser.proxy",
+      ...baseParams,
+      invocationId: "invoke-dispatch-expiry",
+    });
+    const request = runBrowserProxyCommand(
+      JSON.stringify({
+        ...baseParams,
+        invocationId: "invoke-dispatch-expiry",
+        browserStewardApproval: approval,
+      }),
+      "browser.proxy",
+      undefined,
+      { nodeId: "node-1", pairingGeneration: "pairing-1", invocationId: "invoke-dispatch-expiry" },
+    );
+    for (let attempt = 0; attempt < 10 && mocks.dispatch.mock.calls.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(mocks.dispatch).toHaveBeenCalledOnce();
+    vi.setSystemTime(31_001);
+    releaseDispatch({ status: 200, body: { ok: true } });
+
+    await expect(request).resolves.toBe(JSON.stringify({ result: { ok: true } }));
   });
 });

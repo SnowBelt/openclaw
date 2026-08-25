@@ -58,21 +58,88 @@ function hasOAuthContext(parsed: URL, parameterSets: URLSearchParams[]): boolean
 }
 
 function hasNavigationCredentialQuery(parsed: URL): boolean {
-  const parameterSets = [
-    parsed.searchParams,
-    ...(parsed.hash ? [new URLSearchParams(parsed.hash.slice(1))] : []),
-  ];
-  const oauthContext = hasOAuthContext(parsed, parameterSets);
+  const hashParams = getNavigationHashParts(parsed.hash).params;
+  const parameterSets = [parsed.searchParams, ...(hashParams ? [hashParams] : [])];
   return parameterSets.some((params) =>
     [...params].some(([key, value]) => {
       const normalizedKey = key.toLowerCase();
-      return (
-        value.trim().length > 0 &&
-        (NAVIGATION_CREDENTIAL_QUERY_KEYS.has(normalizedKey) ||
-          (normalizedKey === "code" && oauthContext))
-      );
+      return value.trim().length > 0 && NAVIGATION_CREDENTIAL_QUERY_KEYS.has(normalizedKey);
     }),
   );
+}
+
+function getNavigationHashParts(hash: string): {
+  prefix: string;
+  params?: URLSearchParams;
+} {
+  const fragment = hash.startsWith("#") ? hash.slice(1) : hash;
+  const queryIndex = fragment.indexOf("?");
+  const prefix = queryIndex >= 0 ? `${fragment.slice(0, queryIndex)}?` : "";
+  const query = queryIndex >= 0 ? fragment.slice(queryIndex + 1) : fragment;
+  return {
+    prefix,
+    ...(query.includes("=") ? { params: new URLSearchParams(query) } : {}),
+  };
+}
+
+function redactNavigationParameterSet(
+  params: URLSearchParams,
+  oauthContext: boolean,
+): { value: string; changed: boolean } {
+  const redacted = new URLSearchParams();
+  let changed = false;
+  for (const [key, value] of params) {
+    const normalizedKey = key.toLowerCase();
+    const shouldRedact =
+      NAVIGATION_CREDENTIAL_QUERY_KEYS.has(normalizedKey) ||
+      (normalizedKey === "code" && oauthContext);
+    const redactedValue = shouldRedact ? "REDACTED" : value;
+    changed ||= redactedValue !== value;
+    redacted.append(key, redactedValue);
+  }
+  return { value: redacted.toString(), changed };
+}
+
+/** Redact URL credentials while preserving safe navigation context for output. */
+export function redactBrowserNavigationUrl(url: string): string {
+  const rawUrl = url.trim();
+  if (!rawUrl) {
+    return rawUrl;
+  }
+  try {
+    const parsed = new URL(rawUrl);
+    const originalUsername = parsed.username;
+    const originalPassword = parsed.password;
+    const originalSearch = parsed.search;
+    const originalHash = parsed.hash;
+    parsed.username = "";
+    parsed.password = "";
+    const hashParts = getNavigationHashParts(parsed.hash);
+    const parameterSets = [parsed.searchParams, ...(hashParts.params ? [hashParts.params] : [])];
+    const hashRoute = hashParts.prefix.endsWith("?")
+      ? hashParts.prefix.slice(0, -1)
+      : hashParts.prefix;
+    const oauthContext =
+      hasOAuthContext(parsed, parameterSets) || OAUTH_CALLBACK_PATH_RE.test(hashRoute);
+    const redactedSearch = redactNavigationParameterSet(parsed.searchParams, oauthContext);
+    if (redactedSearch.changed) {
+      parsed.search = `?${redactedSearch.value}`;
+    }
+    if (hashParts.params) {
+      const redactedHash = redactNavigationParameterSet(hashParts.params, oauthContext);
+      if (redactedHash.changed) {
+        parsed.hash = `#${hashParts.prefix}${redactedHash.value}`;
+      }
+    }
+    return originalUsername === parsed.username &&
+      originalPassword === parsed.password &&
+      originalSearch === parsed.search &&
+      originalHash === parsed.hash
+      ? rawUrl
+      : parsed.toString();
+  } catch {
+    return "[redacted invalid browser URL]";
+  }
 }
 
 /** Raised when a browser navigation URL fails syntax or policy validation. */

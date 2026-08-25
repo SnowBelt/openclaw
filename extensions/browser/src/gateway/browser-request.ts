@@ -574,6 +574,14 @@ export async function handleBrowserGatewayRequest({
     respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "browser control is disabled"));
     return;
   }
+  if (!isBrowserNodeDispatchAuthorized()) {
+    respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.INVALID_REQUEST, "agent runtime authority is no longer active"),
+    );
+    return;
+  }
 
   let dispatcher;
   try {

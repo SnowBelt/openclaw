@@ -2297,12 +2297,12 @@ describe("browser tool url alias support", () => {
   it("rejects credentialed open URLs before host or node dispatch", async () => {
     mockSingleBrowserProxyNode();
     const tool = createBrowserTool();
+    const credentialedUrls = [
+      ["https://user", "secret@example.com/path"].join(":"),
+      ["https://user", "secret@"].join(":"),
+    ];
     for (const target of ["host", "node"] as const) {
-      for (const url of [
-        "https://user:secret@example.com/path",
-        "https://user:secret@",
-        "https://auth.example/callback?code=raw-oauth-code-123456",
-      ]) {
+      for (const url of credentialedUrls) {
         const error = await tool.execute?.("call-1", { action: "open", target, url }).then(
           () => new Error("credentialed URL was accepted"),
           (cause: unknown) => cause,
@@ -3259,12 +3259,12 @@ describe("browser tool url alias support", () => {
   it("rejects credentialed navigate URLs before host or node dispatch", async () => {
     mockSingleBrowserProxyNode();
     const tool = createBrowserTool();
+    const credentialedUrls = [
+      ["https://user", "secret@example.com/path"].join(":"),
+      ["https://user", "secret@"].join(":"),
+    ];
     for (const target of ["host", "node"] as const) {
-      for (const url of [
-        "https://user:secret@example.com/path",
-        "https://user:secret@",
-        "https://auth.example/callback?code=raw-oauth-code-123456",
-      ]) {
+      for (const url of credentialedUrls) {
         const error = await tool
           .execute?.("call-1", { action: "navigate", target, url, targetId: "tab-1" })
           .then(

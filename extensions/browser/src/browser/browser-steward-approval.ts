@@ -47,6 +47,11 @@ type BrowserStewardGatewayApproval = {
   invocationId: string;
 };
 
+/** Opaque authority retained only by one node-host invocation. */
+export type BrowserStewardGatewayApprovalAuthority = {
+  isActive: () => boolean;
+};
+
 function canonicalizeBrowserStewardApprovalValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalizeBrowserStewardApprovalValue);
@@ -353,10 +358,10 @@ function isBrowserStewardGatewayApprovalValid(
   }
 }
 
-/** Redeems a node-bound Gateway approval exactly once at the node effect boundary. */
-export function consumeBrowserStewardGatewayApproval(
+/** Redeems a node-bound Gateway approval and retains its short-lived authority. */
+export function consumeBrowserStewardGatewayApprovalAuthority(
   params: BrowserStewardGatewayApprovalValidationParams,
-): boolean {
+): BrowserStewardGatewayApprovalAuthority | undefined {
   const approval = readBrowserStewardGatewayApproval(params.approval);
   if (
     !approval ||
@@ -365,10 +370,22 @@ export function consumeBrowserStewardGatewayApproval(
     !params.invocationId ||
     !isBrowserStewardGatewayApprovalValid(params)
   ) {
-    return false;
+    return undefined;
   }
   consumedBrowserStewardGatewayAuthorities.set(approval.authorityId, approval.expiresAtMs);
-  return true;
+  return Object.freeze({
+    isActive: () => {
+      const nowMs = Date.now();
+      const expiresAtMs = consumedBrowserStewardGatewayAuthorities.get(approval.authorityId);
+      if (expiresAtMs === undefined || expiresAtMs <= nowMs) {
+        if (expiresAtMs !== undefined) {
+          consumedBrowserStewardGatewayAuthorities.delete(approval.authorityId);
+        }
+        return false;
+      }
+      return expiresAtMs === approval.expiresAtMs;
+    },
+  });
 }
 
 function matchesApprovedPublicParams(

@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { registerBrowserNodeDelegation } from "openclaw/plugin-sdk/browser-node-delegation-runtime";
+import { withBrowserStewardRuntimeAuthority } from "openclaw/plugin-sdk/browser-steward-runtime";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 import { addTimerTimeoutGraceMs } from "openclaw/plugin-sdk/number-runtime";
 import type {
@@ -529,12 +530,72 @@ export const browserSecurityAuditCollectors: OpenClawPluginSecurityAuditCollecto
   },
 ];
 
-function createLazyBrowserPluginService(): OpenClawPluginService {
+type BrowserPluginLifecycle = {
+  isActive: () => boolean;
+  deactivate: () => void;
+};
+
+function createBrowserPluginLifecycle(): BrowserPluginLifecycle {
+  let active = true;
+  return Object.freeze({
+    isActive: () => active,
+    deactivate: () => {
+      active = false;
+    },
+  });
+}
+
+function createBrowserOwnedGatewayRequest(
+  api: OpenClawPluginApi,
+  lifecycle: BrowserPluginLifecycle,
+): BrowserOwnedGatewayRequest {
+  return async (params) => {
+    if (!lifecycle.isActive()) {
+      throw new Error("Browser plugin lifecycle is no longer active.");
+    }
+    return await withBrowserStewardRuntimeAuthority(lifecycle.isActive, async () => {
+      if (!lifecycle.isActive()) {
+        throw new Error("Browser plugin lifecycle is no longer active.");
+      }
+      const result = await api.runtime.gateway.request(
+        BROWSER_REQUEST_GATEWAY_METHOD,
+        {
+          method: params.method,
+          path: params.path,
+          ...(params.query ? { query: params.query } : {}),
+          ...(params.body !== undefined ? { body: params.body } : {}),
+          ...(params.profile ? { profile: params.profile } : {}),
+          nodeId: params.nodeId,
+          ...(params.browserNodeSessionLease
+            ? { browserNodeSessionLease: params.browserNodeSessionLease }
+            : {}),
+          allowAutomaticHostFallback: false,
+        },
+        {
+          timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? params.timeoutMs,
+          scopes: [BROWSER_REQUEST_GATEWAY_SCOPE],
+        },
+      );
+      if (!lifecycle.isActive()) {
+        throw new Error("Browser plugin lifecycle is no longer active.");
+      }
+      return result;
+    });
+  };
+}
+
+function createLazyBrowserPluginService(lifecycle: BrowserPluginLifecycle): OpenClawPluginService {
   let service: OpenClawPluginService | null = null;
   const loadService = async () => {
+    if (!lifecycle.isActive()) {
+      throw new Error("Browser plugin lifecycle is no longer active.");
+    }
     if (!service) {
       const { createBrowserPluginService, stopBrowserControlService } =
         await loadBrowserRegistrationRuntimeModule();
+      if (!lifecycle.isActive()) {
+        throw new Error("Browser plugin lifecycle is no longer active.");
+      }
       service = createBrowserPluginService({ stopOnDemand: stopBrowserControlService });
     }
     return service;
@@ -542,13 +603,20 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
   return {
     id: "browser-control",
     start: async (ctx) => {
+      if (!lifecycle.isActive()) {
+        return;
+      }
       if (!isTruthyEnvValue(process.env[EAGER_BROWSER_CONTROL_SERVICE_ENV])) {
         return;
       }
       const loaded = await loadService();
+      if (!lifecycle.isActive()) {
+        return;
+      }
       await loaded.start(ctx);
     },
     stop: async (ctx) => {
+      lifecycle.deactivate();
       if (!service) {
         const loadedRuntime = loadBrowserRegistrationRuntimeModule.peek();
         if (!loadedRuntime) {
@@ -566,26 +634,8 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
 /** Register Browser tool factories, CLI, gateway methods, services, and audits. */
 export function registerBrowserPlugin(api: OpenClawPluginApi) {
   const approvalAuthority = createBrowserStewardRuntimeApprovalAuthority();
-  const browserOwnedGatewayRequest: BrowserOwnedGatewayRequest = async (params) =>
-    await api.runtime.gateway.request(
-      BROWSER_REQUEST_GATEWAY_METHOD,
-      {
-        method: params.method,
-        path: params.path,
-        ...(params.query ? { query: params.query } : {}),
-        ...(params.body !== undefined ? { body: params.body } : {}),
-        ...(params.profile ? { profile: params.profile } : {}),
-        nodeId: params.nodeId,
-        ...(params.browserNodeSessionLease
-          ? { browserNodeSessionLease: params.browserNodeSessionLease }
-          : {}),
-        allowAutomaticHostFallback: false,
-      },
-      {
-        timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? params.timeoutMs,
-        scopes: [BROWSER_REQUEST_GATEWAY_SCOPE],
-      },
-    );
+  const lifecycle = createBrowserPluginLifecycle();
+  const browserOwnedGatewayRequest = createBrowserOwnedGatewayRequest(api, lifecycle);
   initializeBrowserSessionTabStore(api.runtime);
   configureSystemProfileImportStateStore(
     api.runtime.state.openKeyedStore<SystemProfileImportState>({
@@ -603,22 +653,31 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
   registerBrowserNodeDelegation(api, {
     consumerPluginIds: ["google-meet", "teams-meetings", "zoom-meetings"],
     request: async ({ method, path, body, timeoutMs, nodeId }) =>
-      await api.runtime.gateway.request(
-        BROWSER_REQUEST_GATEWAY_METHOD,
-        {
-          method,
-          path,
-          ...(body !== undefined ? { body } : {}),
-          timeoutMs,
-          ...(nodeId ? { nodeId } : {}),
-          agentId: BROWSER_STEWARD_AGENT_ID,
-          allowAutomaticHostFallback: false,
-        },
-        {
-          timeoutMs: addTimerTimeoutGraceMs(timeoutMs) ?? 1,
-          scopes: [BROWSER_REQUEST_GATEWAY_SCOPE],
-        },
-      ),
+      await withBrowserStewardRuntimeAuthority(lifecycle.isActive, async () => {
+        if (!lifecycle.isActive()) {
+          throw new Error("Browser plugin lifecycle is no longer active.");
+        }
+        const result = await api.runtime.gateway.request(
+          BROWSER_REQUEST_GATEWAY_METHOD,
+          {
+            method,
+            path,
+            ...(body !== undefined ? { body } : {}),
+            timeoutMs,
+            ...(nodeId ? { nodeId } : {}),
+            agentId: BROWSER_STEWARD_AGENT_ID,
+            allowAutomaticHostFallback: false,
+          },
+          {
+            timeoutMs: addTimerTimeoutGraceMs(timeoutMs) ?? 1,
+            scopes: [BROWSER_REQUEST_GATEWAY_SCOPE],
+          },
+        );
+        if (!lifecycle.isActive()) {
+          throw new Error("Browser plugin lifecycle is no longer active.");
+        }
+        return result;
+      }),
   });
   api.registerTrustedToolPolicy(createBrowserStewardTrustedToolPolicy(approvalAuthority));
   api.registerNodeInvokePolicy(createBrowserProxyNodeInvokePolicy());
@@ -660,5 +719,5 @@ export function registerBrowserPlugin(api: OpenClawPluginApi) {
       return await handleGatewayExtensionUpgrade(req, socket, head);
     },
   });
-  api.registerService(createLazyBrowserPluginService());
+  api.registerService(createLazyBrowserPluginService(lifecycle));
 }

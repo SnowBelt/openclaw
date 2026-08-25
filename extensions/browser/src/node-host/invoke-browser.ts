@@ -26,7 +26,10 @@ import {
   ensureBrowserProxyUploadCleanup,
   stageBrowserProxyUploadRequest,
 } from "../browser-proxy-upload.js";
-import { consumeBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
+import {
+  consumeBrowserStewardGatewayApprovalAuthority,
+  type BrowserStewardGatewayApprovalAuthority,
+} from "../browser/browser-steward-approval.js";
 import {
   assertBrowserStewardRuntimeAllowed,
   resolveBrowserStewardProxyAction,
@@ -328,13 +331,20 @@ export async function runBrowserProxyCommand(
       profile: params.profile,
     }) ?? "";
   const effectiveProfile = path === "/profiles" ? "" : requestedProfile || resolved.defaultProfile;
+  let browserStewardNodeAuthority: BrowserStewardGatewayApprovalAuthority | undefined;
+  const assertBrowserStewardNodeAuthority = () => {
+    invocationSignal?.throwIfAborted();
+    if (browserStewardNodeAuthority && !browserStewardNodeAuthority.isActive()) {
+      throw new Error("approval_required: Browser Steward approval is no longer active");
+    }
+  };
   if (
     shouldApplyBrowserStewardRuntimeGuard({
       sessionKey: params.agentSessionKey,
       agentId: params.agentId,
     })
   ) {
-    const gatewayApprovalValid = consumeBrowserStewardGatewayApproval({
+    const browserStewardApprovalAuthority = consumeBrowserStewardGatewayApprovalAuthority({
       approval: params.browserStewardApproval,
       command,
       method,
@@ -354,12 +364,13 @@ export async function runBrowserProxyCommand(
       profile: effectiveProfile,
       agentSessionKey: params.agentSessionKey,
       agentId: params.agentId,
-      approved: gatewayApprovalValid,
+      approved: browserStewardApprovalAuthority !== undefined,
       request: body,
     });
+    browserStewardNodeAuthority = browserStewardApprovalAuthority;
   }
   await ensureBrowserControlService();
-  invocationSignal?.throwIfAborted();
+  assertBrowserStewardNodeAuthority();
   const effectiveResolvedProfile = effectiveProfile
     ? resolveProfile(resolved, effectiveProfile)
     : null;
@@ -410,6 +421,7 @@ export async function runBrowserProxyCommand(
 
   if (path === BROWSER_PROXY_OWNED_TAB_CLOSE_PATH) {
     const request = readOwnedTabCloseRequest(body);
+    assertBrowserStewardNodeAuthority();
     const liveResolved = getBrowserControlState()?.resolved ?? resolved;
     const profile = resolveProfile(liveResolved, effectiveProfile);
     const result =
@@ -433,6 +445,7 @@ export async function runBrowserProxyCommand(
   const dispatcher = createBrowserRouteDispatcher(createBrowserControlContext());
   let stagedUpload;
   try {
+    assertBrowserStewardNodeAuthority();
     stagedUpload = await withTimeout(
       (timeoutSignal) =>
         stageBrowserProxyUploadRequest({
@@ -445,6 +458,7 @@ export async function runBrowserProxyCommand(
       timeoutMs,
       "browser proxy request",
     );
+    assertBrowserStewardNodeAuthority();
   } catch (err) {
     if (!isBrowserProxyTimeoutError(err)) {
       throw err;
@@ -478,6 +492,7 @@ export async function runBrowserProxyCommand(
   }
   let response;
   try {
+    assertBrowserStewardNodeAuthority();
     response = await withTimeout(
       (timeoutSignal) =>
         dispatcher.dispatch({
@@ -495,6 +510,8 @@ export async function runBrowserProxyCommand(
       throw err;
     }
     const profileForStatus = requestedProfile || resolved.defaultProfile;
+    // Dispatch has started under an active authority; recover status without
+    // converting an unknown completed effect into a retryable approval error.
     const status = await readBrowserProxyStatus({
       dispatcher,
       profile: path === "/profiles" ? undefined : profileForStatus,
@@ -541,6 +558,8 @@ export async function runBrowserProxyCommand(
     });
   }
 
+  // Once the browser effect has started under an active authority, preserve a
+  // completed result instead of turning lease expiry into a retryable failure.
   const paths = collectBrowserProxyPaths(result);
   const files = paths.length > 0 ? await readBrowserProxyFiles(paths) : undefined;
 
