@@ -134,6 +134,19 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
     const requestedKey = normalizeOptionalString(p.key);
     const requestedParamAgentId = normalizeOptionalString(p.agentId);
     const clearQueued = p.clearQueued === true;
+    if (requestedKey) {
+      const boundary = assertGatewaySessionStewardBoundary({
+        sessionKey: requestedKey,
+        requestedAgentId: requestedParamAgentId,
+        config: cfg,
+        surface: "sessions.abort",
+        action: "abort",
+      });
+      if (!boundary.ok) {
+        respond(false, undefined, boundary.error);
+        return;
+      }
+    }
     const workerRunSessionId = requestedRunId
       ? asWorkerInferenceControl(context.workerEnvironmentService)?.resolveInferenceSessionForRunId(
           requestedRunId,
