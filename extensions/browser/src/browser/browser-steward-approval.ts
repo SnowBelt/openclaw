@@ -501,6 +501,7 @@ export function createBrowserStewardRuntimeApprovalAuthority(): BrowserStewardRu
         !approval.used &&
         params &&
         typeof params === "object" &&
+        // SAFETY: params was narrowed to a non-null object before comparing its public fields.
         matchesApprovedPublicParams(params as Record<string | symbol, unknown>, approval)
         ? cloneBrowserStewardApprovalParams(approval.rawParams)
         : (params as Record<string, unknown>); // SAFETY: the caller contract supplies browser tool params when no private approval exists.

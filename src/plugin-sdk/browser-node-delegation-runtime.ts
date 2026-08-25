@@ -27,6 +27,7 @@ export function registerBrowserNodeDelegation(
   api: object,
   delegation: BrowserNodeDelegation,
 ): void {
+  // SAFETY: api is the host-owned object carrying the private registrar seam.
   const registrar = (api as BrowserNodeDelegationApi)[BROWSER_NODE_DELEGATION_REGISTRAR];
   registrar?.(delegation);
 }

@@ -20,11 +20,17 @@ type ResolveSessionStewardBoundaryParams = {
 
 const UNKNOWN = "UNKNOWN";
 const UNKNOWN_AGENT_SESSION = "agent:UNKNOWN:REDACTED";
+const CREDENTIAL_LIKE_AGENT_ID_RE = /^(?:sk|pk)-[a-z0-9][a-z0-9._-]{8,}$/iu;
+const CREDENTIAL_LIKE_TOKEN_ID_RE = /^(?:xox[baprs]-|gh[pousr]_|glpat-)[a-z0-9_-]{8,}$/iu;
 
 type ResolvedBoundaryAgentId = {
   comparisonId: string;
   exposedId: string;
 };
+
+function isCredentialLikeAgentId(value: string): boolean {
+  return CREDENTIAL_LIKE_AGENT_ID_RE.test(value) || CREDENTIAL_LIKE_TOKEN_ID_RE.test(value);
+}
 
 function normalizeBoundarySegment(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
@@ -44,14 +50,21 @@ function normalizeBoundaryAgentId(
   if (configured) {
     const configuredId = normalizeAgentId(configured);
     if (isValidAgentId(configuredId)) {
-      return { comparisonId: configuredId, exposedId: configuredId };
+      return {
+        comparisonId: configuredId,
+        exposedId: isCredentialLikeAgentId(configuredId) ? UNKNOWN : configuredId,
+      };
     }
   }
-  // Unconfigured agent ids remain usable for routing comparisons, but are not
-  // trusted identity facts and therefore never leave the policy as raw text.
-  return isValidAgentId(normalized)
-    ? { comparisonId: normalized, exposedId: UNKNOWN }
-    : { comparisonId: "", exposedId: "" };
+  if (!isValidAgentId(normalized)) {
+    return { comparisonId: "", exposedId: "" };
+  }
+  // Ordinary agent ids are safe normalized routing facts. Keep known
+  // credential-shaped ids comparison-only so secrets never cross the boundary.
+  return {
+    comparisonId: normalized,
+    exposedId: isCredentialLikeAgentId(normalized) ? UNKNOWN : normalized,
+  };
 }
 
 function unknownDecision(requestedAgentId: string): SessionStewardBoundaryDecision {

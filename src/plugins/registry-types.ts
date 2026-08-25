@@ -41,7 +41,6 @@ import type {
   ResolvedPluginRuntimeArtifact,
   SessionDiscussionProvider,
 } from "./registry-contribution-types.js";
-export type { PluginRecord } from "./plugin-record.types.js";
 import type { PluginRuntime } from "./runtime/types.js";
 import type { SessionCatalogProvider } from "./session-catalog.js";
 import type {
@@ -49,6 +48,7 @@ import type {
   OpenClawPluginHttpRouteUpgradeHandler,
 } from "./types.js";
 import type { PluginMcpServerConnectionResolverRegistration } from "./types.mcp-connection.js";
+export type { PluginRecord } from "./plugin-record.types.js";
 type ChannelPlugin = import("../channels/plugins/types.plugin.js").ChannelPlugin;
 type CliBackendPlugin = import("./types.js").CliBackendPlugin;
 type ImageGenerationProviderPlugin = import("./types.js").ImageGenerationProviderPlugin;

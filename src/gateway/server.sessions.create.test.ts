@@ -825,7 +825,7 @@ test("sessions.create keeps incognito rows process-local through list, spawn, re
       ok: false,
       error: {
         code: "INVALID_REQUEST",
-        message: "cross-agent session boundary",
+        message: 'agent "main" does not match session key agent "work"',
       },
     });
     const durableCollisionKey = "agent:main:dashboard:incognito-durable-collision";

@@ -38,13 +38,14 @@ jobs:
     name: Agent role contract catalog
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-node-env
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-bun: "false"
+          cache-mode: "off"
       - name: Validate role contracts
         run: node scripts/agent-role-eval.mjs --contracts-only
 
@@ -55,13 +56,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-node-env
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-bun: "false"
+          cache-mode: "off"
       - name: Validate Steward live eval inputs
         env:
           INPUT_LIVE_MODEL: ${{ inputs.live_model }}

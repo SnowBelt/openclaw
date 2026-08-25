@@ -70,6 +70,7 @@ function authorizationHarness(options?: { browserError?: Error }) {
     pluginConfig: { defaultMode: "transcribe", chrome: { waitForInCallMs: 1 } },
     runtime: {
       gateway: { isAvailable: vi.fn(async () => true), request: gatewayRequest },
+      browser: { request: async (params) => await gatewayRequest("browser.request", params) },
     } as unknown as OpenClawPluginApi["runtime"],
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     registerGatewayMethod: (method: string, handler: unknown) =>
