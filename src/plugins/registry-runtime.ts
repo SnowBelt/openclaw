@@ -704,13 +704,13 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
         | "openChannelIngressQueue"
         | "openChannelIngressDrain",
     ) => {
-      const record =
+      const trustedRecord =
         pluginRuntimeRecordById.get(pluginId) ??
         registry.plugins.find((entry) => entry.id === pluginId);
-      if (record?.origin !== "bundled" && record?.trustedOfficialInstall !== true) {
+      if (trustedRecord?.origin !== "bundled" && trustedRecord?.trustedOfficialInstall !== true) {
         // Name the denied plugin and its origin so operators can replace the untrusted install.
         throw new Error(
-          `${methodName} is only available for trusted plugins in this release. Plugin "${pluginId}" loaded with origin "${record?.origin ?? "unknown"}"; reinstall it from its official npm package or ClawHub listing to enable trusted plugin state.`,
+          `${methodName} is only available for trusted plugins in this release. Plugin "${pluginId}" loaded with origin "${trustedRecord?.origin ?? "unknown"}"; reinstall it from its official npm package or ClawHub listing to enable trusted plugin state.`,
         );
       }
     };
@@ -831,100 +831,6 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               return await runWithPluginScope(() => hooks.dispatchHookAgentTurn(params));
             },
           } satisfies PluginRuntime["hooks"];
-        }
-        if (prop === "browser") {
-          const registration = registry.browserNodeDelegations.find((entry) =>
-            entry.delegation.consumerPluginIds.includes(pluginId),
-          );
-          if (!registration) {
-            return undefined;
-          }
-          const providerRecord = registration.providerRecord;
-          const isProviderRuntimeActive = () =>
-            pluginRuntimeRecordById.get(registration.pluginId) === providerRecord &&
-            activePluginRuntimeRecords.has(providerRecord) &&
-            isTrustedBrowserPluginRecord(providerRecord) &&
-            providerRecord.status === "loaded" &&
-            providerRecord.enabled &&
-            providerRecord.origin === registration.provider.origin &&
-            providerRecord.source === registration.provider.source &&
-            providerRecord.rootDir === registration.provider.rootDir &&
-            providerRecord.trustedOfficialInstall === registration.provider.trustedOfficialInstall;
-          if (!isProviderRuntimeActive()) {
-            return undefined;
-          }
-          if (
-            pluginRuntimeRecordById.get(pluginId) !== record ||
-            !isTrustedBrowserPluginRecord(record) ||
-            record.status !== "loaded" ||
-            !record.enabled
-          ) {
-            return undefined;
-          }
-          const consumerRecord = record;
-          let consumerEpoch = browserNodeDelegationEpochByRecord.get(consumerRecord);
-          const resolveConsumerEpoch = () => {
-            if (consumerEpoch) {
-              return consumerEpoch;
-            }
-            if (!isPluginRegistryActivated(registry) || isPluginRegistryRetired(registry)) {
-              return undefined;
-            }
-            if (
-              pluginRuntimeRecordById.get(pluginId) !== consumerRecord ||
-              !activePluginRuntimeRecords.has(consumerRecord) ||
-              consumerRecord.status !== "loaded" ||
-              !consumerRecord.enabled ||
-              !registry.plugins.some(
-                (entry) => entry === consumerRecord && entry.status === "loaded",
-              )
-            ) {
-              return undefined;
-            }
-            consumerEpoch = activatePluginRecordLifecycleEpoch(registry, consumerRecord);
-            if (consumerEpoch) {
-              browserNodeDelegationEpochByRecord.set(consumerRecord, consumerEpoch);
-            }
-            return consumerEpoch;
-          };
-          const isConsumerRuntimeActive = () => {
-            const epoch = resolveConsumerEpoch();
-            return Boolean(
-              epoch &&
-              pluginRuntimeRecordById.get(pluginId) === consumerRecord &&
-              activePluginRuntimeRecords.has(consumerRecord) &&
-              consumerRecord.status === "loaded" &&
-              consumerRecord.enabled &&
-              registry.plugins.some(
-                (entry) => entry === consumerRecord && entry.status === "loaded",
-              ) &&
-              isPluginRecordLifecycleEpochActive(registry, consumerRecord, epoch),
-            );
-          };
-          const isBrowserNodeDelegationActive = () =>
-            registry.browserNodeDelegations.includes(registration) &&
-            isProviderRuntimeActive() &&
-            isConsumerRuntimeActive();
-          return {
-            request: async (params) => {
-              if (!registry.browserNodeDelegations.includes(registration)) {
-                throw new Error("Browser node delegation is no longer active.");
-              }
-              if (!isProviderRuntimeActive()) {
-                throw new Error("Browser node delegation provider lifecycle is no longer active.");
-              }
-              if (!isConsumerRuntimeActive()) {
-                throw new Error("Browser node delegation consumer lifecycle is no longer active.");
-              }
-              return await withPluginRuntimeGatewayRequestAuthority(
-                isBrowserNodeDelegationActive,
-                () =>
-                  runWithPluginScope(() =>
-                    registration.delegation.request({ ...params, consumerPluginId: pluginId }),
-                  ),
-              );
-            },
-          } satisfies NonNullable<PluginRuntime["browser"]>;
         }
         if (prop === "nodes") {
           const nodes = getRuntimeProperty();
