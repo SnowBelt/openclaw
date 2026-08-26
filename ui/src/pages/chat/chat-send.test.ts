@@ -1789,6 +1789,64 @@ describe("handleSendChat", () => {
     expect(host.chatMessage).toBe("");
   });
 
+  it.each([false, true])(
+    "recovers a model-wait send when the Gateway changes before the model update resolves (%s)",
+    async (modelUpdateSucceeded) => {
+      const switchUpdate = createDeferred<boolean>();
+      const clientA = { request: vi.fn() };
+      const clientB = { request: vi.fn() };
+      const oldSettings = { gatewayUrl: "ws://gateway-a.test", token: "bootstrap-token" };
+      const oldHello = { auth: { deviceToken: "device-a" } } as unknown as ChatHost["hello"];
+      const host = makeHost({
+        client: clientA as unknown as ChatHost["client"],
+        chatQueueGatewayGeneration: 1,
+        chatMessage: "recover after Gateway replacement",
+        chatModelSwitchPromises: { "agent:main": switchUpdate.promise },
+        settings: oldSettings,
+        hello: oldHello,
+      });
+
+      const send = handleSendChat(host);
+      await Promise.resolve();
+      const queuedId = host.chatQueue[0]?.id;
+      expect(queuedId).toEqual(expect.any(String));
+      expect(host.chatQueue[0]?.sendState).toBe("waiting-model");
+
+      host.client = clientB as unknown as ChatHost["client"];
+      host.chatQueueGatewayGeneration = 2;
+      host.settings = { gatewayUrl: "ws://gateway-b.test", token: "bootstrap-token" };
+      host.hello = { auth: { deviceToken: "device-b" } } as unknown as ChatHost["hello"];
+      switchUpdate.resolve(modelUpdateSucceeded);
+      await send;
+
+      expect(host.chatQueue[0]).toMatchObject({
+        id: queuedId,
+        sendError:
+          "Gateway changed before this message was accepted. It is ready to retry after reconnect.",
+        sendState: "waiting-reconnect",
+      });
+      expect(host.chatError).toBe(
+        "Gateway changed before this message was accepted. It is ready to retry after reconnect.",
+      );
+      expect(clientA.request).not.toHaveBeenCalled();
+      expect(clientB.request).not.toHaveBeenCalled();
+      expect(
+        loadChatComposerSnapshot(
+          {
+            settings: oldSettings,
+            hello: oldHello,
+          },
+          "agent:main",
+        )?.queue,
+      ).toMatchObject([
+        {
+          id: queuedId,
+          sendState: "waiting-reconnect",
+        },
+      ]);
+    },
+  );
+
   it("preserves draft edits made while waiting for a model picker update", async () => {
     const switchUpdate = createDeferred<boolean>();
     const request = vi.fn(async (method: string) => {

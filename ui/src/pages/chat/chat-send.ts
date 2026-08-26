@@ -114,6 +114,8 @@ export type ChatHost = ChatInputHistoryState &
     }>;
     /** Identifies the Gateway principal that owns in-flight queue sends. */
     chatQueueGatewayGeneration?: number;
+    /** Owner for memory-only composer persistence when browser storage is unavailable. */
+    chatComposerMemoryOwner?: object;
     chatRunId: string | null;
     chatSending: boolean;
     lastError?: string | null;
@@ -161,6 +163,8 @@ function sendResetSlashCommand(
 type AcceptedChatSendAck = ChatSendAck & { status: "started" | "in_flight" | "ok" };
 type TerminalFailureChatSendAck = ChatSendAck & { status: "timeout" | "error" };
 
+const GATEWAY_CHANGED_CHAT_SEND_ERROR =
+  "Gateway changed before this message was accepted. It is ready to retry after reconnect.";
 const GATEWAY_CHANGED_DETACHED_SEND_ACCEPTED_ERROR =
   "Gateway changed after this detached message was accepted. It is queued with the original request ID for safe retry.";
 
@@ -570,11 +574,12 @@ function captureChatGatewayGuard(host: ChatHost): ChatGatewayGuard {
       host.hello?.auth?.deviceToken || host.settings?.token || host.password,
     ),
     persistenceState: {
-      settings: host.settings,
+      settings: host.settings ? { ...host.settings } : undefined,
       password: host.password,
       assistantAgentId: host.assistantAgentId,
       agentsList: host.agentsList,
       hello: host.hello,
+      chatComposerMemoryOwner: host.chatComposerMemoryOwner,
       chatQueuePaused: host.chatQueuePaused,
       chatComposerPersistenceSuspended: host.chatComposerPersistenceSuspended,
     },
@@ -627,6 +632,38 @@ function mergeDetachedSendRecoveryIntoLiveQueue(
     };
   }
   host.requestUpdate?.();
+  return true;
+}
+
+function recoverQueuedSendAfterGatewayChange(
+  host: ChatHost,
+  sessionKey: string,
+  id: string,
+  gatewayGuard?: ChatGatewayGuard,
+): boolean {
+  const recovered = updateQueuedMessageForSession(host, sessionKey, id, (item) => ({
+    ...item,
+    sendError: GATEWAY_CHANGED_CHAT_SEND_ERROR,
+    sendState: "waiting-reconnect",
+  }));
+  if (!recovered) {
+    return false;
+  }
+  const queue = readChatQueueForSession(host, sessionKey);
+  if (gatewayGuard) {
+    persistStoredChatComposerQueue(
+      gatewayGuard.persistenceState,
+      sessionKey,
+      queue,
+      sessionKey === host.sessionKey ? gatewayGuard.persistenceState.chatQueuePaused : undefined,
+      { requireComplete: true },
+    );
+  } else {
+    persistQueuedMessagesForSession(host, sessionKey, { requirePersistence: true });
+  }
+  if (host.sessionKey === sessionKey) {
+    setChatError(host, GATEWAY_CHANGED_CHAT_SEND_ERROR);
+  }
   return true;
 }
 
@@ -1531,6 +1568,12 @@ export async function handleSendChat(
 
     if (modelSwitchReady !== true && !(await modelSwitchReady)) {
       if (!isSubmitGatewayCurrent()) {
+        recoverQueuedSendAfterGatewayChange(
+          host,
+          submittedSessionKey,
+          queued.id,
+          submitGatewayGuard ?? undefined,
+        );
         return;
       }
       if (host.sessionKey === submittedSessionKey) {
@@ -1549,6 +1592,12 @@ export async function handleSendChat(
       return;
     }
     if (!isSubmitGatewayCurrent()) {
+      recoverQueuedSendAfterGatewayChange(
+        host,
+        submittedSessionKey,
+        queued.id,
+        submitGatewayGuard ?? undefined,
+      );
       return;
     }
     if (host.sessionKey !== submittedSessionKey) {
