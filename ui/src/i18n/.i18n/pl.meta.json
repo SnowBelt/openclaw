@@ -1,14 +1,11 @@
 {
-  "fallbackKeys": [
-    "chat.modelPicker.contentionWarning",
-    "chat.modelPicker.unavailable"
-  ],
-  "generatedAt": "2026-08-26T11:23:17.409Z",
+  "fallbackKeys": [],
+  "generatedAt": "2026-08-26T12:06:51.237Z",
   "locale": "pl",
-  "model": "qwen3.6:27b-q8_0",
+  "model": "qwen2.5:14b-instruct-q4_K_M",
   "provider": "ollama",
   "sourceHash": "36230f8abd977a7b808e9fe5307c7d9473751783b952bf734f478b3d51587a5b",
   "totalKeys": 2113,
-  "translatedKeys": 2111,
+  "translatedKeys": 2113,
   "workflow": 1
 }

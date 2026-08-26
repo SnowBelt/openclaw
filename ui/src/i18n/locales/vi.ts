@@ -2166,8 +2166,8 @@ export const vi: TranslationMap = {
       faster: "Nhanh hơn",
       smarter: "Thông minh hơn",
       useDefaultModel: "Dùng mô hình mặc định",
-      unavailable: "Unavailable — choose another model",
-      contentionWarning: "Used by another active agent — may be slower",
+      unavailable: "Không khả dụng — hãy chọn mô hình khác",
+      contentionWarning: "Đang được một agent khác sử dụng — có thể chậm hơn",
     },
     pairingQrExpired: {
       title: "Mã QR ghép nối đã hết hạn",

@@ -2174,8 +2174,8 @@ export const tr: TranslationMap = {
       faster: "Daha hızlı",
       smarter: "Daha akıllı",
       useDefaultModel: "Varsayılan modeli kullan",
-      unavailable: "Unavailable — choose another model",
-      contentionWarning: "Used by another active agent — may be slower",
+      unavailable: "Kullanılamıyor — başka bir model seçin",
+      contentionWarning: "Başka bir etkin ajan tarafından kullanılıyor — daha yavaş olabilir",
     },
     pairingQrExpired: {
       title: "Eşleştirme QR kodunun süresi doldu",

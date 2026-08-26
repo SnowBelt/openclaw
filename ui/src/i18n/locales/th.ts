@@ -2122,8 +2122,8 @@ export const th: TranslationMap = {
       faster: "เร็วขึ้น",
       smarter: "ฉลาดขึ้น",
       useDefaultModel: "ใช้โมเดลเริ่มต้น",
-      unavailable: "Unavailable — choose another model",
-      contentionWarning: "Used by another active agent — may be slower",
+      unavailable: "ไม่พร้อมใช้งาน — เลือกโมเดลอื่น",
+      contentionWarning: "กำลังถูกใช้โดยเอเจนต์ที่ใช้งานอยู่อีกราย — อาจช้าลง",
     },
     pairingQrExpired: {
       title: "QR การจับคู่หมดอายุ",

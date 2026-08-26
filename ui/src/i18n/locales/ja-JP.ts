@@ -2179,8 +2179,9 @@ export const ja_JP: TranslationMap = {
       faster: "より速く",
       smarter: "より賢く",
       useDefaultModel: "デフォルトモデルを使用",
-      unavailable: "Unavailable — choose another model",
-      contentionWarning: "Used by another active agent — may be slower",
+      unavailable: "利用不可 — 他のモデルを選択してください",
+      contentionWarning:
+        "他のアクティブなエージェントで使用されています — より遅くなる可能性があります",
     },
     pairingQrExpired: {
       title: "ペアリングQRの有効期限が切れました",
