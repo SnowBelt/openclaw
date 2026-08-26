@@ -143,6 +143,12 @@ const config = {
     bundledPluginFile("voice-call", "src/providers/index.ts"),
   ],
   ignore: ["packages/*/dist/**"],
+  ignoreIssues: {
+    "extensions/ringer/src/controller.ts": ["exports"],
+    "extensions/ringer/src/manifest.ts": ["exports"],
+    "extensions/ringer/src/qualification.ts": ["exports"],
+    "extensions/ringer/src/snapshot.ts": ["exports"],
+  },
   workspaces: {
     ".": {
       entry: rootEntries,

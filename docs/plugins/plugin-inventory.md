@@ -51,7 +51,7 @@ Each entry lists the package, distribution route, and description.
 
 ## Core npm package
 
-90 plugins
+91 plugins
 
 - **[admin-http-rpc](/plugins/reference/admin-http-rpc)** (`@openclaw/admin-http-rpc`) - included in OpenClaw. OpenClaw admin HTTP RPC endpoint.
 
@@ -182,6 +182,8 @@ Each entry lists the package, distribution route, and description.
 - **[qianfan](/plugins/reference/qianfan)** (`@openclaw/qianfan-provider`) - included in OpenClaw. Adds Qianfan model provider support to OpenClaw.
 
 - **[qwen](/plugins/reference/qwen)** (`@openclaw/qwen-provider`) - included in OpenClaw. Adds Qwen, Qwen Cloud, Model Studio, DashScope, Qwen Oauth, Qwen Portal, Qwen CLI model provider support to OpenClaw.
+
+- **[ringer](/plugins/reference/ringer)** (`@openclaw/ringer`) - included in OpenClaw. Proof-gated local agent swarms controlled by Codex through an exact-pinned Ringer adapter.
 
 - **[runway](/plugins/reference/runway)** (`@openclaw/runway-provider`) - included in OpenClaw. Adds video generation provider support.
 

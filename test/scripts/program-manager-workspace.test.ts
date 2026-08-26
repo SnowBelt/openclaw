@@ -10,11 +10,12 @@ import {
   rollbackWorkspace,
   verifyInstalledWorkspace,
 } from "../../scripts/program-manager-workspace.mjs";
-import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+import { cleanupTempDirs, makeTempDir } from "../helpers/temp-dir.js";
 
 const repoRoot = process.cwd();
 const sourceRoot = path.join(repoRoot, "control", "program-manager");
-const temporaryRoots = useAutoCleanupTempDirTracker(afterEach);
+const temporaryRoots: string[] = [];
+afterEach(() => cleanupTempDirs(temporaryRoots));
 type TestAgentEntry = {
   id?: string;
   name?: string;
@@ -68,17 +69,14 @@ describe("Program Manager context package", () => {
   });
 
   it("synchronizes only the active Program Manager contract and restores it exactly", async () => {
-    const root = temporaryRoots.make("openclaw-pm-config-sync-");
+    const root = makeTempDir(temporaryRoots, "openclaw-pm-config-sync-");
     const configPath = path.join(root, "director.json");
     const backupRoot = path.join(root, "backup");
     const sourceConfig = JSON.parse(
       await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"),
     ) as { agents: { entries: Record<string, TestAgentEntry> } };
-    const list: TestAgentEntry[] = Object.entries(sourceConfig.agents.entries).map(
-      ([id, entry]) => ({
-        id,
-        ...entry,
-      }),
+    const list: TestAgentEntry[] = Object.entries(sourceConfig.agents.entries).map(([id, entry]) =>
+      Object.assign({ id }, entry),
     );
     const programManagerIndex = list.findIndex((entry) => entry.id === "program-manager");
     list[programManagerIndex] = {
@@ -134,7 +132,7 @@ describe("Program Manager context package", () => {
   });
 
   it("installs and rolls back only managed files", async () => {
-    const root = temporaryRoots.make("openclaw-pm-context-test-");
+    const root = makeTempDir(temporaryRoots, "openclaw-pm-context-test-");
     const workspaceRoot = path.join(root, "workspace");
     const backupRoot = path.join(root, "backup");
     await mkdir(workspaceRoot, { recursive: true });
@@ -164,7 +162,7 @@ describe("Program Manager context package", () => {
   });
 
   it("rejects symlinked managed destinations before copying", async () => {
-    const root = temporaryRoots.make("openclaw-pm-context-symlink-");
+    const root = makeTempDir(temporaryRoots, "openclaw-pm-context-symlink-");
     const workspaceRoot = path.join(root, "workspace");
     const backupRoot = path.join(root, "backup");
     const outside = path.join(root, "outside.txt");
@@ -179,7 +177,7 @@ describe("Program Manager context package", () => {
   });
 
   it("requires delegation targets to exist in the configured agent registry", async () => {
-    const root = temporaryRoots.make("openclaw-pm-context-registry-");
+    const root = makeTempDir(temporaryRoots, "openclaw-pm-context-registry-");
     const configPath = path.join(root, "runtime-config.json");
     const config = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"));
     delete config.agents.entries["research-brief-agent"];
@@ -191,7 +189,7 @@ describe("Program Manager context package", () => {
   });
 
   it("fails closed when state contains a sensitive field", async () => {
-    const root = temporaryRoots.make("openclaw-pm-context-invalid-");
+    const root = makeTempDir(temporaryRoots, "openclaw-pm-context-invalid-");
     await cp(sourceRoot, root, { recursive: true });
     const statePath = path.join(root, "state/program-manager.json");
     const state = JSON.parse(await readFile(statePath, "utf8"));

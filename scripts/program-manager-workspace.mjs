@@ -10,6 +10,7 @@ import JSON5 from "json5";
 
 const execFile = promisify(execFileCallback);
 const canonicalValidationCache = new Map();
+const MAX_CANONICAL_VALIDATION_CACHE_ENTRIES = 64;
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SOURCE_ROOT = path.resolve(SCRIPT_DIR, "..", "control", "program-manager");
@@ -127,6 +128,21 @@ async function lstatIfPresent(filePath) {
 async function fileExists(filePath) {
   const stat = await lstatIfPresent(filePath);
   return Boolean(stat?.isFile());
+}
+
+function cacheCanonicalValidation(configPath, cacheKey, issues) {
+  const cachePath = path.resolve(configPath);
+  if (!canonicalValidationCache.has(cachePath)) {
+    while (canonicalValidationCache.size >= MAX_CANONICAL_VALIDATION_CACHE_ENTRIES) {
+      const oldest = canonicalValidationCache.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      canonicalValidationCache.delete(oldest);
+    }
+  }
+  canonicalValidationCache.set(cachePath, { cacheKey, issues: [...issues] });
+  return [...issues];
 }
 
 async function assertNoSymlinkPath(targetPath, boundaryRoot, label) {
@@ -248,12 +264,13 @@ function validateConfiguredAgentRegistry(config) {
 
 async function validateCanonicalConfig(configPath) {
   const stat = await lstatIfPresent(configPath);
+  const cachePath = path.resolve(configPath);
   const cacheKey = stat
-    ? `${path.resolve(configPath)}:${stat.size}:${stat.mtimeNs ?? stat.mtimeMs}`
-    : `${path.resolve(configPath)}:missing`;
-  const cached = canonicalValidationCache.get(cacheKey);
-  if (cached) {
-    return [...cached];
+    ? `${cachePath}:${stat.size}:${stat.mtimeNs ?? stat.mtimeMs}`
+    : `${cachePath}:missing`;
+  const cached = canonicalValidationCache.get(cachePath);
+  if (cached?.cacheKey === cacheKey) {
+    return [...cached.issues];
   }
   const validationScript = [
     'import fs from "node:fs/promises";',
@@ -276,16 +293,14 @@ async function validateCanonicalConfig(configPath) {
     );
     const result = JSON.parse(stdout);
     if (result?.valid === true && result?.ok !== false) {
-      canonicalValidationCache.set(cacheKey, []);
-      return [];
+      return cacheCanonicalValidation(configPath, cacheKey, []);
     }
     const reportedIssues = Array.isArray(result?.issues) ? result.issues : [];
     if (reportedIssues.length === 0) {
       const issues = [
         issue("config_schema_invalid", "Canonical OpenClaw config validation failed."),
       ];
-      canonicalValidationCache.set(cacheKey, issues);
-      return [...issues];
+      return cacheCanonicalValidation(configPath, cacheKey, issues);
     }
     const issues = reportedIssues.map((entry) =>
       issue("config_schema_invalid", "Canonical OpenClaw config validation failed.", {
@@ -305,8 +320,7 @@ async function validateCanonicalConfig(configPath) {
             path: typeof entry?.path === "string" ? entry.path : "<unknown>",
           }),
         );
-        canonicalValidationCache.set(cacheKey, issues);
-        return [...issues];
+        return cacheCanonicalValidation(configPath, cacheKey, issues);
       }
     } catch {
       // Fall through to a stable, non-sensitive error below.
@@ -314,8 +328,7 @@ async function validateCanonicalConfig(configPath) {
     const issues = [
       issue("config_validation_failed", "Canonical OpenClaw config validation could not run."),
     ];
-    canonicalValidationCache.set(cacheKey, issues);
-    return [...issues];
+    return cacheCanonicalValidation(configPath, cacheKey, issues);
   }
 }
 
@@ -501,9 +514,28 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
   const issues = [];
   let totalBootstrapBytes = 0;
   let largestBootstrapBytes = 0;
+  const runtimePath = path.join(sourceRoot, "runtime-config.json");
+  const runtimePromise = (async () => {
+    try {
+      return { result: await checkRuntimeConfig(runtimePath) };
+    } catch (error) {
+      return { error };
+    }
+  })();
+  const [managedFiles, stateText, contract, tools] = await Promise.all([
+    Promise.all(
+      MANAGED_FILES.map(async (relativePath) => ({
+        relativePath,
+        text: await readFileIfPresent(path.join(sourceRoot, relativePath)),
+      })),
+    ),
+    readFileIfPresent(path.join(sourceRoot, "state/program-manager.json")),
+    readFileIfPresent(path.join(sourceRoot, "CONTRACT.md")),
+    readFileIfPresent(path.join(sourceRoot, "workspace/TOOLS.md")),
+  ]);
+  const managedText = new Map(managedFiles.map(({ relativePath, text }) => [relativePath, text]));
   for (const relativePath of MANAGED_FILES) {
-    const filePath = path.join(sourceRoot, relativePath);
-    if (!(await fileExists(filePath))) {
+    if (managedText.get(relativePath) === null) {
       issues.push(
         issue("managed_file_missing", `Managed file is missing: ${relativePath}.`, {
           file: relativePath,
@@ -512,8 +544,7 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
     }
   }
   for (const relativePath of BOOTSTRAP_FILES) {
-    const filePath = path.join(sourceRoot, relativePath);
-    const text = await readFileIfPresent(filePath);
+    const text = managedText.get(relativePath);
     if (text === null) {
       continue;
     }
@@ -545,8 +576,6 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       }),
     );
   }
-  const statePath = path.join(sourceRoot, "state/program-manager.json");
-  const stateText = await readFileIfPresent(statePath);
   if (stateText === null) {
     issues.push(issue("state_fixture_missing", "Program Manager state fixture is missing."));
   } else {
@@ -557,11 +586,12 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       issues.push(...validateState(parsed));
     }
   }
-  const runtimePath = path.join(sourceRoot, "runtime-config.json");
-  try {
-    const runtimeResult = await checkRuntimeConfig(runtimePath);
+  const runtimeOutcome = await runtimePromise;
+  if ("result" in runtimeOutcome) {
+    const runtimeResult = runtimeOutcome.result;
     issues.push(...runtimeResult.issues);
-  } catch (error) {
+  } else {
+    const error = runtimeOutcome.error;
     issues.push(
       issue(
         "runtime_config_unreadable",
@@ -569,7 +599,6 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       ),
     );
   }
-  const contract = await readFileIfPresent(path.join(sourceRoot, "CONTRACT.md"));
   if (contract !== null) {
     for (const term of ["PLAN", "STATUS", "HANDOFF", "COMPLETION", "Unknown", "local model"]) {
       if (!contract.includes(term)) {
@@ -577,7 +606,6 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       }
     }
   }
-  const tools = await readFileIfPresent(path.join(sourceRoot, "workspace/TOOLS.md"));
   if (
     tools?.includes("Required output") ||
     tools?.includes("Milestones") ||

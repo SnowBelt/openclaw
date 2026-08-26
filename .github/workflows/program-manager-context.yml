@@ -7,13 +7,17 @@ on:
     paths:
       - "control/program-manager/**"
       - "scripts/program-manager-workspace.mjs"
+      - "scripts/program-manager-performance.mjs"
       - "test/scripts/program-manager-workspace.test.ts"
+      - "test/scripts/program-manager-performance.test.ts"
       - ".github/workflows/program-manager-context.yml"
   pull_request:
     paths:
       - "control/program-manager/**"
       - "scripts/program-manager-workspace.mjs"
+      - "scripts/program-manager-performance.mjs"
       - "test/scripts/program-manager-workspace.test.ts"
+      - "test/scripts/program-manager-performance.test.ts"
       - ".github/workflows/program-manager-context.yml"
   workflow_dispatch:
 
@@ -48,3 +52,5 @@ jobs:
         run: node scripts/program-manager-workspace.mjs check-config --config control/program-manager/runtime-config.json --json
       - name: Run focused tests
         run: pnpm test test/scripts/program-manager-workspace.test.ts -- --reporter=dot
+      - name: Run performance harness contract tests
+        run: pnpm test test/scripts/program-manager-performance.test.ts -- --reporter=dot

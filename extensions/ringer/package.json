@@ -1,0 +1,39 @@
+{
+  "name": "@openclaw/ringer",
+  "version": "2026.5.30",
+  "private": true,
+  "description": "Proof-gated local AI swarm adapter for Codex-controlled OpenClaw workflows",
+  "type": "module",
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*",
+    "openclaw": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.30"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "build": {
+      "staticAssets": [
+        {
+          "source": "assets/openclaw-local-worker.mjs",
+          "output": "assets/openclaw-local-worker.mjs"
+        },
+        {
+          "source": "assets/trusted-verifier.mjs",
+          "output": "assets/trusted-verifier.mjs"
+        }
+      ]
+    },
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.5.30"
+    }
+  }
+}
