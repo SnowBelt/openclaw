@@ -1,5 +1,6 @@
 import { addTimerTimeoutGraceMs } from "@openclaw/normalization-core/number-coercion";
 import { callGatewayFromCli } from "../cli/gateway-rpc.js";
+import { resolveBrowserNodeDelegationRuntime } from "../plugins/runtime/browser-node-delegation.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type {
   MeetingBrowserRequestCaller,
@@ -45,18 +46,16 @@ export async function resolveLocalMeetingBrowserRequest(
   if (!(await runtime.gateway.isAvailable())) {
     return callLocalBrowserRequest;
   }
+  const browser = resolveBrowserNodeDelegationRuntime(runtime);
+  if (!browser) {
+    throw new Error("Browser-owned browser capability unavailable");
+  }
   return async (params) =>
-    await runtime.gateway.request(
-      "browser.request",
-      {
-        method: params.method,
-        path: params.path,
-        body: params.body,
-        timeoutMs: params.timeoutMs,
-      },
-      {
-        timeoutMs: resolveBrowserGatewayTimeoutMs(params.timeoutMs),
-        scopes: ["operator.admin"],
-      },
-    );
+    await browser.request({
+      method: params.method,
+      path: params.path,
+      ...(params.body !== undefined ? { body: params.body } : {}),
+      timeoutMs: params.timeoutMs,
+      nodeId: "",
+    });
 }

@@ -102,6 +102,7 @@ export function createPluginApiFactory(
     registerSessionSchedulerJob,
     registerSessionAction,
     registerTypedHook,
+    registerBrowserNodeDelegation,
     registerMemoryCapability,
     registerMemoryPromptSupplement,
     registerMemoryPromptPreparation,
@@ -171,9 +172,12 @@ export function createPluginApiFactory(
       registrationMode,
       config: params.config,
       pluginConfig: params.pluginConfig,
-      runtime: resolvePluginRuntime(record.id),
+      runtime: resolvePluginRuntime(record),
       logger: normalizeLogger(registryParams.logger),
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),
+      browserNodeDelegationRegistrar: registrationCapabilities.capabilityHandlers
+        ? (delegation) => registerBrowserNodeDelegation(record, delegation)
+        : undefined,
       handlers: {
         ...(registrationCapabilities.capabilityHandlers
           ? {

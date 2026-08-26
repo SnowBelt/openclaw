@@ -334,6 +334,7 @@ async function invokeNodeRegistryCore(
     timeoutMs,
     idempotencyKey: params.idempotencyKey,
     sessionKey: normalizeOptionalString(params.sessionKey),
+    pairingGeneration: params.expectedPairingGeneration || node.pairingGeneration,
   };
   const systemRunEvent = resolvePendingSystemRunEvent({
     command: params.command,

@@ -1,4 +1,4 @@
-import { addTimerTimeoutGraceMs } from "@openclaw/normalization-core/number-coercion";
+import { resolveBrowserNodeDelegationRuntime } from "../plugins/runtime/browser-node-delegation.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type {
   MeetingBrowserRequestCaller,
@@ -6,8 +6,6 @@ import type {
   MeetingPlatformAdapter,
 } from "./platform-adapter-contract.js";
 import type { MeetingBrowserHealth, MeetingTranscriptSnapshot } from "./session-types.js";
-
-type BrowserProxyResult = { result?: unknown };
 
 export type MeetingBrowserNodeInfo = {
   caps?: string[];
@@ -126,33 +124,6 @@ export async function resolveMeetingBrowserNode(params: {
   return node.nodeId;
 }
 
-function unwrapNodeInvokePayload(raw: unknown, adapter: NodeAdapter): unknown {
-  const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  if (typeof record.payloadJSON === "string" && record.payloadJSON.trim()) {
-    try {
-      return JSON.parse(record.payloadJSON);
-    } catch (error) {
-      throw new Error(`${adapter.displayName} browser proxy returned malformed payloadJSON.`, {
-        cause: error,
-      });
-    }
-  }
-  if ("payload" in record) {
-    return record.payload;
-  }
-  return raw;
-}
-
-function parseBrowserProxyResult(raw: unknown, adapter: NodeAdapter): unknown {
-  const payload = unwrapNodeInvokePayload(raw, adapter);
-  const proxy =
-    payload && typeof payload === "object" ? (payload as BrowserProxyResult) : undefined;
-  if (!proxy || !("result" in proxy)) {
-    throw new Error(`${adapter.displayName} browser proxy returned an invalid result.`);
-  }
-  return proxy.result;
-}
-
 export async function callMeetingBrowserProxyOnNode(
   params: {
     runtime: PluginRuntime;
@@ -160,19 +131,19 @@ export async function callMeetingBrowserProxyOnNode(
     nodeId: string;
   } & MeetingBrowserRequestParams,
 ) {
-  const raw = await params.runtime.nodes.invoke({
+  // Browser owns the proxy boundary. Meeting plugins must not invoke the raw
+  // browser.proxy node command with their generic plugin identity.
+  const browser = resolveBrowserNodeDelegationRuntime(params.runtime);
+  if (!browser) {
+    throw new Error("Browser-owned node delegation is unavailable");
+  }
+  return await browser.request({
+    method: params.method,
+    path: params.path,
+    ...(params.body !== undefined ? { body: params.body } : {}),
+    timeoutMs: params.timeoutMs,
     nodeId: params.nodeId,
-    command: "browser.proxy",
-    params: {
-      method: params.method,
-      path: params.path,
-      body: params.body,
-      timeoutMs: params.timeoutMs,
-    },
-    timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? 1,
-    scopes: ["operator.admin"],
   });
-  return parseBrowserProxyResult(raw, params.adapter);
 }
 
 export function createMeetingBrowserNodeCaller(params: {

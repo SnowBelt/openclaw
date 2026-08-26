@@ -27,6 +27,7 @@ import {
   buildRequestedApprovalEvent,
   handlePendingApprovalRequest,
 } from "./server-methods/approval-shared.js";
+import { isPluginRuntimeAuthorityActive } from "./server-methods/nodes.invoke-authority.js";
 import type { GatewayNodeInvokeStream } from "./server-methods/shared-types.js";
 import type { GatewayClient, GatewayRequestContext, RespondFn } from "./server-methods/types.js";
 
@@ -126,6 +127,9 @@ function createApprovalRuntime(params: {
       const timeoutMs = resolvePluginApprovalTimeoutMs(input.timeoutMs);
       const turnSource = resolveNodeInvokeTurnSourceFields(params.turnSource);
       const callerIdentity = params.client?.internal?.agentRuntimeIdentity;
+      if (!isPluginRuntimeAuthorityActive(params.client)) {
+        throw new Error("plugin runtime authority closed before node dispatch");
+      }
       if (
         callerIdentity &&
         params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) !== true
@@ -226,6 +230,9 @@ function createApprovalRuntime(params: {
         afterDecisionErrorLabel: "plugin approvals: iOS push node policy expire failed",
       });
       let decision = manager.projectDecisionIfActive(record.id, await decisionPromise);
+      if (!isPluginRuntimeAuthorityActive(params.client)) {
+        throw new Error("plugin runtime authority closed before node dispatch");
+      }
       // This return hands execution authority to the plugin policy. Claim a
       // one-shot decision here so observation or retry cannot replay it.
       if (
@@ -247,6 +254,7 @@ export async function applyPluginNodeInvokePolicy(params: {
   nodeSession: NodeSession;
   command: string;
   params: unknown;
+  agentId?: string;
   sessionKey?: string;
   turnSource?: {
     channel?: unknown;
@@ -267,8 +275,9 @@ export async function applyPluginNodeInvokePolicy(params: {
   const callerIdentity = params.client?.internal?.agentRuntimeIdentity;
   const token = callerIdentity?.executionIdentity;
   const isCallerRuntimeAuthorityActive = () =>
-    !callerIdentity ||
-    params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) === true;
+    isPluginRuntimeAuthorityActive(params.client) &&
+    (!callerIdentity ||
+      params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) === true);
   const decisionOccurrenceId = randomUUID();
   let receiptOrdinal = 0;
   const recordNodeDecision = (input: {
@@ -379,8 +388,9 @@ export async function applyPluginNodeInvokePolicy(params: {
       return result;
     };
     if (
-      callerIdentity &&
-      params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) !== true
+      !isPluginRuntimeAuthorityActive(params.client) ||
+      (callerIdentity &&
+        params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) !== true)
     ) {
       return deny("node_runtime_authority_closed", {
         ok: false,
@@ -453,8 +463,9 @@ export async function applyPluginNodeInvokePolicy(params: {
     // Pairing and policy checks above may await. Revalidate the exact runtime
     // capability at the final transport handoff so closure wins that race.
     if (
-      callerIdentity &&
-      params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) !== true
+      !isPluginRuntimeAuthorityActive(params.client) ||
+      (callerIdentity &&
+        params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) !== true)
     ) {
       return deny("node_runtime_authority_closed", {
         ok: false,
@@ -496,6 +507,7 @@ export async function applyPluginNodeInvokePolicy(params: {
       }),
       isDispatchAuthorized: () =>
         (params.nodeInvokeStream?.isRuntimeCurrent() ?? true) &&
+        isPluginRuntimeAuthorityActive(params.client) &&
         (!callerIdentity ||
           params.context.validateAgentRuntimeApprovalAuthority?.(callerIdentity) === true) &&
         params.isApprovalAuthorityActive?.() !== false &&
@@ -554,6 +566,11 @@ export async function applyPluginNodeInvokePolicy(params: {
       nodeId: params.nodeSession.nodeId,
       command: params.command,
       params: params.params,
+      ...(params.agentId ? { agentId: params.agentId } : {}),
+      ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+      ...(params.client?.internal?.pluginRuntimeOwnerId
+        ? { pluginRuntimeOwnerId: params.client.internal.pluginRuntimeOwnerId }
+        : {}),
       timeoutMs: params.timeoutMs,
       idempotencyKey: params.idempotencyKey,
       config: params.context.getRuntimeConfig(),
@@ -564,6 +581,9 @@ export async function applyPluginNodeInvokePolicy(params: {
         platform: params.nodeSession.platform,
         deviceFamily: params.nodeSession.deviceFamily,
         commands: params.nodeSession.commands,
+        ...(params.nodeSession.pairingGeneration
+          ? { pairingGeneration: params.nodeSession.pairingGeneration }
+          : {}),
       },
       client: params.client
         ? {
