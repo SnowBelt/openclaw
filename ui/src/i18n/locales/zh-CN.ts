@@ -2109,8 +2109,8 @@ export const zh_CN: TranslationMap = {
       faster: "更快",
       smarter: "更智能",
       useDefaultModel: "使用默认模型",
-      unavailable: "Unavailable — choose another model",
-      contentionWarning: "Used by another active agent — may be slower",
+      unavailable: "不可用——请选择其他模型",
+      contentionWarning: "被另一个活动代理使用——速度可能会较慢",
     },
     pairingQrExpired: {
       title: "配对二维码已过期",

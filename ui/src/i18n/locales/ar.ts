@@ -2140,8 +2140,8 @@ export const ar: TranslationMap = {
       faster: "أسرع",
       smarter: "أذكى",
       useDefaultModel: "استخدام النموذج الافتراضي",
-      unavailable: "Unavailable — choose another model",
-      contentionWarning: "Used by another active agent — may be slower",
+      unavailable: "غير متاح - اختر نموذجًا آخر",
+      contentionWarning: "يُستخدم بواسطة وكيل نشط آخر - قد يكون أبطأ",
     },
     pairingQrExpired: {
       title: "انتهت صلاحية رمز الاقتران QR",

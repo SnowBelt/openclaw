@@ -2163,8 +2163,8 @@ export const fa: TranslationMap = {
       faster: "سریع‌تر",
       smarter: "هوشمندتر",
       useDefaultModel: "استفاده از مدل پیش‌فرض",
-      unavailable: "Unavailable — choose another model",
-      contentionWarning: "Used by another active agent — may be slower",
+      unavailable: "در دسترس نیست — مدل دیگری را انتخاب کنید",
+      contentionWarning: "توسط عامل فعال دیگری استفاده می‌شود — ممکن است کندتر باشد",
     },
     pairingQrExpired: {
       title: "کد QR جفت‌سازی منقضی شد",
