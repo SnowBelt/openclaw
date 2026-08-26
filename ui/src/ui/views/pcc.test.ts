@@ -319,6 +319,7 @@ function renderView(props: PccDashboardProps): HTMLElement {
 
 afterEach(() => {
   render(html``, document.body);
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -395,6 +396,7 @@ describe("renderPccDashboard", () => {
   });
 
   it("filters the Projects directory without hiding projects from All", () => {
+    vi.useFakeTimers({ now: new Date("2026-08-02T14:00:00.000Z") });
     const projects = [
       {
         ...workOverview.projects[0],
