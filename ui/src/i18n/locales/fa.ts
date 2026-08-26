@@ -2163,6 +2163,8 @@ export const fa: TranslationMap = {
       faster: "سریع‌تر",
       smarter: "هوشمندتر",
       useDefaultModel: "استفاده از مدل پیش‌فرض",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "کد QR جفت‌سازی منقضی شد",

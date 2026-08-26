@@ -2155,6 +2155,8 @@ export const ko: TranslationMap = {
       faster: "더 빠르게",
       smarter: "더 똑똑하게",
       useDefaultModel: "기본 모델 사용",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "페어링 QR 만료됨",

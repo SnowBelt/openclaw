@@ -2112,6 +2112,8 @@ export const zh_TW: TranslationMap = {
       faster: "更快",
       smarter: "更智慧",
       useDefaultModel: "使用預設模型",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "配對 QR 碼已過期",

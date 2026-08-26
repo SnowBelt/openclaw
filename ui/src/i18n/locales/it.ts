@@ -2195,6 +2195,8 @@ export const it: TranslationMap = {
       faster: "Più veloce",
       smarter: "Più intelligente",
       useDefaultModel: "Usa modello predefinito",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR di pairing scaduto",

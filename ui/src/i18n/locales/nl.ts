@@ -2186,6 +2186,8 @@ export const nl: TranslationMap = {
       faster: "Sneller",
       smarter: "Slimmer",
       useDefaultModel: "Standaardmodel gebruiken",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "Koppelings-QR verlopen",
