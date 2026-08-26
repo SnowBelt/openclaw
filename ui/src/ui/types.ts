@@ -580,6 +580,10 @@ export type GatewaySessionRow = {
   projectId?: string;
   model?: string;
   modelProvider?: string;
+  /** Persisted session override provenance; absent on legacy rows. */
+  modelOverrideSource?: "auto" | "user";
+  /** True when the active override is a runtime fallback, including legacy rows. */
+  modelOverrideIsFallback?: boolean;
   agentRuntime?: GatewayAgentRuntime;
   contextTokens?: number;
   compactionCheckpointCount?: number;

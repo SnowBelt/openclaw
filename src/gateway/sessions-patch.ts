@@ -37,6 +37,7 @@ import {
   resolveSupportedThinkingLevel,
 } from "../auto-reply/thinking.js";
 import type { SessionEntry } from "../config/sessions.js";
+import { hasSessionActiveAutoModelFallback } from "../config/sessions/model-override-provenance.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeExecTarget } from "../infra/exec-approvals.js";
 import {
@@ -58,6 +59,13 @@ import { parseSessionLabel, SESSION_LABEL_MAX_LENGTH } from "../sessions/session
 function invalid(message: string): { ok: false; error: ErrorShape } {
   return { ok: false, error: errorShape(ErrorCodes.INVALID_REQUEST, message) };
 }
+
+const CONDITIONAL_FALLBACK_CLEANUP_KEYS = new Set([
+  "key",
+  "agentId",
+  "model",
+  "expectedModelOverrideIsFallback",
+]);
 
 function normalizeExecSecurity(raw: string): "deny" | "allowlist" | "full" | undefined {
   const normalized = normalizeOptionalLowercaseString(raw);
@@ -191,6 +199,24 @@ export async function projectSessionsPatchEntry(params: {
   };
 
   const existing = params.existingEntry;
+  if (patch.expectedModelOverrideIsFallback === true) {
+    if (patch.model !== null) {
+      return invalid("expectedModelOverrideIsFallback requires model: null");
+    }
+    if (Object.keys(patch).some((key) => !CONDITIONAL_FALLBACK_CLEANUP_KEYS.has(key))) {
+      return invalid(
+        "expectedModelOverrideIsFallback cannot be combined with other session updates",
+      );
+    }
+    if (!existing) {
+      return invalid("conditional model cleanup target not found");
+    }
+    if (!hasSessionActiveAutoModelFallback(existing)) {
+      // The writer lock makes this check atomic with the cleanup. A concurrent
+      // explicit selection therefore wins without being cleared by a stale UI.
+      return { ok: true, entry: existing };
+    }
+  }
   // Existing entries without session ids are placeholder aliases; assigning an id makes them real.
   const next: SessionEntry = existing?.sessionId
     ? {

@@ -359,6 +359,8 @@ export const SessionsPatchParamsSchema = Type.Object(
     execAsk: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     execNode: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     model: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+    /** Clear a fallback only when the session is still using an automatic fallback. */
+    expectedModelOverrideIsFallback: Type.Optional(Type.Literal(true)),
     projectId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     spawnedBy: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     spawnedWorkspaceDir: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),

@@ -3228,7 +3228,7 @@ export function renderApp(state: AppViewState) {
               onToggleGatewayPasswordVisibility: () => {
                 state.overviewShowGatewayPassword = !state.overviewShowGatewayPassword;
               },
-              onConnect: () => state.connect(),
+              onConnect: () => state.handleGatewayConnect(),
               onRefresh: () => void state.loadOverview({ refresh: true }),
               onNavigate: (tab) => state.setTab(tab as import("./navigation.ts").Tab),
               onRefreshLogs: () => void state.loadOverview({ refresh: true }),
@@ -4925,6 +4925,7 @@ export function renderApp(state: AppViewState) {
                   execApprovalError: state.execApprovalError,
                   draft: state.chatMessage,
                   queue: state.chatQueue,
+                  queuePaused: state.chatQueuePaused,
                   realtimeTalkActive: state.realtimeTalkActive,
                   realtimeTalkStatus: state.realtimeTalkStatus,
                   realtimeTalkDetail: state.realtimeTalkDetail,
@@ -5013,6 +5014,7 @@ export function renderApp(state: AppViewState) {
                   onQueueRemove: (id) => state.removeQueuedMessage(id),
                   onQueueRetry: (id) => void state.retryQueuedChatMessage(id),
                   onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
+                  onQueueTogglePause: () => void state.toggleChatQueuePaused?.(),
                   onWorkTaskCancel: (taskId) => void cancelChatWorkTask(state, taskId),
                   onGoalPanelToggle: (open) => {
                     state.chatGoalPanelOpen = open;

@@ -665,6 +665,71 @@ describe("gateway sessions patch", () => {
     expect(entry.liveModelSwitchPending).toBeUndefined();
   });
 
+  test("clears an automatic fallback only when its provenance still matches", async () => {
+    const entry = expectPatchOk(
+      await runPatch({
+        store: mainStoreEntry({
+          providerOverride: "anthropic",
+          modelOverride: ANTHROPIC_SONNET_ID,
+          modelOverrideSource: "auto",
+          modelOverrideFallbackOriginProvider: "openai",
+          modelOverrideFallbackOriginModel: OPENAI_GPT_ID,
+        }),
+        cfg: createAllowlistedAnthropicModelCfg(),
+        patch: {
+          key: MAIN_SESSION_KEY,
+          model: null,
+          expectedModelOverrideIsFallback: true,
+        },
+      }),
+    );
+
+    expectModelSelection(entry, undefined, undefined);
+  });
+
+  test("leaves a concurrent explicit model selection unchanged", async () => {
+    const store = mainStoreEntry({
+      providerOverride: "anthropic",
+      modelOverride: ANTHROPIC_SONNET_ID,
+      modelOverrideSource: "user",
+    });
+    const result = await runPatch({
+      store,
+      cfg: createAllowlistedAnthropicModelCfg(),
+      patch: {
+        key: MAIN_SESSION_KEY,
+        model: null,
+        expectedModelOverrideIsFallback: true,
+      },
+    });
+
+    const entry = expectPatchOk(result);
+    expectModelSelection(entry, "anthropic", ANTHROPIC_SONNET_ID);
+    expect(entry.modelOverrideSource).toBe("user");
+  });
+
+  test("rejects unrelated updates in a conditional fallback cleanup", async () => {
+    const result = await runPatch({
+      store: mainStoreEntry({
+        providerOverride: "anthropic",
+        modelOverride: ANTHROPIC_SONNET_ID,
+        modelOverrideSource: "user",
+      }),
+      cfg: createAllowlistedAnthropicModelCfg(),
+      patch: {
+        key: MAIN_SESSION_KEY,
+        model: null,
+        expectedModelOverrideIsFallback: true,
+        label: "Renamed",
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("cannot be combined with other session updates");
+    }
+  });
+
   test.each([
     {
       name: "accepts explicit allowlisted provider/model refs from sessions.patch",

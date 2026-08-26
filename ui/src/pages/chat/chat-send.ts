@@ -7,6 +7,7 @@ import {
   type GatewayHelloOk,
 } from "../../api/gateway.ts";
 import type { AgentsListResult } from "../../api/types.ts";
+import { normalizeGatewayComposerScope } from "../../app/gateway-scope.ts";
 import { setLastActiveSessionKey } from "../../app/settings.ts";
 import type {
   ChatAttachment,
@@ -43,6 +44,7 @@ import {
   enqueueChatMessage,
   excludeComposerAttachments,
   findQueuedMessageForAction,
+  isChatQueuePausedForSession,
   persistQueuedMessagesForSession,
   readChatQueueForSession,
   removeQueuedMessageWithoutReleasing,
@@ -65,7 +67,10 @@ import {
 import { refreshChatSessionListForTarget } from "./chat-session.ts";
 import {
   INTERRUPTED_MODEL_WAIT_ERROR,
+  loadChatComposerSnapshot,
   removeStoredChatComposerQueueItem,
+  persistStoredChatComposerQueue,
+  type ChatComposerScope,
 } from "./composer-persistence.ts";
 import { formatConnectError } from "./connect-error.ts";
 import {
@@ -97,12 +102,25 @@ export type ChatHost = ChatInputHistoryState &
     connected: boolean;
     chatAttachments: ChatAttachment[];
     chatQueue: ChatQueueItem[];
+    chatQueuePaused?: boolean;
+    chatQueuePausedBySession?: Record<string, boolean>;
     chatQueueBySession?: Record<string, ChatQueueItem[]>;
+    /** Gateway switching suspends sends until the new connection reaches hello. */
+    chatComposerPersistenceSuspended?: boolean;
+    chatDetachedSendRecoveries?: Array<{
+      gatewayScope: string;
+      sessionKey: string;
+      queue: ChatQueueItem[];
+    }>;
+    /** Identifies the Gateway principal that owns in-flight queue sends. */
+    chatQueueGatewayGeneration?: number;
     chatRunId: string | null;
     chatSending: boolean;
     lastError?: string | null;
     chatError?: string | null;
     hello: GatewayHelloOk | null;
+    password?: string | null;
+    settings?: { gatewayUrl?: string | null; token?: string | null };
     chatModelSwitchPromises?: Record<string, Promise<boolean>>;
     updateComplete?: Promise<unknown>;
     requestUpdate?: () => void;
@@ -142,6 +160,9 @@ function sendResetSlashCommand(
 
 type AcceptedChatSendAck = ChatSendAck & { status: "started" | "in_flight" | "ok" };
 type TerminalFailureChatSendAck = ChatSendAck & { status: "timeout" | "error" };
+
+const GATEWAY_CHANGED_DETACHED_SEND_ACCEPTED_ERROR =
+  "Gateway changed after this detached message was accepted. It is queued with the original request ID for safe retry.";
 
 function isAcceptedChatSendAck(ack: ChatSendAck | null): ack is AcceptedChatSendAck {
   return ack != null && (ack.status === "ok" || isNonTerminalAgentRunStatus(ack.status));
@@ -356,6 +377,7 @@ async function sendChatMessageWithGeneratedRunId(
   state: ChatState,
   message: string,
   attachments?: ChatAttachment[],
+  runId = generateUUID(),
 ): Promise<ChatSendAck | null> {
   if (!state.client || !state.connected) {
     return null;
@@ -366,7 +388,6 @@ async function sendChatMessageWithGeneratedRunId(
     return null;
   }
   setChatError(state, null);
-  const runId = generateUUID();
   try {
     return await requestChatSend(state, { message: msg, attachments, runId });
   } catch (err) {
@@ -379,8 +400,9 @@ export async function sendDetachedChatMessage(
   state: ChatState,
   message: string,
   attachments?: ChatAttachment[],
+  runId?: string,
 ): Promise<ChatSendAck | null> {
-  return sendChatMessageWithGeneratedRunId(state, message, attachments);
+  return sendChatMessageWithGeneratedRunId(state, message, attachments, runId);
 }
 
 export async function sendSteerChatMessage(
@@ -532,6 +554,82 @@ function cancelPendingSendBeforeRequest(
 
 type QueuedChatSendResult = "sent" | "pending" | "failed";
 
+type ChatGatewayGuard = {
+  client: GatewayBrowserClient | null;
+  generation: number;
+  gatewayScope: string;
+  persistenceState: ChatComposerScope;
+};
+
+function captureChatGatewayGuard(host: ChatHost): ChatGatewayGuard {
+  return {
+    client: host.client,
+    generation: host.chatQueueGatewayGeneration ?? 0,
+    gatewayScope: normalizeGatewayComposerScope(
+      host.settings?.gatewayUrl,
+      host.hello?.auth?.deviceToken || host.settings?.token || host.password,
+    ),
+    persistenceState: {
+      settings: host.settings,
+      password: host.password,
+      assistantAgentId: host.assistantAgentId,
+      agentsList: host.agentsList,
+      hello: host.hello,
+      chatQueuePaused: host.chatQueuePaused,
+      chatComposerPersistenceSuspended: host.chatComposerPersistenceSuspended,
+    },
+  };
+}
+
+function isCurrentChatGateway(host: ChatHost, guard: ChatGatewayGuard): boolean {
+  return (
+    host.connected &&
+    host.client === guard.client &&
+    (host.chatQueueGatewayGeneration ?? 0) === guard.generation
+  );
+}
+
+function mergeDetachedRecoveryQueue(...queues: ChatQueueItem[][]): ChatQueueItem[] {
+  const merged = new Map<string, ChatQueueItem>();
+  for (const queue of queues) {
+    for (const item of queue) {
+      merged.set(item.id, item);
+    }
+  }
+  return [...merged.values()];
+}
+
+function mergeDetachedSendRecoveryIntoLiveQueue(
+  host: ChatHost,
+  sessionKey: string,
+  gatewayGuard: ChatGatewayGuard | undefined,
+  recoveryQueue: ChatQueueItem[],
+): boolean {
+  if (!gatewayGuard || !host.connected || !host.hello) {
+    return false;
+  }
+  const activeScope = normalizeGatewayComposerScope(
+    host.settings?.gatewayUrl,
+    host.hello?.auth?.deviceToken || host.settings?.token || host.password,
+  );
+  if (activeScope !== gatewayGuard.gatewayScope) {
+    return false;
+  }
+  const currentQueue = readChatQueueForSession(host, sessionKey);
+  const existingIds = new Set(currentQueue.map((item) => item.id));
+  const nextQueue = [...currentQueue, ...recoveryQueue.filter((item) => !existingIds.has(item.id))];
+  if (sessionKey === host.sessionKey) {
+    host.chatQueue = nextQueue;
+  } else {
+    host.chatQueueBySession = {
+      ...host.chatQueueBySession,
+      [sessionKey]: nextQueue,
+    };
+  }
+  host.requestUpdate?.();
+  return true;
+}
+
 function ensureQueuedSendState(
   host: ChatHost,
   item: ChatQueueItem,
@@ -573,6 +671,9 @@ async function sendQueuedChatMessage(
   if (!queued || queued.pendingRunId || queued.localCommandName) {
     return "failed";
   }
+  if (isChatQueuePausedForSession(host, queuedSessionKey)) {
+    return "pending";
+  }
   const prepared = ensureQueuedSendState(host, queued, queuedSessionKey);
   const sessionKey = prepared.sessionKey ?? host.sessionKey;
   const message = prepared.text.trim();
@@ -602,6 +703,9 @@ async function sendQueuedChatMessage(
     return "pending";
   }
 
+  const gatewayGuard = captureChatGatewayGuard(host);
+  const isCurrentGateway = () => isCurrentChatGateway(host, gatewayGuard);
+
   const runId = prepared.sendRunId ?? generateUUID();
   const startedAt = Date.now();
   const requestStartedAtMs = controlUiNowMs();
@@ -619,7 +723,8 @@ async function sendQueuedChatMessage(
   registerChatSendTiming(host, sendingItem, runId, requestStartedAtMs);
   recordChatSendTiming(host, sendingItem, "request-start", sendingItem.sendSubmittedAtMs);
   host.chatSending = true;
-  const isVisibleSession = () => visibleSessionMatches(host, sessionKey, prepared.agentId);
+  const isVisibleSession = () =>
+    isCurrentGateway() && visibleSessionMatches(host, sessionKey, prepared.agentId);
   if (isVisibleSession()) {
     setChatError(host, null);
     reconcileChatRunLifecycle(host as unknown as Parameters<typeof reconcileChatRunLifecycle>[0], {
@@ -646,6 +751,9 @@ async function sendQueuedChatMessage(
           sessionKey,
           agentId: prepared.agentId,
         });
+    if (!isCurrentGateway()) {
+      return "pending";
+    }
     updateChatSendAckTiming(host, runId, ack, sendingItem, requestStartedAtMs);
     recordChatSendTiming(host, sendingItem, "ack", sendingItem.sendSubmittedAtMs, {
       ackStatus: ack.status,
@@ -755,6 +863,9 @@ async function sendQueuedChatMessage(
     discardChatAttachmentDataUrls(excludeComposerAttachments(host, attachments));
     return "sent";
   } catch (err) {
+    if (!isCurrentGateway()) {
+      return "pending";
+    }
     const error = formatConnectError(err);
     if (isRecoverableChatSendError(err, error)) {
       updateQueuedMessageForSession(host, sessionKey, id, (item) => ({
@@ -784,7 +895,9 @@ async function sendQueuedChatMessage(
     persistQueuedMessagesForSession(host, sessionKey);
     return "failed";
   } finally {
-    host.chatSending = false;
+    if (isCurrentGateway()) {
+      host.chatSending = false;
+    }
   }
 }
 
@@ -967,16 +1080,90 @@ async function sendDetachedCommandMessage(
   host: ChatHost,
   message: string,
   opts?: {
+    sessionKey?: string;
+    agentId?: string;
     previousDraft?: string;
     attachments?: ChatAttachment[];
     previousAttachments?: ChatAttachment[];
+    gatewayGuard?: ChatGatewayGuard;
+    sendRunId?: string;
   },
 ) {
+  const sendRunId = opts?.sendRunId ?? generateUUID();
   const ack = await sendDetachedChatMessage(
     host as unknown as ChatState,
     message,
     opts?.attachments,
+    sendRunId,
   );
+  if (opts?.gatewayGuard && !isCurrentChatGateway(host, opts.gatewayGuard)) {
+    const sessionKey = opts.sessionKey ?? host.sessionKey;
+    const accepted = isAcceptedChatSendAck(ack);
+    const previousSnapshot = loadChatComposerSnapshot(
+      opts.gatewayGuard.persistenceState,
+      sessionKey,
+    );
+    const recoveredItem: ChatQueueItem = {
+      id: generateUUID(),
+      text: message,
+      createdAt: Date.now(),
+      ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+      sendError: accepted
+        ? GATEWAY_CHANGED_DETACHED_SEND_ACCEPTED_ERROR
+        : "Gateway changed before this detached message was accepted. It was saved for review and retry.",
+      sendRunId,
+      sendState: accepted ? "waiting-reconnect" : "failed",
+      sessionKey,
+      ...(opts.agentId ? { agentId: opts.agentId } : {}),
+    };
+    // A detached message belongs to the Gateway that accepted the request.
+    // Persist it in that captured principal instead of the replacement
+    // connection, where a retry could be sent to the wrong Gateway.
+    const matchingRecovery = (host.chatDetachedSendRecoveries ?? []).find(
+      (recovery) =>
+        recovery.gatewayScope === opts.gatewayGuard?.gatewayScope &&
+        recovery.sessionKey === sessionKey,
+    );
+    const recoveryQueue = mergeDetachedRecoveryQueue(
+      matchingRecovery?.queue ?? [],
+      previousSnapshot?.queue ?? [],
+      [recoveredItem],
+    );
+    const persisted = persistStoredChatComposerQueue(
+      opts.gatewayGuard.persistenceState,
+      sessionKey,
+      recoveryQueue,
+      previousSnapshot?.queuePaused,
+      { requireComplete: true },
+    );
+    // Keep a one-shot in-memory copy even when durable persistence succeeds.
+    // Reconnect may restore a non-empty provisional queue and skip storage;
+    // without this buffer the detached item could be lost on the next write.
+    host.chatDetachedSendRecoveries = [
+      ...(host.chatDetachedSendRecoveries ?? []).filter(
+        (recovery) =>
+          recovery.gatewayScope !== opts.gatewayGuard?.gatewayScope ||
+          recovery.sessionKey !== sessionKey,
+      ),
+      {
+        gatewayScope: opts.gatewayGuard.gatewayScope,
+        sessionKey,
+        queue: recoveryQueue,
+      },
+    ];
+    mergeDetachedSendRecoveryIntoLiveQueue(host, sessionKey, opts.gatewayGuard, recoveryQueue);
+    if (host.sessionKey === sessionKey) {
+      setChatError(
+        host,
+        persisted
+          ? accepted
+            ? GATEWAY_CHANGED_DETACHED_SEND_ACCEPTED_ERROR
+            : "Gateway changed before this detached message was accepted. It was saved for review and retry."
+          : "Gateway changed before this detached message was accepted. Browser storage was unavailable; it remains in memory and will be restored only when the original Gateway reconnects.",
+      );
+    }
+    return false;
+  }
   const ok = isAcceptedChatSendAck(ack);
   if (!ok && opts?.previousDraft != null) {
     host.chatMessage = opts.previousDraft;
@@ -1015,6 +1202,18 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string) {
     return;
   }
 
+  if (host.chatComposerPersistenceSuspended) {
+    setChatError(
+      host,
+      "Chat is reconnecting to the Gateway; wait for it to finish before sending.",
+    );
+    return;
+  }
+  if (isChatQueuePausedForSession(host, sessionKey)) {
+    setChatError(host, "Queue is paused; resume it before steering a message.");
+    return;
+  }
+
   updateQueuedMessageForSession(host, sessionKey, id, (entry) => ({
     ...entry,
     kind: "steered",
@@ -1044,7 +1243,7 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string) {
 }
 
 async function flushChatQueue(host: ChatHost) {
-  if (!host.connected || isChatBusy(host)) {
+  if (!host.connected || isChatBusy(host) || isChatQueuePausedForSession(host, host.sessionKey)) {
     return;
   }
   const nextIndex = host.chatQueue.findIndex(
@@ -1096,6 +1295,9 @@ export async function retryReconnectableQueuedChatSends(host: ChatHost) {
     ),
   ];
   for (const sessionKey of sessionKeys) {
+    if (isChatQueuePausedForSession(host, sessionKey)) {
+      continue;
+    }
     const item = readChatQueueForSession(host, sessionKey).find(
       (entry) =>
         entry.sendRunId &&
@@ -1129,6 +1331,9 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   ) {
     return;
   }
+  if (isChatQueuePausedForSession(host, sessionKey)) {
+    return;
+  }
   updateQueuedMessageForSession(host, sessionKey, id, (entry) => ({
     ...entry,
     sendError: undefined,
@@ -1154,8 +1359,19 @@ export async function handleSendChat(
   const hasAttachments = attachmentsToSend.length > 0;
   const skillWorkshopRevision = opts?.skillWorkshopRevision;
   const shouldInterpretChatCommands = !skillWorkshopRevision;
+  const submitGatewayGuard = host.connected && host.client ? captureChatGatewayGuard(host) : null;
+  const isSubmitGatewayCurrent = () =>
+    !submitGatewayGuard || isCurrentChatGateway(host, submitGatewayGuard);
 
   if (!message && !hasAttachments) {
+    return;
+  }
+
+  if (host.chatComposerPersistenceSuspended) {
+    setChatError(
+      host,
+      "Chat is reconnecting to the Gateway; wait for it to finish before sending.",
+    );
     return;
   }
 
@@ -1173,6 +1389,10 @@ export async function handleSendChat(
     }
 
     const parsed = parseSlashCommand(message);
+    if (isBtwCommand(message) && isChatQueuePausedForSession(host, submittedSessionKey)) {
+      setChatError(host, "Chat is paused; resume it before sending a detached message.");
+      return;
+    }
     // The backend resolves /approve before active-run admission. Send it now so
     // the approval command cannot queue behind the run that is waiting for it.
     const shouldSendDetachedCommand =
@@ -1180,11 +1400,21 @@ export async function handleSendChat(
     if (shouldSendDetachedCommand) {
       const submitKey = chatSubmitKey(host, "detached", message, attachmentsToSend);
       await withChatSubmitGuard(host, submitKey, async () => {
+        if (!isSubmitGatewayCurrent()) {
+          return;
+        }
         const modelSwitchReady = waitForPendingChatModelSwitch(host, submittedSessionKey);
         if (modelSwitchReady !== true && !(await modelSwitchReady)) {
           return;
         }
+        if (!isSubmitGatewayCurrent()) {
+          return;
+        }
         if (host.sessionKey !== submittedSessionKey) {
+          return;
+        }
+        if (isBtwCommand(message) && isChatQueuePausedForSession(host, submittedSessionKey)) {
+          setChatError(host, "Chat is paused; resume it before sending a detached message.");
           return;
         }
         const cleared =
@@ -1195,9 +1425,12 @@ export async function handleSendChat(
           recordNonTranscriptInputHistory(host, message);
         }
         await sendDetachedCommandMessage(host, message, {
+          sessionKey: submittedSessionKey,
+          agentId: scopedAgentIdForSession(host, submittedSessionKey),
           previousDraft: cleared.previousDraft,
           attachments: hasAttachments ? attachmentsToSend : undefined,
           previousAttachments: cleared.previousAttachments,
+          gatewayGuard: submitGatewayGuard ?? undefined,
         });
       });
       return;
@@ -1207,17 +1440,35 @@ export async function handleSendChat(
     const forwardModelCommand =
       parsed?.command.key === "model" && shouldForwardModelCommandToServer(parsed.args);
     if (parsed?.command.executeLocal && !forwardModelCommand) {
-      if (isChatBusy(host) && shouldQueueLocalSlashCommand(parsed.command.key)) {
+      if (
+        (isChatBusy(host) || isChatQueuePausedForSession(host, submittedSessionKey)) &&
+        shouldQueueLocalSlashCommand(parsed.command.key)
+      ) {
+        const cleared =
+          messageOverride == null
+            ? clearSubmittedComposerState(host, previousDraft, attachmentsToSend)
+            : {};
         if (messageOverride == null) {
           recordNonTranscriptInputHistory(host, message);
-          host.chatMessage = "";
-          host.chatAttachments = [];
-          resetChatInputHistoryNavigation(host);
         }
-        enqueueChatMessage(host, message, undefined, isChatResetCommand(message), {
+        const queued = enqueueChatMessage(host, message, undefined, isChatResetCommand(message), {
           args: parsed.args,
           name: parsed.command.key,
         });
+        if (
+          queued &&
+          isChatQueuePausedForSession(host, submittedSessionKey) &&
+          !persistQueuedMessagesForSession(host, submittedSessionKey, { requirePersistence: true })
+        ) {
+          cancelPendingSendBeforeRequest(host, queued, {
+            previousDraft: cleared.previousDraft,
+            previousAttachments: cleared.previousAttachments,
+          });
+          setChatError(
+            host,
+            "Could not queue this message safely while Chat is paused. Retry after freeing browser storage or resume Chat.",
+          );
+        }
         return;
       }
       const prevDraft = messageOverride == null ? previousDraft : undefined;
@@ -1249,6 +1500,9 @@ export async function handleSendChat(
     skillWorkshopRevision,
   );
   await withChatSubmitGuard(host, submitKey, async () => {
+    if (!isSubmitGatewayCurrent()) {
+      return;
+    }
     if (host.sessionKey !== submittedSessionKey) {
       return;
     }
@@ -1276,6 +1530,9 @@ export async function handleSendChat(
     }
 
     if (modelSwitchReady !== true && !(await modelSwitchReady)) {
+      if (!isSubmitGatewayCurrent()) {
+        return;
+      }
       if (host.sessionKey === submittedSessionKey) {
         cancelPendingSendBeforeRequest(host, queued, {
           previousDraft: cleared.previousDraft,
@@ -1291,6 +1548,9 @@ export async function handleSendChat(
       }
       return;
     }
+    if (!isSubmitGatewayCurrent()) {
+      return;
+    }
     if (host.sessionKey !== submittedSessionKey) {
       updateQueuedMessageForSession(host, submittedSessionKey, queued.id, (item) => ({
         ...item,
@@ -1298,6 +1558,36 @@ export async function handleSendChat(
         sendState: undefined,
       }));
       persistQueuedMessagesForSession(host, submittedSessionKey);
+      return;
+    }
+
+    if (isChatQueuePausedForSession(host, submittedSessionKey)) {
+      updateQueuedMessage(host, queued.id, (item) => ({
+        ...item,
+        sendError: undefined,
+        sendState: undefined,
+      }));
+      recordChatSendTiming(host, queued, "queued-paused", submittedAtMs);
+      if (
+        !persistQueuedMessagesForSession(host, submittedSessionKey, {
+          requirePersistence: true,
+        })
+      ) {
+        cancelPendingSendBeforeRequest(host, queued, {
+          previousDraft: cleared.previousDraft,
+          previousAttachments: cleared.previousAttachments,
+        });
+        setChatError(
+          host,
+          "Could not queue this message safely while Chat is paused. Retry after freeing browser storage or resume Chat.",
+        );
+      } else if (
+        replyTarget &&
+        host.chatReplyTarget?.messageId === replyTarget.messageId &&
+        host.sessionKey === submittedSessionKey
+      ) {
+        host.chatReplyTarget = null;
+      }
       return;
     }
 

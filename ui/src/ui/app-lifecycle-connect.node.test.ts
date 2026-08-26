@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizeGatewayComposerScope } from "../app/gateway-scope.ts";
 import type { ChatQueueItem } from "./ui-types.ts";
 
 const { applySettingsFromUrlMock, connectGatewayMock, loadBootstrapMock, restoreComposerMock } =
@@ -91,11 +92,13 @@ function createHost() {
     sessionKey: "main",
     chatMessage: "",
     chatQueue: [] as ChatQueueItem[],
+    chatQueuePaused: false,
     pendingGatewayUrl: null as string | null,
     chatComposerProvisionalRestore: null as {
       sessionKey: string;
       chatMessage: string;
       chatQueue: ChatQueueItem[];
+      chatQueuePaused: boolean;
     } | null,
     chatLoading: false,
     chatMessages: [],
@@ -183,14 +186,18 @@ describe("handleConnected", () => {
 
     handleConnected(host as never);
 
-    expect(restoreComposerMock).toHaveBeenCalledWith(host, { preserveCurrent: true });
+    expect(restoreComposerMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+    });
     expect(restoreComposerMock.mock.invocationCallOrder[0]).toBeLessThan(
       connectGatewayMock.mock.invocationCallOrder[0],
     );
     expect(host.chatComposerProvisionalRestore).toEqual({
       sessionKey: "main",
+      gatewayScope: normalizeGatewayComposerScope(undefined, ""),
       chatMessage: "offline draft",
       chatQueue: [{ id: "queued-1", text: "retry me", createdAt: 1 }],
+      chatQueuePaused: false,
     });
   });
 

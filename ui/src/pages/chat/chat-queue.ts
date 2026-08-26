@@ -4,10 +4,16 @@ import { scopedAgentIdForSession, type SessionScopeHost } from "../../lib/sessio
 import { generateUUID } from "../../lib/uuid.ts";
 import { releaseChatAttachmentPayloads } from "./attachment-payload-store.ts";
 import { cloneChatAttachmentsMetadata } from "./attachment-payload-store.ts";
-import { persistStoredChatComposerQueue, type ChatComposerScope } from "./composer-persistence.ts";
+import {
+  loadChatComposerSnapshot,
+  persistStoredChatComposerQueue,
+  type ChatComposerScope,
+} from "./composer-persistence.ts";
 
 type ChatQueueStoreHost = {
   chatQueue: ChatQueueItem[];
+  chatQueuePaused?: boolean;
+  chatQueuePausedBySession?: Record<string, boolean>;
   chatQueueBySession?: Record<string, ChatQueueItem[]>;
   chatAttachments?: ChatAttachment[];
   requestUpdate?: () => void;
@@ -16,6 +22,7 @@ type ChatQueueStoreHost = {
 type ChatQueueSessionHost = ChatQueueStoreHost &
   ChatComposerScope & {
     sessionKey: string;
+    chatMessage?: string;
   };
 
 type ChatQueueScopedSessionHost = ChatQueueSessionHost & SessionScopeHost;
@@ -142,8 +149,66 @@ export function findQueuedMessageForAction(
   return null;
 }
 
-export function persistQueuedMessagesForSession(host: ChatQueueSessionHost, sessionKey: string) {
-  persistStoredChatComposerQueue(host, sessionKey, readChatQueueForSession(host, sessionKey));
+export function persistQueuedMessagesForSession(
+  host: ChatQueueSessionHost,
+  sessionKey: string,
+  options: { requirePersistence?: boolean } = {},
+): boolean {
+  return persistStoredChatComposerQueue(
+    host,
+    sessionKey,
+    readChatQueueForSession(host, sessionKey),
+    sessionKey === host.sessionKey ? host.chatQueuePaused === true : undefined,
+    {
+      requireComplete: options.requirePersistence === true,
+      ...(sessionKey === host.sessionKey ? { draft: host.chatMessage ?? "" } : {}),
+    },
+  );
+}
+
+export function isChatQueuePausedForSession(
+  host: Pick<ChatQueueSessionHost, "chatQueuePaused" | "chatQueuePausedBySession" | "sessionKey"> &
+    Parameters<typeof loadChatComposerSnapshot>[0],
+  sessionKey: string,
+): boolean {
+  const remembered = host.chatQueuePausedBySession?.[sessionKey];
+  if (remembered !== undefined) {
+    return remembered;
+  }
+  if (sessionKey === host.sessionKey) {
+    return host.chatQueuePaused === true;
+  }
+  return loadChatComposerSnapshot(host, sessionKey)?.queuePaused === true;
+}
+
+export function setChatQueuePausedForSession(
+  host: ChatQueueSessionHost,
+  sessionKey: string,
+  paused: boolean,
+  options: { requirePersistence?: boolean } = {},
+): boolean {
+  const persisted = persistStoredChatComposerQueue(
+    host,
+    sessionKey,
+    readChatQueueForSession(host, sessionKey),
+    paused,
+    {
+      requireComplete: options.requirePersistence === true,
+      ...(sessionKey === host.sessionKey ? { draft: host.chatMessage ?? "" } : {}),
+    },
+  );
+  if (options.requirePersistence && !persisted) {
+    return false;
+  }
+  host.chatQueuePausedBySession = {
+    ...host.chatQueuePausedBySession,
+    [sessionKey]: paused,
+  };
+  if (sessionKey === host.sessionKey) {
+    host.chatQueuePaused = paused;
+  }
+  host.requestUpdate?.();
+  return true;
 }
 
 export function removeQueuedMessageWithoutReleasing(

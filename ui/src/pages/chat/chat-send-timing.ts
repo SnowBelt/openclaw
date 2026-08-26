@@ -24,6 +24,7 @@ type ChatSendTimingPhase =
   | "first-assistant-visible"
   | "terminal-before-delta"
   | "queued-busy"
+  | "queued-paused"
   | "waiting-model"
   | "waiting-reconnect"
   | "failed";

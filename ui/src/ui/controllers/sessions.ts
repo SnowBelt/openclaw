@@ -97,6 +97,7 @@ type SessionsLoadControl = {
   loading: boolean;
   pending: { overrides?: LoadSessionsOverrides } | null;
   ownsStateLoading: boolean;
+  waiters: Array<() => void>;
 };
 
 const sessionsLoadControls = new WeakMap<object, SessionsLoadControl>();
@@ -314,6 +315,8 @@ const SESSION_EVENT_ROW_FIELDS = [
   "latestCompactionCheckpoint",
   "model",
   "modelProvider",
+  "modelOverrideIsFallback",
+  "modelOverrideSource",
   "outputTokens",
   "pinned",
   "pinnedAt",
@@ -341,7 +344,7 @@ function getSessionsLoadControl(state: SessionsState): SessionsLoadControl {
   const key = state as object;
   let control = sessionsLoadControls.get(key);
   if (!control) {
-    control = { loading: false, ownsStateLoading: false, pending: null };
+    control = { loading: false, ownsStateLoading: false, pending: null, waiters: [] };
     sessionsLoadControls.set(key, control);
   }
   return control;
@@ -781,7 +784,9 @@ export function applySessionsChangedEvent(
       continue;
     }
     const value = hasTopLevelGoalClear ? null : source[field];
-    if (value === undefined || (field === "goal" && value === null)) {
+    const clearsOptionalField =
+      (field === "goal" || field === "modelOverrideSource") && value === null;
+    if (value === undefined || clearsOptionalField) {
       delete mutableNext[field];
     } else {
       mutableNext[field] = value;
@@ -1075,6 +1080,9 @@ export async function loadSessions(state: SessionsState, overrides?: LoadSession
   const control = getSessionsLoadControl(state);
   if (control.loading) {
     control.pending = { overrides };
+    await new Promise<void>((resolve) => {
+      control.waiters.push(resolve);
+    });
     return;
   }
   if (state.sessionsLoading) {
@@ -1103,6 +1111,10 @@ export async function loadSessions(state: SessionsState, overrides?: LoadSession
     if (control.ownsStateLoading) {
       state.sessionsLoading = false;
       control.ownsStateLoading = false;
+    }
+    const waiters = control.waiters.splice(0);
+    for (const resolve of waiters) {
+      resolve();
     }
   }
 }
@@ -1215,7 +1227,7 @@ export async function patchSession(
   },
 ) {
   if (!state.client || !state.connected) {
-    return;
+    return false;
   }
   const params: Record<string, unknown> = {
     key,
@@ -1239,8 +1251,10 @@ export async function patchSession(
       state,
       isUiGlobalSessionKey(key) ? { agentId: resolveSelectedGlobalAgentId(state) } : undefined,
     );
+    return true;
   } catch (err) {
     state.sessionsError = String(err);
+    return false;
   }
 }
 

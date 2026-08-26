@@ -370,6 +370,9 @@ test("sessions.list keeps bulk rows lightweight and uses persisted model fields"
         updatedAt: Date.now() - 1_000,
         modelProvider: "anthropic",
         model: "test-model-without-catalog-context",
+        modelOverride: "test-model-without-catalog-context",
+        modelOverrideFallbackOriginProvider: "anthropic",
+        modelOverrideFallbackOriginModel: "configured-model",
         parentSessionKey: "agent:main:main",
         totalTokens: 0,
         totalTokensFresh: false,
@@ -393,6 +396,8 @@ test("sessions.list keeps bulk rows lightweight and uses persisted model fields"
       estimatedCostUsd?: number;
       modelProvider?: string;
       model?: string;
+      modelOverrideSource?: "auto" | "user";
+      modelOverrideIsFallback?: boolean;
     }>;
   }>(ws, "sessions.list", {});
 
@@ -405,10 +410,14 @@ test("sessions.list keeps bulk rows lightweight and uses persisted model fields"
   expect(child?.parentSessionKey).toBe("agent:main:main");
   expect(child?.totalTokens).toBeUndefined();
   expect(child?.totalTokensFresh).toBe(false);
-  expect(child?.contextTokens).toBeUndefined();
+  // Lightweight rows skip transcript hydration but still expose the resolved
+  // native model window so the Chat picker can report the real budget.
+  expect(child?.contextTokens).toBe(200_000);
   expect(child?.estimatedCostUsd).toBeUndefined();
   expect(child?.modelProvider).toBe("anthropic");
   expect(child?.model).toBe("test-model-without-catalog-context");
+  expect(child?.modelOverrideSource).toBe("auto");
+  expect(child?.modelOverrideIsFallback).toBe(true);
 
   ws.close();
 });
@@ -790,7 +799,7 @@ test("sessions.changed mutation events include live usage metadata", async () =>
   expectMainPatchBroadcast(result, {
     totalTokens: 6_643,
     totalTokensFresh: true,
-    contextTokens: 200_000,
+    contextTokens: 272_000,
     estimatedCostUsd: 0,
     modelProvider: "openai",
     model: "gpt-5.3-codex-spark",
@@ -839,6 +848,37 @@ test("sessions.changed mutation events carry the resolved effectiveResponseUsage
   // Raw responseUsage is genuinely absent (no override), proving the event does not
   // merely echo the raw field.
   expect(payload.responseUsage).toBeUndefined();
+});
+
+test("sessions.changed mutation events keep model override provenance current", async () => {
+  await writeMainSessionStore({
+    modelProvider: "anthropic",
+    model: "claude-sonnet-4-6",
+    modelOverride: "claude-sonnet-4-6",
+    providerOverride: "anthropic",
+    modelOverrideSource: "auto",
+    modelOverrideFallbackOriginProvider: "openai",
+    modelOverrideFallbackOriginModel: "gpt-5.5",
+  });
+
+  const observedFallback = await invokeSessionsPatch({
+    key: "main",
+    label: "Fallback active",
+  });
+  expectMainPatchBroadcast(observedFallback, {
+    modelOverrideIsFallback: true,
+    modelOverrideSource: "auto",
+  });
+
+  const clearedFallback = await invokeSessionsPatch({
+    key: "main",
+    model: null,
+    expectedModelOverrideIsFallback: true,
+  });
+  expectMainPatchBroadcast(clearedFallback, {
+    modelOverrideIsFallback: false,
+    modelOverrideSource: null,
+  });
 });
 
 test("sessions.changed mutation events include sendPolicy metadata", async () => {

@@ -23,6 +23,64 @@ function deferred<T>() {
 }
 
 describe("createSessionCapability", () => {
+  it("does not retain an optimistic reset after conditional fallback cleanup", async () => {
+    const key = "agent:main:main";
+    let listCalls = 0;
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "sessions.patch") {
+        expect(params).toMatchObject({
+          key,
+          model: null,
+          expectedModelOverrideIsFallback: true,
+        });
+        return { ok: true };
+      }
+      if (method === "sessions.list") {
+        listCalls += 1;
+        return sessionsResult(
+          [
+            {
+              key,
+              kind: "direct",
+              model: "gpt-5.5",
+              modelProvider: "openai",
+              updatedAt: listCalls,
+            },
+          ],
+          listCalls,
+        );
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const client = { request } as unknown as GatewayBrowserClient;
+    const sessions = createSessionCapability({
+      snapshot: {
+        client,
+        connected: true,
+        sessionKey: key,
+        assistantAgentId: "main",
+        hello: null,
+      },
+      subscribe: () => () => undefined,
+      subscribeEvents: () => () => undefined,
+    });
+
+    await sessions.refresh({ agentId: "main", force: true });
+    sessions.setModelOverride(key, "anthropic/claude-sonnet-4-6");
+    await sessions.patch(
+      key,
+      { model: null, expectedModelOverrideIsFallback: true },
+      { agentId: "main" },
+    );
+
+    expect(sessions.state.modelOverrides[key]).toBeUndefined();
+    expect(sessions.state.result?.sessions[0]).toMatchObject({
+      model: "gpt-5.5",
+      modelProvider: "openai",
+    });
+    sessions.dispose();
+  });
+
   it("passes transcript fork parameters to sessions.create", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "sessions.create") {

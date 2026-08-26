@@ -108,6 +108,10 @@ export type GatewaySessionRow = {
   effectiveResponseUsage?: "on" | "off" | "tokens" | "full";
   modelProvider?: string;
   model?: string;
+  /** Persisted session override provenance; absent on legacy rows. */
+  modelOverrideSource?: SessionEntry["modelOverrideSource"];
+  /** True when the active override is a runtime fallback, including legacy rows. */
+  modelOverrideIsFallback?: boolean;
   agentRuntime?: GatewayAgentRuntime;
   contextTokens?: number;
   contextBudgetStatus?: SessionEntry["contextBudgetStatus"];

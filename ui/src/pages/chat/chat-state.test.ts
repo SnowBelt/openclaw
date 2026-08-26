@@ -4,7 +4,14 @@ import {
   applyRemoteSlashCommandsResult,
   resetChatSlashCommandMetadataForTest,
 } from "./chat-commands.ts";
-import { refreshChatMetadata, resolveChatAvatarUrl, type ChatPageHost } from "./chat-state.ts";
+import {
+  clearChatGatewayComposerState,
+  refreshChatMetadata,
+  resolveChatAvatarUrl,
+  restoreChatGatewayComposerState,
+  snapshotChatGatewayComposerState,
+  type ChatPageHost,
+} from "./chat-state.ts";
 
 vi.mock("../../app/assistant-identity.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../app/assistant-identity.ts")>()),
@@ -13,6 +20,107 @@ vi.mock("../../app/assistant-identity.ts", async (importOriginal) => ({
 
 afterEach(() => {
   resetChatSlashCommandMetadataForTest();
+});
+
+describe("Gateway-scoped composer state", () => {
+  it("clears and restores every composer-owned field across a Gateway switch", () => {
+    const state = {
+      sessionKey: "agent:main:main",
+      chatMessage: "private draft",
+      chatQueue: [{ id: "current", text: "send me", createdAt: 1 }],
+      chatQueueBySession: {
+        "agent:other:main": [{ id: "other", text: "other queue", createdAt: 2 }],
+      },
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main:main": true },
+      chatAttachments: [{ id: "attachment", mimeType: "text/plain" }],
+      chatReplyTarget: { messageId: "reply", text: "quoted" },
+      chatLocalInputHistoryBySession: {
+        "agent:main:main": [{ text: "private history", ts: 3 }],
+      },
+      chatInputHistorySessionKey: "agent:main:main",
+      chatInputHistoryItems: ["private history"],
+      chatInputHistoryIndex: 0,
+      chatDraftBeforeHistory: "draft before recall",
+    } as unknown as ChatPageHost;
+
+    const snapshot = snapshotChatGatewayComposerState(state);
+    clearChatGatewayComposerState(state);
+
+    expect(state.chatMessage).toBe("");
+    expect(state.chatQueue).toEqual([]);
+    expect(state.chatQueueBySession).toEqual({});
+    expect(state.chatQueuePaused).toBe(false);
+    expect(state.chatQueuePausedBySession).toEqual({});
+    expect(state.chatAttachments).toEqual([]);
+    expect(state.chatReplyTarget).toBeNull();
+    expect(state.chatLocalInputHistoryBySession).toEqual({});
+    expect(state.chatInputHistorySessionKey).toBeNull();
+    expect(state.chatInputHistoryItems).toBeNull();
+    expect(state.chatInputHistoryIndex).toBe(-1);
+    expect(state.chatDraftBeforeHistory).toBeNull();
+
+    restoreChatGatewayComposerState(state, snapshot);
+    expect(state.chatMessage).toBe("private draft");
+    expect(state.chatQueue).toEqual([{ id: "current", text: "send me", createdAt: 1 }]);
+    expect(state.chatQueueBySession).toEqual({
+      "agent:other:main": [{ id: "other", text: "other queue", createdAt: 2 }],
+    });
+    expect(state.chatQueuePaused).toBe(true);
+    expect(state.chatQueuePausedBySession).toEqual({ "agent:main:main": true });
+    expect(state.chatAttachments).toEqual([{ id: "attachment", mimeType: "text/plain" }]);
+    expect(state.chatReplyTarget).toEqual({ messageId: "reply", text: "quoted" });
+    expect(state.chatLocalInputHistoryBySession).toEqual({
+      "agent:main:main": [{ text: "private history", ts: 3 }],
+    });
+    expect(state.chatInputHistorySessionKey).toBe("agent:main:main");
+    expect(state.chatInputHistoryItems).toEqual(["private history"]);
+    expect(state.chatInputHistoryIndex).toBe(0);
+    expect(state.chatDraftBeforeHistory).toBe("draft before recall");
+  });
+
+  it("restores a Gateway snapshot into the session that owns it", () => {
+    const state = {
+      sessionKey: "agent:other:main",
+      chatMessage: "",
+      chatQueue: [],
+      chatQueueBySession: {},
+      chatQueuePaused: false,
+      chatQueuePausedBySession: {},
+      chatAttachments: [],
+      chatReplyTarget: null,
+      chatLocalInputHistoryBySession: {},
+      chatInputHistorySessionKey: null,
+      chatInputHistoryItems: null,
+      chatInputHistoryIndex: -1,
+      chatDraftBeforeHistory: null,
+    } as unknown as ChatPageHost;
+    const snapshot = {
+      sessionKey: "agent:main:main",
+      chatMessage: "private draft",
+      chatQueue: [{ id: "owned", text: "send me", createdAt: 1 }],
+      chatQueueBySession: {
+        "agent:main:main": [{ id: "owned", text: "send me", createdAt: 1 }],
+      },
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main:main": true },
+      chatAttachments: [],
+      chatReplyTarget: null,
+      chatLocalInputHistoryBySession: {},
+      chatInputHistorySessionKey: "agent:main:main",
+      chatInputHistoryItems: ["private draft"],
+      chatInputHistoryIndex: 0,
+      chatDraftBeforeHistory: "before recall",
+    };
+
+    restoreChatGatewayComposerState(state, snapshot);
+
+    expect(state.sessionKey).toBe("agent:main:main");
+    expect(state.chatMessage).toBe("private draft");
+    expect(state.chatQueue).toEqual([{ id: "owned", text: "send me", createdAt: 1 }]);
+    expect(state.chatQueuePaused).toBe(true);
+    expect(state.chatInputHistorySessionKey).toBe("agent:main:main");
+  });
 });
 
 describe("resolveChatAvatarUrl", () => {

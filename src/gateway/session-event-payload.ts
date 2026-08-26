@@ -5,8 +5,14 @@ import type { GatewaySessionRow } from "./session-utils.js";
  * Picker metadata comes from catalog-backed list/patch responses; emitting a
  * locally reconstructed subset here would replace richer client state.
  */
-export function buildGatewaySessionEventRow(sessionRow: GatewaySessionRow): GatewaySessionRow {
-  const session = { ...sessionRow };
+export function buildGatewaySessionEventRow(sessionRow: GatewaySessionRow) {
+  const session = {
+    ...sessionRow,
+    // Event snapshots must carry explicit clears because JSON omits undefined
+    // optional fields and the UI merges snapshots without relisting sessions.
+    modelOverrideIsFallback: sessionRow.modelOverrideIsFallback ?? false,
+    modelOverrideSource: sessionRow.modelOverrideSource ?? null,
+  };
   delete session.thinkingLevels;
   delete session.thinkingOptions;
   delete session.thinkingDefault;
@@ -79,6 +85,8 @@ export function buildGatewaySessionEventFields(params: {
     effectiveResponseUsage: sessionRow.effectiveResponseUsage,
     modelProvider: sessionRow.modelProvider,
     model: sessionRow.model,
+    modelOverrideIsFallback: sessionRow.modelOverrideIsFallback ?? false,
+    modelOverrideSource: sessionRow.modelOverrideSource ?? null,
     agentRuntime: sessionRow.agentRuntime,
     status: sessionRow.status,
     ...(params.hasActiveRun === undefined ? {} : { hasActiveRun: params.hasActiveRun }),

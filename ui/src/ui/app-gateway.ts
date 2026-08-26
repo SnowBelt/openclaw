@@ -5,6 +5,10 @@ import {
   type GatewayUpdateAvailableEventPayload,
 } from "../../../src/gateway/events.js";
 import {
+  normalizeGatewayComposerScope,
+  normalizeGatewayCredentialScope,
+} from "../app/gateway-scope.ts";
+import {
   clearPendingQueueItemsForRun,
   createChatSessionsLoadOverrides,
   flushChatQueueForEvent,
@@ -18,6 +22,7 @@ import {
   retryReconnectableQueuedChatSends,
   scopedAgentListParamsForSession,
   scopedAgentParamsForSession,
+  type ChatDetachedSendRecovery,
 } from "./app-chat.ts";
 import type { EventLogEntry } from "./app-events.ts";
 import {
@@ -35,7 +40,12 @@ import {
   type SessionOperationEventPayload,
 } from "./app-tool-stream.ts";
 import { shouldReloadHistoryForFinalEvent } from "./chat-event-reload.ts";
-import { loadChatComposerSnapshot, restoreChatComposerState } from "./chat/composer-persistence.ts";
+import {
+  loadChatComposerSnapshot,
+  migrateChatComposerState,
+  persistChatComposerState,
+  restoreChatComposerState,
+} from "./chat/composer-persistence.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import { parseChatSideResult, type ChatSideResult } from "./chat/side-result.ts";
 import { formatConnectError } from "./connect-error.ts";
@@ -99,6 +109,7 @@ import type {
   AgentsListResult,
   PresenceEntry,
   HealthSummary,
+  SessionsListResult,
   StatusSummary,
   UpdateAvailable,
 } from "./types.ts";
@@ -118,6 +129,7 @@ type GatewayHost = {
   lastError: string | null;
   lastErrorCode: string | null;
   chatError?: string | null;
+  chatComposerMemoryOwner: object;
   onboarding?: boolean;
   eventLogBuffer: EventLogEntry[];
   eventLog: EventLogEntry[];
@@ -145,13 +157,84 @@ type GatewayHost = {
   pendingAbort?: { runId?: string | null; sessionKey: string; agentId?: string } | null;
   refreshSessionsAfterChat: Map<string, ChatSessionRefreshTarget>;
   sessionsLoading?: boolean;
+  sessionsResult?: SessionsListResult | null;
+  sessionsResultAgentId?: string | null;
+  sessionsError?: string | null;
+  chatAgentSessionRowsByAgent?: Record<string, SessionsListResult["sessions"]>;
+  chatSessionPickerOpen?: boolean;
+  chatSessionPickerSurface?: "desktop" | "mobile" | "sidebar" | null;
+  chatSessionPickerQuery?: string;
+  chatSessionPickerAppliedQuery?: string;
+  chatSessionPickerLoading?: boolean;
+  chatSessionPickerError?: string | null;
+  chatSessionPickerResult?: SessionsListResult | null;
+  chatModelOverrides?: Record<string, unknown>;
+  sessionsExpandedCheckpointKey?: string | null;
+  sessionsCheckpointItemsByKey?: Record<string, unknown>;
+  sessionsCheckpointLoadingKey?: string | null;
+  sessionsCheckpointBusyKey?: string | null;
+  sessionsCheckpointErrorByKey?: Record<string, string>;
   chatMessage: string;
+  chatSending?: boolean;
+  chatSendingGatewayGeneration?: number | null;
+  chatQueueGatewayGeneration?: number;
   chatQueue: ChatQueueItem[];
+  chatQueueBySession?: Record<string, ChatQueueItem[]>;
+  chatQueuePaused?: boolean;
+  chatQueuePausedBySession?: Record<string, boolean>;
+  chatQueuePausePendingBySession?: Record<string, boolean>;
+  chatQueuePauseTransitionsBySession?: Record<string, Promise<boolean>>;
+  chatQueueCreateTransitionsBySession?: Record<string, Set<Promise<boolean>>>;
+  chatAttachments?: import("./ui-types.ts").ChatAttachment[];
+  chatSubmitGuards?: Map<string, Promise<void>>;
+  chatModelSwitchPromises?: Record<string, Promise<boolean>>;
+  chatProjectBusy?: boolean;
+  chatGoalBusy?: boolean;
+  chatComposerPersistTimer?: ReturnType<typeof globalThis.setTimeout> | number | null;
+  chatComposerPersistSnapshot?: unknown;
+  chatMessages?: unknown[];
+  chatMessagesBySession?: unknown;
+  chatToolMessages?: unknown[];
+  chatSideResult?: ChatSideResult | null;
+  chatSideResultTerminalRuns?: Set<string>;
+  chatStream?: string | null;
+  chatStreamSegments?: unknown[];
+  chatStreamStartedAt?: number | null;
+  chatTargetRunId?: string | null;
+  chatTargetAuditTs?: number | null;
+  chatTargetStatus?: string | null;
+  chatLocalInputHistoryBySession?: Record<string, Array<{ text: string; ts: number }>>;
+  chatInputHistorySessionKey?: string | null;
+  chatInputHistoryItems?: string[] | null;
+  chatInputHistoryIndex?: number;
+  chatDraftBeforeHistory?: string | null;
+  sidebarContent?: unknown;
+  sidebarError?: string | null;
   chatComposerProvisionalRestore?: {
+    sessionKey: string;
+    gatewayScope?: string;
+    chatMessage: string;
+    chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
+  } | null;
+  chatComposerPrincipalRestore?: {
     sessionKey: string;
     chatMessage: string;
     chatQueue: ChatQueueItem[];
+    chatQueueBySession: Record<string, ChatQueueItem[]>;
+    chatQueuePaused: boolean;
+    chatQueuePausedBySession: Record<string, boolean>;
+    chatAttachments: import("./ui-types.ts").ChatAttachment[];
+    chatLocalInputHistoryBySession: Record<string, Array<{ text: string; ts: number }>>;
+    chatInputHistorySessionKey: string | null;
+    chatInputHistoryItems: string[] | null;
+    chatInputHistoryIndex: number;
+    chatDraftBeforeHistory: string | null;
   } | null;
+  chatComposerPersistenceSuspended?: boolean;
+  chatDetachedSendRecoveries?: ChatDetachedSendRecovery[];
+  chatComposerRetryingCurrentGateway?: boolean;
+  execApprovalGatewayGeneration?: number;
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalBusy: boolean;
   execApprovalError: string | null;
@@ -163,6 +246,12 @@ type GatewayHost = {
   fetchRealtimeTalkCatalog?: () => Promise<void>;
   sessionsChangedReloadTimer?: number | ReturnType<typeof globalThis.setTimeout> | null;
   controlUiBootstrapReady?: Promise<void> | null;
+  activeGatewayConnection?: {
+    gatewayUrl: string;
+    token: string;
+    password: string;
+    scope: string;
+  } | null;
 };
 
 type GatewayHostWithDeferredSessionMessageReload = GatewayHost & {
@@ -737,8 +826,232 @@ function chatQueueMatches(left: ChatQueueItem[], right: ChatQueueItem[]): boolea
   return left.every((item, index) => item === right[index]);
 }
 
-function prepareHelloScopedComposerRestore(host: GatewayHost) {
+type HelloScopedComposerRestore = {
+  persistCurrentComposer: boolean;
+  preserveCurrentQueuePaused: boolean;
+};
+
+function forgetRememberedQueuePause(host: GatewayHost): void {
+  if (!host.chatQueuePausedBySession) {
+    return;
+  }
+  const next = { ...host.chatQueuePausedBySession };
+  delete next[host.sessionKey];
+  host.chatQueuePausedBySession = next;
+}
+
+function restoreDetachedSendRecoveries(host: GatewayHost, gatewayScope: string): boolean {
+  const recoveries = host.chatDetachedSendRecoveries ?? [];
+  const matching = recoveries.filter((recovery) => recovery.gatewayScope === gatewayScope);
+  if (matching.length === 0) {
+    return false;
+  }
+  for (const recovery of matching) {
+    const currentQueue =
+      recovery.sessionKey === host.sessionKey
+        ? host.chatQueue
+        : (host.chatQueueBySession?.[recovery.sessionKey] ?? []);
+    const existingIds = new Set(currentQueue.map((item) => item.id));
+    const nextQueue = [
+      ...currentQueue,
+      ...recovery.queue.filter((item) => !existingIds.has(item.id)),
+    ];
+    if (recovery.sessionKey === host.sessionKey) {
+      host.chatQueue = nextQueue;
+    } else {
+      host.chatQueueBySession = {
+        ...host.chatQueueBySession,
+        [recovery.sessionKey]: nextQueue,
+      };
+    }
+  }
+  const matchingSet = new Set(matching);
+  host.chatDetachedSendRecoveries = recoveries.filter((recovery) => !matchingSet.has(recovery));
+  return true;
+}
+
+type PreviousGatewayComposerIdentity = {
+  settings: { gatewayUrl?: string | null; token?: string | null };
+  password: string;
+  hello: GatewayHelloOk | null;
+};
+
+function clearPendingComposerPersistence(host: GatewayHost): void {
+  if (host.chatComposerPersistTimer != null) {
+    globalThis.clearTimeout(host.chatComposerPersistTimer);
+  }
+  host.chatComposerPersistTimer = null;
+  host.chatComposerPersistSnapshot = null;
+}
+
+function clearGatewayPrincipalState(
+  host: GatewayHost,
+  previousIdentity: PreviousGatewayComposerIdentity,
+): void {
+  if (!host.chatComposerPersistenceSuspended) {
+    // A same-client hello with a new device token is a token rotation. Park
+    // the complete composer before clearing principal projections so a storage
+    // quota or serialization failure cannot discard the operator's work.
+    host.chatComposerPrincipalRestore = {
+      sessionKey: host.sessionKey,
+      chatMessage: host.chatMessage,
+      chatQueue: [...host.chatQueue],
+      chatQueueBySession: Object.fromEntries(
+        Object.entries(host.chatQueueBySession ?? {}).map(([sessionKey, queue]) => [
+          sessionKey,
+          [...queue],
+        ]),
+      ),
+      chatQueuePaused: host.chatQueuePaused === true,
+      chatQueuePausedBySession: { ...host.chatQueuePausedBySession },
+      chatAttachments: [...(host.chatAttachments ?? [])],
+      chatLocalInputHistoryBySession: Object.fromEntries(
+        Object.entries(host.chatLocalInputHistoryBySession ?? {}).map(([sessionKey, entries]) => [
+          sessionKey,
+          entries.map((entry) => ({ ...entry })),
+        ]),
+      ),
+      chatInputHistorySessionKey: host.chatInputHistorySessionKey ?? null,
+      chatInputHistoryItems: host.chatInputHistoryItems ? [...host.chatInputHistoryItems] : null,
+      chatInputHistoryIndex: host.chatInputHistoryIndex ?? -1,
+      chatDraftBeforeHistory: host.chatDraftBeforeHistory ?? null,
+    };
+    persistChatComposerState(
+      {
+        ...host,
+        settings: previousIdentity.settings,
+        password: previousIdentity.password,
+        hello: previousIdentity.hello,
+        chatComposerPersistenceSuspended: false,
+      },
+      host.sessionKey,
+    );
+  }
+  clearPendingComposerPersistence(host);
+  host.chatAttachments = [];
+  host.chatMessage = "";
+  host.chatQueue = [];
+  host.chatQueueBySession = {};
+  host.chatQueuePaused = false;
+  host.chatQueuePausedBySession = {};
+  host.chatQueuePausePendingBySession = {};
+  host.chatQueuePauseTransitionsBySession = {};
+  host.chatQueueCreateTransitionsBySession = {};
+  host.chatQueueGatewayGeneration = (host.chatQueueGatewayGeneration ?? 0) + 1;
+  host.chatSending = false;
+  host.chatSendingGatewayGeneration = null;
+  host.chatSubmitGuards?.clear();
+  host.chatModelSwitchPromises = {};
+  host.chatProjectBusy = false;
+  host.chatGoalBusy = false;
+  host.execApprovalGatewayGeneration = (host.execApprovalGatewayGeneration ?? 0) + 1;
+  host.execApprovalQueue = [];
+  host.execApprovalBusy = false;
+  host.execApprovalError = null;
+  host.chatComposerProvisionalRestore = null;
+  host.chatComposerRetryingCurrentGateway = false;
+  host.chatComposerPersistenceSuspended = true;
+  host.chatMessages = [];
+  host.chatMessagesBySession = new Map();
+  // Clear every projection populated from the old Gateway principal before
+  // the new hello snapshot can render it; otherwise session names, model
+  // results, or tool side-results can cross a credential boundary.
+  host.chatSideResult = null;
+  host.chatSideResultTerminalRuns = new Set();
+  host.sessionsLoading = false;
+  host.sessionsResult = null;
+  host.sessionsResultAgentId = null;
+  host.sessionsError = null;
+  host.chatAgentSessionRowsByAgent = {};
+  host.chatSessionPickerOpen = false;
+  host.chatSessionPickerSurface = null;
+  host.chatSessionPickerQuery = "";
+  host.chatSessionPickerAppliedQuery = "";
+  host.chatSessionPickerLoading = false;
+  host.chatSessionPickerError = null;
+  host.chatSessionPickerResult = null;
+  host.chatModelOverrides = {};
+  host.sessionsExpandedCheckpointKey = null;
+  host.sessionsCheckpointItemsByKey = {};
+  host.sessionsCheckpointLoadingKey = null;
+  host.sessionsCheckpointBusyKey = null;
+  host.sessionsCheckpointErrorByKey = {};
+  host.chatToolMessages = [];
+  host.chatStream = null;
+  host.chatStreamSegments = [];
+  host.chatStreamStartedAt = null;
+  host.chatTargetRunId = null;
+  host.chatTargetAuditTs = null;
+  host.chatTargetStatus = null;
+  host.chatLocalInputHistoryBySession = {};
+  host.chatInputHistorySessionKey = null;
+  host.chatInputHistoryItems = null;
+  host.chatInputHistoryIndex = -1;
+  host.chatDraftBeforeHistory = null;
+  host.sidebarContent = null;
+  host.sidebarError = null;
+  reconcileChatRunLifecycle(host as unknown as Parameters<typeof reconcileChatRunLifecycle>[0], {
+    clearLocalRun: true,
+    clearChatStream: true,
+    clearToolStream: true,
+    clearSideResultTerminalRuns: true,
+    clearRunStatus: true,
+  });
+}
+
+function prepareHelloScopedComposerRestore(
+  host: GatewayHost,
+  options: { principalChanged?: boolean } = {},
+): HelloScopedComposerRestore {
+  if (options.principalChanged) {
+    const principalRestore = host.chatComposerPrincipalRestore;
+    host.chatComposerPrincipalRestore = null;
+    if (principalRestore) {
+      host.chatMessage = principalRestore.chatMessage;
+      host.chatQueue = [...principalRestore.chatQueue];
+      host.chatQueueBySession = Object.fromEntries(
+        Object.entries(principalRestore.chatQueueBySession).map(([sessionKey, queue]) => [
+          sessionKey,
+          [...queue],
+        ]),
+      );
+      host.chatQueuePaused = principalRestore.chatQueuePaused;
+      host.chatQueuePausedBySession = { ...principalRestore.chatQueuePausedBySession };
+      host.chatAttachments = [...principalRestore.chatAttachments];
+      host.chatLocalInputHistoryBySession = Object.fromEntries(
+        Object.entries(principalRestore.chatLocalInputHistoryBySession).map(
+          ([sessionKey, entries]) => [sessionKey, entries.map((entry) => ({ ...entry }))],
+        ),
+      );
+      host.chatInputHistorySessionKey = principalRestore.chatInputHistorySessionKey;
+      host.chatInputHistoryItems = principalRestore.chatInputHistoryItems
+        ? [...principalRestore.chatInputHistoryItems]
+        : null;
+      host.chatInputHistoryIndex = principalRestore.chatInputHistoryIndex;
+      host.chatDraftBeforeHistory = principalRestore.chatDraftBeforeHistory;
+      return { persistCurrentComposer: true, preserveCurrentQueuePaused: true };
+    }
+    host.chatComposerProvisionalRestore = null;
+    return { persistCurrentComposer: false, preserveCurrentQueuePaused: false };
+  }
   const provisional = host.chatComposerProvisionalRestore;
+  const resolvedGatewayScope = normalizeGatewayComposerScope(
+    host.settings.gatewayUrl,
+    host.hello?.auth?.deviceToken || host.settings.token || host.password,
+  );
+  if (host.chatComposerRetryingCurrentGateway) {
+    const credentialMatches = !provisional || provisional.gatewayScope === resolvedGatewayScope;
+    host.chatComposerRetryingCurrentGateway = false;
+    host.chatComposerProvisionalRestore = null;
+    if (!credentialMatches) {
+      host.chatMessage = "";
+      host.chatQueue = [];
+      host.chatQueuePaused = false;
+      forgetRememberedQueuePause(host);
+      return { persistCurrentComposer: false, preserveCurrentQueuePaused: false };
+    }
+    return { persistCurrentComposer: true, preserveCurrentQueuePaused: true };
+  }
   host.chatComposerProvisionalRestore = null;
   const snapshot = host.hello?.snapshot as
     | { sessionDefaults?: SessionDefaultsSnapshot }
@@ -746,23 +1059,58 @@ function prepareHelloScopedComposerRestore(host: GatewayHost) {
   const provisionalSessionKey = provisional
     ? normalizeSessionKeyForDefaults(provisional.sessionKey, snapshot?.sessionDefaults ?? {})
     : "";
-  if (!provisional || !areUiSessionKeysEquivalent(provisionalSessionKey, host.sessionKey)) {
-    return;
+  if (!provisional) {
+    return { persistCurrentComposer: false, preserveCurrentQueuePaused: true };
   }
-  if (
+  // restoreChatComposerState records the resolved pause value in the session map. Comparing
+  // it with the provisional snapshot distinguishes that restore from a real user edit.
+  const pauseChangedDuringGatewaySwitch = host.chatQueuePaused !== provisional.chatQueuePaused;
+  const preserveCurrentQueuePaused =
+    pauseChangedDuringGatewaySwitch && host.chatQueuePaused === true;
+  const composerChanged =
     host.chatMessage !== provisional.chatMessage ||
-    !chatQueueMatches(host.chatQueue, provisional.chatQueue)
-  ) {
-    return;
+    !chatQueueMatches(host.chatQueue, provisional.chatQueue);
+  if (!areUiSessionKeysEquivalent(provisionalSessionKey, host.sessionKey)) {
+    // A Gateway switch resets the visible pause latch before hello. Restore the
+    // target session's pause unless the user explicitly changed it after the switch.
+    return {
+      persistCurrentComposer: composerChanged || pauseChangedDuringGatewaySwitch,
+      preserveCurrentQueuePaused,
+    };
   }
   if (!loadChatComposerSnapshot(host, host.sessionKey)) {
-    return;
+    const preserveUnscopedQueuePaused = pauseChangedDuringGatewaySwitch
+      ? preserveCurrentQueuePaused
+      : provisional.chatQueuePaused;
+    if (!preserveUnscopedQueuePaused) {
+      forgetRememberedQueuePause(host);
+    }
+    return {
+      persistCurrentComposer:
+        composerChanged ||
+        pauseChangedDuringGatewaySwitch ||
+        Boolean(provisional.chatMessage.trim()) ||
+        provisional.chatQueue.length > 0 ||
+        provisional.chatQueuePaused,
+      preserveCurrentQueuePaused: preserveUnscopedQueuePaused,
+    };
   }
+  if (composerChanged || pauseChangedDuringGatewaySwitch) {
+    if (!pauseChangedDuringGatewaySwitch) {
+      forgetRememberedQueuePause(host);
+    }
+    return {
+      persistCurrentComposer: true,
+      preserveCurrentQueuePaused,
+    };
+  }
+  forgetRememberedQueuePause(host);
   // The pre-hello restore used fallback agent scope for offline recovery.
   // Once hello resolves the real scope, clear only an untouched provisional
   // draft so the scoped restore can replace it without clobbering user edits.
   host.chatMessage = "";
   host.chatQueue = [];
+  return { persistCurrentComposer: false, preserveCurrentQueuePaused: false };
 }
 
 async function loadAgentsThenRefreshActiveTab(host: GatewayHost) {
@@ -786,8 +1134,43 @@ async function loadAgentsThenRefreshActiveTab(host: GatewayHost) {
     return;
   }
   try {
+    const composerBeforeAgentResolution = {
+      chatMessage: host.chatMessage,
+      chatQueue: [...host.chatQueue],
+      chatQueuePaused: host.chatQueuePaused === true,
+    };
     await loadAgents(host as unknown as AgentsState);
-    refreshAfterAgents = fallbackUnconfiguredSessionSelection(host) || refreshAfterAgents;
+    const sessionFallbackChanged = fallbackUnconfiguredSessionSelection(host);
+    if (sessionFallbackChanged) {
+      const composerChangedDuringAgentResolution =
+        host.chatMessage !== composerBeforeAgentResolution.chatMessage ||
+        !chatQueueMatches(host.chatQueue, composerBeforeAgentResolution.chatQueue) ||
+        (host.chatQueuePaused === true) !== composerBeforeAgentResolution.chatQueuePaused;
+      if (!composerChangedDuringAgentResolution) {
+        // Agent fallback changes the storage scope. Restore the target scope
+        // after the new agent catalog is known, or the target draft/queue is
+        // invisible until the next reload.
+        restoreChatComposerState(
+          host as unknown as Parameters<typeof restoreChatComposerState>[0],
+          {
+            sessionKey: host.sessionKey,
+            // The visible composer may contain edits made before or while
+            // agent discovery ran. Preserve them while rebinding the scope;
+            // an empty composer still loads the resolved target snapshot.
+            preserveCurrent: true,
+            preserveCurrentQueuePaused: composerBeforeAgentResolution.chatQueuePaused,
+          },
+        );
+      } else {
+        // Preserve edits made while the agent catalog was loading, but bind
+        // them to the resolved session before the next reconnect.
+        persistChatComposerState(
+          host as unknown as Parameters<typeof persistChatComposerState>[0],
+          host.sessionKey,
+        );
+      }
+    }
+    refreshAfterAgents = sessionFallbackChanged || refreshAfterAgents;
   } catch (err: unknown) {
     agentsError = normalizeStartupRefreshError(err);
   }
@@ -825,6 +1208,12 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
   shutdownHost.pendingShutdownMessage = null;
   shutdownHost.resumeChatQueueAfterReconnect = false;
   clearSessionsChangedReloadTimer(host);
+  const connectionAtStart = host.activeGatewayConnection;
+  const identityAtStart: PreviousGatewayComposerIdentity = {
+    settings: { ...host.settings },
+    password: host.password,
+    hello: host.hello,
+  };
   host.lastError = null;
   host.lastErrorCode = null;
   host.chatError = null;
@@ -864,15 +1253,72 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
       host.lastError = null;
       host.lastErrorCode = null;
       host.chatError = null;
+      const previousHello = host.hello;
+      const effectiveCredential =
+        hello.auth?.deviceToken || host.settings.token.trim() || host.password.trim() || "";
+      const effectiveGatewayScope = normalizeGatewayComposerScope(
+        host.settings.gatewayUrl,
+        effectiveCredential,
+      );
+      const previousGatewayScope =
+        host.activeGatewayConnection?.scope ?? connectionAtStart?.scope ?? null;
+      const previousIdentity = previousHello
+        ? {
+            settings: { ...host.settings },
+            password: host.password,
+            hello: previousHello,
+          }
+        : identityAtStart;
+      const principalChanged =
+        previousGatewayScope !== null && previousGatewayScope !== effectiveGatewayScope;
+      // Explicit Gateway switches already cleared and parked the old
+      // principal's composer state before this client reached hello. Only a
+      // same-client credential rotation needs this additional boundary reset.
+      const needsPrincipalBoundaryReset =
+        principalChanged && !host.chatComposerPersistenceSuspended;
+      const sameGatewayEndpoint =
+        normalizeGatewayCredentialScope(previousIdentity.settings.gatewayUrl ?? "") ===
+        normalizeGatewayCredentialScope(host.settings.gatewayUrl ?? "");
+      if (needsPrincipalBoundaryReset) {
+        clearGatewayPrincipalState(host, previousIdentity);
+      }
       host.hello = hello;
+      if (needsPrincipalBoundaryReset && sameGatewayEndpoint) {
+        migrateChatComposerState(previousIdentity, {
+          settings: { ...host.settings },
+          password: host.password,
+          hello,
+          chatComposerMemoryOwner: host.chatComposerMemoryOwner,
+        });
+      }
+      host.activeGatewayConnection = {
+        gatewayUrl: host.settings.gatewayUrl,
+        token: host.settings.token,
+        password: host.password,
+        scope: effectiveGatewayScope,
+      };
       if (host.realtimeTalkOptionsOpen) {
         void host.fetchRealtimeTalkCatalog?.();
       }
       applySnapshot(host, hello);
-      prepareHelloScopedComposerRestore(host);
+      const composerRestore = prepareHelloScopedComposerRestore(host, {
+        principalChanged: needsPrincipalBoundaryReset,
+      });
       restoreChatComposerState(host as unknown as Parameters<typeof restoreChatComposerState>[0], {
         preserveCurrent: true,
+        preserveCurrentQueuePaused: composerRestore.preserveCurrentQueuePaused,
       });
+      host.chatComposerPersistenceSuspended = false;
+      if (composerRestore.persistCurrentComposer) {
+        persistChatComposerState(
+          host as unknown as Parameters<typeof persistChatComposerState>[0],
+          host.sessionKey,
+        );
+      }
+      if (restoreDetachedSendRecoveries(host, effectiveGatewayScope)) {
+        host.chatError =
+          "A detached message was restored after reconnecting to its original Gateway.";
+      }
       // Process any pending abort from before the disconnect.
       if (host.pendingAbort) {
         const abort = host.pendingAbort;
@@ -964,6 +1410,37 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
         return;
       }
       host.connected = false;
+      let preserveProvisionalComposer = false;
+      // A Gateway switch suspends browser persistence only until the new
+      // client proves it reached hello. If it closes first, keep new drafts
+      // and queue items in the provisional scope instead of writing them under
+      // an unresolved target agent and replacing that Gateway's stored queue.
+      if (host.chatComposerPersistenceSuspended) {
+        const provisional = host.chatComposerProvisionalRestore;
+        const composerChanged =
+          !provisional ||
+          !areUiSessionKeysEquivalent(provisional.sessionKey, host.sessionKey) ||
+          host.chatMessage !== provisional.chatMessage ||
+          !chatQueueMatches(host.chatQueue, provisional.chatQueue) ||
+          host.chatQueuePaused !== provisional.chatQueuePaused;
+        if (composerChanged) {
+          // The target Gateway's agent scope is unknown until hello. Keep the
+          // edits beside the provisional restore so the next hello can merge
+          // them after resolving the target scope rather than clobbering a
+          // target queue with the old Gateway's empty in-memory queue.
+          host.chatComposerProvisionalRestore = {
+            sessionKey: provisional?.sessionKey ?? host.sessionKey,
+            ...(provisional?.gatewayScope ? { gatewayScope: provisional.gatewayScope } : {}),
+            chatMessage: host.chatMessage,
+            chatQueue: [...host.chatQueue],
+            chatQueuePaused: host.chatQueuePaused === true,
+          };
+        }
+        preserveProvisionalComposer = Boolean(host.chatComposerProvisionalRestore);
+      }
+      if (!preserveProvisionalComposer) {
+        host.chatComposerPersistenceSuspended = false;
+      }
       const currentSessionId =
         typeof host.currentSessionId === "string" ? host.currentSessionId.trim() : "";
       if (currentSessionId) {
@@ -1025,6 +1502,19 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
       connectGateway(host, { reason: "seq-gap" });
     },
   });
+  if (previousClient) {
+    // Replacing a client invalidates its in-flight ACKs. Reclassify their
+    // queue items before the new client can observe or retry them, and clear
+    // the old global sending latch so the replacement can make progress.
+    markQueuedChatSendsWaitingForReconnect(
+      host as unknown as Parameters<typeof markQueuedChatSendsWaitingForReconnect>[0],
+    );
+    host.chatSending = false;
+    host.chatSendingGatewayGeneration = null;
+    // Approval requests use the same client-generation boundary. Release the
+    // old latch before the replacement client can receive new approvals.
+    host.execApprovalBusy = false;
+  }
   host.client = client;
   previousClient?.stop();
   client.start();

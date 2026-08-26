@@ -51,7 +51,12 @@ import {
   type ChatMetadataResult,
   type ChatState,
 } from "./chat-history.ts";
-import { clearPendingQueueItemsForRun, removeQueuedMessage } from "./chat-queue.ts";
+import {
+  clearPendingQueueItemsForRun,
+  isChatQueuePausedForSession,
+  removeQueuedMessage,
+  setChatQueuePausedForSession,
+} from "./chat-queue.ts";
 import {
   attachChatRealtimeActions,
   createInitialChatRealtimeState,
@@ -135,8 +140,12 @@ export type ChatPageHost = ChatHost &
     chatMessageMaxWidth: string | null;
     chatToolMessages: Record<string, unknown>[];
     chatAttachments: ChatAttachment[];
+    chatComposerMemoryOwner: object;
     chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
+    chatQueuePausedBySession?: Record<string, boolean>;
     chatQueueBySession: Record<string, ChatQueueItem[]>;
+    chatQueueGatewayGeneration: number;
     chatMessagesBySession: Map<string, unknown[]>;
     basePath: string;
     chatAvatarUrl: string | null;
@@ -216,6 +225,7 @@ export type ChatPageHost = ChatHost &
     removeQueuedMessage: (id: string) => void;
     retryQueuedChatMessage: (id: string) => Promise<void>;
     steerQueuedChatMessage: (id: string) => Promise<void>;
+    toggleChatQueuePaused: () => void;
     handleOpenSidebar: (content: Parameters<SessionWorkspaceHost["handleOpenSidebar"]>[0]) => void;
     handleCloseSidebar: () => void;
     handleSplitRatioChange: (ratio: number) => void;
@@ -225,6 +235,102 @@ export type ChatPageHost = ChatHost &
     refreshCurrentSessionTools?: () => Promise<void>;
     refreshCurrentChat?: () => Promise<void>;
   };
+
+export type ChatGatewayComposerSnapshot = {
+  sessionKey: string;
+  chatMessage: string;
+  chatQueue: ChatQueueItem[];
+  chatQueueBySession: Record<string, ChatQueueItem[]>;
+  chatQueuePaused: boolean;
+  chatQueuePausedBySession: Record<string, boolean>;
+  chatAttachments: ChatAttachment[];
+  chatReplyTarget: NonNullable<ChatPageHost["chatReplyTarget"]> | null;
+  chatLocalInputHistoryBySession: Record<string, Array<{ text: string; ts: number }>>;
+  chatInputHistorySessionKey: string | null;
+  chatInputHistoryItems: string[] | null;
+  chatInputHistoryIndex: number;
+  chatDraftBeforeHistory: string | null;
+};
+
+export function snapshotChatGatewayComposerState(state: ChatPageHost): ChatGatewayComposerSnapshot {
+  return {
+    sessionKey: state.sessionKey,
+    chatMessage: state.chatMessage,
+    chatQueue: [...state.chatQueue],
+    chatQueueBySession: Object.fromEntries(
+      Object.entries(state.chatQueueBySession).map(([sessionKey, queue]) => [
+        sessionKey,
+        [...queue],
+      ]),
+    ),
+    chatQueuePaused: state.chatQueuePaused,
+    chatQueuePausedBySession: { ...state.chatQueuePausedBySession },
+    chatAttachments: [...state.chatAttachments],
+    chatReplyTarget: state.chatReplyTarget ? { ...state.chatReplyTarget } : null,
+    chatLocalInputHistoryBySession: Object.fromEntries(
+      Object.entries(state.chatLocalInputHistoryBySession).map(([sessionKey, entries]) => [
+        sessionKey,
+        entries.map((entry) => ({ ...entry })),
+      ]),
+    ),
+    chatInputHistorySessionKey: state.chatInputHistorySessionKey,
+    chatInputHistoryItems: state.chatInputHistoryItems ? [...state.chatInputHistoryItems] : null,
+    chatInputHistoryIndex: state.chatInputHistoryIndex,
+    chatDraftBeforeHistory: state.chatDraftBeforeHistory,
+  };
+}
+
+export function clearChatGatewayComposerState(state: ChatPageHost): void {
+  state.chatMessage = "";
+  state.chatQueue = [];
+  state.chatQueueBySession = {};
+  state.chatQueuePaused = false;
+  state.chatQueuePausedBySession = {};
+  state.chatAttachments = [];
+  state.chatReplyTarget = null;
+  state.chatLocalInputHistoryBySession = {};
+  state.chatInputHistorySessionKey = null;
+  state.chatInputHistoryItems = null;
+  state.chatInputHistoryIndex = -1;
+  state.chatDraftBeforeHistory = null;
+}
+
+export function restoreChatGatewayComposerState(
+  state: ChatPageHost,
+  snapshot: ChatGatewayComposerSnapshot,
+  rebindSession?: (sessionKey: string) => string | null,
+): void {
+  // A Gateway snapshot belongs to the session that was active when the
+  // connection changed. Rebind before restoring visible composer fields so
+  // a later session selection cannot send that draft or queue to another key.
+  if (!areUiSessionKeysEquivalent(state.sessionKey, snapshot.sessionKey)) {
+    state.sessionKey = rebindSession?.(snapshot.sessionKey) ?? snapshot.sessionKey;
+  }
+  state.chatMessage = snapshot.chatMessage;
+  state.chatQueue = [...snapshot.chatQueue];
+  state.chatQueueBySession = Object.fromEntries(
+    Object.entries(snapshot.chatQueueBySession).map(([sessionKey, queue]) => [
+      sessionKey,
+      [...queue],
+    ]),
+  );
+  state.chatQueuePaused = snapshot.chatQueuePaused;
+  state.chatQueuePausedBySession = { ...snapshot.chatQueuePausedBySession };
+  state.chatAttachments = [...snapshot.chatAttachments];
+  state.chatReplyTarget = snapshot.chatReplyTarget ? { ...snapshot.chatReplyTarget } : null;
+  state.chatLocalInputHistoryBySession = Object.fromEntries(
+    Object.entries(snapshot.chatLocalInputHistoryBySession ?? {}).map(([sessionKey, entries]) => [
+      sessionKey,
+      entries.map((entry) => ({ ...entry })),
+    ]),
+  );
+  state.chatInputHistorySessionKey = snapshot.chatInputHistorySessionKey ?? null;
+  state.chatInputHistoryItems = snapshot.chatInputHistoryItems
+    ? [...snapshot.chatInputHistoryItems]
+    : null;
+  state.chatInputHistoryIndex = snapshot.chatInputHistoryIndex ?? -1;
+  state.chatDraftBeforeHistory = snapshot.chatDraftBeforeHistory ?? null;
+}
 
 type PendingCreatedSessionComposer = {
   sessionKey: string;
@@ -349,6 +455,7 @@ export function resetChatStateForRouteSession(state: ChatPageHost, sessionKey: s
   state.chatAvatarReason = null;
   resetChatRealtimeConversation(state);
   state.chatQueue = restoreChatQueueForSession(state, sessionKey);
+  state.chatQueuePaused = state.chatQueuePausedBySession?.[sessionKey] === true;
   restoreChatComposerState(state);
   state.resetChatInputHistoryNavigation();
   state.chatStreamStartedAt = null;
@@ -957,13 +1064,19 @@ export function createPageState(
   requestUpdate: () => void,
   page: ChatPageElement,
 ): ChatPageHost {
-  const settings = loadSettings();
+  const storedSettings = loadSettings();
+  const connection = context.gateway.connection;
+  const settings = {
+    ...storedSettings,
+    gatewayUrl: connection.gatewayUrl,
+    token: connection.token,
+  };
   const identity = loadLocalUserIdentity();
   const appConfig = context.config.current;
   const state = {
     sessions: context.sessions,
     settings,
-    password: "",
+    password: connection.password,
     onboarding: false,
     assistantName: appConfig.assistantIdentity.name,
     assistantAvatar: null,
@@ -980,9 +1093,13 @@ export function createPageState(
     client: null,
     connected: false,
     hello: null,
+    // Password-only sessions cannot use browser storage; keep their draft and
+    // queue in an owner-scoped in-memory store for this live page only.
+    chatComposerMemoryOwner: {},
+    chatComposerPersistenceSuspended: false,
     terminalAvailable: false,
     assistantAgentId: context.agentSelection.state.selectedId,
-    sessionKey: settings.sessionKey,
+    sessionKey: context.gateway.snapshot.sessionKey || settings.sessionKey,
     chatLoading: false,
     chatSending: false,
     chatMessage: "",
@@ -992,6 +1109,7 @@ export function createPageState(
     chatVerboseLevel: null,
     chatAttachments: [] as ChatAttachment[],
     chatRunId: null,
+    chatQueueGatewayGeneration: 0,
     chatStream: null,
     chatStreamStartedAt: null,
     lastError: null,
@@ -1029,6 +1147,8 @@ export function createPageState(
     chatSubmitGuards: new Map<string, Promise<void>>(),
     chatSendTimingsByRun: new Map<string, ChatSendTimingEntry>(),
     chatQueue: [] as ChatQueueItem[],
+    chatQueuePaused: false,
+    chatQueuePausedBySession: {} as Record<string, boolean>,
     chatQueueBySession: {} as Record<string, ChatQueueItem[]>,
     chatMessagesBySession: new Map<string, unknown[]>(),
     eventLogBuffer: [] as unknown[],
@@ -1135,6 +1255,22 @@ export function createPageState(
   state.steerQueuedChatMessage = async (id) => {
     await steerQueuedChatMessage(state, id);
     requestUpdate();
+  };
+  state.toggleChatQueuePaused = () => {
+    const sessionKey = state.sessionKey;
+    const paused = !isChatQueuePausedForSession(state, sessionKey);
+    if (
+      !setChatQueuePausedForSession(state, sessionKey, paused, {
+        requirePersistence: true,
+      })
+    ) {
+      state.chatError = `Could not ${paused ? "pause" : "resume"} new messages safely because this browser could not save the queue state. Retry.`;
+      requestUpdate();
+      return;
+    }
+    if (!paused) {
+      void flushChatQueueForEvent(state);
+    }
   };
   state.handleOpenSidebar = (content) => {
     state.sidebarContent = content;

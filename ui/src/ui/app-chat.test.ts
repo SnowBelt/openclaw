@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createStorageMock } from "../test-helpers/storage.ts";
 import type { ChatHost } from "./app-chat.ts";
 import {
   getChatAttachmentDataUrl,
@@ -9,6 +10,7 @@ import {
   releaseChatAttachmentPayloads,
   resetChatAttachmentPayloadStoreForTest,
 } from "./chat/attachment-payload-store.ts";
+import { loadChatComposerSnapshot, persistChatComposerState } from "./chat/composer-persistence.ts";
 import type { executeSlashCommand } from "./chat/slash-command-executor.ts";
 import { loadSessions } from "./controllers/sessions.ts";
 import type { GatewaySessionRow, SessionsListResult } from "./types.ts";
@@ -53,6 +55,8 @@ let removeQueuedMessage: typeof import("./app-chat.ts").removeQueuedMessage;
 let retryQueuedChatMessage: typeof import("./app-chat.ts").retryQueuedChatMessage;
 let markQueuedChatSendsWaitingForReconnect: typeof import("./app-chat.ts").markQueuedChatSendsWaitingForReconnect;
 let retryReconnectableQueuedChatSends: typeof import("./app-chat.ts").retryReconnectableQueuedChatSends;
+let setChatQueuePaused: typeof import("./app-chat.ts").setChatQueuePaused;
+let loadServerChatTurns: typeof import("./app-chat.ts").loadServerChatTurns;
 let recordChatSendServerTiming: typeof import("./app-chat.ts").recordChatSendServerTiming;
 let recordFirstAssistantChatTiming: typeof import("./app-chat.ts").recordFirstAssistantChatTiming;
 
@@ -70,6 +74,8 @@ async function loadChatHelpers(): Promise<void> {
     retryQueuedChatMessage,
     markQueuedChatSendsWaitingForReconnect,
     retryReconnectableQueuedChatSends,
+    setChatQueuePaused,
+    loadServerChatTurns,
     recordChatSendServerTiming,
     recordFirstAssistantChatTiming,
   } = await import("./app-chat.ts"));
@@ -1249,6 +1255,7 @@ describe("handleSendChat", () => {
   beforeEach(() => {
     executeSlashCommandMock.mockReset();
     setLastActiveSessionKeyMock.mockReset();
+    vi.stubGlobal("sessionStorage", createStorageMock());
   });
 
   afterEach(() => {
@@ -2182,6 +2189,35 @@ describe("handleSendChat", () => {
     expect(payload.message).toBe("wait for selected model");
   });
 
+  it("recovers a model-wait send when the Gateway changes before the update finishes", async () => {
+    const switchUpdate = createDeferred<boolean>();
+    const clientA = { request: vi.fn() };
+    const clientB = { request: vi.fn() };
+    const host = makeHost({
+      client: clientA as unknown as ChatHost["client"],
+      chatQueueGatewayGeneration: 1,
+      chatMessage: "recover after Gateway change",
+      chatModelSwitchPromises: { "agent:main": switchUpdate.promise },
+    });
+
+    const send = handleSendChat(host);
+    await Promise.resolve();
+    expect(host.chatQueue[0]?.sendState).toBe("waiting-model");
+
+    host.client = clientB as unknown as ChatHost["client"];
+    host.chatQueueGatewayGeneration = 2;
+    switchUpdate.resolve(true);
+    await send;
+
+    expect(clientA.request).not.toHaveBeenCalled();
+    expect(host.chatQueue[0]).toMatchObject({
+      text: "recover after Gateway change",
+      sendState: "waiting-reconnect",
+      sendError:
+        "Gateway changed before this message was accepted. It is ready to retry after reconnect.",
+    });
+  });
+
   it("keeps slash-command model changes in sync with the chat header cache", async () => {
     vi.stubGlobal(
       "fetch",
@@ -2315,6 +2351,73 @@ describe("handleSendChat", () => {
     expect(host.chatMessage).toBe("");
     expect(navigateChatInputHistory(host, "up")).toBe(true);
     expect(host.chatMessage).toBe("/btw what changed?");
+  });
+
+  it("does not send detached /btw messages while the chat queue is paused", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueuePaused: true,
+      chatMessage: "/btw wait until resumed",
+    });
+
+    await handleSendChat(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatMessage).toBe("/btw wait until resumed");
+    expect(host.chatError).toBe("Chat is paused; resume it before sending a detached message.");
+  });
+
+  it("sends /approve directly while a paused run is waiting for approval", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { status: "started" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueuePaused: true,
+      chatRunId: "run-main",
+      chatStream: "Waiting for approval...",
+      chatMessage: "/approve approval-123 allow-once",
+    });
+
+    await handleSendChat(host);
+
+    const payload = findRequestPayload(
+      request as unknown as MockCallSource,
+      "chat.send",
+      "approval command payload",
+    );
+    expect(payload.message).toBe("/approve approval-123 allow-once");
+    expect(payload.deliver).toBe(false);
+    expect(host.chatQueue).toStrictEqual([]);
+  });
+
+  it("does not send a detached /btw message if the queue pauses during a model wait", async () => {
+    const switchUpdate = createDeferred<boolean>();
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return {};
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "/btw wait until resumed",
+      chatModelSwitchPromises: { "agent:main": switchUpdate.promise },
+    });
+
+    const send = handleSendChat(host);
+    await Promise.resolve();
+    host.chatQueuePaused = true;
+    switchUpdate.resolve(true);
+    await send;
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatMessage).toBe("/btw wait until resumed");
+    expect(host.chatError).toBe("Chat is paused; resume it before sending a detached message.");
   });
 
   it("sends /side through the detached BTW path", async () => {
@@ -2479,6 +2582,515 @@ describe("handleSendChat", () => {
         kind: "steered",
       }),
     ]);
+  });
+
+  it("keeps durable Gateway turns running while pausing new messages", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [
+        {
+          id: "turn-1",
+          text: "keep this queued",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+          serverTurnId: "turn-1",
+          serverRevision: 1,
+          serverPhase: "pending",
+          serverAdmissionOpen: true,
+        },
+      ],
+    });
+
+    expect(await setChatQueuePaused(host, true)).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueuePaused).toBe(true);
+    expect(host.chatQueue[0]).toMatchObject({
+      id: "turn-1",
+      text: "keep this queued",
+      kind: "queued",
+      serverTurnId: "turn-1",
+      serverPhase: "pending",
+    });
+  });
+
+  it("pauses without touching restored server-turn attachments", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [
+        {
+          id: "turn-with-file",
+          text: "keep the file attached",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+          serverTurnId: "turn-with-file",
+          serverRevision: 1,
+          serverPhase: "pending",
+          serverAdmissionOpen: true,
+          serverAttachmentCount: 1,
+        },
+      ],
+    });
+
+    expect(await setChatQueuePaused(host, true)).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueuePaused).toBe(true);
+    expect(host.chatQueue[0]).toMatchObject({
+      id: "turn-with-file",
+      serverTurnId: "turn-with-file",
+      serverAttachmentCount: 1,
+    });
+    expect(host.chatError).toBeUndefined();
+  });
+
+  it("does not retry a durable turn while the queue is paused", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main": true },
+      chatQueue: [
+        {
+          id: "turn-paused",
+          text: "do not retry this yet",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+          serverTurnId: "turn-paused",
+          serverRevision: 2,
+          serverPhase: "pending",
+          serverAdmissionOpen: true,
+        },
+      ],
+    });
+
+    await retryQueuedChatMessage(host, "turn-paused");
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatError).toContain("Queue is paused");
+  });
+
+  it("flushes local queued messages when resuming an idle paused queue", async () => {
+    const request = vi.fn(async (method: string) => {
+      expect(method).toBe("chat.send");
+      return { runId: "resumed-run", status: "ok" };
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main": true },
+      chatQueue: [
+        {
+          id: "paused-local",
+          text: "send this after resume",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+        },
+      ],
+    });
+
+    expect(await setChatQueuePaused(host, false)).toBe(false);
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "chat.send",
+        expect.objectContaining({ message: "send this after resume" }),
+      ),
+    );
+    expect(host.chatQueue).toEqual([]);
+  });
+
+  it("flushes resumed local messages through the durable turn inbox", async () => {
+    const request = vi.fn(async (method: string) => {
+      expect(method).toBe("chat.turns.create");
+      return {
+        turn: {
+          id: "turn-resumed",
+          sessionKey: "agent:main",
+          revision: 1,
+          mode: "queue",
+          phase: "pending",
+          message: "send this durably after resume",
+          attachmentCount: 0,
+          admissionOpen: true,
+          lastActivityAt: 100,
+          createdAt: 100,
+          updatedAt: 100,
+        },
+      };
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main": true },
+      chatQueue: [
+        {
+          id: "paused-durable",
+          text: "send this durably after resume",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+        },
+      ],
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.create", "chat.turns.list"],
+        },
+      },
+    });
+
+    expect(await setChatQueuePaused(host, false)).toBe(false);
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "chat.turns.create",
+        expect.objectContaining({
+          message: "send this durably after resume",
+          mode: "queue",
+        }),
+      ),
+    );
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({ id: "turn-resumed", serverTurnId: "turn-resumed" }),
+    ]);
+  });
+
+  it("blocks new sends while an in-flight Gateway create completes", async () => {
+    const create = createDeferred<{
+      turn: {
+        id: string;
+        sessionKey: string;
+        revision: number;
+        mode: "queue";
+        phase: "pending";
+        message: string;
+        attachmentCount: number;
+        admissionOpen: boolean;
+        lastActivityAt: number;
+        createdAt: number;
+        updatedAt: number;
+      };
+    }>();
+    const request = vi.fn(async (method: string) => {
+      expect(method).toBe("chat.turns.create");
+      return await create.promise;
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "wait for Gateway acknowledgement",
+      chatRunId: "active-1",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.create", "chat.turns.list"],
+        },
+      },
+    });
+
+    const send = handleSendChat(host);
+    await Promise.resolve();
+    const pause = setChatQueuePaused(host, true);
+    await Promise.resolve();
+    expect(host.chatQueuePaused).toBe(true);
+    expect(host.chatQueuePausePendingBySession?.["agent:main"]).toBe(true);
+
+    host.chatMessage = "must wait";
+    await handleSendChat(host);
+
+    expect(host.chatQueue).toHaveLength(1);
+    expect(host.chatQueue[0]?.text).toBe("wait for Gateway acknowledgement");
+    expect(request).toHaveBeenCalledTimes(1);
+
+    create.resolve({
+      turn: {
+        id: "turn-created-before-pause",
+        sessionKey: "agent:main",
+        revision: 1,
+        mode: "queue",
+        phase: "pending",
+        message: "wait for Gateway acknowledgement",
+        attachmentCount: 0,
+        admissionOpen: true,
+        lastActivityAt: 100,
+        createdAt: 100,
+        updatedAt: 100,
+      },
+    });
+    await send;
+    expect(await pause).toBe(true);
+    expect(host.chatQueuePausePendingBySession?.["agent:main"]).toBeUndefined();
+    expect(host.chatQueue[0]?.serverTurnId).toBe("turn-created-before-pause");
+  });
+
+  it("clears a speculative pause when its Gateway changes before persistence", async () => {
+    const create = createDeferred<boolean>();
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueueCreateTransitionsBySession: {
+        "agent:main": new Set([create.promise]),
+      },
+    });
+
+    const pause = setChatQueuePaused(host, true);
+    await Promise.resolve();
+    expect(host.chatQueuePaused).toBe(true);
+
+    host.client = { request } as unknown as ChatHost["client"];
+    host.chatQueueGatewayGeneration = 1;
+    create.resolve(false);
+
+    expect(await pause).toBe(false);
+    expect(host.chatQueuePaused).toBe(false);
+    expect(host.chatQueuePausedBySession?.["agent:main"]).toBe(false);
+    expect(host.chatQueuePausePendingBySession?.["agent:main"]).toBeUndefined();
+  });
+
+  it("keeps a turn created before pause durable", async () => {
+    const create = createDeferred<{
+      turn: {
+        id: string;
+        sessionKey: string;
+        revision: number;
+        mode: "queue";
+        phase: "pending";
+        message: string;
+        attachmentCount: number;
+        admissionOpen: boolean;
+        lastActivityAt: number;
+        createdAt: number;
+        updatedAt: number;
+      };
+    }>();
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.turns.create") {
+        return await create.promise;
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "continue if pause wins",
+      chatRunId: "active-1",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.create", "chat.turns.list"],
+        },
+      },
+    });
+
+    const send = handleSendChat(host);
+    await Promise.resolve();
+    expect(request).toHaveBeenCalledWith("chat.turns.create", expect.any(Object));
+
+    const pause = setChatQueuePaused(host, true);
+    await Promise.resolve();
+    expect(host.chatQueuePaused).toBe(true);
+    expect(host.chatQueuePausePendingBySession?.["agent:main"]).toBe(true);
+
+    create.resolve({
+      turn: {
+        id: "turn-created-during-pause",
+        sessionKey: "agent:main",
+        revision: 1,
+        mode: "queue",
+        phase: "pending",
+        message: "continue if pause wins",
+        attachmentCount: 0,
+        admissionOpen: true,
+        lastActivityAt: 100,
+        createdAt: 100,
+        updatedAt: 100,
+      },
+    });
+
+    await send;
+    expect(await pause).toBe(true);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(host.chatQueue[0]?.serverTurnId).toBe("turn-created-during-pause");
+    expect(host.chatQueue[0]?.text).toBe("continue if pause wins");
+  });
+
+  it("refuses to pause when local queued messages cannot be persisted", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: Array.from({ length: 51 }, (_, index) => ({
+        id: `turn-${index}`,
+        text: `keep queued ${index}`,
+        createdAt: index,
+        sessionKey: "agent:main",
+        kind: "queued" as const,
+      })),
+    });
+
+    expect(await setChatQueuePaused(host, true)).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueuePaused ?? false).toBe(false);
+    expect(host.chatError).toContain("could not save the queue state");
+  });
+
+  it("clears the pause latch when its final browser-state commit fails", async () => {
+    const storage = createStorageMock();
+    storage.setItem = () => {
+      throw new Error("storage quota changed");
+    };
+    vi.stubGlobal("sessionStorage", storage);
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [
+        {
+          id: "local-commit-failure",
+          text: "keep this queued",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+        },
+      ],
+    });
+
+    expect(await setChatQueuePaused(host, true)).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueuePaused).toBe(false);
+    expect(host.chatQueuePausedBySession?.["agent:main"]).toBe(false);
+    expect(host.chatError).toContain("could not save the queue state");
+    expect(host.chatQueuePausePendingBySession?.["agent:main"]).toBeUndefined();
+  });
+
+  it("pauses without detaching a turn that has already started", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [
+        {
+          id: "turn-running",
+          text: "already admitted",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+          serverTurnId: "turn-running",
+          serverRevision: 2,
+          serverPhase: "admitted",
+          serverAdmissionOpen: false,
+        },
+      ],
+    });
+
+    expect(await setChatQueuePaused(host, true)).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueuePaused).toBe(true);
+    expect(host.chatQueue[0]).toMatchObject({
+      id: "turn-running",
+      serverTurnId: "turn-running",
+      serverPhase: "admitted",
+    });
+  });
+
+  it("removes a missing server turn during refresh instead of replaying it locally", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.turns.list") {
+        return { turns: [] };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: [],
+          methods: ["chat.turns.list"],
+        },
+      },
+      chatQueue: [
+        {
+          id: "turn-missing",
+          text: "do not replay this",
+          createdAt: 1,
+          sessionKey: "agent:main",
+          kind: "queued",
+          serverTurnId: "turn-missing",
+          serverRevision: 1,
+          serverPhase: "pending",
+          serverAdmissionOpen: true,
+        },
+      ],
+    });
+
+    await loadServerChatTurns(host, "agent:main");
+
+    expect(request).toHaveBeenCalledWith("chat.turns.list", {
+      sessionKey: "agent:main",
+      includeTerminal: true,
+    });
+    expect(host.chatQueuePaused).toBeUndefined();
+    expect(host.chatQueue).toEqual([]);
+    expect(host.chatError).toBeUndefined();
+  });
+
+  it("keeps restored pause state while refreshing durable Gateway turns", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.turns.list") {
+        return {
+          turns: [
+            {
+              id: "turn-still-pending",
+              sessionKey: "agent:main",
+              revision: 1,
+              mode: "queue",
+              phase: "pending",
+              message: "do not run while paused",
+              attachmentCount: 0,
+              admissionOpen: true,
+              lastActivityAt: 100,
+              createdAt: 100,
+              updatedAt: 100,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main": true },
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: [],
+          methods: ["chat.turns.list"],
+        },
+      },
+    });
+
+    await loadServerChatTurns(host, "agent:main");
+
+    expect(host.chatQueuePaused).toBe(true);
+    expect(host.chatQueuePausedBySession?.["agent:main"]).toBe(true);
+    expect(host.chatQueue[0]).toMatchObject({
+      serverTurnId: "turn-still-pending",
+      serverPhase: "pending",
+    });
+    expect(host.chatError).toBeUndefined();
   });
 
   it("refreshes and retries a queue mutation once after a revision conflict", async () => {
@@ -2829,6 +3441,124 @@ describe("handleSendChat", () => {
     expect(userMessage.role).toBe("user");
   });
 
+  it("rejects a paused send when browser storage cannot durably save it", async () => {
+    const storage = createStorageMock();
+    storage.setItem = () => {
+      throw new Error("storage quota changed");
+    };
+    vi.stubGlobal("sessionStorage", storage);
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "do not lose this paused prompt",
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main": true },
+    });
+
+    await handleSendChat(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(host.chatMessage).toBe("do not lose this paused prompt");
+    expect(host.chatError).toContain("Could not queue this message safely");
+  });
+
+  it("rejects a paused local slash command when browser storage cannot durably save it", async () => {
+    const storage = createStorageMock();
+    storage.setItem = () => {
+      throw new Error("storage quota changed");
+    };
+    vi.stubGlobal("sessionStorage", storage);
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "/compact",
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main": true },
+      chatRunId: "active-run",
+    });
+
+    await handleSendChat(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(host.chatMessage).toBe("/compact");
+    expect(host.chatError).toContain("Could not queue this message safely");
+  });
+
+  it("queues a local slash command from an idle paused chat", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "/compact",
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main": true },
+    });
+
+    await handleSendChat(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue).toHaveLength(1);
+    expect(host.chatQueue[0]).toMatchObject({
+      text: "/compact",
+      localCommandName: "compact",
+    });
+  });
+
+  it("does not send while a Gateway switch has persistence suspended", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "wait for the new Gateway",
+      chatComposerPersistenceSuspended: true,
+    });
+
+    await handleSendChat(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(host.chatMessage).toBe("wait for the new Gateway");
+    expect(host.chatError).toBe(
+      "Chat is reconnecting to the Gateway; wait for it to finish before sending.",
+    );
+  });
+
+  it.each([
+    { label: "goal", options: { flowId: "goal-1" } },
+    { label: "steer", options: { turnMode: "steer" as const } },
+  ])("does not queue a paused $label send without preserving its routing", async ({ options }) => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "preserve this routing",
+      chatQueuePaused: true,
+    });
+
+    await handleSendChat(host, undefined, options);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(host.chatMessage).toBe("preserve this routing");
+    expect(host.chatError).toBe(
+      "Resume Chat before sending a goal or steer message so its routing is preserved.",
+    );
+  });
+
+  it("does not persist a queue pause while a Gateway switch has persistence suspended", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatComposerPersistenceSuspended: true,
+    });
+
+    expect(await setChatQueuePaused(host, true)).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueuePaused ?? false).toBe(false);
+    expect(host.chatError).toBe(
+      "Chat is reconnecting to the Gateway; wait for it to finish before pausing.",
+    );
+  });
+
   it("routes queued Skill Workshop revisions through the proposal request RPC", async () => {
     const sent = createDeferred<unknown>();
     const request = vi.fn((method: string) => {
@@ -3057,6 +3787,265 @@ describe("handleSendChat", () => {
     expect(host.chatQueueBySession?.["agent:a"]).toBeUndefined();
   });
 
+  it("ignores a delayed ACK from a replaced Gateway client", async () => {
+    const sent = createDeferred<unknown>();
+    const clientA = {
+      request: vi.fn(() => sent.promise),
+    };
+    const clientB = { request: vi.fn() };
+    const host = makeHost({
+      client: clientA as unknown as ChatHost["client"],
+      chatQueueGatewayGeneration: 1,
+      chatMessage: "stay with Gateway A",
+    });
+
+    const send = handleSendChat(host, "stay with Gateway A");
+    await Promise.resolve();
+    expect(host.chatQueue[0]?.sendState).toBe("sending");
+
+    host.client = clientB as unknown as ChatHost["client"];
+    host.chatQueueGatewayGeneration = 2;
+    host.chatSending = true;
+    sent.resolve({ runId: host.chatQueue[0]?.sendRunId, status: "started" });
+    await send;
+
+    expect(host.chatMessages).toStrictEqual([]);
+    expect(host.chatRunId).toBeNull();
+    expect(host.chatSending).toBe(false);
+    expect(host.chatQueue[0]?.sendState).toBe("waiting-reconnect");
+  });
+
+  it("ignores a delayed durable-turn result from a replaced client", async () => {
+    const create = createDeferred<{
+      turn: {
+        id: string;
+        sessionKey: string;
+        revision: number;
+        mode: "queue";
+        phase: "pending";
+        message: string;
+        attachmentCount: number;
+        admissionOpen: boolean;
+        lastActivityAt: number;
+        createdAt: number;
+        updatedAt: number;
+      };
+    }>();
+    const clientA = { request: vi.fn(() => create.promise) };
+    const clientB = { request: vi.fn() };
+    const host = makeHost({
+      client: clientA as unknown as ChatHost["client"],
+      chatQueueGatewayGeneration: 7,
+      chatMessage: "do not duplicate this turn",
+      chatRunId: "active-1",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: { methods: ["chat.turns.create", "chat.turns.list"] },
+      },
+    });
+
+    const send = handleSendChat(host);
+    await vi.waitFor(() =>
+      expect(clientA.request).toHaveBeenCalledWith("chat.turns.create", expect.any(Object)),
+    );
+
+    host.client = clientB as unknown as ChatHost["client"];
+    // The regression is specifically a client replacement without a generation bump.
+    create.resolve({
+      turn: {
+        id: "stale-turn",
+        sessionKey: "agent:main",
+        revision: 1,
+        mode: "queue",
+        phase: "pending",
+        message: "do not duplicate this turn",
+        attachmentCount: 0,
+        admissionOpen: true,
+        lastActivityAt: 100,
+        createdAt: 100,
+        updatedAt: 100,
+      },
+    });
+    await send;
+
+    expect(host.chatQueue).toHaveLength(1);
+    expect(host.chatQueue[0]?.text).toBe("do not duplicate this turn");
+    expect(host.chatQueue[0]?.serverTurnId).toBeUndefined();
+    expect(clientB.request).not.toHaveBeenCalled();
+  });
+
+  it("keeps a detached message recoverable when its Gateway changes before the ACK", async () => {
+    const sent = createDeferred<unknown>();
+    let requestId: string | undefined;
+    const clientA = {
+      request: vi.fn((_method: string, payload: unknown) => {
+        requestId = (payload as { idempotencyKey?: string }).idempotencyKey;
+        return sent.promise;
+      }),
+    };
+    const clientB = { request: vi.fn() };
+    const host = makeHost({
+      client: clientA as unknown as ChatHost["client"],
+      chatQueueGatewayGeneration: 1,
+      chatRunId: "run-main",
+      chatStream: "Working...",
+      chatMessage: "/btw preserve this message",
+      settings: { gatewayUrl: "ws://gateway.test", token: "bootstrap-token" },
+      hello: { auth: { deviceToken: "device-a" } } as unknown as ChatHost["hello"],
+    });
+
+    const send = handleSendChat(host);
+    await vi.waitFor(() => expect(clientA.request).toHaveBeenCalled());
+
+    expect(requestId).toEqual(expect.any(String));
+
+    host.client = clientB as unknown as ChatHost["client"];
+    host.chatQueueGatewayGeneration = 2;
+    host.hello = { auth: { deviceToken: "device-b" } } as unknown as ChatHost["hello"];
+    sent.resolve({ runId: "detached-run", status: "started" });
+    await send;
+
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(
+      loadChatComposerSnapshot(
+        { ...host, hello: { auth: { deviceToken: "device-a" } } } as unknown as ChatHost,
+        "agent:main",
+      )?.queue,
+    ).toHaveLength(1);
+    expect(
+      loadChatComposerSnapshot(
+        { ...host, hello: { auth: { deviceToken: "device-a" } } } as unknown as ChatHost,
+        "agent:main",
+      )?.queue[0],
+    ).toMatchObject({
+      sendState: "waiting-reconnect",
+      sendRunId: requestId,
+    });
+    expect(
+      loadChatComposerSnapshot(
+        { ...host, hello: { auth: { deviceToken: "device-b" } } } as unknown as ChatHost,
+        "agent:main",
+      ),
+    ).toBeNull();
+    expect(host.chatDetachedSendRecoveries).toHaveLength(1);
+    expect(host.chatDetachedSendRecoveries?.[0]?.queue[0]).toMatchObject({
+      sendState: "waiting-reconnect",
+      sendRunId: requestId,
+    });
+  });
+
+  it("merges a late detached recovery after reconnecting to the same principal", async () => {
+    const sent = createDeferred<{ status: "started" }>();
+    const clientA = { request: vi.fn(() => sent.promise) };
+    const clientB = { request: vi.fn() };
+    const host = makeHost({
+      client: clientA as unknown as ChatHost["client"],
+      chatQueueGatewayGeneration: 1,
+      chatRunId: "run-main",
+      chatMessage: "/btw show this after reconnect",
+      settings: { gatewayUrl: "ws://gateway.test", token: "bootstrap-token" },
+      hello: { auth: { deviceToken: "device-a" } } as unknown as ChatHost["hello"],
+    });
+
+    const send = handleSendChat(host);
+    await vi.waitFor(() => expect(clientA.request).toHaveBeenCalled());
+
+    host.client = clientB as unknown as ChatHost["client"];
+    host.chatQueueGatewayGeneration = 2;
+    host.hello = { auth: { deviceToken: "device-a" } } as unknown as ChatHost["hello"];
+    sent.resolve({ status: "started" });
+    await send;
+
+    expect(host.chatQueue).toHaveLength(1);
+    expect(host.chatQueue[0]).toMatchObject({
+      text: "/btw show this after reconnect",
+      sendState: "waiting-reconnect",
+    });
+  });
+
+  it("keeps detached recovery in an old-Gateway buffer when storage fails", async () => {
+    const storage = createStorageMock();
+    storage.setItem = () => {
+      throw new Error("storage quota changed");
+    };
+    vi.stubGlobal("sessionStorage", storage);
+    const sent = createDeferred<unknown>();
+    const clientA = { request: vi.fn(() => sent.promise) };
+    const clientB = { request: vi.fn() };
+    const host = makeHost({
+      client: clientA as unknown as ChatHost["client"],
+      chatQueueGatewayGeneration: 1,
+      chatRunId: "run-main",
+      chatMessage: "/btw keep this if storage fails",
+      settings: { gatewayUrl: "ws://gateway.test", token: "bootstrap-token" },
+      hello: { auth: { deviceToken: "device-a" } } as unknown as ChatHost["hello"],
+    });
+
+    const send = handleSendChat(host);
+    await vi.waitFor(() => expect(clientA.request).toHaveBeenCalled());
+
+    host.client = clientB as unknown as ChatHost["client"];
+    host.chatQueueGatewayGeneration = 2;
+    host.hello = { auth: { deviceToken: "device-b" } } as unknown as ChatHost["hello"];
+    sent.resolve({ runId: "detached-run", status: "started" });
+    await send;
+
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(host.chatDetachedSendRecoveries).toHaveLength(1);
+    expect(host.chatDetachedSendRecoveries?.[0]?.queue[0]?.text).toBe(
+      "/btw keep this if storage fails",
+    );
+    expect(host.chatDetachedSendRecoveries?.[0]?.queue[0]).toMatchObject({
+      sendState: "waiting-reconnect",
+      sendRunId: expect.any(String),
+    });
+    expect(host.chatError).toContain("Browser storage was unavailable");
+  });
+
+  it("preserves multiple detached recoveries when storage fails", async () => {
+    const storage = createStorageMock();
+    storage.setItem = () => {
+      throw new Error("storage quota changed");
+    };
+    vi.stubGlobal("sessionStorage", storage);
+    const first = createDeferred<{ status: "started" }>();
+    const second = createDeferred<{ status: "started" }>();
+    let requestCount = 0;
+    const clientA = {
+      request: vi.fn(() => {
+        requestCount += 1;
+        return requestCount === 1 ? first.promise : second.promise;
+      }),
+    };
+    const clientB = { request: vi.fn() };
+    const host = makeHost({
+      client: clientA as unknown as ChatHost["client"],
+      chatQueueGatewayGeneration: 1,
+      settings: { gatewayUrl: "ws://gateway.test", token: "bootstrap-token" },
+      hello: { auth: { deviceToken: "device-a" } } as unknown as ChatHost["hello"],
+    });
+
+    const sendOne = handleSendChat(host, "/btw first detached message");
+    const sendTwo = handleSendChat(host, "/btw second detached message");
+    await vi.waitFor(() => expect(clientA.request).toHaveBeenCalledTimes(2));
+
+    host.client = clientB as unknown as ChatHost["client"];
+    host.chatQueueGatewayGeneration = 2;
+    host.hello = { auth: { deviceToken: "device-b" } } as unknown as ChatHost["hello"];
+    first.resolve({ status: "started" });
+    await sendOne;
+    second.resolve({ status: "started" });
+    await sendTwo;
+
+    expect(host.chatDetachedSendRecoveries).toHaveLength(1);
+    expect(host.chatDetachedSendRecoveries?.[0]?.queue.map((item) => item.text)).toEqual([
+      "/btw first detached message",
+      "/btw second detached message",
+    ]);
+  });
+
   it("keeps a pre-ack socket close recoverable with the same run id", async () => {
     const request = vi.fn((method: string) => {
       if (method === "chat.send") {
@@ -3150,6 +4139,76 @@ describe("handleSendChat", () => {
     expect(host.chatMessages).toStrictEqual([]);
     expect(host.chatRunId).toBeNull();
     expect(host.chatStream).toBeNull();
+  });
+
+  it("does not replay a queued send from a paused inactive session", async () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    persistChatComposerState({
+      settings: { gatewayUrl: "ws://gateway.test/control" },
+      sessionKey: "agent:main",
+      chatMessage: "",
+      chatQueue: [],
+      chatQueuePaused: true,
+    });
+    expect(
+      loadChatComposerSnapshot(
+        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        "agent:main",
+      ),
+    ).toMatchObject({ queuePaused: true });
+    const request = vi.fn(async (method: string) => {
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      settings: { gatewayUrl: "ws://gateway.test/control" },
+      sessionKey: "agent:other",
+      chatQueueBySession: {
+        "agent:main": [
+          {
+            id: "paused-inactive-send",
+            text: "do not send yet",
+            createdAt: 1,
+            sessionKey: "agent:main",
+            sendRunId: "run-paused",
+            sendState: "waiting-reconnect",
+          },
+        ],
+      },
+    });
+
+    await retryReconnectableQueuedChatSends(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueueBySession?.["agent:main"]?.[0]?.sendState).toBe("waiting-reconnect");
+  });
+
+  it("uses the in-memory pause state before browser storage for inactive sessions", async () => {
+    const request = vi.fn(async (method: string) => {
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      sessionKey: "agent:other",
+      chatQueuePausedBySession: { "agent:main": true },
+      chatQueueBySession: {
+        "agent:main": [
+          {
+            id: "memory-paused-send",
+            text: "do not send while inactive",
+            createdAt: 1,
+            sessionKey: "agent:main",
+            sendRunId: "run-memory-paused",
+            sendState: "waiting-reconnect",
+          },
+        ],
+      },
+    });
+
+    await retryReconnectableQueuedChatSends(host);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueueBySession?.["agent:main"]?.[0]?.sendState).toBe("waiting-reconnect");
   });
 
   it("does not auto-resend legacy error-only queue records", async () => {
@@ -3455,6 +4514,25 @@ describe("handleSendChat", () => {
     expect(host.chatQueue[0]?.text).toBe("tighten the plan");
     expect(host.chatQueue[0]?.kind).toBe("steered");
     expect(host.chatQueue[0]?.pendingRunId).toBe("run-1");
+  });
+
+  it("does not steer a local queued message while the queue is paused", async () => {
+    const request = vi.fn();
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatRunId: "run-1",
+      chatQueuePaused: true,
+      chatQueuePausedBySession: { "agent:main:main": true },
+      chatQueue: [{ id: "queued-1", text: "keep queued", createdAt: 1 }],
+      sessionKey: "agent:main:main",
+    });
+
+    await steerQueuedChatMessage(host, "queued-1");
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue[0]?.kind).toBeUndefined();
+    expect(host.chatQueue[0]?.pendingRunId).toBeUndefined();
+    expect(host.chatError).toBe("Queue is paused; resume it before steering a message.");
   });
 
   it("removes queued steer indicators when chat.send returns terminal ok", async () => {

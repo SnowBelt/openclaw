@@ -16,6 +16,11 @@ import {
 } from "../../components/markdown.ts";
 import { i18n, t } from "../../i18n/index.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
+import {
+  isControlDirectorAgentId,
+  resolveControlDirectorAgentConfigId,
+  resolveControlDirectorAgentId,
+} from "../../lib/chat/control-director-thinking.ts";
 import { createSessionCapability, type SessionCapability } from "../../lib/sessions/index.ts";
 import {
   createModelCatalog,
@@ -237,17 +242,21 @@ vi.mock("../../lib/agents/display.ts", () => ({
 
 function renderQueue(params: {
   queue: ChatQueueItem[];
+  queuePaused?: boolean;
   canAbort?: boolean;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onQueueTogglePause?: () => void;
 }) {
   const container = document.createElement("div");
   render(
     renderChatQueue({
       queue: params.queue,
+      queuePaused: params.queuePaused,
       canAbort: params.canAbort ?? true,
       onQueueRetry: params.onQueueRetry,
       onQueueSteer: params.onQueueSteer,
+      onQueueTogglePause: params.onQueueTogglePause,
       onQueueRemove: () => undefined,
     }),
     container,
@@ -2983,6 +2992,35 @@ describe("chat queue", () => {
 
     expect(onQueueRetry).toHaveBeenCalledWith("failed-1");
   });
+
+  it("keeps a paused empty queue visible and resumes through its control", () => {
+    const onQueueTogglePause = vi.fn();
+    const container = renderQueue({
+      queue: [],
+      queuePaused: true,
+      onQueueTogglePause,
+    });
+
+    expect(container.querySelector(".chat-queue__title")?.textContent).toContain("Queue · Paused");
+    const resume = container.querySelector<HTMLButtonElement>(".chat-queue__pause");
+    expect(resume?.textContent?.trim()).toBe("Resume");
+    resume?.click();
+    expect(onQueueTogglePause).toHaveBeenCalledOnce();
+  });
+
+  it("shows the pause control for an idle queue", () => {
+    const onQueueTogglePause = vi.fn();
+    const container = renderQueue({
+      queue: [],
+      onQueueTogglePause,
+    });
+
+    expect(container.querySelector(".chat-queue__title")?.textContent).toContain("Queue");
+    const pause = container.querySelector<HTMLButtonElement>(".chat-queue__pause");
+    expect(pause?.textContent?.trim()).toBe("Pause");
+    pause?.click();
+    expect(onQueueTogglePause).toHaveBeenCalledOnce();
+  });
 });
 
 describe("chat sidebar raw content", () => {
@@ -3110,6 +3148,44 @@ describe("chat welcome", () => {
 describe("chat model controls", () => {
   afterEach(async () => {
     await i18n.setLocale("en");
+  });
+
+  it("uses the role-scoped Control Director instead of the configured default agent", () => {
+    const agents = [
+      { id: "main", role: "general" },
+      { id: "director", role: "control_director" },
+    ] as const;
+
+    expect(resolveControlDirectorAgentId(agents, "main")).toBe("director");
+    expect(isControlDirectorAgentId("director", "main", agents)).toBe(true);
+    expect(isControlDirectorAgentId("main", "main", agents)).toBe(false);
+  });
+
+  it("preserves the configured Control Director id for config mutations", () => {
+    const agents = [{ id: "Director", role: "control_director" }] as const;
+
+    expect(resolveControlDirectorAgentConfigId(agents, "main")).toBe("Director");
+    expect(resolveControlDirectorAgentId(agents, "main")).toBe("director");
+  });
+
+  it("preserves the authored Control Director id from the config snapshot", () => {
+    const agents = [{ id: "control-director", role: "control_director" }] as const;
+    const sourceConfig = {
+      agents: { list: [{ id: "Control Director", role: "control_director" }] },
+    };
+
+    expect(resolveControlDirectorAgentConfigId(agents, "main", sourceConfig)).toBe(
+      "Control Director",
+    );
+  });
+
+  it("fails closed when legacy rows omit Control Director roles", () => {
+    const agents = [{ id: "main" }, { id: "worker" }] as const;
+
+    expect(resolveControlDirectorAgentId(agents, "main")).toBeNull();
+    expect(isControlDirectorAgentId("main", "main", agents)).toBe(false);
+    expect(resolveControlDirectorAgentId(undefined, "main")).toBeNull();
+    expect(isControlDirectorAgentId("main", "main", undefined)).toBe(false);
   });
 
   it("disables the chat header model picker while a run is active", () => {
@@ -3679,6 +3755,197 @@ describe("chat model controls", () => {
         .find((button) => button.textContent?.trim() === "Fast")
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
+  });
+
+  it("rebases an untouched model draft after changing the Control Director default", async () => {
+    const { state } = createChatHeaderState({
+      model: "gpt-5.5",
+      modelProvider: "openai",
+      models: [
+        { id: "gpt-5.4", name: "GPT-5.4", provider: "openai" },
+        { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
+      ],
+    });
+    state.sessionsResult = createSessionsResultFromRows([
+      {
+        key: "main",
+        kind: "direct",
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        modelOverrideIsFallback: true,
+        updatedAt: 1,
+      },
+    ]);
+    const onSetControlDirectorDefault = vi.fn().mockResolvedValue(true);
+    const container = document.createElement("div");
+    const props = {
+      ...createChatModelControlsProps(state),
+      controlDirector: true,
+      onSetControlDirectorDefault,
+    };
+    render(renderChatModelControls(props), container);
+
+    container
+      .querySelector<HTMLButtonElement>('[data-chat-model-set-default="openai/gpt-5.4"]')
+      ?.click();
+
+    await vi.waitFor(() => {
+      expect(onSetControlDirectorDefault).toHaveBeenCalledWith("openai/gpt-5.4");
+    });
+    await vi.waitFor(() => {
+      render(renderChatModelControls(props), container);
+      expect(
+        container
+          .querySelector<HTMLButtonElement>('[data-chat-model-option="openai/gpt-5.4"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+    });
+  });
+
+  it("does not rebase a fallback draft when concurrent cleanup was skipped", async () => {
+    const { state } = createChatHeaderState({
+      model: "gpt-5.5",
+      modelProvider: "openai",
+      models: [
+        { id: "gpt-5.4", name: "GPT-5.4", provider: "openai" },
+        { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
+      ],
+    });
+    state.sessionsResult = createSessionsResultFromRows([
+      {
+        key: "main",
+        kind: "direct",
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        modelOverrideIsFallback: true,
+        updatedAt: 1,
+      },
+    ]);
+    const onSetControlDirectorDefault = vi
+      .fn()
+      .mockResolvedValue({ fallbackCleanupApplied: false });
+    const container = document.createElement("div");
+    const props = {
+      ...createChatModelControlsProps(state),
+      controlDirector: true,
+      onSetControlDirectorDefault,
+    };
+    render(renderChatModelControls(props), container);
+
+    container
+      .querySelector<HTMLButtonElement>('[data-chat-model-set-default="openai/gpt-5.4"]')
+      ?.click();
+
+    await vi.waitFor(() => {
+      expect(onSetControlDirectorDefault).toHaveBeenCalledWith("openai/gpt-5.4");
+      render(renderChatModelControls(props), container);
+      expect(
+        container
+          .querySelector<HTMLButtonElement>('[data-chat-model-option="openai/gpt-5.5"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+      expect(
+        container
+          .querySelector<HTMLButtonElement>('[data-chat-model-option="openai/gpt-5.4"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("false");
+    });
+  });
+
+  it("rebases an inherited model draft after changing the Control Director default", async () => {
+    const { state } = createChatHeaderState({
+      model: "gpt-5.5",
+      modelProvider: "openai",
+      models: [
+        { id: "gpt-5.4", name: "GPT-5.4", provider: "openai" },
+        { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
+      ],
+    });
+    state.sessionsResult = createSessionsResultFromRows(
+      [
+        {
+          key: "main",
+          kind: "direct",
+          model: "gpt-5.5",
+          modelProvider: "openai",
+          updatedAt: 1,
+        },
+      ],
+      { hasMore: false },
+    );
+    state.sessionsResult = {
+      ...state.sessionsResult,
+      defaults: {
+        ...state.sessionsResult.defaults,
+        model: "gpt-5.5",
+        modelProvider: "openai",
+      },
+    };
+    const onSetControlDirectorDefault = vi.fn().mockResolvedValue(true);
+    const container = document.createElement("div");
+    const props = {
+      ...createChatModelControlsProps(state),
+      controlDirector: true,
+      onSetControlDirectorDefault,
+    };
+    render(renderChatModelControls(props), container);
+
+    container
+      .querySelector<HTMLButtonElement>('[data-chat-model-set-default="openai/gpt-5.4"]')
+      ?.click();
+
+    await vi.waitFor(() => {
+      expect(onSetControlDirectorDefault).toHaveBeenCalledWith("openai/gpt-5.4");
+      render(renderChatModelControls(props), container);
+      expect(
+        container
+          .querySelector<HTMLButtonElement>('[data-chat-model-option="openai/gpt-5.4"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+    });
+  });
+
+  it("keeps a user model override selected after changing the Control Director default", async () => {
+    const { state } = createChatHeaderState({
+      model: "gpt-5.5",
+      modelProvider: "openai",
+      models: [
+        { id: "gpt-5.4", name: "GPT-5.4", provider: "openai" },
+        { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
+      ],
+    });
+    state.sessionsResult = createSessionsResultFromRows([
+      {
+        key: "main",
+        kind: "direct",
+        model: "gpt-5.5",
+        modelProvider: "openai",
+        modelOverrideSource: "user",
+        updatedAt: 1,
+      },
+    ]);
+    const onSetControlDirectorDefault = vi.fn().mockResolvedValue(true);
+    const container = document.createElement("div");
+    const props = {
+      ...createChatModelControlsProps(state),
+      controlDirector: true,
+      onSetControlDirectorDefault,
+    };
+    render(renderChatModelControls(props), container);
+
+    container
+      .querySelector<HTMLButtonElement>('[data-chat-model-set-default="openai/gpt-5.4"]')
+      ?.click();
+
+    await vi.waitFor(() => {
+      expect(onSetControlDirectorDefault).toHaveBeenCalledWith("openai/gpt-5.4");
+      render(renderChatModelControls(props), container);
+      expect(
+        container
+          .querySelector<HTMLButtonElement>('[data-chat-model-option="openai/gpt-5.5"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+    });
   });
 
   it("clears staged model settings when the active session changes", () => {

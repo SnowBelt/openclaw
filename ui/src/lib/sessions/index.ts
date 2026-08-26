@@ -80,6 +80,7 @@ export type SessionPatch = {
   label?: string | null;
   category?: string | null;
   model?: string | null;
+  expectedModelOverrideIsFallback?: true;
   thinkingLevel?: string | null;
   fastMode?: FastMode | null;
   verboseLevel?: string | null;
@@ -743,8 +744,9 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       return null;
     }
     const hasModelPatch = Object.hasOwn(patchParams, "model");
+    const isConditionalFallbackCleanup = patchParams.expectedModelOverrideIsFallback === true;
     const previousModelOverride = state.modelOverrides[key.trim()];
-    if (hasModelPatch) {
+    if (hasModelPatch && !isConditionalFallbackCleanup) {
       setModelOverride(key, patchParams.model);
     }
     try {
@@ -757,11 +759,11 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       }
       await refresh({ agentId: options.agentId, force: true });
       if (hasModelPatch) {
-        setModelOverride(key, patchParams.model);
+        setModelOverride(key, isConditionalFallbackCleanup ? undefined : patchParams.model);
       }
       return result;
     } catch (error) {
-      if (hasModelPatch) {
+      if (hasModelPatch && !isConditionalFallbackCleanup) {
         setModelOverride(key, previousModelOverride);
       }
       publish({ ...state, error: String(error) });

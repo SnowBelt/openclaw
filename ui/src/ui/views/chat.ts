@@ -182,6 +182,7 @@ export type ChatProps = {
   assistantAvatarUrl?: string | null;
   draft: string;
   queue: ChatQueueItem[];
+  queuePaused?: boolean;
   realtimeTalkActive?: boolean;
   realtimeTalkStatus?: RealtimeTalkStatus;
   realtimeTalkDetail?: string | null;
@@ -245,6 +246,7 @@ export type ChatProps = {
   onQueueRemove: (id: string) => void;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onQueueTogglePause?: () => void;
   onWorkTaskCancel?: (taskId: string) => void;
   onGoalPanelToggle?: (open: boolean) => void;
   onGoalDraftChange?: (value: string) => void;
@@ -2196,7 +2198,7 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
 }
 
 function renderQueuePopover(props: ChatProps, canAbort: boolean) {
-  if (props.queue.length === 0) {
+  if (props.queue.length === 0 && !props.queuePaused && !props.onQueueTogglePause) {
     return nothing;
   }
   const queueSummary = summarizeChatQueue(props.queue);
@@ -2219,10 +2221,12 @@ function renderQueuePopover(props: ChatProps, canAbort: boolean) {
       <div class="chat-queue-popover__panel">
         ${renderChatQueue({
           queue: props.queue,
+          queuePaused: props.queuePaused,
           canAbort,
           onQueueRetry: props.onQueueRetry,
           onQueueSteer: props.onQueueSteer,
           onQueueRemove: props.onQueueRemove,
+          onQueueTogglePause: props.onQueueTogglePause,
         })}
       </div>
     </details>

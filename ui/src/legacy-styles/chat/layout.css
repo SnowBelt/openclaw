@@ -2030,6 +2030,47 @@
   cursor: pointer;
 }
 
+.chat-session-picker__option-main-button {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-session-picker__option-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-session-picker__option-action:hover,
+.chat-session-picker__option-action:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.chat-session-picker__option-action svg {
+  width: 16px;
+  height: 16px;
+}
+
 .chat-session-picker__option:hover,
 .chat-session-picker__option:focus-visible {
   background: var(--bg-hover);
@@ -2295,7 +2336,36 @@
 
 .chat-controls__combined-model {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.chat-controls__combined-model > openclaw-tooltip {
   display: block;
+  min-width: 0;
+}
+
+.chat-controls__model-default-action {
+  position: static;
+  align-self: stretch;
+  margin: 4px 0;
+  min-height: 28px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chat-controls__model-default-action:hover,
+.chat-controls__model-default-action:focus-visible {
+  border-color: var(--accent);
+  color: var(--text-strong);
 }
 
 .chat-controls__combined-model-arrow svg {
