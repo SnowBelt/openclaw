@@ -1,3 +1,4 @@
+import { normalizeGatewayComposerScope } from "../app/gateway-scope.ts";
 // Control UI module implements app lifecycle behavior.
 import { connectGateway } from "./app-gateway.ts";
 import {
@@ -44,6 +45,7 @@ type PendingChatComposerPersistSnapshot = {
   sessionKey: string;
   chatMessage: string;
   chatQueue: ChatQueueItem[];
+  chatQueuePaused: boolean;
 };
 
 type LifecycleHost = {
@@ -64,15 +66,20 @@ type LifecycleHost = {
   allowExternalEmbedUrls: boolean;
   chatHasAutoScrolled: boolean;
   chatManualRefreshInFlight: boolean;
-  settings?: { gatewayUrl?: string | null };
+  settings?: { gatewayUrl?: string | null; token?: string | null };
+  password?: string | null;
   sessionKey: string;
   chatMessage: string;
   chatQueue: ChatQueueItem[];
+  chatQueuePaused: boolean;
   chatComposerProvisionalRestore?: {
     sessionKey: string;
+    gatewayScope?: string;
     chatMessage: string;
     chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
   } | null;
+  chatComposerPersistenceSuspended?: boolean;
   chatComposerPersistTimer?: ReturnType<typeof globalThis.setTimeout> | number | null;
   chatComposerPersistSnapshot?: PendingChatComposerPersistSnapshot | null;
   pendingGatewayUrl?: string | null;
@@ -121,13 +128,24 @@ export function handleConnected(host: LifecycleHost) {
   syncTabWithLocation(host as unknown as Parameters<typeof syncTabWithLocation>[0], true);
   const hasPendingGatewaySwitch =
     typeof host.pendingGatewayUrl === "string" && host.pendingGatewayUrl.trim();
-  if (!hasPendingGatewaySwitch && restoreChatComposerState(host, { preserveCurrent: true })) {
+  const hasProvisionalComposerRestore = Boolean(host.chatComposerProvisionalRestore);
+  if (
+    !hasPendingGatewaySwitch &&
+    !hasProvisionalComposerRestore &&
+    !host.chatComposerPersistenceSuspended &&
+    restoreChatComposerState(host, { preserveCurrent: true })
+  ) {
     host.chatComposerProvisionalRestore = {
       sessionKey: host.sessionKey,
+      gatewayScope: normalizeGatewayComposerScope(
+        host.settings?.gatewayUrl,
+        host.settings?.token || host.password || "",
+      ),
       chatMessage: host.chatMessage,
       chatQueue: [...host.chatQueue],
+      chatQueuePaused: host.chatQueuePaused,
     };
-  } else {
+  } else if (!hasProvisionalComposerRestore) {
     host.chatComposerProvisionalRestore = null;
   }
   syncThemeWithSettings(host as unknown as Parameters<typeof syncThemeWithSettings>[0]);
@@ -192,6 +210,10 @@ function clearPendingChatComposerPersistence(host: LifecycleHost) {
 }
 
 function flushPendingChatComposerPersistence(host: LifecycleHost) {
+  if (host.chatComposerPersistenceSuspended) {
+    clearPendingChatComposerPersistence(host);
+    return;
+  }
   const snapshot = host.chatComposerPersistSnapshot;
   if (host.chatComposerPersistTimer == null || !snapshot) {
     clearPendingChatComposerPersistence(host);
@@ -204,6 +226,7 @@ function flushPendingChatComposerPersistence(host: LifecycleHost) {
       sessionKey: snapshot.sessionKey,
       chatMessage: snapshot.chatMessage,
       chatQueue: snapshot.chatQueue,
+      chatQueuePaused: snapshot.chatQueuePaused,
     },
     snapshot.sessionKey,
   );
@@ -215,6 +238,7 @@ function scheduleChatComposerDraftPersistence(host: LifecycleHost) {
     sessionKey: host.sessionKey,
     chatMessage: host.chatMessage,
     chatQueue: [...host.chatQueue],
+    chatQueuePaused: host.chatQueuePaused,
   };
   host.chatComposerPersistTimer = globalThis.setTimeout(() => {
     flushPendingChatComposerPersistence(host);
@@ -264,7 +288,9 @@ export function handleDisconnected(host: LifecycleHost) {
 }
 
 export function handleUpdated(host: LifecycleHost, changed: Map<PropertyKey, unknown>) {
-  if (changed.has("chatQueue")) {
+  if (host.chatComposerPersistenceSuspended) {
+    clearPendingChatComposerPersistence(host);
+  } else if (changed.has("chatQueue") || changed.has("chatQueuePaused")) {
     clearPendingChatComposerPersistence(host);
     persistChatComposerState(host);
   } else if (changed.has("sessionKey")) {

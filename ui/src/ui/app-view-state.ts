@@ -12,7 +12,7 @@ import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
 // Control UI module implements app view state behavior.
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
-import type { ChatAbortOptions, ChatSendOptions } from "./app-chat.ts";
+import type { ChatAbortOptions, ChatDetachedSendRecovery, ChatSendOptions } from "./app-chat.ts";
 import type { EventLogEntry } from "./app-events.ts";
 import type { CompactionStatus, FallbackStatus } from "./app-tool-stream.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./chat/input-history.ts";
@@ -138,6 +138,7 @@ export type AppViewState = {
   onboarding: boolean;
   basePath: string;
   connected: boolean;
+  toggleChatQueuePaused?: () => boolean | Promise<boolean>;
   theme: ThemeName;
   themeMode: ThemeMode;
   themeResolved: ResolvedTheme;
@@ -175,6 +176,7 @@ export type AppViewState = {
   chatHistoryLoadingOlder: boolean;
   chatHistoryTotalMessages: number | null;
   chatSending: boolean;
+  chatSubmitGuards?: Map<string, Promise<void>>;
   chatMessage: string;
   chatAttachments: ChatAttachment[];
   chatMessages: unknown[];
@@ -300,7 +302,10 @@ export type AppViewState = {
   chatAgentSessionRowsByAgent?: Record<string, SessionsListResult["sessions"]>;
   announceSessionSwitch?: (sessionKey: string, label: string) => void;
   chatQueue: ChatQueueItem[];
+  chatQueuePaused?: boolean;
+  chatQueuePausedBySession?: Record<string, boolean>;
   chatQueueBySession: Record<string, ChatQueueItem[]>;
+  chatDetachedSendRecoveries: ChatDetachedSendRecovery[];
   chatMessagesBySession: ChatMessageCache;
   chatLocalInputHistoryBySession: Record<string, Array<{ text: string; ts: number }>>;
   chatInputHistorySessionKey: string | null;
@@ -859,6 +864,7 @@ export type AppViewState = {
     handleNostrProfileImport: () => Promise<void>;
     handleNostrProfileToggleAdvanced: () => void;
     handleExecApprovalDecision: (decision: "allow-once" | "allow-always" | "deny") => Promise<void>;
+    handleGatewayConnect: () => void;
     handleGatewayUrlConfirm: () => void;
     handleGatewayUrlCancel: () => void;
     handleConfigLoad: () => Promise<void>;

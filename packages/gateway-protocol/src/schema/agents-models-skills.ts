@@ -65,6 +65,15 @@ export const AgentSummarySchema = Type.Object(
   {
     id: NonEmptyString,
     name: Type.Optional(NonEmptyString),
+    role: Type.Optional(
+      Type.Union([
+        Type.Literal("general"),
+        Type.Literal("control_director"),
+        Type.Literal("program_manager"),
+        Type.Literal("judge"),
+        Type.Literal("worker"),
+      ]),
+    ),
     identity: Type.Optional(
       Type.Object(
         {

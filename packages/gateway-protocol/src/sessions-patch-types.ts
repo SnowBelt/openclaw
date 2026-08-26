@@ -24,6 +24,7 @@ export type SessionsPatchParams = {
   execAsk?: string | null;
   execNode?: string | null;
   model?: string | null;
+  expectedModelOverrideIsFallback?: true;
   projectId?: string | null;
   spawnedBy?: string | null;
   spawnedWorkspaceDir?: string | null;

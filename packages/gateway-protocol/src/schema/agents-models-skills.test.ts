@@ -42,6 +42,23 @@ function toolsEffectiveResult() {
 }
 
 describe("AgentsListResultSchema", () => {
+  it("accepts the canonical role used to scope Control Director controls", () => {
+    const result = {
+      defaultId: "main",
+      mainKey: "main",
+      scope: "per-sender",
+      agents: [{ id: "director", role: "control_director" }],
+    };
+
+    expect(Value.Check(AgentsListResultSchema, result)).toBe(true);
+    expect(
+      Value.Check(AgentsListResultSchema, {
+        ...result,
+        agents: [{ id: "director", role: "not-a-role" }],
+      }),
+    ).toBe(false);
+  });
+
   it("accepts resolved per-agent thinking metadata", () => {
     const result = {
       defaultId: "main",

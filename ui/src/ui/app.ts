@@ -14,6 +14,10 @@ import { DEFAULT_PCC_PLANNING_POLICY, type PccPlanningPolicy } from "../../../sr
 import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
+import {
+  normalizeGatewayComposerScope,
+  normalizeGatewayCredentialScope,
+} from "../app/gateway-scope.ts";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import {
@@ -37,7 +41,9 @@ import {
   removeQueuedMessage as removeQueuedMessageInternal,
   resetChatInputHistoryNavigation as resetChatInputHistoryNavigationInternal,
   retryQueuedChatMessage as retryQueuedChatMessageInternal,
+  toggleChatQueuePaused as toggleChatQueuePausedInternal,
   steerQueuedChatMessage as steerQueuedChatMessageInternal,
+  type ChatDetachedSendRecovery,
   type ChatInputHistoryKeyInput,
   type ChatInputHistoryKeyResult,
 } from "./app-chat.ts";
@@ -88,7 +94,11 @@ import {
 } from "./app-tool-stream.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { normalizeAssistantIdentity } from "./assistant-identity.ts";
-import { restoreChatComposerState } from "./chat/composer-persistence.ts";
+import { releaseChatAttachmentPayloads } from "./chat/attachment-payload-store.ts";
+import {
+  persistStoredChatComposerSet,
+  restoreChatComposerState,
+} from "./chat/composer-persistence.ts";
 import { exportChatMarkdown } from "./chat/export.ts";
 import type { ChatGoalFlowSummary } from "./chat/pursue-goal.ts";
 import {
@@ -106,6 +116,7 @@ import {
   type RealtimeTalkLaunchOptions,
   type RealtimeTalkStatus,
 } from "./chat/realtime-talk.ts";
+import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import type { ChatRunUiStatus } from "./chat/run-lifecycle.ts";
 import type { ChatMessageCache } from "./chat/session-message-cache.ts";
 import type { ChatSideResult } from "./chat/side-result.ts";
@@ -435,6 +446,7 @@ export class OpenClawApp extends LitElement {
   @state() chatHistoryLoadingOlder = false;
   @state() chatHistoryTotalMessages: number | null = null;
   @state() chatSending = false;
+  pendingAbort?: { runId?: string | null; sessionKey: string; agentId?: string } | null;
   @state() chatMessage = "";
   @state() chatMessages: unknown[] = [];
   @state() chatToolMessages: unknown[] = [];
@@ -484,6 +496,7 @@ export class OpenClawApp extends LitElement {
   @state() chatThinkingLevel: string | null = null;
   @state() chatModelOverrides: Record<string, ChatModelOverride | null> = {};
   @state() chatModelSwitchPromises: Record<string, Promise<boolean>> = {};
+  chatSubmitGuards = new Map<string, Promise<void>>();
   @state() chatModelsLoading = false;
   @state() chatModelCatalog: ModelCatalogEntry[] = [];
   @state() chatModelCatalogRefreshedAt: number | null = null;
@@ -566,9 +579,29 @@ export class OpenClawApp extends LitElement {
     sessionKey: string;
     chatMessage: string;
     chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
   } | null = null;
+  chatComposerProvisionalRestore: {
+    sessionKey: string;
+    /** Gateway scope that owns this provisional snapshot; prevents cross-Gateway reuse. */
+    gatewayScope?: string;
+    chatMessage: string;
+    chatQueue: ChatQueueItem[];
+    chatQueuePaused: boolean;
+  } | null = null;
+  /** Keeps password-only composer fallback state scoped to this live app. */
+  chatComposerMemoryOwner = {};
+  chatComposerPersistenceSuspended = false;
+  chatComposerRetryingCurrentGateway = false;
   @state() chatQueue: ChatQueueItem[] = [];
+  @state() chatQueuePaused = false;
+  @state() chatQueuePausedBySession: Record<string, boolean> = {};
   @state() chatQueueBySession: Record<string, ChatQueueItem[]> = {};
+  @state() chatDetachedSendRecoveries: ChatDetachedSendRecovery[] = [];
+  chatQueuePausePendingBySession: Record<string, boolean> = {};
+  chatQueuePauseTransitionsBySession: Record<string, Promise<boolean>> = {};
+  chatQueueCreateTransitionsBySession: Record<string, Set<Promise<boolean>>> = {};
+  chatQueueGatewayGeneration = 0;
   @state() chatMessagesBySession: ChatMessageCache = new Map();
   @state() chatAttachments: ChatAttachment[] = [];
   @state() realtimeTalkActive = false;
@@ -696,8 +729,10 @@ export class OpenClawApp extends LitElement {
   @state() execApprovalQueue: ExecApprovalRequest[] = [];
   @state() execApprovalBusy = false;
   @state() execApprovalError: string | null = null;
+  execApprovalGatewayGeneration = 0;
   @state() pendingGatewayUrl: string | null = null;
   pendingGatewayToken: string | null = null;
+  pendingGatewayPassword: string | null = null;
 
   @state() configLoading = false;
   @state() configRaw = "{\n}\n";
@@ -1063,6 +1098,12 @@ export class OpenClawApp extends LitElement {
   @state() logsAtBottom = true;
 
   client: GatewayBrowserClient | null = null;
+  activeGatewayConnection: {
+    gatewayUrl: string;
+    token: string;
+    password: string;
+    scope: string;
+  } | null = null;
   chatScrollFrame: number | null = null;
   chatScrollTimeout: number | null = null;
   chatLastScrollTop = 0;
@@ -1310,6 +1351,108 @@ export class OpenClawApp extends LitElement {
 
   connect() {
     connectGatewayInternal(this as unknown as Parameters<typeof connectGatewayInternal>[0]);
+  }
+
+  handleGatewayConnect() {
+    const active = this.activeGatewayConnection;
+    if (!active) {
+      const provisional = this.chatComposerProvisionalRestore;
+      const requestedGatewayScope = normalizeGatewayComposerScope(
+        this.settings.gatewayUrl,
+        this.settings.token.trim() || this.password.trim(),
+      );
+      // The first connection may never reach hello, so there is no active
+      // connection for the guarded handoff to compare. A provisional composer
+      // owned by another Gateway must not cross that pre-hello boundary.
+      if (provisional && provisional.gatewayScope !== requestedGatewayScope) {
+        const hasProvisionalComposerState =
+          Boolean(this.chatMessage.trim()) ||
+          this.chatAttachments.length > 0 ||
+          this.chatQueue.length > 0 ||
+          this.chatQueuePaused ||
+          Boolean(provisional.chatMessage.trim()) ||
+          provisional.chatQueue.length > 0 ||
+          provisional.chatQueuePaused;
+        if (hasProvisionalComposerState) {
+          this.chatError =
+            "Clear the pending draft and queue, or reconnect to the original Gateway, before switching so unsaved Chat work is not lost.";
+          this.requestUpdate();
+          return;
+        }
+        const queuedAttachments = [
+          ...this.chatAttachments,
+          ...this.chatQueue.flatMap((item) => item.attachments ?? []),
+          ...Object.values(this.chatQueueBySession).flatMap((queue) =>
+            queue.flatMap((item) => item.attachments ?? []),
+          ),
+        ];
+        releaseChatAttachmentPayloads(queuedAttachments);
+        this.chatMessage = "";
+        this.chatAttachments = [];
+        this.chatQueue = [];
+        this.chatQueueBySession = {};
+        this.chatQueuePaused = false;
+        this.chatQueuePausedBySession = {};
+        this.chatQueuePausePendingBySession = {};
+        this.chatQueuePauseTransitionsBySession = {};
+        this.chatQueueCreateTransitionsBySession = {};
+        this.chatComposerProvisionalRestore = null;
+        this.chatComposerPersistenceSuspended = false;
+        this.chatMessages = [];
+        this.chatMessagesBySession = new Map();
+        this.chatToolMessages = [];
+        this.chatSideResult = null;
+        this.chatTargetRunId = null;
+        this.chatTargetAuditTs = null;
+        this.chatTargetStatus = null;
+        this.chatLocalInputHistoryBySession = {};
+        this.chatInputHistorySessionKey = null;
+        this.chatInputHistoryItems = null;
+        this.chatInputHistoryIndex = -1;
+        this.chatDraftBeforeHistory = null;
+        this.sidebarContent = null;
+        this.sidebarError = null;
+        this.execApprovalGatewayGeneration += 1;
+        this.execApprovalQueue = [];
+        this.execApprovalBusy = false;
+        this.execApprovalError = null;
+        this.assistantAgentId = null;
+        this.agentsList = null;
+        reconcileChatRunLifecycle(
+          this as unknown as Parameters<typeof reconcileChatRunLifecycle>[0],
+          {
+            clearLocalRun: true,
+            clearChatStream: true,
+            clearToolStream: true,
+            clearSideResultTerminalRuns: true,
+            clearRunStatus: true,
+          },
+        );
+      }
+      this.connect();
+      return;
+    }
+    const endpointChanged =
+      normalizeGatewayCredentialScope(this.settings.gatewayUrl) !==
+      normalizeGatewayCredentialScope(active.gatewayUrl);
+    const credentialsChanged =
+      this.settings.token.trim() !== active.token.trim() ||
+      this.password.trim() !== active.password.trim();
+    if (!endpointChanged && !credentialsChanged) {
+      this.connect();
+      return;
+    }
+
+    this.pendingGatewayUrl = this.settings.gatewayUrl;
+    this.pendingGatewayToken = this.settings.token.trim();
+    this.pendingGatewayPassword = this.password;
+    this.applySettings({
+      ...this.settings,
+      gatewayUrl: active.gatewayUrl,
+      token: active.token,
+    });
+    this.password = active.password;
+    this.handleGatewayUrlConfirm();
   }
 
   handleChatScroll(event: Event) {
@@ -1923,6 +2066,12 @@ export class OpenClawApp extends LitElement {
     );
   }
 
+  toggleChatQueuePaused() {
+    return toggleChatQueuePausedInternal(
+      this as unknown as Parameters<typeof toggleChatQueuePausedInternal>[0],
+    );
+  }
+
   async handleSendChat(
     messageOverride?: string,
     opts?: Parameters<typeof handleSendChatInternal>[2],
@@ -2114,19 +2263,27 @@ export class OpenClawApp extends LitElement {
 
   async handleExecApprovalDecision(decision: "allow-once" | "allow-always" | "deny") {
     const active = this.execApprovalQueue[0];
-    if (!active || !this.client || this.execApprovalBusy) {
+    const client = this.client;
+    const gatewayGeneration = this.execApprovalGatewayGeneration;
+    if (!active || !client || this.execApprovalBusy) {
       return;
     }
     this.execApprovalBusy = true;
     this.execApprovalError = null;
     try {
       const method = active.kind === "exec" ? "exec.approval.resolve" : "plugin.approval.resolve";
-      await this.client.request(method, {
+      await client.request(method, {
         id: active.id,
         decision,
       });
+      if (this.execApprovalGatewayGeneration !== gatewayGeneration || this.client !== client) {
+        return;
+      }
       dismissExecApprovalPrompt(this, active.id);
     } catch (err) {
+      if (this.execApprovalGatewayGeneration !== gatewayGeneration || this.client !== client) {
+        return;
+      }
       if (isStaleApprovalResolutionError(err)) {
         dismissExecApprovalPrompt(this, active.id);
         await refreshPendingApprovalQueue(this);
@@ -2137,7 +2294,9 @@ export class OpenClawApp extends LitElement {
       }
       this.execApprovalError = `Approval failed: ${String(err)}`;
     } finally {
-      this.execApprovalBusy = false;
+      if (this.execApprovalGatewayGeneration === gatewayGeneration && this.client === client) {
+        this.execApprovalBusy = false;
+      }
     }
   }
 
@@ -2146,21 +2305,228 @@ export class OpenClawApp extends LitElement {
     if (!nextGatewayUrl) {
       return;
     }
+    const hasQueueTransition =
+      Object.values(this.chatQueueCreateTransitionsBySession).some(
+        (transitions) => transitions.size > 0,
+      ) || Object.values(this.chatQueuePauseTransitionsBySession).some(Boolean);
+    // A closed socket may leave a submit/model-switch continuation in flight;
+    // stale run/stream fields alone are safe to abandon, but live promises can
+    // still write through the old scope after this Gateway is replaced.
+    const hasInFlightChatTransition =
+      this.chatSubmitGuards.size > 0 || Object.values(this.chatModelSwitchPromises).some(Boolean);
+    const hasConnectedChatOperation =
+      this.connected &&
+      this.client !== null &&
+      (this.chatSending || this.chatRunId !== null || this.chatStream !== null);
+    const hasChatOperation =
+      hasQueueTransition ||
+      hasInFlightChatTransition ||
+      hasConnectedChatOperation ||
+      this.chatProjectBusy ||
+      this.chatGoalBusy;
+    if (hasChatOperation) {
+      this.chatError =
+        "Finish the active Chat operation before switching Gateways so no work or message content is sent to the wrong Gateway.";
+      this.requestUpdate();
+      return;
+    }
+    if (this.chatAttachments.length > 0) {
+      this.chatError =
+        "Remove or send the attached files before switching Gateways so they are not lost.";
+      this.requestUpdate();
+      return;
+    }
+    const suspendedProvisionalRestore = this.chatComposerProvisionalRestore;
     const nextToken = this.pendingGatewayToken?.trim() || "";
+    const sameGatewayEndpoint =
+      normalizeGatewayCredentialScope(nextGatewayUrl) ===
+      normalizeGatewayCredentialScope(this.settings.gatewayUrl);
+    const nextPassword =
+      this.pendingGatewayPassword == null
+        ? sameGatewayEndpoint
+          ? this.password.trim()
+          : ""
+        : this.pendingGatewayPassword.trim();
+    const currentCredential = this.hello?.auth?.deviceToken || this.settings.token || this.password;
+    const nextCredential =
+      nextToken ||
+      (sameGatewayEndpoint ? nextPassword || this.hello?.auth?.deviceToken : undefined);
+    const nextGatewayScope = normalizeGatewayComposerScope(nextGatewayUrl, nextCredential);
+    const currentGatewayScope = normalizeGatewayComposerScope(
+      this.settings.gatewayUrl,
+      currentCredential,
+    );
+    const gatewayPrincipalChanged = nextGatewayScope !== currentGatewayScope;
+    const retryingCurrentGateway =
+      this.chatComposerPersistenceSuspended &&
+      (suspendedProvisionalRestore
+        ? suspendedProvisionalRestore.gatewayScope === nextGatewayScope
+        : nextGatewayScope === currentGatewayScope);
+    const hasSuspendedComposerState =
+      this.chatComposerPersistenceSuspended &&
+      (Boolean(this.chatMessage.trim()) ||
+        this.chatQueue.length > 0 ||
+        this.chatQueuePaused ||
+        Boolean(suspendedProvisionalRestore?.chatMessage.trim()) ||
+        (suspendedProvisionalRestore?.chatQueue.length ?? 0) > 0 ||
+        suspendedProvisionalRestore?.chatQueuePaused === true);
+    if (hasSuspendedComposerState && !retryingCurrentGateway) {
+      this.chatError =
+        "Clear the pending draft and queue, or retry this Gateway with corrected credentials, before switching so unsaved Chat work is not lost.";
+      this.requestUpdate();
+      return;
+    }
+    // Persist the old origin before replacing in-memory state. Never let a
+    // paused prompt or attachment cross into the newly selected Gateway.
+    const inactiveQueueSessions = new Set(
+      Object.entries(this.chatQueueBySession)
+        .filter(([, queue]) => queue.length > 0)
+        .map(([sessionKey]) => sessionKey),
+    );
+    for (const [sessionKey, paused] of Object.entries(this.chatQueuePausedBySession)) {
+      if (paused) {
+        inactiveQueueSessions.add(sessionKey);
+      }
+    }
+    inactiveQueueSessions.delete(this.sessionKey);
+    const composerPersisted = this.chatComposerPersistenceSuspended
+      ? true
+      : persistStoredChatComposerSet(this, [
+          {
+            sessionKey: this.sessionKey,
+            draft: this.chatMessage,
+            queue: this.chatQueue,
+            queuePaused: this.chatQueuePaused,
+          },
+          ...[...inactiveQueueSessions].map((sessionKey) => ({
+            sessionKey,
+            queue: this.chatQueueBySession[sessionKey] ?? [],
+            queuePaused: this.chatQueuePausedBySession[sessionKey] ?? false,
+          })),
+        ]);
+    if (!composerPersisted) {
+      this.chatError =
+        "Could not switch Gateway without safely saving the current chat draft and queue. Keep this Gateway selected and retry after resolving browser storage.";
+      this.requestUpdate();
+      return;
+    }
+    const previousProvisionalRestore = this.chatComposerProvisionalRestore;
+    const provisionalRestore =
+      retryingCurrentGateway && previousProvisionalRestore
+        ? {
+            sessionKey: this.sessionKey,
+            gatewayScope: nextGatewayScope,
+            chatMessage: this.chatMessage || previousProvisionalRestore.chatMessage,
+            chatQueue:
+              this.chatQueue.length > 0
+                ? [...this.chatQueue]
+                : [...previousProvisionalRestore.chatQueue],
+            chatQueuePaused:
+              this.chatQueue.length > 0 || this.chatQueuePaused
+                ? this.chatQueuePaused
+                : previousProvisionalRestore.chatQueuePaused,
+          }
+        : {
+            // The previous Gateway's draft and queue are persisted under its
+            // scope; never seed the replacement Gateway with that content.
+            sessionKey: this.sessionKey,
+            gatewayScope: nextGatewayScope,
+            chatMessage: "",
+            chatQueue: [],
+            chatQueuePaused: false,
+          };
+    if (!retryingCurrentGateway) {
+      const queuedAttachments = [
+        ...this.chatQueue.flatMap((item) => item.attachments ?? []),
+        ...Object.values(this.chatQueueBySession).flatMap((queue) =>
+          queue.flatMap((item) => item.attachments ?? []),
+        ),
+      ];
+      releaseChatAttachmentPayloads(queuedAttachments);
+    } else {
+      // A failed same-Gateway retry has not changed the target scope. Keep
+      // the live composer populated so hello cannot replace it with storage.
+      this.chatMessage = provisionalRestore.chatMessage;
+      this.chatQueue = [...provisionalRestore.chatQueue];
+      this.chatQueuePaused = provisionalRestore.chatQueuePaused;
+    }
     this.pendingGatewayUrl = null;
     this.pendingGatewayToken = null;
+    this.pendingGatewayPassword = null;
+    this.chatQueueGatewayGeneration += 1;
+    if (!retryingCurrentGateway) {
+      this.chatQueue = [];
+    }
+    this.chatQueueBySession = {};
+    if (!retryingCurrentGateway) {
+      this.chatMessage = "";
+      this.chatAttachments = [];
+      this.chatQueuePaused = false;
+      // A credential or Gateway change is an authentication boundary. Do not
+      // leave the previous principal's transcript, cache, tool output, or
+      // sidebar message visible while the replacement connection loads.
+      reconcileChatRunLifecycle(
+        this as unknown as Parameters<typeof reconcileChatRunLifecycle>[0],
+        {
+          clearLocalRun: true,
+          clearChatStream: true,
+          clearToolStream: true,
+          clearSideResultTerminalRuns: true,
+          clearRunStatus: true,
+        },
+      );
+      this.chatMessages = [];
+      this.chatMessagesBySession = new Map();
+      this.chatSideResult = null;
+      this.chatTargetRunId = null;
+      this.chatTargetAuditTs = null;
+      this.chatTargetStatus = null;
+      this.chatLocalInputHistoryBySession = {};
+      this.chatInputHistorySessionKey = null;
+      this.chatInputHistoryItems = null;
+      this.chatInputHistoryIndex = -1;
+      this.chatDraftBeforeHistory = null;
+      this.sidebarContent = null;
+      this.sidebarError = null;
+    }
+    if (gatewayPrincipalChanged) {
+      // An abort queued while disconnected belongs to the old principal. Do
+      // not replay it against a new Gateway where the same session key may
+      // refer to an unrelated run.
+      this.pendingAbort = null;
+      this.execApprovalGatewayGeneration += 1;
+      this.execApprovalQueue = [];
+      this.execApprovalBusy = false;
+      this.execApprovalError = null;
+    }
+    this.chatQueuePausedBySession = {};
+    this.chatQueuePausePendingBySession = {};
+    this.chatQueuePauseTransitionsBySession = {};
+    this.chatQueueCreateTransitionsBySession = {};
+    // A Gateway switch must not let the previous Gateway's agent identity or
+    // agent catalog scope the new Gateway's provisional composer restore.
+    this.assistantAgentId = null;
+    this.agentsList = null;
+    this.chatComposerPersistenceSuspended = true;
+    this.chatComposerRetryingCurrentGateway = retryingCurrentGateway;
     applySettingsInternal(this as unknown as Parameters<typeof applySettingsInternal>[0], {
       ...this.settings,
       gatewayUrl: nextGatewayUrl,
       token: nextToken,
     });
-    restoreChatComposerState(this, { preserveCurrent: true });
+    this.password = nextPassword;
+    // Wait for the new Gateway hello before restoring its composer. Its
+    // session defaults may map aliases to a different agent than the old
+    // Gateway, so pre-hello restoration can load the wrong queue scope.
+    this.chatComposerProvisionalRestore = provisionalRestore;
     this.connect();
   }
 
   handleGatewayUrlCancel() {
     this.pendingGatewayUrl = null;
     this.pendingGatewayToken = null;
+    this.pendingGatewayPassword = null;
+    this.chatComposerRetryingCurrentGateway = false;
     restoreChatComposerState(this, { preserveCurrent: true });
   }
 

@@ -308,10 +308,10 @@ describe("chat queue", () => {
       container,
     );
 
-    expect(container.querySelector(".chat-queue__title")?.textContent).toContain("Queued (2)");
+    expect(container.querySelector(".chat-queue__title")?.textContent).toContain("Queue (2)");
     expect(Array.from(container.querySelectorAll(".chat-queue__item"))).toHaveLength(2);
     expect(container.textContent).toContain("Sending now");
-    expect(container.textContent).toContain("Queued");
+    expect(container.textContent).toContain("second queued prompt");
 
     const removeButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".chat-queue__remove"),

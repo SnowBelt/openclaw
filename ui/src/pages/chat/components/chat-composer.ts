@@ -80,6 +80,7 @@ type ChatComposerProps = {
   stream: string | null;
   sideResult?: ChatSideResult | null;
   queue: ChatQueueItem[];
+  queuePaused?: boolean;
   draft: string;
   sessions: SessionsListResult | null;
   providerQuota?: ProviderQuotaPillProps;
@@ -106,6 +107,7 @@ type ChatComposerProps = {
   onQueueRemove: (id: string) => void;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onQueueTogglePause?: () => void;
   onDismissSideResult?: () => void;
   onNewSession: () => void;
   onClearReply?: () => void;
@@ -902,9 +904,11 @@ type ChatAttachmentControlsProps = {
 
 type ChatQueueProps = {
   queue: ChatQueueItem[];
+  queuePaused?: boolean;
   canAbort?: boolean;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onQueueTogglePause?: () => void;
   onQueueRemove: (id: string) => void;
 };
 
@@ -924,12 +928,33 @@ function sendStateLabel(item: ChatQueueItem): string | null {
 }
 
 export function renderChatQueue(props: ChatQueueProps) {
-  if (!props.queue.length) {
+  if (!props.queue.length && !props.queuePaused && !props.onQueueTogglePause) {
     return nothing;
   }
+  const pauseAction = props.queuePaused ? "Resume new messages" : "Pause new messages";
+  const pauseTitle = `${pauseAction} in this browser.`;
   return html`
     <div class="chat-queue" role="status" aria-live="polite">
-      <div class="chat-queue__title">Queued (${props.queue.length})</div>
+      <div class="chat-queue__header">
+        <div class="chat-queue__title">
+          Queue${props.queue.length ? ` (${props.queue.length})` : ""}${props.queuePaused
+            ? " · Paused"
+            : ""}
+        </div>
+        ${props.onQueueTogglePause
+          ? html`
+              <button
+                class="btn btn--ghost btn--sm chat-queue__pause"
+                type="button"
+                aria-label=${pauseAction}
+                title=${pauseTitle}
+                @click=${props.onQueueTogglePause}
+              >
+                ${props.queuePaused ? "Resume" : "Pause"}
+              </button>
+            `
+          : nothing}
+      </div>
       <div class="chat-queue__list">
         ${props.queue.map((item) => {
           const stateLabel = sendStateLabel(item);
@@ -2190,9 +2215,11 @@ export function renderChatComposer(props: ChatComposerProps) {
   return html`
     ${renderChatQueue({
       queue: props.queue,
+      queuePaused: props.queuePaused,
       canAbort: showAbortableUi,
       onQueueRetry: canCompose ? props.onQueueRetry : undefined,
       onQueueSteer: canCompose ? props.onQueueSteer : undefined,
+      onQueueTogglePause: props.onQueueTogglePause,
       onQueueRemove: props.onQueueRemove,
     })}
     ${renderSideResult(props.sideResult, props.onDismissSideResult)}

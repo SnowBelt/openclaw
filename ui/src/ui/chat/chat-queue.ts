@@ -6,10 +6,12 @@ import type { ChatQueueItem } from "../ui-types.ts";
 
 export type ChatQueueProps = {
   queue: ChatQueueItem[];
+  queuePaused?: boolean;
   canAbort?: boolean;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
   onQueueRemove: (id: string) => void;
+  onQueueTogglePause?: () => void;
 };
 
 export type ChatQueueSummary = {
@@ -65,9 +67,14 @@ function sendStateLabel(item: ChatQueueItem): string | null {
 }
 
 export function renderChatQueue(props: ChatQueueProps) {
-  if (!props.queue.length) {
+  if (!props.queue.length && !props.queuePaused && !props.onQueueTogglePause) {
     return nothing;
   }
+  const hasDurableTurns = props.queue.some((item) => item.serverTurnId != null);
+  const pauseAction = props.queuePaused ? "Resume new messages" : "Pause new messages";
+  const pauseTitle = hasDurableTurns
+    ? "Pauses browser-owned messages; Gateway-accepted turns continue."
+    : `${pauseAction} in this browser.`;
   const summary = summarizeChatQueue(props.queue);
   const summaryParts = [
     summary.working > 0 ? `${summary.working} running` : null,
@@ -76,7 +83,31 @@ export function renderChatQueue(props: ChatQueueProps) {
   ].filter((part): part is string => part !== null);
   return html`
     <div class="chat-queue" role="status" aria-live="polite">
-      <div class="chat-queue__title">Queue · ${summaryParts.join(" · ")}</div>
+      <div class="chat-queue__header">
+        <div class="chat-queue__title">
+          Queue${summaryParts.length ? ` · ${summaryParts.join(" · ")}` : ""}${props.queuePaused
+            ? " · Paused"
+            : ""}
+        </div>
+        ${props.onQueueTogglePause
+          ? html`
+              <button
+                class="btn btn--ghost btn--sm chat-queue__pause"
+                type="button"
+                aria-label=${pauseAction}
+                title=${pauseTitle}
+                @click=${props.onQueueTogglePause}
+              >
+                ${props.queuePaused ? "Resume" : "Pause"}
+              </button>
+            `
+          : nothing}
+      </div>
+      ${props.queuePaused && hasDurableTurns
+        ? html`<div class="chat-queue__note">
+            Gateway-accepted turns continue. New browser messages are paused.
+          </div>`
+        : nothing}
       <div class="chat-queue__list">
         ${props.queue.map((item) => {
           const stateLabel = sendStateLabel(item);

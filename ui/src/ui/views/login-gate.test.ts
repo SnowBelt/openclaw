@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { render } from "lit";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectErrorDetailCodes } from "../../../../packages/gateway-protocol/src/connect-error-details.js";
 import { i18n } from "../../i18n/index.ts";
 import type { AppViewState } from "../app-view-state.ts";
@@ -34,6 +34,7 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
     },
     applySettings: () => undefined,
     connect: () => undefined,
+    handleGatewayConnect: () => undefined,
     ...overrides,
   } as unknown as AppViewState;
 }
@@ -293,5 +294,25 @@ describe("renderLoginGate", () => {
     expect(docsLink?.getAttribute("href")).toBe(
       "https://docs.openclaw.ai/web/control-ui#debuggingtesting-dev-server--remote-gateway",
     );
+  });
+
+  it("routes every login submission through the guarded Gateway handoff", async () => {
+    const connect = vi.fn();
+    const handleGatewayConnect = vi.fn();
+    const container = document.createElement("div");
+    const state = createState({ connect, handleGatewayConnect });
+
+    render(renderLoginGate(state), container);
+    await Promise.resolve();
+
+    container.querySelector<HTMLButtonElement>(".login-gate__connect")?.click();
+    container
+      .querySelectorAll<HTMLInputElement>(".login-gate__secret-row input")
+      .forEach((input) => {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+
+    expect(handleGatewayConnect).toHaveBeenCalledTimes(3);
+    expect(connect).not.toHaveBeenCalled();
   });
 });

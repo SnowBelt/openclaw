@@ -86,6 +86,7 @@ import {
   type SessionStoreTarget,
   type SessionScope,
 } from "../config/sessions.js";
+import { hasSessionActiveAutoModelFallback } from "../config/sessions/model-override-provenance.js";
 import { listSessionEntries as listAccessorSessionEntries } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { openRootFileSync } from "../infra/boundary-file-read.js";
@@ -2114,6 +2115,24 @@ export function resolveSessionDisplayModelIdentityRef(params: {
   };
 }
 
+function resolveSessionModelOverrideSource(
+  entry: SessionEntry | undefined,
+): SessionEntry["modelOverrideSource"] {
+  if (entry?.modelOverrideSource === "auto" || entry?.modelOverrideSource === "user") {
+    return entry.modelOverrideSource;
+  }
+  if (hasSessionActiveAutoModelFallback(entry)) {
+    return "auto";
+  }
+  if (
+    normalizeOptionalString(entry?.providerOverride) ||
+    normalizeOptionalString(entry?.modelOverride)
+  ) {
+    return "user";
+  }
+  return undefined;
+}
+
 export function buildGatewaySessionRow(params: {
   cfg: OpenClawConfig;
   storePath: string;
@@ -2471,6 +2490,8 @@ export function buildGatewaySessionRow(params: {
     ),
     modelProvider: rowModelProvider,
     model: rowModel,
+    modelOverrideIsFallback: hasSessionActiveAutoModelFallback(entry),
+    modelOverrideSource: resolveSessionModelOverrideSource(entry),
     agentRuntime: thinkingProjection.agentRuntime,
     contextTokens,
     contextBudgetStatus: entry?.contextBudgetStatus,

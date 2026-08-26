@@ -18,7 +18,7 @@ import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState } from "../chat/chat-welcome.ts";
 import { CHAT_PURSUE_GOAL_CONTROLLER_ID } from "../chat/pursue-goal.ts";
-import { renderChatSessionSelect } from "../chat/session-controls.ts";
+import { renderChatModelSelect, renderChatSessionSelect } from "../chat/session-controls.ts";
 import type { ExecApprovalRequest } from "../controllers/exec-approval.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { GatewaySessionRow, ModelCatalogEntry, SessionsListResult } from "../types.ts";
@@ -36,6 +36,7 @@ const refreshVisibleToolsEffectiveForCurrentSessionMock = vi.hoisted(() =>
     state.toolsEffectiveResult = { agentId, profile: "coding", groups: [] };
   }),
 );
+const loadAgentsMock = vi.hoisted(() => vi.fn(async () => undefined));
 const loadSessionsMock = vi.hoisted(() =>
   vi.fn(async (state: AppViewState) => {
     const res = await state.client?.request("sessions.list", {
@@ -190,6 +191,7 @@ vi.mock("../chat/tool-expansion-state.ts", () => ({
 }));
 
 vi.mock("../controllers/agents.ts", () => ({
+  loadAgents: loadAgentsMock,
   refreshVisibleToolsEffectiveForCurrentSession: refreshVisibleToolsEffectiveForCurrentSessionMock,
 }));
 
@@ -229,17 +231,21 @@ vi.mock("./agents-utils.ts", () => ({
 
 function renderQueue(params: {
   queue: ChatQueueItem[];
+  queuePaused?: boolean;
   canAbort?: boolean;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onQueueTogglePause?: () => void;
 }) {
   const container = document.createElement("div");
   render(
     renderChatQueue({
       queue: params.queue,
+      queuePaused: params.queuePaused,
       canAbort: params.canAbort ?? true,
       onQueueRetry: params.onQueueRetry,
       onQueueSteer: params.onQueueSteer,
+      onQueueTogglePause: params.onQueueTogglePause,
       onQueueRemove: () => undefined,
     }),
     container,
@@ -2984,6 +2990,35 @@ describe("chat queue", () => {
     const text = container.querySelector<HTMLElement>("[data-chat-queue-text]");
     expect(text?.textContent?.trim()).toBe(prompt);
   });
+
+  it("keeps a paused empty queue visible and resumes through its control", () => {
+    const onQueueTogglePause = vi.fn();
+    const container = renderQueue({
+      onQueueTogglePause,
+      queue: [],
+      queuePaused: true,
+    });
+
+    expect(container.querySelector(".chat-queue__title")?.textContent).toContain("Queue · Paused");
+    const resume = container.querySelector<HTMLButtonElement>(".chat-queue__pause");
+    expect(resume?.textContent?.trim()).toBe("Resume");
+    resume?.click();
+    expect(onQueueTogglePause).toHaveBeenCalledOnce();
+  });
+
+  it("shows the pause control for an idle queue", () => {
+    const onQueueTogglePause = vi.fn();
+    const container = renderQueue({
+      onQueueTogglePause,
+      queue: [],
+    });
+
+    expect(container.querySelector(".chat-queue__title")?.textContent).toContain("Queue");
+    const pause = container.querySelector<HTMLButtonElement>(".chat-queue__pause");
+    expect(pause?.textContent?.trim()).toBe("Pause");
+    pause?.click();
+    expect(onQueueTogglePause).toHaveBeenCalledOnce();
+  });
 });
 
 describe("chat sidebar raw content", () => {
@@ -3111,6 +3146,20 @@ describe("chat welcome", () => {
 describe("chat session controls", () => {
   afterEach(async () => {
     await i18n.setLocale("en");
+  });
+
+  it("hides chat rename actions from read-only operators", () => {
+    const { state } = createChatHeaderState();
+    state.hello = {
+      auth: { role: "operator", scopes: ["operator.read"] },
+    } as never;
+    const container = document.createElement("div");
+
+    render(renderChatSessionSelect(state), container);
+    container.querySelector<HTMLButtonElement>('button[data-chat-session-select="true"]')!.click();
+    render(renderChatSessionSelect(state), container);
+
+    expect(container.querySelector(".chat-session-picker__option-action")).toBeNull();
   });
 
   it("filters chat sessions by agent and switches to that agent's latest eligible session", () => {
@@ -4453,6 +4502,89 @@ describe("chat session controls", () => {
     await flushTasks();
     expect(loadSessionsMock).toHaveBeenCalledTimes(1);
     expect(state.sessionsResult?.sessions[0]?.model).toBeUndefined();
+  });
+
+  it("reloads the current config before saving the Control Director default", async () => {
+    const { state, request } = createChatHeaderState({ model: "gpt-5" });
+    state.hello = {
+      auth: { role: "operator", scopes: ["operator.admin", "operator.write"] },
+    } as never;
+    state.agentsList = {
+      defaultId: "main",
+      scope: "all",
+      agents: [
+        {
+          id: "main",
+          name: "Control Director",
+          role: "control_director",
+          model: { primary: "gpt-5" },
+        },
+      ],
+    } as never;
+    state.configFormMode = "form";
+    state.configSnapshot = {
+      config: { agents: { list: [{ id: "main", model: { primary: "gpt-5" } }] } },
+      hash: "stale-hash",
+      issues: [],
+      raw: "{}",
+      valid: true,
+    } as never;
+    state.configForm = {
+      agents: {
+        list: [{ id: "main", role: "control_director", model: { primary: "gpt-5" } }],
+      },
+    };
+    const currentConfig = {
+      config: {
+        agents: {
+          list: [
+            {
+              id: "main",
+              role: "control_director",
+              model: { primary: "gpt-5", fallback: ["gpt-5-mini"] },
+            },
+          ],
+        },
+      },
+      hash: "fresh-hash",
+      issues: [],
+      raw: "{}",
+      valid: true,
+    };
+    const originalRequest = request.getMockImplementation() as
+      | ((method: string, params?: Record<string, unknown>) => Promise<unknown>)
+      | undefined;
+    const patchedRequest = (method: string, params: Record<string, unknown> = {}) => {
+      if (method === "config.get") {
+        return Promise.resolve(currentConfig);
+      }
+      if (method === "config.set") {
+        return Promise.resolve({ ok: true });
+      }
+      return originalRequest ? originalRequest(method, params) : Promise.resolve({});
+    };
+    request.mockImplementation(
+      patchedRequest as unknown as Parameters<typeof request.mockImplementation>[0],
+    );
+
+    const container = document.createElement("div");
+    render(renderChatModelSelect(state), container);
+    const defaultButton = container.querySelector<HTMLButtonElement>(
+      ".chat-controls__model-default-action:not([disabled])",
+    );
+    expect(defaultButton).not.toBeNull();
+    defaultButton?.click();
+
+    await vi.waitFor(() => {
+      expect(request).toHaveBeenCalledWith("config.get", {});
+      const configSet = request.mock.calls.find(([method]) => method === "config.set");
+      expect(configSet?.[1]).toMatchObject({ baseHash: "fresh-hash" });
+    });
+    expect(request).toHaveBeenCalledWith("sessions.patch", {
+      key: "main",
+      model: null,
+      expectedModelOverrideIsFallback: true,
+    });
   });
 
   it("keeps Default available when an explicit model override matches the default", async () => {

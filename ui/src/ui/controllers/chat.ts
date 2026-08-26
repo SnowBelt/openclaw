@@ -1905,6 +1905,7 @@ async function sendChatMessageWithGeneratedRunId(
   state: ChatState,
   message: string,
   attachments?: ChatAttachment[],
+  runId = generateUUID(),
 ): Promise<ChatSendAck | null> {
   if (!state.client || !state.connected) {
     return null;
@@ -1915,7 +1916,6 @@ async function sendChatMessageWithGeneratedRunId(
     return null;
   }
   setChatError(state, null);
-  const runId = generateUUID();
   try {
     return await requestChatSend(state, { message: msg, attachments, runId });
   } catch (err) {
@@ -1928,8 +1928,9 @@ export async function sendDetachedChatMessage(
   state: ChatState,
   message: string,
   attachments?: ChatAttachment[],
+  runId?: string,
 ): Promise<ChatSendAck | null> {
-  return sendChatMessageWithGeneratedRunId(state, message, attachments);
+  return sendChatMessageWithGeneratedRunId(state, message, attachments, runId);
 }
 
 export async function sendSteerChatMessage(

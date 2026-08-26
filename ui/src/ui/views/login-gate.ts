@@ -316,7 +316,7 @@ export function renderLoginGate(state: AppViewState) {
                 placeholder="OPENCLAW_GATEWAY_TOKEN (${t("login.passwordPlaceholder")})"
                 @keydown=${(e: KeyboardEvent) => {
                   if (e.key === "Enter") {
-                    state.connect();
+                    state.handleGatewayConnect();
                   }
                 }}
               />
@@ -349,7 +349,7 @@ export function renderLoginGate(state: AppViewState) {
                 placeholder="${t("login.passwordPlaceholder")}"
                 @keydown=${(e: KeyboardEvent) => {
                   if (e.key === "Enter") {
-                    state.connect();
+                    state.handleGatewayConnect();
                   }
                 }}
               />
@@ -369,7 +369,10 @@ export function renderLoginGate(state: AppViewState) {
               </button>
             </div>
           </label>
-          <button class="btn primary login-gate__connect" @click=${() => state.connect()}>
+          <button
+            class="btn primary login-gate__connect"
+            @click=${() => state.handleGatewayConnect()}
+          >
             ${t("common.connect")}
           </button>
         </div>

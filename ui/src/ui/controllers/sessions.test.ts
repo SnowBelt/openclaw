@@ -1070,6 +1070,48 @@ describe("loadSessions", () => {
     expect(state.sessionsLoading).toBe(false);
   });
 
+  it("does not resolve an overlapping refresh until the latest session rows arrive", async () => {
+    const firstBlocker = createDeferred<void>();
+    const request = vi.fn(async (method: string) => {
+      if (method !== "sessions.list") {
+        throw new Error(`unexpected method: ${method}`);
+      }
+      if (request.mock.calls.length === 1) {
+        await firstBlocker.promise;
+      }
+      return {
+        ts: request.mock.calls.length,
+        path: "(multiple)",
+        count: 1,
+        defaults: {},
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: request.mock.calls.length,
+            modelOverrideIsFallback: request.mock.calls.length === 1,
+          },
+        ],
+      };
+    });
+    const state = createState(request);
+
+    const first = loadSessions(state);
+    const second = loadSessions(state, { activeMinutes: 0, limit: 0 });
+    let secondResolved = false;
+    void second.then(() => {
+      secondResolved = true;
+    });
+
+    await Promise.resolve();
+    expect(secondResolved).toBe(false);
+    firstBlocker.resolve();
+    await Promise.all([first, second]);
+
+    expect(secondResolved).toBe(true);
+    expect(state.sessionsResult?.sessions[0]?.modelOverrideIsFallback).toBe(false);
+  });
+
   it("refreshes expanded checkpoint cards when the row summary changes", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "sessions.list") {
@@ -1262,6 +1304,46 @@ describe("applySessionsChangedEvent", () => {
       effectiveFastModeSource: "session",
       fastAutoOnSeconds: 30,
     });
+  });
+
+  it("applies and clears model override provenance from nested snapshots", () => {
+    const state = createState(async () => undefined, {
+      sessionsResult: {
+        ts: 1,
+        path: "(multiple)",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 1,
+            modelOverrideIsFallback: true,
+            modelOverrideSource: "auto",
+          },
+        ],
+      },
+    });
+
+    const applied = applySessionsChangedEvent(state, {
+      session: {
+        key: "agent:main:main",
+        kind: "direct",
+        updatedAt: 2,
+        modelOverrideIsFallback: false,
+        modelOverrideSource: null,
+      },
+      modelOverrideIsFallback: false,
+      modelOverrideSource: null,
+      reason: "patch",
+      ts: 2,
+    });
+
+    expect(applied).toEqual({ applied: true, change: "updated" });
+    expect(state.sessionsResult?.sessions[0]).toMatchObject({
+      modelOverrideIsFallback: false,
+    });
+    expect(state.sessionsResult?.sessions[0]?.modelOverrideSource).toBeUndefined();
   });
 
   it("removes deleted sessions instead of keeping archived rows visible", () => {

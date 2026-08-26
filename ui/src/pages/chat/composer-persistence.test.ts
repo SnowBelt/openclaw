@@ -2,19 +2,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
+import { setChatQueuePausedForSession } from "./chat-queue.ts";
 import {
   loadChatComposerSnapshot,
+  migrateChatComposerState,
   persistChatComposerState,
+  persistStoredChatComposerQueue,
+  recoverLegacyChatComposerState,
   removeStoredChatComposerQueueItem,
   restoreChatComposerState,
 } from "./composer-persistence.ts";
 
 function createState(overrides: Partial<Parameters<typeof persistChatComposerState>[0]> = {}) {
+  const settings = overrides.settings ?? {
+    gatewayUrl: "ws://gateway.test/control",
+    token: "test-token",
+  };
   return {
-    settings: { gatewayUrl: "ws://gateway.test/control" },
+    settings,
+    hello: settings.token ? { auth: { deviceToken: "test-device" } } : null,
+    chatComposerMemoryOwner: {},
     sessionKey: "agent:lily:main",
     chatMessage: "",
     chatQueue: [],
+    chatQueuePaused: false,
     ...overrides,
   };
 }
@@ -28,6 +39,26 @@ afterEach(() => {
 });
 
 describe("chat composer persistence", () => {
+  it("does not restore bootstrap-token state before the device identity is known", () => {
+    const preHello = createState({ hello: null, chatMessage: "bootstrap-only draft" });
+    expect(persistChatComposerState(preHello)).toBe(true);
+    preHello.chatMessage = "";
+    expect(restoreChatComposerState(preHello)).toBe(false);
+    expect(preHello.chatMessage).toBe("");
+  });
+
+  it("restores an authenticated token session when no device token is issued", () => {
+    const state = createState({
+      hello: { auth: {} },
+      chatMessage: "shared-token draft",
+    });
+    expect(persistChatComposerState(state)).toBe(true);
+    state.chatMessage = "";
+
+    expect(restoreChatComposerState(state)).toBe(true);
+    expect(state.chatMessage).toBe("shared-token draft");
+  });
+
   it("restores draft text and queued messages for the same gateway session", () => {
     const queue: ChatQueueItem[] = [
       {
@@ -102,7 +133,10 @@ describe("chat composer persistence", () => {
 
     expect(
       loadChatComposerSnapshot(
-        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "test-token" },
+          hello: { auth: { deviceToken: "test-device" } },
+        },
         "agent:lily:other",
       ),
     ).toBeNull();
@@ -112,6 +146,290 @@ describe("chat composer persistence", () => {
         "agent:lily:main",
       ),
     ).toBeNull();
+  });
+
+  it("does not restore a composer across credentials on the same gateway", () => {
+    persistChatComposerState(
+      createState({
+        settings: { gatewayUrl: "ws://gateway.test/control", token: "credential-a" },
+        chatMessage: "private draft",
+      }),
+    );
+
+    expect(
+      loadChatComposerSnapshot(
+        { settings: { gatewayUrl: "ws://gateway.test/control", token: "credential-b" } },
+        "agent:lily:main",
+      ),
+    ).toBeNull();
+  });
+
+  it("keys authenticated composer state by device identity over a shared token", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://gateway.test/control", token: "shared-token" },
+      hello: { auth: { deviceToken: "device-a" } },
+      chatMessage: "device A draft",
+    });
+    persistChatComposerState(state);
+
+    expect(
+      loadChatComposerSnapshot(
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "shared-token" },
+          hello: { auth: { deviceToken: "device-b" } },
+        },
+        state.sessionKey,
+      ),
+    ).toBeNull();
+    expect(
+      loadChatComposerSnapshot(
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "shared-token" },
+          hello: { auth: { deviceToken: "device-a" } },
+        },
+        state.sessionKey,
+      ),
+    ).toMatchObject({ draft: "device A draft" });
+  });
+
+  it("keeps password-only composer state in memory until device authentication", () => {
+    const memoryOwner = {};
+    const state = createState({
+      settings: { gatewayUrl: "ws://gateway.test/control", token: "" },
+      password: "password-a",
+      chatMessage: "password draft",
+      chatQueuePaused: true,
+      chatComposerMemoryOwner: memoryOwner,
+    });
+
+    expect(persistChatComposerState(state)).toBe(true);
+
+    expect(loadChatComposerSnapshot(state, state.sessionKey)).toMatchObject({
+      draft: "password draft",
+      queuePaused: true,
+    });
+    expect(
+      restoreChatComposerState(
+        createState({
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "" },
+          password: "password-a",
+          chatComposerMemoryOwner: memoryOwner,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      loadChatComposerSnapshot(
+        createState({
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "" },
+          password: "password-b",
+          chatComposerMemoryOwner: memoryOwner,
+        }),
+        state.sessionKey,
+      ),
+    ).toBeNull();
+    expect(
+      loadChatComposerSnapshot(
+        createState({
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "" },
+          password: "password-a",
+          chatComposerMemoryOwner: {},
+        }),
+        state.sessionKey,
+      ),
+    ).toBeNull();
+  });
+
+  it("persists composer state for a credential-less Gateway by endpoint", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://trusted-proxy.test/control", token: "" },
+      password: "",
+      hello: { auth: {} },
+      chatMessage: "trusted proxy draft",
+    });
+
+    expect(persistChatComposerState(state)).toBe(true);
+    expect(loadChatComposerSnapshot(state, state.sessionKey)).toMatchObject({
+      draft: "trusted proxy draft",
+    });
+  });
+
+  it("does not restore a credential-less composer before hello resolves the principal", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://trusted-proxy.test/control", token: "" },
+      password: "",
+      hello: null,
+    });
+    const legacyKey =
+      "openclaw.control.chatComposer.v1:" + encodeURIComponent("ws://trusted-proxy.test/control");
+    sessionStorage.setItem(
+      legacyKey,
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          "agent:lily:main\u0000agent:lily": { draft: "paired-device draft", updatedAt: 1 },
+        },
+      }),
+    );
+
+    expect(loadChatComposerSnapshot(state, state.sessionKey)).toBeNull();
+    expect(restoreChatComposerState(state)).toBe(false);
+    expect(state.chatMessage).toBe("");
+    expect(sessionStorage.getItem(legacyKey)).not.toBeNull();
+  });
+
+  it("does not claim ownerless legacy composer state for an anonymous scope", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://trusted-proxy.test/control", token: "" },
+      password: "",
+      hello: null,
+    });
+    const legacyKey =
+      "openclaw.control.chatComposer.v1:" + encodeURIComponent("ws://trusted-proxy.test/control");
+    const storeSessionKey = "agent:lily:main\u0000agent:lily";
+    sessionStorage.setItem(
+      legacyKey,
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          [storeSessionKey]: { draft: "legacy draft", updatedAt: 1 },
+        },
+      }),
+    );
+
+    expect(restoreChatComposerState(state)).toBe(false);
+    expect(state.chatMessage).toBe("");
+    expect(sessionStorage.getItem(legacyKey)).not.toBeNull();
+  });
+
+  it("keeps ownerless legacy composer state isolated during persistence", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://trusted-proxy.test/control", token: "" },
+      password: "",
+      hello: null,
+    });
+    const legacyKey =
+      "openclaw.control.chatComposer.v1:" + encodeURIComponent("ws://trusted-proxy.test/control");
+    const legacyRaw = JSON.stringify({
+      version: 1,
+      sessions: {
+        "agent:lily:main\u0000agent:lily": { draft: "legacy draft", updatedAt: 1 },
+      },
+    });
+    sessionStorage.setItem(legacyKey, legacyRaw);
+    expect(
+      persistStoredChatComposerQueue(
+        state,
+        state.sessionKey,
+        [{ id: "queued", text: "must survive", createdAt: 2 }],
+        true,
+        { requireComplete: true },
+      ),
+    ).toBe(true);
+    expect(sessionStorage.getItem(legacyKey)).toBe(legacyRaw);
+  });
+
+  it("recovers legacy composer state only after explicit owner confirmation", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://trusted-proxy.test/control", token: "current-token" },
+      hello: { auth: {} },
+    });
+    const legacyKey =
+      "openclaw.control.chatComposer.v1:" + encodeURIComponent("ws://trusted-proxy.test/control");
+    sessionStorage.setItem(
+      legacyKey,
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          "agent:lily:main\u0000agent:lily": { draft: "legacy draft", updatedAt: 1 },
+        },
+      }),
+    );
+
+    expect(recoverLegacyChatComposerState(state, { confirmOwnerless: true })).toBe(true);
+    expect(restoreChatComposerState(state)).toBe(true);
+    expect(state.chatMessage).toBe("legacy draft");
+    expect(sessionStorage.getItem(legacyKey)).toBeNull();
+  });
+
+  it("offers legacy recovery through the normal restore path", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://trusted-proxy.test/control", token: "current-token" },
+      hello: { auth: {} },
+    });
+    const legacyKey =
+      "openclaw.control.chatComposer.v1:" + encodeURIComponent("ws://trusted-proxy.test/control");
+    sessionStorage.setItem(
+      legacyKey,
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          "agent:lily:main\u0000agent:lily": { draft: "legacy draft", updatedAt: 1 },
+        },
+      }),
+    );
+    const confirmRecovery = vi.fn(() => true);
+
+    expect(restoreChatComposerState(state, { confirmLegacyRecovery: confirmRecovery })).toBe(true);
+    expect(state.chatMessage).toBe("legacy draft");
+    expect(confirmRecovery).toHaveBeenCalledOnce();
+
+    state.chatMessage = "";
+    expect(restoreChatComposerState(state, { confirmLegacyRecovery: confirmRecovery })).toBe(true);
+    expect(state.chatMessage).toBe("legacy draft");
+    expect(confirmRecovery).toHaveBeenCalledOnce();
+  });
+
+  it("migrates every stored session across a same-device token rotation", () => {
+    const owner = {};
+    const previous = createState({
+      settings: { gatewayUrl: "ws://gateway.test/control", token: "" },
+      hello: { auth: { deviceToken: "device-before" } },
+      chatComposerMemoryOwner: owner,
+      sessionKey: "agent:lily:main",
+      chatMessage: "main draft",
+    });
+    persistChatComposerState(previous);
+    persistChatComposerState({
+      ...previous,
+      sessionKey: "agent:lily:other",
+      chatMessage: "other draft",
+    });
+    const next = {
+      settings: { gatewayUrl: "ws://gateway.test/control", token: "" },
+      hello: { auth: { deviceToken: "device-after" } },
+      chatComposerMemoryOwner: owner,
+    };
+
+    expect(migrateChatComposerState(previous, next)).toBe(true);
+    expect(loadChatComposerSnapshot(next, "agent:lily:main")).toMatchObject({
+      draft: "main draft",
+    });
+    expect(loadChatComposerSnapshot(next, "agent:lily:other")).toMatchObject({
+      draft: "other draft",
+    });
+    expect(loadChatComposerSnapshot(previous, "agent:lily:main")).toBeNull();
+  });
+
+  it("does not migrate an ownerless legacy composer into an authenticated scope", () => {
+    const state = createState({
+      settings: { gatewayUrl: "ws://gateway.test/control", token: "credential-a" },
+      chatMessage: "",
+    });
+    const legacyKey =
+      "openclaw.control.chatComposer.v1:" + encodeURIComponent("ws://gateway.test/control");
+    const storeSessionKey = "agent:lily:main\u0000agent:lily";
+    sessionStorage.setItem(
+      legacyKey,
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          [storeSessionKey]: { draft: "legacy draft", updatedAt: 1 },
+        },
+      }),
+    );
+    expect(restoreChatComposerState(state)).toBe(false);
+    expect(state.chatMessage).toBe("");
+    expect(loadChatComposerSnapshot(state, state.sessionKey)).toBeNull();
   });
 
   it("scopes global-session composers by selected agent", () => {
@@ -150,10 +468,86 @@ describe("chat composer persistence", () => {
 
     expect(
       loadChatComposerSnapshot(
-        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "test-token" },
+          hello: { auth: { deviceToken: "test-device" } },
+        },
         "agent:lily:main",
       ),
     ).toBeNull();
+  });
+
+  it("persists a paused empty queue so the pause survives a reload", () => {
+    persistChatComposerState(createState({ chatQueuePaused: true }));
+
+    const restored = createState({ chatQueuePaused: false });
+    expect(restoreChatComposerState(restored)).toBe(true);
+    expect(restored.chatQueuePaused).toBe(true);
+    expect(
+      loadChatComposerSnapshot(
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "test-token" },
+          hello: { auth: { deviceToken: "test-device" } },
+        },
+        "agent:lily:main",
+      ),
+    ).toEqual({ draft: "", queue: [], queuePaused: true });
+  });
+
+  it("allows strict queue persistence while a direct send is in flight", () => {
+    const state = createState();
+    const queue: ChatQueueItem[] = [
+      {
+        id: "sending-item",
+        text: "still sending",
+        createdAt: 1,
+        sendState: "sending",
+      },
+    ];
+
+    expect(
+      persistStoredChatComposerQueue(state, state.sessionKey, queue, true, {
+        requireComplete: true,
+      }),
+    ).toBe(true);
+    expect(loadChatComposerSnapshot(state, state.sessionKey)).toEqual({
+      draft: "",
+      queue: [],
+      queuePaused: true,
+    });
+  });
+
+  it("clears the submitted draft in the same strict queue write", () => {
+    const state = createState({ chatMessage: "submitted prompt" });
+    const queue: ChatQueueItem[] = [{ id: "queued-1", text: "submitted prompt", createdAt: 1 }];
+
+    expect(
+      persistStoredChatComposerQueue(state, state.sessionKey, queue, true, {
+        requireComplete: true,
+        draft: "",
+      }),
+    ).toBe(true);
+    expect(loadChatComposerSnapshot(state, state.sessionKey)).toEqual({
+      draft: "",
+      queue,
+      queuePaused: true,
+    });
+  });
+
+  it("treats an omitted false pause flag as a successful strict resume", () => {
+    const queue: ChatQueueItem[] = [{ id: "queued-1", text: "resume me", createdAt: 1 }];
+    const state = createState({ chatQueue: queue, chatQueuePaused: true });
+
+    expect(
+      setChatQueuePausedForSession(state, state.sessionKey, false, {
+        requirePersistence: true,
+      }),
+    ).toBe(true);
+    expect(state.chatQueuePaused).toBe(false);
+    expect(loadChatComposerSnapshot(state, state.sessionKey)).toEqual({
+      draft: "",
+      queue,
+    });
   });
 
   it("does not restore queued attachments without payload data", () => {
@@ -172,7 +566,10 @@ describe("chat composer persistence", () => {
 
     expect(
       loadChatComposerSnapshot(
-        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "test-token" },
+          hello: { auth: { deviceToken: "test-device" } },
+        },
         "agent:lily:main",
       ),
     ).toBeNull();
@@ -224,7 +621,10 @@ describe("chat composer persistence", () => {
 
     expect(
       loadChatComposerSnapshot(
-        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "test-token" },
+          hello: { auth: { deviceToken: "test-device" } },
+        },
         "agent:lily:main",
       ),
     ).toBeNull();
@@ -275,7 +675,10 @@ describe("chat composer persistence", () => {
 
     expect(
       loadChatComposerSnapshot(
-        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "test-token" },
+          hello: { auth: { deviceToken: "test-device" } },
+        },
         "agent:lily:main",
       ),
     ).toEqual({
@@ -301,7 +704,10 @@ describe("chat composer persistence", () => {
 
     expect(
       loadChatComposerSnapshot(
-        { settings: { gatewayUrl: "ws://gateway.test/control" } },
+        {
+          settings: { gatewayUrl: "ws://gateway.test/control", token: "test-token" },
+          hello: { auth: { deviceToken: "test-device" } },
+        },
         "agent:lily:main",
       ),
     ).toBeNull();

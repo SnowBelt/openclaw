@@ -27,3 +27,34 @@ export function normalizeGatewayTokenScope(gatewayUrl: string): string {
 export function normalizeGatewayCredentialScope(gatewayUrl: string): string {
   return normalizeGatewayScope(gatewayUrl, true);
 }
+
+function stableFingerprint(value: string): string {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ (code + index), 0x01000193);
+  }
+  return `credential-${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0)
+    .toString(16)
+    .padStart(8, "0")}`;
+}
+
+function credentialFingerprint(credential: string | null | undefined): string {
+  const normalized = credential?.trim();
+  return normalized ? stableFingerprint(normalized) : "anonymous";
+}
+
+/**
+ * Scopes draft and queue storage to both the endpoint and authenticated principal.
+ * The credential is represented only by a non-secret fingerprint so a same-URL
+ * credential switch cannot restore or execute another principal's pending work.
+ */
+export function normalizeGatewayComposerScope(
+  gatewayUrl: string | null | undefined,
+  credential?: string | null,
+): string {
+  const gatewayScope = normalizeGatewayCredentialScope(gatewayUrl ?? "");
+  return `${stableFingerprint(gatewayScope)}\u0000${credentialFingerprint(credential)}`;
+}

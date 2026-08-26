@@ -33,6 +33,7 @@ export type ChatModelSelectOption = {
 
 type ChatModelSelectState = {
   currentOverride: string;
+  currentModelAvailable: boolean;
   defaultSelectable: boolean;
   defaultModel: string;
   defaultDisplay: string;
@@ -234,11 +235,16 @@ export function resolveChatModelSelectState(
   );
   const defaultDisplay = formatCatalogChatModelDisplayFromLookup(defaultModel, displayLookup);
   const unavailableValues = buildUnavailableChatModelValues(catalog, displayLookup);
+  const currentModelValue = currentOverride || defaultModel;
+  const currentModelAvailable =
+    !currentModelValue ||
+    !unavailableValues.has(normalizeChatModelAvailabilityKey(currentModelValue));
   const defaultSelectable =
     !defaultModel || !unavailableValues.has(normalizeChatModelAvailabilityKey(defaultModel));
 
   return {
     currentOverride,
+    currentModelAvailable,
     defaultSelectable,
     defaultModel,
     defaultDisplay,

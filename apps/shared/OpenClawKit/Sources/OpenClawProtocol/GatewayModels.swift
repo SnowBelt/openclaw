@@ -193,6 +193,7 @@ public enum OperationsActionKind: String, Codable, Sendable {
     case cronRun = "cron.run"
     case cronEnable = "cron.enable"
     case cronDisable = "cron.disable"
+    case remediationInvestigate = "remediation.investigate"
     case remediationApply = "remediation.apply"
     case taskCancel = "task.cancel"
     case flowCancel = "flow.cancel"
@@ -4924,6 +4925,7 @@ public struct SessionsPatchParams: Codable, Sendable {
     public let execask: AnyCodable?
     public let execnode: AnyCodable?
     public let model: AnyCodable?
+    public let expectedmodeloverrideisfallback: Bool?
     public let projectid: AnyCodable?
     public let spawnedby: AnyCodable?
     public let spawnedworkspacedir: AnyCodable?
@@ -4956,6 +4958,7 @@ public struct SessionsPatchParams: Codable, Sendable {
         execask: AnyCodable?,
         execnode: AnyCodable?,
         model: AnyCodable?,
+        expectedmodeloverrideisfallback: Bool? = nil,
         projectid: AnyCodable?,
         spawnedby: AnyCodable?,
         spawnedworkspacedir: AnyCodable?,
@@ -4987,6 +4990,7 @@ public struct SessionsPatchParams: Codable, Sendable {
         self.execask = execask
         self.execnode = execnode
         self.model = model
+        self.expectedmodeloverrideisfallback = expectedmodeloverrideisfallback
         self.projectid = projectid
         self.spawnedby = spawnedby
         self.spawnedworkspacedir = spawnedworkspacedir
@@ -5020,6 +5024,7 @@ public struct SessionsPatchParams: Codable, Sendable {
         case execask = "execAsk"
         case execnode = "execNode"
         case model
+        case expectedmodeloverrideisfallback = "expectedModelOverrideIsFallback"
         case projectid = "projectId"
         case spawnedby = "spawnedBy"
         case spawnedworkspacedir = "spawnedWorkspaceDir"
@@ -6986,6 +6991,7 @@ public struct PccPhase: Codable, Sendable {
 
 public struct PccProject: Codable, Sendable {
     public let id: String
+    public let revision: Int?
     public let title: String
     public let goal: String?
     public let status: PccStatus
@@ -6998,6 +7004,7 @@ public struct PccProject: Codable, Sendable {
 
     public init(
         id: String,
+        revision: Int? = nil,
         title: String,
         goal: String?,
         status: PccStatus,
@@ -7009,6 +7016,7 @@ public struct PccProject: Codable, Sendable {
         metadata: [String: AnyCodable]?)
     {
         self.id = id
+        self.revision = revision
         self.title = title
         self.goal = goal
         self.status = status
@@ -7022,6 +7030,7 @@ public struct PccProject: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case revision
         case title
         case goal
         case status
@@ -7036,6 +7045,7 @@ public struct PccProject: Codable, Sendable {
 
 public struct PccMilestone: Codable, Sendable {
     public let id: String
+    public let revision: Int?
     public let projectid: String
     public let title: String
     public let status: PccStatus
@@ -7056,6 +7066,7 @@ public struct PccMilestone: Codable, Sendable {
 
     public init(
         id: String,
+        revision: Int? = nil,
         projectid: String,
         title: String,
         status: PccStatus,
@@ -7075,6 +7086,7 @@ public struct PccMilestone: Codable, Sendable {
         metadata: [String: AnyCodable]?)
     {
         self.id = id
+        self.revision = revision
         self.projectid = projectid
         self.title = title
         self.status = status
@@ -7096,6 +7108,7 @@ public struct PccMilestone: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case revision
         case projectid = "projectId"
         case title
         case status
@@ -7118,6 +7131,7 @@ public struct PccMilestone: Codable, Sendable {
 
 public struct PccSubMilestone: Codable, Sendable {
     public let id: String
+    public let revision: Int?
     public let projectid: String
     public let milestoneid: String
     public let title: String
@@ -7138,6 +7152,7 @@ public struct PccSubMilestone: Codable, Sendable {
 
     public init(
         id: String,
+        revision: Int? = nil,
         projectid: String,
         milestoneid: String,
         title: String,
@@ -7157,6 +7172,7 @@ public struct PccSubMilestone: Codable, Sendable {
         metadata: [String: AnyCodable]?)
     {
         self.id = id
+        self.revision = revision
         self.projectid = projectid
         self.milestoneid = milestoneid
         self.title = title
@@ -7178,6 +7194,7 @@ public struct PccSubMilestone: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case revision
         case projectid = "projectId"
         case milestoneid = "milestoneId"
         case title
@@ -7200,6 +7217,7 @@ public struct PccSubMilestone: Codable, Sendable {
 
 public struct PccPermissionGrant: Codable, Sendable {
     public let id: String
+    public let revision: Int?
     public let projectid: String
     public let milestoneid: String?
     public let type: PccPermissionType
@@ -7221,6 +7239,7 @@ public struct PccPermissionGrant: Codable, Sendable {
 
     public init(
         id: String,
+        revision: Int? = nil,
         projectid: String,
         milestoneid: String?,
         type: PccPermissionType,
@@ -7241,6 +7260,7 @@ public struct PccPermissionGrant: Codable, Sendable {
         updatedat: String)
     {
         self.id = id
+        self.revision = revision
         self.projectid = projectid
         self.milestoneid = milestoneid
         self.type = type
@@ -7263,6 +7283,7 @@ public struct PccPermissionGrant: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case revision
         case projectid = "projectId"
         case milestoneid = "milestoneId"
         case type
@@ -7401,6 +7422,122 @@ public struct PccCompletionReceipt: Codable, Sendable {
         case prooflevel = "proofLevel"
         case completedby = "completedBy"
         case completedat = "completedAt"
+    }
+}
+
+public struct PccModelRunReceipt: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let milestoneid: String?
+    public let submilestoneid: String?
+    public let sourcerunid: String
+    public let executor: AnyCodable
+    public let purpose: AnyCodable
+    public let provider: String
+    public let model: String
+    public let effort: String?
+    public let status: AnyCodable
+    public let startedat: String
+    public let completedat: String
+    public let usage: [String: AnyCodable]?
+    public let usagesource: AnyCodable
+
+    public init(
+        id: String,
+        projectid: String,
+        milestoneid: String? = nil,
+        submilestoneid: String? = nil,
+        sourcerunid: String,
+        executor: AnyCodable,
+        purpose: AnyCodable,
+        provider: String,
+        model: String,
+        effort: String? = nil,
+        status: AnyCodable,
+        startedat: String,
+        completedat: String,
+        usage: [String: AnyCodable]? = nil,
+        usagesource: AnyCodable)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.submilestoneid = submilestoneid
+        self.sourcerunid = sourcerunid
+        self.executor = executor
+        self.purpose = purpose
+        self.provider = provider
+        self.model = model
+        self.effort = effort
+        self.status = status
+        self.startedat = startedat
+        self.completedat = completedat
+        self.usage = usage
+        self.usagesource = usagesource
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case submilestoneid = "subMilestoneId"
+        case sourcerunid = "sourceRunId"
+        case executor
+        case purpose
+        case provider
+        case model
+        case effort
+        case status
+        case startedat = "startedAt"
+        case completedat = "completedAt"
+        case usage
+        case usagesource = "usageSource"
+    }
+}
+
+public struct PccProjectAiUsageSummary: Codable, Sendable {
+    public let completedruns: Int
+    public let codexruns: Int
+    public let localruns: Int
+    public let codexsharepercent: Double?
+    public let reportedtokens: [String: AnyCodable]
+    public let missingusageruns: Int
+    public let tokencoverage: AnyCodable
+    public let recordingstartedat: String?
+    public let bypurpose: [[String: AnyCodable]]
+
+    public init(
+        completedruns: Int,
+        codexruns: Int,
+        localruns: Int,
+        codexsharepercent: Double? = nil,
+        reportedtokens: [String: AnyCodable],
+        missingusageruns: Int,
+        tokencoverage: AnyCodable,
+        recordingstartedat: String? = nil,
+        bypurpose: [[String: AnyCodable]])
+    {
+        self.completedruns = completedruns
+        self.codexruns = codexruns
+        self.localruns = localruns
+        self.codexsharepercent = codexsharepercent
+        self.reportedtokens = reportedtokens
+        self.missingusageruns = missingusageruns
+        self.tokencoverage = tokencoverage
+        self.recordingstartedat = recordingstartedat
+        self.bypurpose = bypurpose
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case completedruns = "completedRuns"
+        case codexruns = "codexRuns"
+        case localruns = "localRuns"
+        case codexsharepercent = "codexSharePercent"
+        case reportedtokens = "reportedTokens"
+        case missingusageruns = "missingUsageRuns"
+        case tokencoverage = "tokenCoverage"
+        case recordingstartedat = "recordingStartedAt"
+        case bypurpose = "byPurpose"
     }
 }
 
@@ -7759,6 +7896,7 @@ public struct PccProjectsGetResult: Codable, Sendable {
     public let receipts: [PccCompletionReceipt]
     public let decisions: [PccDecision]
     public let lastknowngood: [PccLastKnownGood]
+    public let aiusage: PccProjectAiUsageSummary?
     public let summary: PccProjectSummary
 
     public init(
@@ -7770,6 +7908,7 @@ public struct PccProjectsGetResult: Codable, Sendable {
         receipts: [PccCompletionReceipt],
         decisions: [PccDecision],
         lastknowngood: [PccLastKnownGood],
+        aiusage: PccProjectAiUsageSummary? = nil,
         summary: PccProjectSummary)
     {
         self.project = project
@@ -7780,6 +7919,7 @@ public struct PccProjectsGetResult: Codable, Sendable {
         self.receipts = receipts
         self.decisions = decisions
         self.lastknowngood = lastknowngood
+        self.aiusage = aiusage
         self.summary = summary
     }
 
@@ -7792,20 +7932,29 @@ public struct PccProjectsGetResult: Codable, Sendable {
         case receipts
         case decisions
         case lastknowngood = "lastKnownGood"
+        case aiusage = "aiUsage"
         case summary
     }
 }
 
 public struct PccProjectsUpsertParams: Codable, Sendable {
+    public let planningrunid: String?
+    public let expectedrevision: Int?
     public let project: [String: AnyCodable]
 
     public init(
+        planningrunid: String? = nil,
+        expectedrevision: Int? = nil,
         project: [String: AnyCodable])
     {
+        self.planningrunid = planningrunid
+        self.expectedrevision = expectedrevision
         self.project = project
     }
 
     private enum CodingKeys: String, CodingKey {
+        case planningrunid = "planningRunId"
+        case expectedrevision = "expectedRevision"
         case project
     }
 }
@@ -7828,8 +7977,57 @@ public struct PccProjectsUpsertResult: Codable, Sendable {
     }
 }
 
+public struct PccProjectPlanCommitParams: Codable, Sendable {
+    public let planningrunid: String?
+    public let project: [String: AnyCodable]
+    public let plan: [String: AnyCodable]
+
+    public init(
+        planningrunid: String? = nil,
+        project: [String: AnyCodable],
+        plan: [String: AnyCodable])
+    {
+        self.planningrunid = planningrunid
+        self.project = project
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case planningrunid = "planningRunId"
+        case project
+        case plan
+    }
+}
+
+public struct PccProjectPlanCommitResult: Codable, Sendable {
+    public let project: PccProject
+    public let milestones: [PccMilestone]
+    public let submilestones: [PccSubMilestone]
+    public let summary: PccProjectSummary
+
+    public init(
+        project: PccProject,
+        milestones: [PccMilestone],
+        submilestones: [PccSubMilestone],
+        summary: PccProjectSummary)
+    {
+        self.project = project
+        self.milestones = milestones
+        self.submilestones = submilestones
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case project
+        case milestones
+        case submilestones = "subMilestones"
+        case summary
+    }
+}
+
 public struct PccPlansGenerateParams: Codable, Sendable {
     public let surface: AnyCodable
+    public let plannermode: AnyCodable?
     public let description: String
     public let existingtitle: String?
     public let existinggoal: String?
@@ -7840,6 +8038,7 @@ public struct PccPlansGenerateParams: Codable, Sendable {
 
     public init(
         surface: AnyCodable,
+        plannermode: AnyCodable? = nil,
         description: String,
         existingtitle: String?,
         existinggoal: String?,
@@ -7849,6 +8048,7 @@ public struct PccPlansGenerateParams: Codable, Sendable {
         depth: AnyCodable?)
     {
         self.surface = surface
+        self.plannermode = plannermode
         self.description = description
         self.existingtitle = existingtitle
         self.existinggoal = existinggoal
@@ -7860,6 +8060,7 @@ public struct PccPlansGenerateParams: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case surface
+        case plannermode = "plannerMode"
         case description
         case existingtitle = "existingTitle"
         case existinggoal = "existingGoal"
@@ -7891,6 +8092,7 @@ public struct PccPlanningRun: Codable, Sendable {
     public let surface: AnyCodable
     public let status: AnyCodable
     public let stage: AnyCodable
+    public let queueposition: Int?
     public let model: String
     public let effort: AnyCodable
     public let createdat: String
@@ -7898,6 +8100,7 @@ public struct PccPlanningRun: Codable, Sendable {
     public let startedat: String?
     public let endedat: String?
     public let error: String?
+    public let usage: [String: AnyCodable]?
     public let plan: [String: AnyCodable]?
 
     public init(
@@ -7907,6 +8110,7 @@ public struct PccPlanningRun: Codable, Sendable {
         surface: AnyCodable,
         status: AnyCodable,
         stage: AnyCodable,
+        queueposition: Int? = nil,
         model: String,
         effort: AnyCodable,
         createdat: String,
@@ -7914,6 +8118,7 @@ public struct PccPlanningRun: Codable, Sendable {
         startedat: String?,
         endedat: String?,
         error: String?,
+        usage: [String: AnyCodable]? = nil,
         plan: [String: AnyCodable]?)
     {
         self.schemaversion = schemaversion
@@ -7922,6 +8127,7 @@ public struct PccPlanningRun: Codable, Sendable {
         self.surface = surface
         self.status = status
         self.stage = stage
+        self.queueposition = queueposition
         self.model = model
         self.effort = effort
         self.createdat = createdat
@@ -7929,6 +8135,7 @@ public struct PccPlanningRun: Codable, Sendable {
         self.startedat = startedat
         self.endedat = endedat
         self.error = error
+        self.usage = usage
         self.plan = plan
     }
 
@@ -7939,6 +8146,7 @@ public struct PccPlanningRun: Codable, Sendable {
         case surface
         case status
         case stage
+        case queueposition = "queuePosition"
         case model
         case effort
         case createdat = "createdAt"
@@ -7946,12 +8154,14 @@ public struct PccPlanningRun: Codable, Sendable {
         case startedat = "startedAt"
         case endedat = "endedAt"
         case error
+        case usage
         case plan
     }
 }
 
 public struct PccPlansStartParams: Codable, Sendable {
     public let surface: AnyCodable
+    public let plannermode: AnyCodable?
     public let description: String
     public let existingtitle: String?
     public let existinggoal: String?
@@ -7962,6 +8172,7 @@ public struct PccPlansStartParams: Codable, Sendable {
 
     public init(
         surface: AnyCodable,
+        plannermode: AnyCodable? = nil,
         description: String,
         existingtitle: String?,
         existinggoal: String?,
@@ -7971,6 +8182,7 @@ public struct PccPlansStartParams: Codable, Sendable {
         depth: AnyCodable?)
     {
         self.surface = surface
+        self.plannermode = plannermode
         self.description = description
         self.existingtitle = existingtitle
         self.existinggoal = existinggoal
@@ -7982,6 +8194,7 @@ public struct PccPlansStartParams: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case surface
+        case plannermode = "plannerMode"
         case description
         case existingtitle = "existingTitle"
         case existinggoal = "existingGoal"
@@ -8062,8 +8275,127 @@ public struct PccPlansCancelResult: Codable, Sendable {
     }
 }
 
+public struct PccExecutionStartParams: Codable, Sendable {
+    public let projectid: String
+    public let expectedrevision: Int
+    public let idempotencykey: String
+
+    public init(
+        projectid: String,
+        expectedrevision: Int,
+        idempotencykey: String)
+    {
+        self.projectid = projectid
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct PccExecutionStartResult: Codable, Sendable {
+    public let plan: AnyCodable
+
+    public init(
+        plan: AnyCodable)
+    {
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case plan
+    }
+}
+
+public struct PccExecutionGetParams: Codable, Sendable {
+    public let projectid: String
+    public let planid: String?
+
+    public init(
+        projectid: String,
+        planid: String? = nil)
+    {
+        self.projectid = projectid
+        self.planid = planid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+        case planid = "planId"
+    }
+}
+
+public struct PccExecutionGetResult: Codable, Sendable {
+    public let plan: AnyCodable
+
+    public init(
+        plan: AnyCodable)
+    {
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case plan
+    }
+}
+
+public struct PccExecutionControlParams: Codable, Sendable {
+    public let projectid: String
+    public let planid: String
+    public let expectedrevision: Int?
+
+    public init(
+        projectid: String,
+        planid: String,
+        expectedrevision: Int? = nil)
+    {
+        self.projectid = projectid
+        self.planid = planid
+        self.expectedrevision = expectedrevision
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+        case planid = "planId"
+        case expectedrevision = "expectedRevision"
+    }
+}
+
+public struct PccExecutionPauseResult: Codable, Sendable {
+    public let plan: AnyCodable
+
+    public init(
+        plan: AnyCodable)
+    {
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case plan
+    }
+}
+
+public struct PccExecutionStopResult: Codable, Sendable {
+    public let plan: AnyCodable
+
+    public init(
+        plan: AnyCodable)
+    {
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case plan
+    }
+}
+
 public struct PccAttachment: Codable, Sendable {
     public let id: String
+    public let revision: Int?
     public let logicalid: String
     public let version: Int
     public let projectid: String
@@ -8088,6 +8420,7 @@ public struct PccAttachment: Codable, Sendable {
 
     public init(
         id: String,
+        revision: Int? = nil,
         logicalid: String,
         version: Int,
         projectid: String,
@@ -8111,6 +8444,7 @@ public struct PccAttachment: Codable, Sendable {
         sourceuploadkey: String?)
     {
         self.id = id
+        self.revision = revision
         self.logicalid = logicalid
         self.version = version
         self.projectid = projectid
@@ -8136,6 +8470,7 @@ public struct PccAttachment: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case revision
         case logicalid = "logicalId"
         case version
         case projectid = "projectId"
@@ -8460,6 +8795,7 @@ public struct PccAttachmentsReadResult: Codable, Sendable {
 
 public struct PccAttachmentsUpdateParams: Codable, Sendable {
     public let attachmentid: String
+    public let expectedrevision: Int?
     public let title: String?
     public let role: AnyCodable?
     public let scope: AnyCodable?
@@ -8473,6 +8809,7 @@ public struct PccAttachmentsUpdateParams: Codable, Sendable {
 
     public init(
         attachmentid: String,
+        expectedrevision: Int? = nil,
         title: String?,
         role: AnyCodable?,
         scope: AnyCodable?,
@@ -8485,6 +8822,7 @@ public struct PccAttachmentsUpdateParams: Codable, Sendable {
         tombstone: Bool?)
     {
         self.attachmentid = attachmentid
+        self.expectedrevision = expectedrevision
         self.title = title
         self.role = role
         self.scope = scope
@@ -8499,6 +8837,7 @@ public struct PccAttachmentsUpdateParams: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case attachmentid = "attachmentId"
+        case expectedrevision = "expectedRevision"
         case title
         case role
         case scope
@@ -8527,21 +8866,25 @@ public struct PccAttachmentsUpdateResult: Codable, Sendable {
 }
 
 public struct PccAttachmentsClarifyParams: Codable, Sendable {
+    public let projectid: String
     public let originalname: String
     public let role: AnyCodable
     public let instructions: String
 
     public init(
+        projectid: String,
         originalname: String,
         role: AnyCodable,
         instructions: String)
     {
+        self.projectid = projectid
         self.originalname = originalname
         self.role = role
         self.instructions = instructions
     }
 
     private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
         case originalname = "originalName"
         case role
         case instructions
@@ -8549,19 +8892,27 @@ public struct PccAttachmentsClarifyParams: Codable, Sendable {
 }
 
 public struct PccAttachmentsClarifyResult: Codable, Sendable {
+    public let runid: String
     public let clarifiedinstructions: String
+    public let usage: [String: AnyCodable]?
     public let provenance: [String: AnyCodable]
 
     public init(
+        runid: String,
         clarifiedinstructions: String,
+        usage: [String: AnyCodable]? = nil,
         provenance: [String: AnyCodable])
     {
+        self.runid = runid
         self.clarifiedinstructions = clarifiedinstructions
+        self.usage = usage
         self.provenance = provenance
     }
 
     private enum CodingKeys: String, CodingKey {
+        case runid = "runId"
         case clarifiedinstructions = "clarifiedInstructions"
+        case usage
         case provenance
     }
 }
@@ -8698,16 +9049,66 @@ public struct PccPlanningPolicyUpsertResult: Codable, Sendable {
     }
 }
 
+public struct PccPrivateTeamPolicy: Codable, Sendable {
+    public let schemaversion: Double
+    public let accessmode: String
+    public let memberlimit: Int
+    public let maxprojects: Int
+    public let maxconcurrentplanningruns: Int
+    public let maxattachmentsperproject: Int
+    public let maxattachmentbytesperproject: Int
+    public let backupmode: String
+    public let localaipreferred: Bool
+
+    public init(
+        schemaversion: Double,
+        accessmode: String,
+        memberlimit: Int,
+        maxprojects: Int,
+        maxconcurrentplanningruns: Int,
+        maxattachmentsperproject: Int,
+        maxattachmentbytesperproject: Int,
+        backupmode: String,
+        localaipreferred: Bool)
+    {
+        self.schemaversion = schemaversion
+        self.accessmode = accessmode
+        self.memberlimit = memberlimit
+        self.maxprojects = maxprojects
+        self.maxconcurrentplanningruns = maxconcurrentplanningruns
+        self.maxattachmentsperproject = maxattachmentsperproject
+        self.maxattachmentbytesperproject = maxattachmentbytesperproject
+        self.backupmode = backupmode
+        self.localaipreferred = localaipreferred
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case accessmode = "accessMode"
+        case memberlimit = "memberLimit"
+        case maxprojects = "maxProjects"
+        case maxconcurrentplanningruns = "maxConcurrentPlanningRuns"
+        case maxattachmentsperproject = "maxAttachmentsPerProject"
+        case maxattachmentbytesperproject = "maxAttachmentBytesPerProject"
+        case backupmode = "backupMode"
+        case localaipreferred = "localAiPreferred"
+    }
+}
+
 public struct PccMilestonesUpsertParams: Codable, Sendable {
+    public let expectedrevision: Int?
     public let milestone: [String: AnyCodable]
 
     public init(
+        expectedrevision: Int? = nil,
         milestone: [String: AnyCodable])
     {
+        self.expectedrevision = expectedrevision
         self.milestone = milestone
     }
 
     private enum CodingKeys: String, CodingKey {
+        case expectedrevision = "expectedRevision"
         case milestone
     }
 }
@@ -8763,15 +9164,19 @@ public struct PccSubMilestonesListResult: Codable, Sendable {
 }
 
 public struct PccSubMilestonesUpsertParams: Codable, Sendable {
+    public let expectedrevision: Int?
     public let submilestone: [String: AnyCodable]
 
     public init(
+        expectedrevision: Int? = nil,
         submilestone: [String: AnyCodable])
     {
+        self.expectedrevision = expectedrevision
         self.submilestone = submilestone
     }
 
     private enum CodingKeys: String, CodingKey {
+        case expectedrevision = "expectedRevision"
         case submilestone = "subMilestone"
     }
 }
@@ -8799,15 +9204,19 @@ public struct PccSubMilestonesUpsertResult: Codable, Sendable {
 }
 
 public struct PccPermissionsUpsertParams: Codable, Sendable {
+    public let expectedrevision: Int?
     public let permission: [String: AnyCodable]
 
     public init(
+        expectedrevision: Int? = nil,
         permission: [String: AnyCodable])
     {
+        self.expectedrevision = expectedrevision
         self.permission = permission
     }
 
     private enum CodingKeys: String, CodingKey {
+        case expectedrevision = "expectedRevision"
         case permission
     }
 }
@@ -8920,6 +9329,7 @@ public struct PccSummaryGetResult: Codable, Sendable {
     public let project: PccProjectSummary?
     public let portfolio: PccPortfolioSummary
     public let planningpolicy: [String: AnyCodable]?
+    public let privateteampolicy: PccPrivateTeamPolicy?
     public let executioncapacity: [String: AnyCodable]?
     public let runtimeidentity: [String: AnyCodable]?
     public let updatesafety: [String: AnyCodable]?
@@ -8929,6 +9339,7 @@ public struct PccSummaryGetResult: Codable, Sendable {
         project: PccProjectSummary?,
         portfolio: PccPortfolioSummary,
         planningpolicy: [String: AnyCodable]?,
+        privateteampolicy: PccPrivateTeamPolicy? = nil,
         executioncapacity: [String: AnyCodable]?,
         runtimeidentity: [String: AnyCodable]?,
         updatesafety: [String: AnyCodable]?,
@@ -8937,6 +9348,7 @@ public struct PccSummaryGetResult: Codable, Sendable {
         self.project = project
         self.portfolio = portfolio
         self.planningpolicy = planningpolicy
+        self.privateteampolicy = privateteampolicy
         self.executioncapacity = executioncapacity
         self.runtimeidentity = runtimeidentity
         self.updatesafety = updatesafety
@@ -8947,10 +9359,183 @@ public struct PccSummaryGetResult: Codable, Sendable {
         case project
         case portfolio
         case planningpolicy = "planningPolicy"
+        case privateteampolicy = "privateTeamPolicy"
         case executioncapacity = "executionCapacity"
         case runtimeidentity = "runtimeIdentity"
         case updatesafety = "updateSafety"
         case releasegovernance = "releaseGovernance"
+    }
+}
+
+public struct PccOverviewGetParams: Codable, Sendable {}
+
+public struct PccOverviewGetResult: Codable, Sendable {
+    public let ledgerrevision: Int
+    public let generatedat: String
+    public let projects: [[String: AnyCodable]]
+    public let attention: [[String: AnyCodable]]
+    public let activeagents: [[String: AnyCodable]]
+    public let recentactivity: [[String: AnyCodable]]
+    public let portfolio: PccPortfolioSummary
+    public let system: [String: AnyCodable]
+
+    public init(
+        ledgerrevision: Int,
+        generatedat: String,
+        projects: [[String: AnyCodable]],
+        attention: [[String: AnyCodable]],
+        activeagents: [[String: AnyCodable]],
+        recentactivity: [[String: AnyCodable]],
+        portfolio: PccPortfolioSummary,
+        system: [String: AnyCodable])
+    {
+        self.ledgerrevision = ledgerrevision
+        self.generatedat = generatedat
+        self.projects = projects
+        self.attention = attention
+        self.activeagents = activeagents
+        self.recentactivity = recentactivity
+        self.portfolio = portfolio
+        self.system = system
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ledgerrevision = "ledgerRevision"
+        case generatedat = "generatedAt"
+        case projects
+        case attention
+        case activeagents = "activeAgents"
+        case recentactivity = "recentActivity"
+        case portfolio
+        case system
+    }
+}
+
+public struct PccChangedEvent: Codable, Sendable {
+    public let ledgerrevision: Int
+    public let changedat: String
+    public let mutation: String
+    public let actor: String?
+    public let projectid: String?
+    public let recordid: String?
+
+    public init(
+        ledgerrevision: Int,
+        changedat: String,
+        mutation: String,
+        actor: String? = nil,
+        projectid: String? = nil,
+        recordid: String? = nil)
+    {
+        self.ledgerrevision = ledgerrevision
+        self.changedat = changedat
+        self.mutation = mutation
+        self.actor = actor
+        self.projectid = projectid
+        self.recordid = recordid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ledgerrevision = "ledgerRevision"
+        case changedat = "changedAt"
+        case mutation
+        case actor
+        case projectid = "projectId"
+        case recordid = "recordId"
+    }
+}
+
+public struct PccPresenceEntry: Codable, Sendable {
+    public let displayname: String
+    public let status: AnyCodable
+    public let surface: AnyCodable
+    public let projectid: String?
+    public let editing: Bool?
+    public let updatedat: String
+
+    public init(
+        displayname: String,
+        status: AnyCodable,
+        surface: AnyCodable,
+        projectid: String? = nil,
+        editing: Bool? = nil,
+        updatedat: String)
+    {
+        self.displayname = displayname
+        self.status = status
+        self.surface = surface
+        self.projectid = projectid
+        self.editing = editing
+        self.updatedat = updatedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case displayname = "displayName"
+        case status
+        case surface
+        case projectid = "projectId"
+        case editing
+        case updatedat = "updatedAt"
+    }
+}
+
+public struct PccPresenceUpdateParams: Codable, Sendable {
+    public let displayname: String
+    public let status: AnyCodable
+    public let surface: AnyCodable
+    public let projectid: String?
+    public let editing: Bool?
+
+    public init(
+        displayname: String,
+        status: AnyCodable,
+        surface: AnyCodable,
+        projectid: String? = nil,
+        editing: Bool? = nil)
+    {
+        self.displayname = displayname
+        self.status = status
+        self.surface = surface
+        self.projectid = projectid
+        self.editing = editing
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case displayname = "displayName"
+        case status
+        case surface
+        case projectid = "projectId"
+        case editing
+    }
+}
+
+public struct PccPresenceUpdateResult: Codable, Sendable {
+    public let presence: [PccPresenceEntry]
+
+    public init(
+        presence: [PccPresenceEntry])
+    {
+        self.presence = presence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case presence
+    }
+}
+
+public struct PccPresenceListParams: Codable, Sendable {}
+
+public struct PccPresenceListResult: Codable, Sendable {
+    public let presence: [PccPresenceEntry]
+
+    public init(
+        presence: [PccPresenceEntry])
+    {
+        self.presence = presence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case presence
     }
 }
 
@@ -10991,6 +11576,7 @@ public struct WebLoginWaitParams: Codable, Sendable {
 public struct AgentSummary: Codable, Sendable {
     public let id: String
     public let name: String?
+    public let role: AnyCodable?
     public let identity: [String: AnyCodable]?
     public let workspace: String?
     public let workspacegit: Bool?
@@ -11003,6 +11589,7 @@ public struct AgentSummary: Codable, Sendable {
     public init(
         id: String,
         name: String?,
+        role: AnyCodable? = nil,
         identity: [String: AnyCodable]?,
         workspace: String?,
         workspacegit: Bool?,
@@ -11014,6 +11601,7 @@ public struct AgentSummary: Codable, Sendable {
     {
         self.id = id
         self.name = name
+        self.role = role
         self.identity = identity
         self.workspace = workspace
         self.workspacegit = workspacegit
@@ -11027,6 +11615,7 @@ public struct AgentSummary: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case name
+        case role
         case identity
         case workspace
         case workspacegit = "workspaceGit"

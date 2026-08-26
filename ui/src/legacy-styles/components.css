@@ -3956,6 +3956,19 @@ td.data-table-key-col {
   color: var(--muted);
 }
 
+.chat-queue__header {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.chat-queue__note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .chat-queue__list {
   display: grid;
   gap: 8px;

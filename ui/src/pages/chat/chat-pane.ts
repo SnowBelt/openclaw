@@ -2,12 +2,13 @@ import { consume } from "@lit/context";
 import { html, LitElement } from "lit";
 import { property } from "lit/decorators.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import type { GatewaySessionRow } from "../../api/types.ts";
+import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import {
   applicationContext,
   type ApplicationContext,
   type ApplicationGatewaySnapshot,
 } from "../../app/context.ts";
+import { normalizeGatewayComposerScope } from "../../app/gateway-scope.ts";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
 import {
   COMMAND_PALETTE_TARGET_EVENT,
@@ -16,12 +17,21 @@ import {
 import { icons } from "../../components/icons.ts";
 import "../../components/tooltip.ts";
 import { t } from "../../i18n/index.ts";
+import {
+  isControlDirectorAgentId,
+  resolveControlDirectorAgentConfigId,
+} from "../../lib/chat/control-director-thinking.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import { resolveSessionDisplayName } from "../../lib/session-display.ts";
-import { resolveSessionKey, scopedAgentParamsForSession } from "../../lib/sessions/index.ts";
+import {
+  resolveSessionKey,
+  scopedAgentListParamsForSession,
+  scopedAgentParamsForSession,
+} from "../../lib/sessions/index.ts";
 import {
   areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
+  normalizeAgentId,
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
   resolveUiConfiguredMainKey,
@@ -47,6 +57,7 @@ import {
 import {
   canCreateChatSession,
   ChatStateController,
+  clearChatGatewayComposerState,
   createPageState,
   dismissChatError,
   handleChatManualRefresh,
@@ -56,11 +67,14 @@ import {
   refreshChatModelAuthStatus,
   refreshPageChat,
   refreshRouteSessionOptions,
+  restoreChatGatewayComposerState,
   resetChatStateForRouteSession,
   resolveAssistantAttachmentAuthToken,
   resolveChatAgentId,
   resolveChatAvatarUrl,
   saveRouteSessionSettings,
+  snapshotChatGatewayComposerState,
+  type ChatGatewayComposerSnapshot,
   type ChatPageHost,
 } from "./chat-state.ts";
 import { renderChat, resetChatViewState, type ChatProps } from "./chat-view.ts";
@@ -75,9 +89,11 @@ import {
   type DetailFullMessageResult,
   type SidebarFullMessageRequest,
 } from "./components/chat-sidebar.ts";
+import { migrateChatComposerState, persistChatComposerState } from "./composer-persistence.ts";
 import { exportChatMarkdown } from "./export.ts";
 import {
   hasAbortableSessionRun,
+  reconcileChatRunLifecycle,
   reconcileStaleChatRunAfterSessionStatePublication,
 } from "./run-lifecycle.ts";
 import { scheduleChatScroll } from "./scroll.ts";
@@ -85,6 +101,7 @@ import { clearChatMessagesFromCache } from "./session-message-cache.ts";
 
 type ChatPageContext = ApplicationContext;
 type PaneSessionChangeOptions = { replace?: boolean };
+type ControlDirectorDefaultModelResult = { fallbackCleanupApplied: boolean };
 
 const CHAT_OPEN_DETAILS_SELECTOR =
   ".chat-controls__inline-select[open], .context-usage details[open], .agent-chat__talk-select[open], .agent-chat__attach-menu[open]";
@@ -94,6 +111,40 @@ const CHAT_TEXT_ENTRY_SELECTOR =
 const CHAT_SPACE_ACTIVATION_SELECTOR =
   "a[href], button, summary, [role='button'], [role='checkbox'], [role='link'], [role='radio'], [role='switch']";
 const CHAT_MODAL_SELECTOR = "dialog[open], [aria-modal='true']";
+
+function provisionalComposerRestoreKey(gatewayScope: string): string {
+  return gatewayScope;
+}
+
+function restoreDetachedSendRecoveries(state: ChatPageHost, gatewayScope: string): boolean {
+  const recoveries = state.chatDetachedSendRecoveries ?? [];
+  const matching = recoveries.filter((recovery) => recovery.gatewayScope === gatewayScope);
+  if (matching.length === 0) {
+    return false;
+  }
+  for (const recovery of matching) {
+    const currentQueue =
+      recovery.sessionKey === state.sessionKey
+        ? state.chatQueue
+        : (state.chatQueueBySession[recovery.sessionKey] ?? []);
+    const existingIds = new Set(currentQueue.map((item) => item.id));
+    const nextQueue = [
+      ...currentQueue,
+      ...recovery.queue.filter((item) => !existingIds.has(item.id)),
+    ];
+    if (recovery.sessionKey === state.sessionKey) {
+      state.chatQueue = nextQueue;
+    } else {
+      state.chatQueueBySession = {
+        ...state.chatQueueBySession,
+        [recovery.sessionKey]: nextQueue,
+      };
+    }
+  }
+  const matchingSet = new Set(matching);
+  state.chatDetachedSendRecoveries = recoveries.filter((recovery) => !matchingSet.has(recovery));
+  return true;
+}
 
 const NEW_SESSION_ACTIVE_RUN_MESSAGE =
   "Start a new session after the active run or queued messages finish.";
@@ -135,8 +186,26 @@ class ChatPane extends LitElement {
   private state: ChatPageHost | undefined;
   private connectedClient: GatewayBrowserClient | null = null;
   private connectionGeneration = 0;
+  private allAgentSessionsResult: SessionsListResult | null = null;
+  private allAgentSessionsRequest: Promise<void> | null = null;
+  private allAgentSessionsRefreshPending = false;
   private nativeDraftCleanup: (() => void) | null = null;
+  private activeComposerGatewayScope: string | null = null;
+  private provisionalComposerGatewayScope: string | null = null;
+  private readonly provisionalComposerRestores = new Map<string, ChatGatewayComposerSnapshot>();
   private readonly unreadPatchGuard = new SessionUnreadPatchGuard();
+
+  private shouldRefreshAllAgentSessions(state = this.state): boolean {
+    return Boolean(
+      state?.connected &&
+      isControlDirectorAgentId(
+        resolveChatAgentId(state),
+        state.agentsList?.defaultId,
+        state.agentsList?.agents,
+      ) &&
+      hasOperatorAdminAccess(state.hello?.auth ?? null),
+    );
+  }
 
   private markSessionRead(row: GatewaySessionRow | undefined) {
     const state = this.state;
@@ -154,6 +223,49 @@ class ChatPane extends LitElement {
       // publishes the actionable error for the owning page.
       this.unreadPatchGuard.patchFailed(guardKey);
     });
+  }
+
+  private refreshAllAgentSessions(client: GatewayBrowserClient) {
+    if (this.allAgentSessionsRequest) {
+      this.allAgentSessionsRefreshPending = true;
+      return;
+    }
+    this.allAgentSessionsRefreshPending = false;
+    const request = this.context.sessions
+      .list({
+        configuredAgentsOnly: false,
+        includeGlobal: true,
+        includeUnknown: true,
+        limit: 200,
+      })
+      .then((result) => {
+        if (
+          this.connectedClient === client &&
+          this.context.gateway.snapshot.client === client &&
+          this.context.gateway.snapshot.connected &&
+          this.shouldRefreshAllAgentSessions()
+        ) {
+          this.allAgentSessionsResult = result;
+          this.state?.requestUpdate?.();
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.allAgentSessionsRequest === request) {
+          this.allAgentSessionsRequest = null;
+        }
+        if (
+          this.allAgentSessionsRefreshPending &&
+          this.connectedClient === client &&
+          this.context.gateway.snapshot.client === client &&
+          this.context.gateway.snapshot.connected &&
+          this.shouldRefreshAllAgentSessions()
+        ) {
+          this.allAgentSessionsRefreshPending = false;
+          this.refreshAllAgentSessions(client);
+        }
+      });
+    this.allAgentSessionsRequest = request;
   }
 
   private setPaneSessionKey(sessionKey: string): string | null {
@@ -184,6 +296,26 @@ class ChatPane extends LitElement {
     if (agentId) {
       this.context.agentSelection.set(agentId);
     }
+  }
+
+  private rebindGatewayComposerSession(sessionKey: string): string | null {
+    const state = this.state;
+    if (!state) {
+      return null;
+    }
+    const nextSessionKey = resolveSessionKey(sessionKey, state.hello);
+    if (!nextSessionKey) {
+      return null;
+    }
+    if (!areUiSessionKeysEquivalent(this.sessionKey, nextSessionKey)) {
+      this.sessionKey = nextSessionKey;
+      this.onPaneSessionChange?.(this.paneId, nextSessionKey, { replace: true });
+    }
+    if (!areUiSessionKeysEquivalent(state.sessionKey, nextSessionKey)) {
+      state.sessionKey = nextSessionKey;
+    }
+    this.applyActiveSessionBindings();
+    return nextSessionKey;
   }
 
   private switchPaneSession(nextSessionKey: string) {
@@ -230,6 +362,12 @@ class ChatPane extends LitElement {
     void subscriptionSync;
     void historyLoad;
     void sessionsRefresh;
+    const connectedClient = this.connectedClient;
+    if (connectedClient && this.shouldRefreshAllAgentSessions(state)) {
+      this.refreshAllAgentSessions(connectedClient);
+    } else {
+      this.allAgentSessionsResult = null;
+    }
   }
 
   private readonly handleCommandPaletteSlashCommand = (command: string) => {
@@ -483,6 +621,13 @@ class ChatPane extends LitElement {
         if (state) {
           handlePageGatewayEvent(state, event);
         }
+        if (
+          event.event === "sessions.changed" &&
+          this.connectedClient &&
+          this.shouldRefreshAllAgentSessions()
+        ) {
+          this.refreshAllAgentSessions(this.connectedClient);
+        }
       }),
     );
     this.applyApplicationConfig(this.context.config.current);
@@ -629,6 +774,147 @@ class ChatPane extends LitElement {
     state.requestUpdate?.();
   }
 
+  private resolveLiveComposerGatewayScope(snapshot: ApplicationGatewaySnapshot): string {
+    const connection = this.context.gateway.connection;
+    const deviceToken =
+      typeof snapshot.hello?.auth?.deviceToken === "string"
+        ? snapshot.hello.auth.deviceToken.trim()
+        : "";
+    // Keep the password only in memory for transition identity. Persistence
+    // uses the issued device token after hello and never hashes a password
+    // into browser storage.
+    const credential = deviceToken || connection.token.trim() || connection.password.trim();
+    return normalizeGatewayComposerScope(connection.gatewayUrl, credential);
+  }
+
+  private syncLiveComposerBinding(
+    state: ChatPageHost,
+    snapshot: ApplicationGatewaySnapshot,
+    clientChanged: boolean,
+    previousComposerIdentity: Pick<ChatPageHost, "settings" | "password" | "hello">,
+  ): boolean {
+    const connection = this.context.gateway.connection;
+    const resolvedScope = this.resolveLiveComposerGatewayScope(snapshot);
+    // A transport disconnect clears hello before the same client reconnects.
+    // Keep the last authenticated principal during that interval; otherwise
+    // the bootstrap token temporarily looks like a new principal and clears
+    // visible chat state during an ordinary outage.
+    const nextScope =
+      !snapshot.connected && !clientChanged && this.activeComposerGatewayScope !== null
+        ? this.activeComposerGatewayScope
+        : resolvedScope;
+    const previousComposerScope =
+      this.activeComposerGatewayScope ?? this.provisionalComposerGatewayScope;
+    const scopeChanged = previousComposerScope !== null && previousComposerScope !== nextScope;
+    // Before the first hello, a client replacement is still an authentication
+    // boundary even though no authenticated scope exists yet. A same-client
+    // first hello, however, establishes the device scope for the initial
+    // connection and must not discard the draft restored before hello.
+    const principalChanged =
+      scopeChanged && (this.activeComposerGatewayScope !== null || clientChanged);
+    if (clientChanged || scopeChanged) {
+      state.chatQueueGatewayGeneration = (state.chatQueueGatewayGeneration ?? 0) + 1;
+      // A send owned by the previous Gateway must not keep the new connection
+      // looking busy while its old promise is still settling.
+      state.chatSending = false;
+      markQueuedChatSendsWaitingForReconnect(state);
+    }
+    if (principalChanged && !state.chatComposerPersistenceSuspended) {
+      // Flush the debounced draft before changing principals. If storage is
+      // unavailable, the in-memory snapshot remains available for a return to
+      // this Gateway instead of being silently discarded.
+      // `state.hello` has already been replaced with the disconnected/new
+      // client snapshot by the caller. Persist against the previous hello so
+      // a shared bootstrap token cannot expose one device's composer state to
+      // another paired principal.
+      persistChatComposerState({ ...state, ...previousComposerIdentity }, state.sessionKey);
+      if (!clientChanged) {
+        migrateChatComposerState(previousComposerIdentity, {
+          settings: {
+            ...state.settings,
+            gatewayUrl: connection.gatewayUrl,
+            token: connection.token,
+          },
+          password: connection.password,
+          hello: snapshot.hello,
+          chatComposerMemoryOwner: state.chatComposerMemoryOwner,
+        });
+      }
+      // A same-client token rotation is the same browser principal. Restore
+      // the parked composer under the new scope; an explicit client replacement
+      // must remain isolated and therefore keeps the old scope only.
+      const restoreScope = clientChanged ? (previousComposerScope ?? nextScope) : nextScope;
+      this.provisionalComposerRestores.set(
+        provisionalComposerRestoreKey(restoreScope),
+        snapshotChatGatewayComposerState(state),
+      );
+      clearChatGatewayComposerState(state);
+      // Gateway credentials define the transcript's security boundary. Clear
+      // visible history and tool/sidebar projections before the new principal
+      // can render, rather than waiting for its asynchronous history refresh.
+      reconcileChatRunLifecycle(state, {
+        clearLocalRun: true,
+        clearChatStream: true,
+        clearToolStream: true,
+        clearSideResultTerminalRuns: true,
+        clearRunStatus: true,
+      });
+      state.chatMessages = [];
+      state.chatMessagesBySession = new Map();
+      state.chatSideResult = null;
+      state.sidebarContent = null;
+      state.chatComposerPersistenceSuspended = true;
+    }
+    // The page previously read settings from local storage. Bind persistence
+    // and all chat controls to the connection that actually owns the client.
+    state.settings = {
+      ...state.settings,
+      gatewayUrl: connection.gatewayUrl,
+      token: connection.token,
+    };
+    state.password = connection.password;
+
+    if (!snapshot.connected) {
+      if (this.activeComposerGatewayScope === null) {
+        this.provisionalComposerGatewayScope = nextScope;
+      }
+      return false;
+    }
+
+    const shouldRestore =
+      clientChanged ||
+      state.chatComposerPersistenceSuspended ||
+      this.activeComposerGatewayScope === null;
+    let restoredProvisionalComposer = false;
+    if (state.chatComposerPersistenceSuspended) {
+      const provisional = this.provisionalComposerRestores.get(
+        provisionalComposerRestoreKey(nextScope),
+      );
+      if (provisional) {
+        restoreChatGatewayComposerState(state, provisional, (sessionKey) =>
+          this.rebindGatewayComposerSession(sessionKey),
+        );
+        this.provisionalComposerRestores.delete(provisionalComposerRestoreKey(nextScope));
+        restoredProvisionalComposer = true;
+      } else {
+        clearChatGatewayComposerState(state);
+      }
+      state.chatComposerPersistenceSuspended = false;
+    }
+    if (restoredProvisionalComposer) {
+      // Re-key a same-browser token rotation so a later reload can recover the
+      // same draft and queue from the new authenticated scope.
+      persistChatComposerState(state);
+    }
+    if (snapshot.connected && restoreDetachedSendRecoveries(state, nextScope)) {
+      state.chatError =
+        "A detached message was restored after reconnecting to its original Gateway.";
+    }
+    this.activeComposerGatewayScope = nextScope;
+    this.provisionalComposerGatewayScope = null;
+    return shouldRestore;
+  }
+
   private applyGatewaySnapshot(snapshot: ApplicationGatewaySnapshot) {
     const state = this.state;
     if (!state) {
@@ -636,9 +922,23 @@ class ChatPane extends LitElement {
     }
     const wasConnected = state.connected;
     const clientChanged = this.connectedClient !== snapshot.client;
+    const previousComposerIdentity: Pick<ChatPageHost, "settings" | "password" | "hello"> = {
+      settings: state.settings,
+      password: state.password,
+      hello: state.hello,
+    };
     state.client = snapshot.client;
     state.connected = snapshot.connected;
     state.hello = snapshot.hello;
+    const shouldRestoreComposer = this.syncLiveComposerBinding(
+      state,
+      snapshot,
+      clientChanged,
+      previousComposerIdentity,
+    );
+    if (snapshot.connected && shouldRestoreComposer) {
+      this.chatState.restoreComposer({ preserveCurrent: true });
+    }
     state.terminalAvailable =
       this.context.config.current.terminalEnabled &&
       snapshot.connected &&
@@ -670,6 +970,9 @@ class ChatPane extends LitElement {
         markQueuedChatSendsWaitingForReconnect(state);
       }
       this.connectedClient = null;
+      this.allAgentSessionsResult = null;
+      this.allAgentSessionsRequest = null;
+      this.allAgentSessionsRefreshPending = false;
       state.realtimeTalkSession?.stop();
       state.realtimeTalkSession = null;
       state.realtimeTalkActive = false;
@@ -702,12 +1005,27 @@ class ChatPane extends LitElement {
         if (agentsList) {
           applyChatAgentsList(state, agentsList, startupClient);
         }
+        if (
+          agentsList &&
+          state.sessionKey === startupSessionKey &&
+          this.shouldRefreshAllAgentSessions(state)
+        ) {
+          this.refreshAllAgentSessions(startupClient);
+        }
         state.requestUpdate?.();
         if (state.sessionKey === startupSessionKey) {
           this.sendPendingSkillWorkshopRevision(startupSessionKey);
         }
       };
       this.connectedClient = startupClient;
+      this.allAgentSessionsResult = null;
+      // A request owned by the previous Gateway client cannot satisfy this
+      // client's snapshot; let the new client start its own reconciliation.
+      this.allAgentSessionsRequest = null;
+      this.allAgentSessionsRefreshPending = false;
+      if (this.shouldRefreshAllAgentSessions(state)) {
+        this.refreshAllAgentSessions(startupClient);
+      }
       void syncSelectedSessionMessageSubscription(state, { force: true });
       void retryReconnectableQueuedChatSends(state);
       void refreshPageChat(state, { startup: true, awaitHistory: true }).finally(() => {
@@ -801,6 +1119,211 @@ class ChatPane extends LitElement {
     `;
   }
 
+  private async setControlDirectorDefaultModel(
+    state: ChatPageHost,
+    agentId: string,
+    model: string,
+  ): Promise<boolean | ControlDirectorDefaultModelResult> {
+    if (
+      !isControlDirectorAgentId(agentId, state.agentsList?.defaultId, state.agentsList?.agents) ||
+      !hasOperatorAdminAccess(state.hello?.auth ?? null) ||
+      !model.trim()
+    ) {
+      return false;
+    }
+    if (this.context.runtimeConfig.state.configFormDirty) {
+      const message =
+        "Save or discard Settings changes before changing the Control Director default model.";
+      state.lastError = message;
+      state.chatError = message;
+      state.requestUpdate();
+      return false;
+    }
+    const originatingSessionKey = state.sessionKey;
+    const originatingAgentParams = scopedAgentListParamsForSession(state, originatingSessionKey);
+    const originatingGatewayClient = this.context.gateway.snapshot.client;
+    const gatewayChangedError =
+      "Control Director model change stopped because the Gateway connection changed. Retry on the current Gateway.";
+    const gatewayIsCurrent = () => {
+      const snapshot = this.context.gateway.snapshot;
+      return Boolean(
+        snapshot.connected &&
+        originatingGatewayClient &&
+        snapshot.client === originatingGatewayClient,
+      );
+    };
+    const stopIfGatewayChanged = () => {
+      if (gatewayIsCurrent()) {
+        return false;
+      }
+      state.lastError = gatewayChangedError;
+      state.chatError = gatewayChangedError;
+      state.requestUpdate();
+      return true;
+    };
+    const sessionsBeforeDefault = this.context.gateway.snapshot;
+    if (!sessionsBeforeDefault.connected || !sessionsBeforeDefault.client) {
+      const error = "The Gateway is disconnected; reconnect and retry.";
+      state.lastError = error;
+      state.chatError = error;
+      state.requestUpdate();
+      return false;
+    }
+    await this.context.sessions.refresh({
+      agentId: originatingAgentParams.agentId,
+      force: true,
+    });
+    if (stopIfGatewayChanged()) {
+      return false;
+    }
+    if (this.context.sessions.state.error) {
+      const error = `Could not verify the active session before changing the default model: ${this.context.sessions.state.error}`;
+      state.lastError = error;
+      state.chatError = error;
+      state.requestUpdate();
+      return false;
+    }
+    const runtimeConfig = this.context.runtimeConfig;
+    await runtimeConfig.ensureLoaded();
+    await runtimeConfig.refresh();
+    if (runtimeConfig.state.lastError) {
+      const error = runtimeConfig.state.lastError;
+      state.lastError = error;
+      state.chatError = error;
+      state.requestUpdate();
+      return false;
+    }
+    if (stopIfGatewayChanged()) {
+      return false;
+    }
+    const source =
+      runtimeConfig.state.configSnapshot?.sourceConfig ??
+      runtimeConfig.state.configSnapshot?.resolved ??
+      runtimeConfig.state.configSnapshot?.config;
+    const controlDirectorAgentConfigId = resolveControlDirectorAgentConfigId(
+      state.agentsList?.agents,
+      state.agentsList?.defaultId,
+      source,
+    );
+    if (!controlDirectorAgentConfigId) {
+      const error = "Control Director configuration is unavailable; reload and retry.";
+      state.lastError = error;
+      state.chatError = error;
+      state.requestUpdate();
+      return false;
+    }
+    const updated = await runtimeConfig.patch({
+      raw: {
+        agents: {
+          list: [{ id: controlDirectorAgentConfigId, model: { primary: model } }],
+        },
+      },
+      note: "Set the Control Director default model from Chat.",
+    });
+    if (!updated) {
+      const error =
+        runtimeConfig.state.lastError ?? "Could not save the Control Director default model.";
+      state.lastError = error;
+      state.chatError = error;
+      state.requestUpdate();
+      return false;
+    }
+    if (stopIfGatewayChanged()) {
+      return false;
+    }
+    let fallbackCleanupError: string | null = null;
+    let fallbackCleanupApplied = false;
+    if (!gatewayIsCurrent()) {
+      fallbackCleanupError = gatewayChangedError;
+    } else {
+      try {
+        if (stopIfGatewayChanged()) {
+          return false;
+        }
+        const reset = await this.context.sessions.patch(
+          originatingSessionKey,
+          { model: null, expectedModelOverrideIsFallback: true },
+          originatingAgentParams,
+        );
+        if (reset == null) {
+          throw new Error("the active automatic model could not be reset");
+        }
+        fallbackCleanupApplied =
+          reset.entry.modelOverride === undefined &&
+          reset.entry.providerOverride === undefined &&
+          reset.entry.modelOverrideSource === undefined &&
+          reset.entry.modelOverrideFallbackOriginProvider === undefined &&
+          reset.entry.modelOverrideFallbackOriginModel === undefined;
+      } catch (error) {
+        fallbackCleanupError = `Control Director default saved, but the active automatic model could not be reset: ${String(error)}`;
+      }
+    }
+    if (fallbackCleanupError === gatewayChangedError || stopIfGatewayChanged()) {
+      if (fallbackCleanupError === gatewayChangedError) {
+        state.lastError = gatewayChangedError;
+        state.chatError = gatewayChangedError;
+        state.requestUpdate();
+      }
+      return false;
+    }
+    let sessionsRefreshError: string | null = null;
+    const sessionsGatewayBeforeRefresh = this.context.gateway.snapshot;
+    try {
+      // Refresh the active row for every successful default write. Otherwise
+      // the picker can expose the old effective model as a new session
+      // override on the next save.
+      if (!sessionsGatewayBeforeRefresh.connected || !sessionsGatewayBeforeRefresh.client) {
+        throw new Error("the Gateway is disconnected");
+      }
+      await this.context.sessions.refresh({
+        agentId: originatingAgentParams.agentId,
+        force: true,
+      });
+      const sessionsGatewayAfterRefresh = this.context.gateway.snapshot;
+      if (
+        !sessionsGatewayAfterRefresh.connected ||
+        sessionsGatewayAfterRefresh.client !== sessionsGatewayBeforeRefresh.client
+      ) {
+        throw new Error("the Gateway connection changed before the active session was refreshed");
+      }
+      const sessionsState = this.context.sessions.state;
+      if (sessionsState.error) {
+        throw new Error(sessionsState.error);
+      }
+    } catch (error) {
+      sessionsRefreshError = `Control Director default saved, but the active session could not be refreshed: ${String(error)}`;
+    }
+    if (stopIfGatewayChanged()) {
+      return false;
+    }
+    // A successful config.patch changes the optimistic-concurrency hash; refresh
+    // before the next default change so repeated saves cannot reuse stale state.
+    await runtimeConfig.refresh();
+    const configRefreshError = runtimeConfig.state.lastError
+      ? `Control Director default saved, but the config could not be refreshed: ${runtimeConfig.state.lastError}`
+      : null;
+    if (stopIfGatewayChanged()) {
+      return false;
+    }
+    // Reconcile the agent list even when fallback cleanup failed: the config write
+    // already committed, so returning early would leave the picker showing stale
+    // default state while the error is being surfaced.
+    await this.context.agents.refreshList();
+    const agentsRefreshError = this.context.agents.state.agentsError
+      ? `Control Director default saved, but the agent list could not be refreshed: ${this.context.agents.state.agentsError}`
+      : null;
+    const error =
+      fallbackCleanupError ?? sessionsRefreshError ?? configRefreshError ?? agentsRefreshError;
+    if (error) {
+      state.lastError = error;
+      state.chatError = error;
+      state.requestUpdate();
+      return false;
+    }
+    state.requestUpdate();
+    return { fallbackCleanupApplied };
+  }
+
   override render() {
     const state = this.state;
     if (!state) {
@@ -808,7 +1331,7 @@ class ChatPane extends LitElement {
     }
     const currentAgentId = resolveChatAgentId(state);
     const agentDefaultModel = this.context.agents.state.agentsList?.agents.find(
-      (agent) => agent.id === currentAgentId,
+      (agent) => normalizeAgentId(agent.id) === currentAgentId,
     )?.model?.primary;
     const selectedSessionArchived =
       state.selectedChatSessionArchived ||
@@ -849,6 +1372,7 @@ class ChatPane extends LitElement {
       sendShortcut: state.settings.chatSendShortcut,
       draft: state.chatMessage,
       queue: state.chatQueue,
+      queuePaused: state.chatQueuePaused,
       realtimeTalkActive: state.realtimeTalkActive,
       realtimeTalkStatus: state.realtimeTalkStatus,
       realtimeTalkDetail: state.realtimeTalkDetail,
@@ -872,6 +1396,12 @@ class ChatPane extends LitElement {
         model: {
           activeRunId: state.chatRunId,
           agentDefaultModel,
+          controlDirector:
+            isControlDirectorAgentId(
+              currentAgentId,
+              state.agentsList?.defaultId,
+              state.agentsList?.agents,
+            ) && hasOperatorAdminAccess(state.hello?.auth ?? null),
           connected: state.connected,
           draftScope: state,
           gatewayAvailable: Boolean(state.client),
@@ -883,11 +1413,14 @@ class ChatPane extends LitElement {
           sending: state.chatSending,
           sessionKey: state.sessionKey,
           sessionsResult: state.sessionsResult,
+          allAgentSessionsResult: this.allAgentSessionsResult,
           stream: state.chatStream,
           onRequestUpdate: () => state.requestUpdate?.(),
           onFastModeSelect: (next, targetSessionKey) =>
             switchChatFastMode(state, next, targetSessionKey),
           onModelSelect: (next, targetSessionKey) => switchChatModel(state, next, targetSessionKey),
+          onSetControlDirectorDefault: (next) =>
+            this.setControlDirectorDefaultModel(state, currentAgentId, next),
           onThinkingSelect: (next, targetSessionKey) =>
             switchChatThinkingLevel(state, next, targetSessionKey),
         },
@@ -971,6 +1504,7 @@ class ChatPane extends LitElement {
       onQueueRemove: state.removeQueuedMessage,
       onQueueRetry: (id) => void state.retryQueuedChatMessage(id),
       onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
+      onQueueTogglePause: state.toggleChatQueuePaused,
       onGoalCommand: (command) => void state.handleSendChat(command),
       onDismissSideResult: () => {
         state.chatSideResult = null;

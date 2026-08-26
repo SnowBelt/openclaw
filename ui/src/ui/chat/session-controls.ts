@@ -3,18 +3,34 @@ import { html } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { t } from "../../i18n/index.ts";
 import {
+  resolveControlDirectorAgentConfigId,
+  resolveControlDirectorAgentId,
+} from "../../lib/chat/control-director-thinking.ts";
+import { normalizeChatModelProviderId } from "../../lib/chat/model-ref.ts";
+import {
   createChatSessionsLoadOverrides,
   scopedAgentListParamsForSession,
   scopedAgentParamsForSession,
+  withChatSubmitGuard,
 } from "../app-chat.ts";
+import { hasOperatorAdminAccess, hasOperatorWriteAccess } from "../app-settings.ts";
 import type { AppViewState } from "../app-view-state.ts";
-import { createChatModelOverride } from "../chat-model-ref.ts";
+import {
+  buildCatalogDisplayLookup,
+  buildChatModelOptionFromLookup,
+  createChatModelOverride,
+  resolvePreferredServerChatModelValue,
+} from "../chat-model-ref.ts";
 import {
   resolveChatModelOverrideValue,
   resolveChatModelSelectState,
 } from "../chat-model-select-state.ts";
-import { refreshVisibleToolsEffectiveForCurrentSession } from "../controllers/agents.ts";
-import { loadSessions } from "../controllers/sessions.ts";
+import {
+  loadAgents,
+  refreshVisibleToolsEffectiveForCurrentSession,
+} from "../controllers/agents.ts";
+import { loadConfig, saveConfig, stageConfigPreset } from "../controllers/config.ts";
+import { loadSessions, patchSession } from "../controllers/sessions.ts";
 import { formatDateTimeMs } from "../format.ts";
 import { icons } from "../icons.ts";
 import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
@@ -24,6 +40,7 @@ import { pushUniqueTrimmedSelectOption } from "../select-options.ts";
 import { isCronSessionKey, resolveSessionDisplayName } from "../session-display.ts";
 import {
   buildAgentMainSessionKey,
+  areUiSessionKeysEquivalent,
   isSessionKeyTiedToAgent,
   isSubagentSessionKey,
   normalizeAgentId,
@@ -77,6 +94,35 @@ const chatSessionPickerSearchControllers = new WeakMap<
 function setChatError(state: AppViewState, error: string | null) {
   state.lastError = error;
   state.chatError = error;
+}
+
+function isAvailableControlDirectorModel(state: AppViewState, value: string): boolean {
+  const catalog = state.chatModelCatalog ?? [];
+  if (catalog.length === 0) {
+    return false;
+  }
+  const displayLookup = buildCatalogDisplayLookup(catalog);
+  const resolved = normalizeChatModelAvailabilityKey(
+    resolvePreferredServerChatModelValue(value, null, catalog),
+  );
+  return catalog.some(
+    (entry) =>
+      entry.available !== false &&
+      normalizeChatModelAvailabilityKey(
+        buildChatModelOptionFromLookup(entry, displayLookup).value,
+      ) === resolved,
+  );
+}
+
+function normalizeChatModelAvailabilityKey(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  const separator = normalized.indexOf("/");
+  if (separator <= 0) {
+    return normalized;
+  }
+  return `${normalizeChatModelProviderId(normalized.slice(0, separator))}/${normalized.slice(
+    separator + 1,
+  )}`;
 }
 
 export function renderChatSessionSelect(
@@ -146,10 +192,10 @@ function resolveNextChatSessionOffset(
   return sessions.sessions.length;
 }
 
-async function refreshSessionOptions(state: AppViewState) {
+async function refreshSessionOptions(state: AppViewState, agentId?: string) {
   await loadSessions(state as unknown as Parameters<typeof loadSessions>[0], {
     ...createChatSessionsLoadOverrides(state),
-    ...scopedAgentListParamsForSession(state, state.sessionKey),
+    ...(agentId ? { agentId } : scopedAgentListParamsForSession(state, state.sessionKey)),
   });
 }
 
@@ -611,6 +657,7 @@ function renderChatSessionPickerPopover(
 ) {
   const result = resolveChatSessionPickerResult(state);
   const pickerRows = resolveChatSessionPickerRows(state, result);
+  const canRenameSessions = hasOperatorWriteAccess(state.hello?.auth ?? null);
   const controlsDisabled = !state.connected || !state.client;
   const normalizedQuery = normalizeOptionalString(state.chatSessionPickerQuery) ?? "";
   const searchPending = normalizedQuery !== state.chatSessionPickerAppliedQuery;
@@ -714,33 +761,73 @@ function renderChatSessionPickerPopover(
             const meta = formatChatSessionPickerMeta(row);
             const selected = row.key === state.sessionKey;
             return html`
-              <button
+              <div
                 class="chat-session-picker__option ${selected
                   ? "chat-session-picker__option--selected"
                   : ""}"
-                data-chat-session-picker-option="true"
-                data-session-key=${row.key}
-                role="option"
-                aria-selected=${selected ? "true" : "false"}
                 title=${label}
-                type="button"
-                @click=${() => {
-                  closeChatSessionPicker(state);
-                  if (row.key !== state.sessionKey) {
-                    onSwitchSession(state, row.key);
-                  }
-                }}
               >
-                <span class="chat-session-picker__option-main">
-                  <span class="chat-session-picker__option-label">${label}</span>
-                  ${meta ? html`<span class="chat-session-picker__option-meta">${meta}</span>` : ""}
-                </span>
-                ${selected
-                  ? html`<span class="chat-session-picker__option-check" aria-hidden="true">
-                      ${icons.check}
-                    </span>`
+                <button
+                  class="chat-session-picker__option-main-button"
+                  data-chat-session-picker-option="true"
+                  data-session-key=${row.key}
+                  role="option"
+                  aria-selected=${selected ? "true" : "false"}
+                  type="button"
+                  @click=${() => {
+                    closeChatSessionPicker(state);
+                    if (row.key !== state.sessionKey) {
+                      onSwitchSession(state, row.key);
+                    }
+                  }}
+                >
+                  <span class="chat-session-picker__option-main">
+                    <span class="chat-session-picker__option-label">${label}</span>
+                    ${meta
+                      ? html`<span class="chat-session-picker__option-meta">${meta}</span>`
+                      : ""}
+                  </span>
+                  ${selected
+                    ? html`<span class="chat-session-picker__option-check" aria-hidden="true">
+                        ${icons.check}
+                      </span>`
+                    : ""}
+                </button>
+                ${canRenameSessions
+                  ? html`<button
+                      class="chat-session-picker__option-action"
+                      type="button"
+                      title="Rename chat"
+                      aria-label=${`Rename ${label}`}
+                      @click=${(event: MouseEvent) => {
+                        event.stopPropagation();
+                        const next = window.prompt("Rename chat", label);
+                        if (next === null) {
+                          return;
+                        }
+                        void patchSession(state, row.key, { label: next.trim() || null }).then(
+                          (updated) => {
+                            if (!updated || !state.chatSessionPickerResult) {
+                              return;
+                            }
+                            const updatedLabel = next.trim() || undefined;
+                            state.chatSessionPickerResult = {
+                              ...state.chatSessionPickerResult,
+                              sessions: state.chatSessionPickerResult.sessions.map((sessionEntry) =>
+                                sessionEntry.key === row.key
+                                  ? { ...sessionEntry, label: updatedLabel }
+                                  : sessionEntry,
+                              ),
+                            };
+                            requestHostUpdate(state);
+                          },
+                        );
+                      }}
+                    >
+                      ${icons.edit}
+                    </button>`
                   : ""}
-              </button>
+              </div>
             `;
           },
         )}
@@ -897,7 +984,27 @@ export function renderChatModelSelect(state: AppViewState) {
       group.options.map((option) => ({ ...option, group: group.label })),
     ),
   ];
+  const controlDirectorAgentId = resolveControlDirectorAgentId(
+    state.agentsList?.agents,
+    state.agentsList?.defaultId,
+  );
+  const activeAgentId = resolveChatAgentFilterId(state, state.sessionKey);
+  const controlDirector = Boolean(
+    controlDirectorAgentId &&
+    activeAgentId === controlDirectorAgentId &&
+    hasOperatorAdminAccess(state.hello?.auth ?? null),
+  );
+  const controlDirectorDefaultModel = state.agentsList?.agents.find(
+    (agent) => normalizeAgentId(agent.id) === controlDirectorAgentId,
+  )?.model?.primary;
+  const defaultModelValue = resolvePreferredServerChatModelValue(
+    controlDirectorDefaultModel,
+    null,
+    state.chatModelCatalog ?? [],
+  );
   return renderChatModelReasoningSelect({
+    controlDirector,
+    controlDirectorDefaultModel: defaultModelValue,
     disabled,
     modelOptions,
     selectedModelLabel: selectedLabel,
@@ -907,10 +1014,173 @@ export function renderChatModelSelect(state: AppViewState) {
     fastMode,
     thinkingDisabled,
     thinkingOptions: [{ value: "", label: thinking.defaultLabel }, ...thinking.options],
+    isModelAvailable: (value) => isAvailableControlDirectorModel(state, value),
     onModelSelect: (next) => switchChatModel(state, next),
+    onSetControlDirectorDefault: (next) => setControlDirectorDefault(state, next),
     onFastModeSelect: (next) => switchChatFastMode(state, next),
     onThinkingSelect: (next) => switchChatThinkingLevel(state, next),
   });
+}
+
+async function setControlDirectorDefault(state: AppViewState, nextModel: string): Promise<boolean> {
+  const result = await withChatSubmitGuard(
+    state,
+    `control-director-default:${state.sessionKey}`,
+    () => setControlDirectorDefaultInternal(state, nextModel),
+  );
+  return result ?? false;
+}
+
+async function setControlDirectorDefaultInternal(
+  state: AppViewState,
+  nextModel: string,
+): Promise<boolean> {
+  const model = nextModel.trim();
+  if (
+    !model ||
+    !state.client ||
+    !state.connected ||
+    !hasOperatorAdminAccess(state.hello?.auth ?? null)
+  ) {
+    return false;
+  }
+  if (!isAvailableControlDirectorModel(state, model)) {
+    setChatError(state, "That model is unavailable; choose an available model first.");
+    return false;
+  }
+  const controlDirectorAgentId = resolveControlDirectorAgentId(
+    state.agentsList?.agents,
+    state.agentsList?.defaultId,
+  );
+  if (
+    !controlDirectorAgentId ||
+    resolveChatAgentFilterId(state, state.sessionKey) !== controlDirectorAgentId
+  ) {
+    setChatError(state, "Select the Control Director session before changing its default model.");
+    return false;
+  }
+  const originatingSessionKey = state.sessionKey;
+  const originatingAgentListParams = scopedAgentListParamsForSession(state, originatingSessionKey);
+  const originatingAgentParams = scopedAgentParamsForSession(state, originatingSessionKey);
+  const cachedOriginatingSession = resolveChatSessionRow(state, originatingSessionKey);
+  await refreshSessionOptions(state, originatingAgentListParams.agentId);
+  if (state.sessionsError) {
+    setChatError(
+      state,
+      `Could not verify the active session before changing the Control Director default: ${state.sessionsError}`,
+    );
+    return false;
+  }
+  const originatingSession =
+    state.sessionsResult?.sessions?.find((row) =>
+      areUiSessionKeysEquivalent(row.key, originatingSessionKey),
+    ) ?? cachedOriginatingSession;
+  if (!originatingSession) {
+    setChatError(
+      state,
+      "Could not verify the active session before changing the Control Director default; reload and retry.",
+    );
+    return false;
+  }
+  if (state.configFormDirty) {
+    setChatError(
+      state,
+      "Save or discard Settings changes before changing the Control Director default.",
+    );
+    return false;
+  }
+  await loadConfig(state);
+  if (state.lastError || !state.configSnapshot?.hash) {
+    setChatError(state, "Control Director configuration is not ready; reload and retry.");
+    return false;
+  }
+  const source =
+    state.configSnapshot.sourceConfig ??
+    state.configSnapshot.resolved ??
+    state.configSnapshot.config;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    setChatError(state, "Control Director configuration is unavailable; reload and retry.");
+    return false;
+  }
+  const controlDirectorAgentConfigId = resolveControlDirectorAgentConfigId(
+    state.agentsList?.agents,
+    state.agentsList?.defaultId,
+    source,
+  );
+  if (!controlDirectorAgentConfigId) {
+    setChatError(state, "Control Director configuration is unavailable; reload and retry.");
+    return false;
+  }
+  const agentList = Array.isArray((source as { agents?: { list?: unknown } }).agents?.list)
+    ? [...((source as { agents: { list: unknown[] } }).agents.list ?? [])]
+    : [];
+  const existingIndex = agentList.findIndex(
+    (entry) =>
+      entry &&
+      typeof entry === "object" &&
+      !Array.isArray(entry) &&
+      (entry as { id?: unknown }).id === controlDirectorAgentConfigId,
+  );
+  const existing =
+    existingIndex >= 0 ? agentList[existingIndex] : { id: controlDirectorAgentConfigId };
+  const nextEntry: Record<string, unknown> =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : { id: controlDirectorAgentConfigId };
+  const currentModel = (nextEntry as { model?: unknown }).model;
+  nextEntry.model =
+    currentModel && typeof currentModel === "object" && !Array.isArray(currentModel)
+      ? { ...(currentModel as Record<string, unknown>), primary: model }
+      : { primary: model };
+  if (existingIndex >= 0) {
+    agentList[existingIndex] = nextEntry;
+  } else {
+    agentList.push(nextEntry);
+  }
+  setChatError(state, null);
+  stageConfigPreset(state, { agents: { list: agentList } });
+  const saved = await saveConfig(state);
+  if (!saved) {
+    return false;
+  }
+  await loadAgents(state as unknown as Parameters<typeof loadAgents>[0]);
+  if (state.agentsError) {
+    setChatError(
+      state,
+      `Control Director default saved, but agents could not be refreshed: ${state.agentsError}`,
+    );
+    return false;
+  }
+  await refreshSessionOptions(state, originatingAgentListParams.agentId);
+  if (state.sessionsError) {
+    setChatError(
+      state,
+      `Control Director default saved, but sessions could not be refreshed: ${state.sessionsError}`,
+    );
+    return false;
+  }
+  try {
+    const reset = await state.client.request("sessions.patch", {
+      key: originatingSessionKey,
+      model: null,
+      expectedModelOverrideIsFallback: true,
+      ...originatingAgentParams,
+    });
+    if (reset == null) {
+      throw new Error("the active automatic model could not be reset");
+    }
+    await refreshSessionOptions(state, originatingAgentListParams.agentId);
+    if (state.sessionsError) {
+      throw new Error(`the session list could not be refreshed: ${state.sessionsError}`);
+    }
+  } catch (error) {
+    setChatError(
+      state,
+      `Control Director default saved, but the active automatic model could not be reset: ${String(error)}`,
+    );
+    return false;
+  }
+  return true;
 }
 
 type ChatThinkingSelectOption = {
@@ -1133,6 +1403,8 @@ function formatCombinedPickerThinkingOptionLabel(option: ChatInlineSelectOption)
 }
 
 function renderChatModelReasoningSelect(params: {
+  controlDirector: boolean;
+  controlDirectorDefaultModel: string;
   fastMode: ChatFastModeSelectState;
   disabled: boolean;
   modelOptions: ChatInlineSelectOption[];
@@ -1142,12 +1414,16 @@ function renderChatModelReasoningSelect(params: {
   selectedThinkingValue: string;
   thinkingDisabled: boolean;
   thinkingOptions: ChatInlineSelectOption[];
+  isModelAvailable: (value: string) => boolean;
   onFastModeSelect: (value: "" | "on" | "off" | "auto") => Promise<unknown>;
   onModelSelect: (value: string) => Promise<unknown>;
+  onSetControlDirectorDefault: (value: string) => Promise<unknown>;
   onThinkingSelect: (value: string) => Promise<unknown>;
 }) {
   const {
     disabled,
+    controlDirector,
+    controlDirectorDefaultModel,
     fastMode,
     modelOptions,
     selectedModelLabel,
@@ -1156,10 +1432,15 @@ function renderChatModelReasoningSelect(params: {
     selectedThinkingValue,
     thinkingDisabled,
     thinkingOptions,
+    isModelAvailable,
     onFastModeSelect,
     onModelSelect,
+    onSetControlDirectorDefault,
     onThinkingSelect,
   } = params;
+  const normalizedControlDirectorDefault = normalizeChatModelAvailabilityKey(
+    controlDirectorDefaultModel,
+  );
   const triggerModel = formatCombinedPickerModelLabel(selectedModelLabel);
   const triggerThinking = formatCombinedPickerThinkingLabel(selectedThinkingLabel);
   const triggerLabel = `${triggerModel} · ${triggerThinking}`;
@@ -1209,6 +1490,14 @@ function renderChatModelReasoningSelect(params: {
                 (entry) => entry.value,
                 (entry) => {
                   const selected = entry.value === selectedModelValue;
+                  const defaultTarget = entry.value || controlDirectorDefaultModel;
+                  const isControlDirectorDefault =
+                    Boolean(entry.value) &&
+                    normalizeChatModelAvailabilityKey(entry.value) ===
+                      normalizedControlDirectorDefault;
+                  const defaultAvailable = Boolean(
+                    defaultTarget && isModelAvailable(defaultTarget),
+                  );
                   return html`
                     <div class="chat-controls__combined-model">
                       <button
@@ -1241,6 +1530,36 @@ function renderChatModelReasoningSelect(params: {
                             </span>`
                           : ""}
                       </button>
+                      ${controlDirector && entry.value && defaultTarget
+                        ? html`
+                            <button
+                              class="chat-controls__model-default-action"
+                              type="button"
+                              ?disabled=${disabled || !defaultAvailable || isControlDirectorDefault}
+                              aria-label=${isControlDirectorDefault
+                                ? defaultAvailable
+                                  ? "Control Director default model"
+                                  : "Control Director default model unavailable"
+                                : `Set ${formatCombinedPickerModelOptionLabel(entry, selected)} as Control Director default`}
+                              @click=${async (event: MouseEvent) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                if (disabled || !defaultAvailable || isControlDirectorDefault) {
+                                  return;
+                                }
+                                await onSetControlDirectorDefault(
+                                  entry.value || controlDirectorDefaultModel,
+                                );
+                              }}
+                            >
+                              ${defaultAvailable
+                                ? isControlDirectorDefault
+                                  ? "Default"
+                                  : "Set default"
+                                : "Unavailable"}
+                            </button>
+                          `
+                        : ""}
                     </div>
                   `;
                 },

@@ -67,6 +67,7 @@ export type ChatProps = {
   assistantAvatarUrl?: string | null;
   draft: string;
   queue: ChatQueueItem[];
+  queuePaused?: boolean;
   realtimeTalkActive?: boolean;
   realtimeTalkStatus?: RealtimeTalkStatus;
   realtimeTalkDetail?: string | null;
@@ -118,6 +119,7 @@ export type ChatProps = {
   onQueueRemove: (id: string) => void;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onQueueTogglePause?: () => void;
   onGoalCommand?: (command: string) => void;
   onDismissSideResult?: () => void;
   onNewSession: () => void;
@@ -216,6 +218,7 @@ export function renderChat(props: ChatProps) {
     stream: props.stream,
     sideResult: props.sideResult,
     queue: props.queue,
+    queuePaused: props.queuePaused,
     draft: props.draft,
     sessions: props.sessions,
     providerQuota: props.providerQuota,
@@ -242,6 +245,7 @@ export function renderChat(props: ChatProps) {
     onQueueRemove: props.onQueueRemove,
     onQueueRetry: props.onQueueRetry,
     onQueueSteer: props.onQueueSteer,
+    onQueueTogglePause: props.onQueueTogglePause,
     onGoalCommand: props.onGoalCommand,
     onDismissSideResult: props.onDismissSideResult,
     onNewSession: props.onNewSession,

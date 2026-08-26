@@ -4,16 +4,21 @@ import { ConnectErrorDetailCodes } from "../../../packages/gateway-protocol/src/
 import { GATEWAY_EVENT_UPDATE_AVAILABLE } from "../../../src/gateway/events.js";
 import type { ActivityEntry } from "./activity-model.ts";
 import { connectGateway, resolveControlUiClientVersion } from "./app-gateway.ts";
+import type { ChatSideResult } from "./chat/side-result.ts";
 import type { GatewayHelloOk } from "./gateway.ts";
+import type { GatewaySessionRow, SessionsListResult } from "./types.ts";
 import type { ChatQueueItem } from "./ui-types.ts";
 
 const loadChatHistoryMock = vi.hoisted(() => vi.fn(async () => undefined));
 const loadChatComposerSnapshotMock = vi.hoisted(() =>
-  vi.fn<(...args: unknown[]) => { draft: string; queue: ChatQueueItem[] } | null>(() => null),
+  vi.fn<
+    (...args: unknown[]) => { draft: string; queue: ChatQueueItem[]; queuePaused?: boolean } | null
+  >(() => null),
 );
 const restoreChatComposerStateMock = vi.hoisted(() =>
   vi.fn<(...args: unknown[]) => boolean>(() => false),
 );
+const persistChatComposerStateMock = vi.hoisted(() => vi.fn<(...args: unknown[]) => void>());
 const loadControlUiBootstrapConfigMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 type GatewayRequest = (method: string, payload?: unknown) => Promise<unknown>;
@@ -130,6 +135,7 @@ vi.mock("./chat/composer-persistence.ts", async (importOriginal) => {
   return {
     ...actual,
     loadChatComposerSnapshot: loadChatComposerSnapshotMock,
+    persistChatComposerState: persistChatComposerStateMock,
     restoreChatComposerState: restoreChatComposerStateMock,
   };
 });
@@ -140,6 +146,19 @@ type TestGatewayHost = Parameters<typeof connectGateway>[0] & {
   chatQueueBySession: Record<string, import("./ui-types.ts").ChatQueueItem[]>;
   chatSideResult: unknown;
   chatSideResultTerminalRuns: Set<string>;
+  sessionsLoading: boolean;
+  sessionsResult: unknown;
+  sessionsResultAgentId: string | null;
+  sessionsError: string | null;
+  chatAgentSessionRowsByAgent: Record<string, unknown[]>;
+  chatSessionPickerOpen: boolean;
+  chatSessionPickerSurface: "desktop" | "mobile" | "sidebar" | null;
+  chatSessionPickerQuery: string;
+  chatSessionPickerAppliedQuery: string;
+  chatSessionPickerLoading: boolean;
+  chatSessionPickerError: string | null;
+  chatSessionPickerResult: unknown;
+  chatModelOverrides: Record<string, unknown>;
   chatStream: string | null;
   updateComplete?: Promise<unknown>;
   chatToolMessages: Record<string, unknown>[];
@@ -191,7 +210,9 @@ function createHost(): TestGatewayHost {
     chatMessages: [],
     chatMessage: "",
     chatQueue: [],
+    chatQueuePaused: false,
     chatComposerProvisionalRestore: null,
+    chatComposerRetryingCurrentGateway: false,
     chatQueueBySession: {},
     chatToolMessages: [],
     activityEntries: [],
@@ -201,6 +222,19 @@ function createHost(): TestGatewayHost {
     chatRunId: null,
     chatSideResult: null,
     chatSending: false,
+    sessionsLoading: false,
+    sessionsResult: null,
+    sessionsResultAgentId: null,
+    sessionsError: null,
+    chatAgentSessionRowsByAgent: {},
+    chatSessionPickerOpen: false,
+    chatSessionPickerSurface: null,
+    chatSessionPickerQuery: "",
+    chatSessionPickerAppliedQuery: "",
+    chatSessionPickerLoading: false,
+    chatSessionPickerError: null,
+    chatSessionPickerResult: null,
+    chatModelOverrides: {},
     toolStreamById: new Map(),
     toolStreamOrder: [],
     toolStreamSyncTimer: null,
@@ -268,6 +302,7 @@ describe("connectGateway", () => {
     loadChatComposerSnapshotMock.mockReturnValue(null);
     restoreChatComposerStateMock.mockReset();
     restoreChatComposerStateMock.mockReturnValue(false);
+    persistChatComposerStateMock.mockReset();
     loadControlUiBootstrapConfigMock.mockClear();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
       setTimeout(() => callback(Date.now()), 0),
@@ -298,6 +333,117 @@ describe("connectGateway", () => {
     expect(host.lastError).toBeNull();
   });
 
+  it("clears old projections while preserving the composer across token rotation", () => {
+    const { host, client } = connectHostGateway();
+
+    client.emitHello({
+      type: "hello-ok",
+      protocol: 4,
+      snapshot: {},
+      auth: { role: "operator", scopes: [], deviceToken: "device-token-a" },
+    });
+    const firstPrincipalScope = host.activeGatewayConnection?.scope;
+    host.chatMessage = "old principal draft";
+    host.chatQueue = [{ id: "old-queue", text: "old principal queue", createdAt: 1 }];
+    host.chatMessages = [{ role: "assistant", content: "old transcript" }];
+    host.chatToolMessages = [{ id: "old-tool" }];
+    host.chatStream = "old stream";
+    host.chatSideResult = {
+      kind: "btw",
+      runId: "old-side-result",
+      sessionKey: "main",
+      question: "old question",
+      text: "old result",
+      isError: false,
+      ts: 1,
+    } satisfies ChatSideResult;
+    host.chatSideResultTerminalRuns.add("old-side-result");
+    host.sessionsLoading = true;
+    const oldSession = {
+      key: "old-session",
+      kind: "direct",
+      updatedAt: 1,
+    } satisfies GatewaySessionRow;
+    host.sessionsResult = {
+      ts: 1,
+      path: "",
+      count: 1,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      sessions: [oldSession],
+    } satisfies SessionsListResult;
+    host.sessionsResultAgentId = "old-agent";
+    host.sessionsError = "old sessions error";
+    host.chatAgentSessionRowsByAgent = { old: [oldSession] };
+    host.chatSessionPickerOpen = true;
+    host.chatSessionPickerSurface = "desktop";
+    host.chatSessionPickerQuery = "old query";
+    host.chatSessionPickerAppliedQuery = "old applied query";
+    host.chatSessionPickerLoading = true;
+    host.chatSessionPickerError = "old picker error";
+    host.chatSessionPickerResult = {
+      ts: 1,
+      path: "",
+      count: 1,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      sessions: [
+        {
+          key: "old-picker-session",
+          kind: "direct",
+          updatedAt: 1,
+        },
+      ],
+    } satisfies SessionsListResult;
+    host.chatModelOverrides = { "old-session": { value: "old-model" } };
+    persistChatComposerStateMock.mockClear();
+    restoreChatComposerStateMock.mockClear();
+
+    client.emitHello({
+      type: "hello-ok",
+      protocol: 4,
+      snapshot: {},
+      auth: { role: "operator", scopes: [], deviceToken: "device-token-b" },
+    });
+
+    expect(persistChatComposerStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatMessage: "old principal draft",
+        chatQueue: [{ id: "old-queue", text: "old principal queue", createdAt: 1 }],
+        hello: expect.objectContaining({
+          auth: expect.objectContaining({ deviceToken: "device-token-a" }),
+        }),
+      }),
+      "main",
+    );
+    expect(host.chatMessage).toBe("old principal draft");
+    expect(host.chatQueue).toEqual([
+      { id: "old-queue", text: "old principal queue", createdAt: 1 },
+    ]);
+    expect(host.chatMessages).toEqual([]);
+    expect(host.chatToolMessages).toEqual([]);
+    expect(host.chatStream).toBeNull();
+    expect(host.chatSideResult).toBeNull();
+    expect(host.chatSideResultTerminalRuns.size).toBe(0);
+    expect(host.sessionsLoading).toBe(false);
+    expect(host.sessionsResult).toBeNull();
+    expect(host.sessionsResultAgentId).toBeNull();
+    expect(host.sessionsError).toBeNull();
+    expect(host.chatAgentSessionRowsByAgent).toEqual({});
+    expect(host.chatSessionPickerOpen).toBe(false);
+    expect(host.chatSessionPickerSurface).toBeNull();
+    expect(host.chatSessionPickerQuery).toBe("");
+    expect(host.chatSessionPickerAppliedQuery).toBe("");
+    expect(host.chatSessionPickerLoading).toBe(false);
+    expect(host.chatSessionPickerError).toBeNull();
+    expect(host.chatSessionPickerResult).toBeNull();
+    expect(host.chatModelOverrides).toEqual({});
+    expect(host.activeGatewayConnection?.scope).not.toBe(firstPrincipalScope);
+    expect(host.hello?.auth?.deviceToken).toBe("device-token-b");
+    expect(restoreChatComposerStateMock).toHaveBeenLastCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: true,
+    });
+  });
+
   it("lets hello-scoped composer state replace an unchanged provisional restore", () => {
     const { host, client } = connectHostGateway();
     const provisionalQueue = [{ id: "queued-old", text: "wrong agent", createdAt: 1 }];
@@ -308,6 +454,7 @@ describe("connectGateway", () => {
       sessionKey: "main",
       chatMessage: "fallback draft",
       chatQueue: provisionalQueue,
+      chatQueuePaused: false,
     };
     loadChatComposerSnapshotMock.mockReturnValueOnce({
       draft: "scoped draft",
@@ -351,6 +498,7 @@ describe("connectGateway", () => {
       sessionKey: "main",
       chatMessage: "fallback draft",
       chatQueue: provisionalQueue,
+      chatQueuePaused: false,
     };
     loadChatComposerSnapshotMock.mockReturnValueOnce({
       draft: "scoped draft",
@@ -365,10 +513,218 @@ describe("connectGateway", () => {
 
     client.emitHello();
 
-    expect(loadChatComposerSnapshotMock).not.toHaveBeenCalled();
+    expect(loadChatComposerSnapshotMock).toHaveBeenCalledWith(host, "main");
+    expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: false,
+    });
     expect(host.chatMessage).toBe("user edit");
     expect(host.chatQueue).toBe(provisionalQueue);
     expect(host.chatComposerProvisionalRestore).toBeNull();
+    expect(persistChatComposerStateMock).toHaveBeenCalledWith(host, "main");
+  });
+
+  it("preserves a paused provisional queue when the resolved scope has no stored composer", () => {
+    const { host, client } = connectHostGateway();
+    const provisionalQueue = [{ id: "queued-paused", text: "wait", createdAt: 1 }];
+    host.chatQueue = provisionalQueue;
+    host.chatQueuePaused = true;
+    host.chatQueuePausedBySession = { main: true };
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "main",
+      chatMessage: "fallback draft",
+      chatQueue: provisionalQueue,
+      chatQueuePaused: true,
+    };
+
+    loadChatComposerSnapshotMock.mockReturnValueOnce(null);
+
+    client.emitHello();
+
+    expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: true,
+    });
+    expect(host.chatQueuePausedBySession).toEqual({ main: true });
+  });
+
+  it("restores the target session pause after a Gateway switch", () => {
+    const { host, client } = connectHostGateway();
+    const provisionalQueue = [{ id: "queued-provisional", text: "wait", createdAt: 1 }];
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "agent:main:main",
+      chatMessage: "",
+      chatQueue: provisionalQueue,
+      chatQueuePaused: false,
+    };
+    host.sessionKey = "agent:coder:main";
+    host.chatQueuePaused = false;
+    host.chatQueuePausedBySession = {};
+    loadChatComposerSnapshotMock.mockReturnValueOnce({
+      draft: "",
+      queue: [{ id: "queued-target", text: "target wait", createdAt: 2 }],
+    });
+
+    client.emitHello();
+
+    expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: false,
+    });
+  });
+
+  it("does not treat an unchanged restored pause value as a user edit", () => {
+    const { host, client } = connectHostGateway();
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "agent:main:main",
+      chatMessage: "",
+      chatQueue: [],
+      chatQueuePaused: false,
+    };
+    host.sessionKey = "agent:coder:main";
+    host.chatQueuePaused = false;
+    // restoreChatComposerState records false in the map even when the user did not edit.
+    host.chatQueuePausedBySession = { "agent:coder:main": false };
+    loadChatComposerSnapshotMock.mockReturnValueOnce({
+      draft: "",
+      queue: [],
+      queuePaused: true,
+    });
+
+    client.emitHello();
+
+    expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: false,
+    });
+  });
+
+  it("keeps a user pause change made during a Gateway switch", () => {
+    const { host, client } = connectHostGateway();
+    const provisionalQueue = [{ id: "queued-provisional", text: "wait", createdAt: 1 }];
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "agent:main:main",
+      chatMessage: "",
+      chatQueue: provisionalQueue,
+      chatQueuePaused: false,
+    };
+    host.sessionKey = "agent:coder:main";
+    host.chatQueuePaused = true;
+    host.chatQueuePausedBySession = { "agent:coder:main": true };
+
+    client.emitHello();
+
+    expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: true,
+    });
+  });
+
+  it("keeps a pause selected before agent fallback", async () => {
+    const { host, client } = connectHostGateway();
+    host.sessionKey = "agent:missing:main";
+    host.chatQueuePaused = true;
+    host.chatQueuePausedBySession = { "agent:missing:main": true };
+    client.request.mockImplementation(async (method: string) => {
+      if (method === "agents.list") {
+        return { defaultId: "main", agents: [{ id: "main" }], mainKey: "main" };
+      }
+      if (method === "sessions.list") {
+        return { count: 0, sessions: [] };
+      }
+      return {};
+    });
+
+    client.emitHello();
+
+    await vi.waitFor(() => {
+      expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+        sessionKey: "agent:main:main",
+        preserveCurrent: true,
+        preserveCurrentQueuePaused: true,
+      });
+    });
+    expect(host.sessionKey).toBe("agent:main:main");
+  });
+
+  it("preserves draft and queue edits while rebinding an unconfigured agent", async () => {
+    const { host, client } = connectHostGateway();
+    host.tab = "chat";
+    host.sessionKey = "agent:missing:main";
+    host.chatMessage = "keep this draft";
+    host.chatQueue = [{ id: "keep-queued", text: "keep this queued", createdAt: 1 }];
+    client.request.mockImplementation(async (method: string) => {
+      if (method === "agents.list") {
+        return { defaultId: "main", agents: [{ id: "main" }], mainKey: "agent:main:main" };
+      }
+      if (method === "sessions.list") {
+        return { count: 0, sessions: [] };
+      }
+      return {};
+    });
+
+    client.emitHello();
+
+    await vi.waitFor(() => {
+      expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+        sessionKey: "agent:main:main",
+        preserveCurrent: true,
+        preserveCurrentQueuePaused: false,
+      });
+    });
+    expect(host.chatMessage).toBe("keep this draft");
+    expect(host.chatQueue).toEqual([{ id: "keep-queued", text: "keep this queued", createdAt: 1 }]);
+  });
+
+  it("restores a paused target Gateway without preserving the switch reset", () => {
+    const { host, client } = connectHostGateway();
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "main",
+      chatMessage: "",
+      chatQueue: [],
+      chatQueuePaused: true,
+    };
+    host.chatQueuePaused = false;
+    host.chatQueuePausedBySession = {};
+    loadChatComposerSnapshotMock.mockReturnValueOnce({
+      draft: "",
+      queue: [],
+      queuePaused: true,
+    });
+
+    client.emitHello();
+
+    expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: false,
+    });
+  });
+
+  it("reconciles the resolved pause state when only the provisional draft changed", () => {
+    const { host, client } = connectHostGateway();
+    const provisionalQueue = [{ id: "queued-old", text: "offline", createdAt: 1 }];
+    host.chatMessage = "user edit";
+    host.chatQueue = provisionalQueue;
+    host.chatQueuePaused = false;
+    host.chatQueuePausedBySession = {};
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "main",
+      chatMessage: "fallback draft",
+      chatQueue: provisionalQueue,
+      chatQueuePaused: true,
+    };
+    loadChatComposerSnapshotMock.mockReturnValueOnce({
+      draft: "scoped draft",
+      queue: [],
+    });
+
+    client.emitHello();
+
+    expect(restoreChatComposerStateMock).toHaveBeenCalledWith(host, {
+      preserveCurrent: true,
+      preserveCurrentQueuePaused: false,
+    });
+    expect(host.chatQueuePausedBySession).toEqual({});
   });
 
   it("ignores stale client onEvent callbacks after reconnect", () => {
@@ -460,7 +816,7 @@ describe("connectGateway", () => {
         ts: 0,
         path: "",
         count: 1,
-        defaults: {},
+        defaults: { modelProvider: null, model: null, contextTokens: null },
         sessions: [
           {
             key: "main",
@@ -491,7 +847,7 @@ describe("connectGateway", () => {
         runId: "run-1",
         sessionKey: "main",
       });
-      expect(host.sessionsResult.sessions[0]).toMatchObject({
+      expect((host.sessionsResult as SessionsListResult).sessions[0]).toMatchObject({
         hasActiveRun: false,
         status: "killed",
         abortedLastRun: true,
@@ -862,6 +1218,74 @@ describe("connectGateway", () => {
     expect(host.reconnectResumeSessionId).toBe("session-before-reconnect");
   });
 
+  it("keeps switched-Gateway edits in the provisional scope until hello resolves", () => {
+    const host = createHost();
+    host.chatComposerPersistenceSuspended = true;
+    host.chatMessage = "draft while reconnecting";
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "main",
+      chatMessage: "",
+      chatQueue: [],
+      chatQueuePaused: false,
+    };
+
+    connectGateway(host);
+    const client = requireGatewayClient();
+    client.emitClose({ code: 4008, reason: "authentication failed" });
+
+    expect(persistChatComposerStateMock).not.toHaveBeenCalled();
+    expect(host.chatComposerPersistenceSuspended).toBe(true);
+    expect(host.chatComposerProvisionalRestore).toEqual({
+      sessionKey: "main",
+      chatMessage: "draft while reconnecting",
+      chatQueue: [],
+      chatQueuePaused: false,
+    });
+  });
+
+  it("keeps the live composer during a same-Gateway retry", () => {
+    const host = createHost();
+    host.chatComposerPersistenceSuspended = true;
+    host.chatComposerRetryingCurrentGateway = true;
+    host.chatMessage = "draft after auth failure";
+    host.chatQueue = [
+      {
+        id: "retry-queued",
+        text: "send after reconnect",
+        createdAt: 1,
+        sessionKey: "main",
+        kind: "queued",
+      },
+    ];
+
+    connectGateway(host);
+    const client = requireGatewayClient();
+    client.emitHello();
+
+    expect(host.chatMessage).toBe("draft after auth failure");
+    expect(host.chatQueue).toHaveLength(1);
+    expect(host.chatComposerRetryingCurrentGateway).toBe(false);
+    expect(persistChatComposerStateMock).toHaveBeenCalled();
+  });
+
+  it("does not overwrite a target Gateway composer when the switch closes untouched", () => {
+    const host = createHost();
+    host.chatComposerPersistenceSuspended = true;
+    host.chatComposerProvisionalRestore = {
+      sessionKey: "main",
+      chatMessage: "",
+      chatQueue: [],
+      chatQueuePaused: false,
+    };
+
+    connectGateway(host);
+    const client = requireGatewayClient();
+    client.emitClose({ code: 4008, reason: "authentication failed" });
+
+    expect(persistChatComposerStateMock).not.toHaveBeenCalled();
+    expect(host.chatComposerPersistenceSuspended).toBe(true);
+  });
+
   it("routes exec approval requested events with command spans", () => {
     const { host, client } = connectHostGateway();
 
@@ -992,6 +1416,16 @@ describe("connectGateway", () => {
     connectGateway(host);
     expect(host.execApprovalQueue).toHaveLength(1);
     expect(host.execApprovalQueue[0]?.id).toBe("approval-1");
+  });
+
+  it("releases the approval busy latch when replacing a Gateway client", () => {
+    const host = createHost();
+    connectGateway(host);
+    host.execApprovalBusy = true;
+
+    connectGateway(host);
+
+    expect(host.execApprovalBusy).toBe(false);
   });
 
   it("maps generic fetch-failed auth errors to actionable token mismatch message", () => {

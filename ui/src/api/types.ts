@@ -517,6 +517,10 @@ export type GatewaySessionRow = {
   childSessions?: string[];
   model?: string;
   modelProvider?: string;
+  /** Persisted session override provenance; absent on legacy rows. */
+  modelOverrideSource?: "auto" | "user";
+  /** True when the active override is a runtime fallback, including legacy rows. */
+  modelOverrideIsFallback?: boolean;
   effectiveResponseUsage?: "on" | "off" | "tokens" | "full";
   agentRuntime?: GatewayAgentRuntime;
   contextTokens?: number;
@@ -559,6 +563,11 @@ export type SessionsCompactionRestoreResult = {
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;
   updatedAt?: number;
+  providerOverride?: string;
+  modelOverride?: string;
+  modelOverrideSource?: "auto" | "user";
+  modelOverrideFallbackOriginProvider?: string;
+  modelOverrideFallbackOriginModel?: string;
   thinkingLevel?: string;
   fastMode?: FastMode;
   verboseLevel?: string;
@@ -836,6 +845,9 @@ export type ModelCatalogEntry = {
   contextWindow?: number;
   reasoning?: boolean;
   input?: Array<"text" | "image" | "document">;
+  route?: "local" | "subscription" | "metered" | "unknown";
+  certification?: "candidate" | "certified" | "unlisted";
+  agentRuntime?: GatewayAgentRuntime;
 };
 
 export type ToolCatalogProfile =
