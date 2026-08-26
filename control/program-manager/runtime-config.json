@@ -7,11 +7,12 @@
         "skillsLimits": {
           "maxSkillsPromptChars": 0
         },
-        "bootstrapMaxChars": 3500,
-        "bootstrapTotalMaxChars": 10000,
+        "bootstrapMaxChars": 2200,
+        "bootstrapTotalMaxChars": 2200,
+        "contextInjection": "continuation-skip",
         "contextLimits": {
-          "memoryGetMaxChars": 6000,
-          "postCompactionMaxChars": 2500
+          "memoryGetMaxChars": 4000,
+          "postCompactionMaxChars": 1800
         },
         "model": {
           "primary": "omlx-qwen38-agent/openclaw-qwen38-builder-standard-q8-mtp",
@@ -40,14 +41,18 @@
         },
         "tools": {
           "alsoAllow": [
-            "read",
             "get_goal",
-            "progress_card",
+            "update_goal",
+            "update_plan",
+            "memory_search",
+            "memory_get",
             "sessions_spawn",
-            "sessions_yield"
+            "sessions_yield",
+            "sessions_list"
           ],
           "deny": [
             "apply_patch",
+            "agents_list",
             "browser",
             "code_execution",
             "cron",
@@ -55,8 +60,11 @@
             "exec",
             "message",
             "process",
+            "read",
             "session_status",
+            "sessions_history",
             "sessions_send",
+            "subagents",
             "web_fetch",
             "web_search",
             "write"

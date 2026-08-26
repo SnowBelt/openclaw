@@ -1,12 +1,13 @@
 # Program Manager context package
 
 This directory is the canonical, compact source for the Program Manager
-workspace. It deliberately keeps policy in one contract instead of repeating
-the same rules in every bootstrap file.
+workspace. `workspace/AGENTS.md` is the sole injected semantic contract;
+supporting bootstrap files contain only identity, style, operator, or mechanics.
 
 ## Layout
 
-- `CONTRACT.md`: semantic role, evidence, routing, handoff, and answer profiles.
+- `workspace/AGENTS.md`: complete injected role and behavior contract.
+- `CONTRACT.md`: optional human reference with expanded profile examples only.
 - `workspace/`: bootstrap files copied into the agent workspace.
 - `state/program-manager.json`: checked-in validation fixture only; it is never
   runtime state or completion proof.

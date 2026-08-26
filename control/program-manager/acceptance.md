@@ -1,18 +1,20 @@
 # Program Manager acceptance
 
-| Check                 | Required proof                                                                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| One canonical context | `CONTRACT.md` is the only semantic contract; `TOOLS.md` contains only minimal mechanics.                                           |
-| Small prompt          | Source check passes the per-file and total bootstrap budgets.                                                                      |
-| Truthful state        | Current `get_goal`/task-packet state is owner SQLite/session state; the checked-in fixture is not installed.                       |
-| Safe boundary         | The reviewed config exposes only read, planning, and bounded worker handoff tools.                                                 |
-| Active config         | PM-only config sync is backed up, reversible, supports both registry shapes, and passes active-binary validation.                  |
-| Compact output        | PLAN, STATUS, HANDOFF, and COMPLETION profiles are present; the old field list is absent.                                          |
-| Local model boundary  | Qwen chat-template thinking is explicitly disabled so local PM turns do not spend the bounded response budget on hidden reasoning. |
-| Reversible staging    | Install/verify-install/rollback change only managed files and preserve unrelated files.                                            |
-| Repeatable CI         | Static checks run without private operator state or live credentials.                                                              |
-| Local behavior        | Run a local PM smoke with representative plan, status, handoff, and unsupported-completion prompts.                                |
+| Check                | Required proof                                                                                                                                                                                                       |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical context    | `workspace/AGENTS.md` is the sole injected semantic contract; `CONTRACT.md` is optional examples only; other bootstrap files are non-policy.                                                                         |
+| Small prompt         | Source check proves per-file and total bootstrap character budgets, with zero skill-prompt chars.                                                                                                                    |
+| Truthful state       | Current packet/`get_goal` state is owner runtime state; the checked-in fixture is not installed or live proof.                                                                                                       |
+| Safe boundary        | Config exposes only goal/state, `update_plan`, memory, session-list, and bounded worker-handoff tools; read/exec/web/send tools are denied. The shipped policy alias resolves to the `progress_card` runtime schema. |
+| Skill isolation      | PM owns `skills: []`, `maxSkillsPromptChars: 0`, and cannot inherit global, bundled, or extra skills.                                                                                                                |
+| Active config        | PM-only config sync is backed up, reversible, supports both registry shapes, and passes canonical validation.                                                                                                        |
+| Compact output       | PLAN, STATUS, HANDOFF, and COMPLETION profiles are in `AGENTS.md`; duplicated policy is absent from support files.                                                                                                   |
+| Continuation safety  | `continuation-skip` uses bounded memory/post-compaction limits and existing freshness/rebuild tests.                                                                                                                 |
+| Local model boundary | Thinking is explicitly disabled so the bounded response budget is spent on the visible PM answer.                                                                                                                    |
+| Reversible staging   | Install/verify-install/rollback touch only managed files and preserve unrelated files.                                                                                                                               |
+| Repeatable CI        | Static checks run without private operator state, live credentials, or secrets.                                                                                                                                      |
+| Local behavior       | Representative plan, status, handoff, and unsupported-completion smoke cases pass.                                                                                                                                   |
 
-The package is not complete until source checks, focused tests, workflow sanity,
-config validation, and the local smoke all pass. A successful static check is
-not behavioral proof; owner acceptance is still required for final certification.
+The package is not complete until source checks, focused tests, config validation,
+workflow sanity, and local behavior proof pass. Static checks do not replace
+owner acceptance for final certification.

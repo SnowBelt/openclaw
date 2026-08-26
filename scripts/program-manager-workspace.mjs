@@ -28,15 +28,29 @@ export const MANAGED_FILES = Object.freeze([
 const BOOTSTRAP_FILES = Object.freeze(
   MANAGED_FILES.filter((entry) => entry.startsWith("workspace/")),
 );
-const ALLOWED_TOOLS = Object.freeze([
+export const PROGRAM_MANAGER_ALLOWED_TOOLS = Object.freeze([
   "get_goal",
-  "progress_card",
-  "read",
+  "update_goal",
+  "update_plan",
+  "memory_search",
+  "memory_get",
   "sessions_spawn",
   "sessions_yield",
+  "sessions_list",
 ]);
-const REQUIRED_DENIED_TOOLS = Object.freeze([
+const PROGRAM_MANAGER_EFFECTIVE_TOOL_SCHEMAS = Object.freeze([
+  "get_goal",
+  "update_goal",
+  "progress_card",
+  "memory_search",
+  "memory_get",
+  "sessions_spawn",
+  "sessions_yield",
+  "sessions_list",
+]);
+export const PROGRAM_MANAGER_REQUIRED_DENIED_TOOLS = Object.freeze([
   "apply_patch",
+  "agents_list",
   "browser",
   "code_execution",
   "cron",
@@ -44,17 +58,40 @@ const REQUIRED_DENIED_TOOLS = Object.freeze([
   "exec",
   "message",
   "process",
+  "read",
   "session_status",
   "sessions_send",
+  "sessions_history",
+  "subagents",
   "web_fetch",
   "web_search",
   "write",
+]);
+const REQUIRED_CANONICAL_CONTRACT_MARKERS = Object.freeze([
+  "Mission:",
+  "Read the injected Control Director packet once",
+  "zero tool",
+  "`get_goal` at most once",
+  "Source order:",
+  "stale",
+  "Never invent status",
+  "builder-agent",
+  "research-brief-agent",
+  "Output: choose exactly one profile",
+  "PLAN:",
+  "STATUS:",
+  "HANDOFF:",
+  "COMPLETION:",
+  "Completion requires current",
+  "Prefer local models",
+  "Telemetry is automatic non-secret metadata",
 ]);
 const CONFIG_MANAGED_FIELDS = Object.freeze([
   "skills",
   "skillsLimits",
   "bootstrapMaxChars",
   "bootstrapTotalMaxChars",
+  "contextInjection",
   "contextLimits",
   "model",
   "params",
@@ -62,8 +99,10 @@ const CONFIG_MANAGED_FIELDS = Object.freeze([
   "subagents",
   "tools",
 ]);
-const MAX_BOOTSTRAP_FILE_BYTES = 4_000;
-const MAX_BOOTSTRAP_TOTAL_BYTES = 10_000;
+const MAX_BOOTSTRAP_FILE_CHARS = 2_200;
+const MAX_BOOTSTRAP_TOTAL_CHARS = 2_200;
+const PM_MEMORY_GET_MAX_CHARS = 4_000;
+const PM_POST_COMPACTION_MAX_CHARS = 1_800;
 const SECRET_KEY = /token|password|cookie|credential|secret|private/i;
 
 function issue(code, message, details = {}) {
@@ -233,6 +272,82 @@ function configuredAgentEntries(config) {
     );
   }
   return [];
+}
+
+function normalizeConfiguredSkillList(value) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((entry) => typeof entry === "string").map((entry) => entry.trim());
+}
+
+/**
+ * Resolve the PM skill boundary without loading any skill directories. An explicit empty
+ * allowlist is the important distinction: it overrides defaults and keeps every source tier
+ * out of the model-visible catalog, including bundled and extra skills.
+ */
+export function resolveProgramManagerSkillVisibility(config) {
+  const entry = configuredAgentEntry(config, "program-manager");
+  const hasExplicitAllowlist = isObject(entry) && Object.hasOwn(entry, "skills");
+  const configuredAllowlist = hasExplicitAllowlist
+    ? normalizeConfiguredSkillList(entry.skills)
+    : undefined;
+  const defaultAllowlist = normalizeConfiguredSkillList(config?.agents?.defaults?.skills);
+  const effectiveAllowlist = hasExplicitAllowlist ? configuredAllowlist : defaultAllowlist;
+  return {
+    hasExplicitAllowlist,
+    configuredAllowlist,
+    defaultAllowlist,
+    effectiveAllowlist,
+    inheritsDefaults: !hasExplicitAllowlist,
+    bundledSkillsVisible: !hasExplicitAllowlist,
+    extraSkillsVisible: !hasExplicitAllowlist,
+  };
+}
+
+export function validateProgramManagerSkillIsolation(config) {
+  const visibility = resolveProgramManagerSkillVisibility(config);
+  const issues = [];
+  if (!visibility.hasExplicitAllowlist) {
+    issues.push(
+      issue(
+        "skills_not_explicit",
+        "Program Manager must own an explicit empty skill allowlist and cannot inherit defaults.",
+      ),
+    );
+  }
+  if (
+    !Array.isArray(visibility.configuredAllowlist) ||
+    visibility.configuredAllowlist.length !== 0
+  ) {
+    issues.push(
+      issue(
+        "skills_not_empty",
+        "Program Manager skills must be explicitly empty so global, bundled, and unrelated skills stay hidden.",
+      ),
+    );
+  }
+  if (visibility.effectiveAllowlist === undefined || visibility.effectiveAllowlist.length !== 0) {
+    issues.push(
+      issue(
+        "skills_can_inherit",
+        "Program Manager effective skills must resolve to an empty allowlist.",
+      ),
+    );
+  }
+  if (
+    visibility.inheritsDefaults ||
+    visibility.bundledSkillsVisible ||
+    visibility.extraSkillsVisible
+  ) {
+    issues.push(
+      issue(
+        "skills_visibility_unbounded",
+        "Program Manager must not expose default, bundled, or extra skill sources.",
+      ),
+    );
+  }
+  return issues;
 }
 
 function validateConfiguredAgentRegistry(config) {
@@ -407,28 +522,43 @@ export function validateRuntimeEntry(value) {
   if (!isObject(value)) {
     return [issue("runtime_entry_invalid", "Program Manager config entry must be an object.")];
   }
-  if (!Array.isArray(value.skills) || value.skills.length !== 0) {
+  if (
+    !Object.hasOwn(value, "skills") ||
+    !Array.isArray(value.skills) ||
+    value.skills.length !== 0
+  ) {
     issues.push(issue("skills_not_empty", "Program Manager skills must be explicitly empty."));
   }
-  if (value.skillsLimits?.maxSkillsPromptChars !== 0) {
+  if (!isObject(value.skillsLimits) || value.skillsLimits.maxSkillsPromptChars !== 0) {
     issues.push(issue("skills_budget_missing", "Program Manager maxSkillsPromptChars must be 0."));
   }
-  if (value.bootstrapMaxChars !== 3500 || value.bootstrapTotalMaxChars !== 10000) {
+  if (
+    value.bootstrapMaxChars !== MAX_BOOTSTRAP_FILE_CHARS ||
+    value.bootstrapTotalMaxChars !== MAX_BOOTSTRAP_TOTAL_CHARS
+  ) {
     issues.push(
       issue(
         "bootstrap_budget_changed",
-        "Bootstrap budgets must remain 3500 per file and 10000 total.",
+        `Bootstrap budgets must remain ${MAX_BOOTSTRAP_FILE_CHARS} per file and ${MAX_BOOTSTRAP_TOTAL_CHARS} total.`,
+      ),
+    );
+  }
+  if (value.contextInjection !== "continuation-skip") {
+    issues.push(
+      issue(
+        "context_injection_changed",
+        "Program Manager context injection must use continuation-skip.",
       ),
     );
   }
   if (
-    value.contextLimits?.memoryGetMaxChars !== 6000 ||
-    value.contextLimits?.postCompactionMaxChars !== 2500
+    value.contextLimits?.memoryGetMaxChars !== PM_MEMORY_GET_MAX_CHARS ||
+    value.contextLimits?.postCompactionMaxChars !== PM_POST_COMPACTION_MAX_CHARS
   ) {
     issues.push(
       issue(
         "context_budget_changed",
-        "Context budgets must remain 6000 memory chars and 2500 post-compaction chars.",
+        `Context budgets must remain ${PM_MEMORY_GET_MAX_CHARS} memory chars and ${PM_POST_COMPACTION_MAX_CHARS} post-compaction chars.`,
       ),
     );
   }
@@ -461,7 +591,7 @@ export function validateRuntimeEntry(value) {
     issues.push(issue("thinking_default_changed", "thinkingDefault must be low."));
   }
   const configuredAllowed = sorted(value.tools?.alsoAllow ?? []);
-  if (JSON.stringify(configuredAllowed) !== JSON.stringify(sorted(ALLOWED_TOOLS))) {
+  if (JSON.stringify(configuredAllowed) !== JSON.stringify(sorted(PROGRAM_MANAGER_ALLOWED_TOOLS))) {
     issues.push(
       issue(
         "tool_allowlist_changed",
@@ -470,7 +600,7 @@ export function validateRuntimeEntry(value) {
     );
   }
   const denied = new Set(value.tools?.deny ?? []);
-  for (const tool of REQUIRED_DENIED_TOOLS) {
+  for (const tool of PROGRAM_MANAGER_REQUIRED_DENIED_TOOLS) {
     if (!denied.has(tool)) {
       issues.push(issue("tool_deny_missing", `Program Manager must deny ${tool}.`, { tool }));
     }
@@ -512,6 +642,8 @@ export function validateRuntimeEntry(value) {
 
 export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
   const issues = [];
+  let totalBootstrapChars = 0;
+  let largestBootstrapChars = 0;
   let totalBootstrapBytes = 0;
   let largestBootstrapBytes = 0;
   const runtimePath = path.join(sourceRoot, "runtime-config.json");
@@ -534,6 +666,7 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
     readFileIfPresent(path.join(sourceRoot, "workspace/TOOLS.md")),
   ]);
   const managedText = new Map(managedFiles.map(({ relativePath, text }) => [relativePath, text]));
+  const canonicalInstructions = managedText.get("workspace/AGENTS.md");
   for (const relativePath of MANAGED_FILES) {
     if (managedText.get(relativePath) === null) {
       issues.push(
@@ -548,13 +681,17 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
     if (text === null) {
       continue;
     }
+    const chars = text.length;
     const bytes = Buffer.byteLength(text, "utf8");
+    totalBootstrapChars += chars;
+    largestBootstrapChars = Math.max(largestBootstrapChars, chars);
     totalBootstrapBytes += bytes;
     largestBootstrapBytes = Math.max(largestBootstrapBytes, bytes);
-    if (bytes > MAX_BOOTSTRAP_FILE_BYTES) {
+    if (chars > MAX_BOOTSTRAP_FILE_CHARS) {
       issues.push(
-        issue("bootstrap_file_too_large", `${relativePath} exceeds its context budget.`, {
+        issue("bootstrap_file_too_large", `${relativePath} exceeds its character budget.`, {
           file: relativePath,
+          chars,
           bytes,
         }),
       );
@@ -569,9 +706,10 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       );
     }
   }
-  if (totalBootstrapBytes > MAX_BOOTSTRAP_TOTAL_BYTES) {
+  if (totalBootstrapChars > MAX_BOOTSTRAP_TOTAL_CHARS) {
     issues.push(
-      issue("bootstrap_total_too_large", "Bootstrap files exceed the total context budget.", {
+      issue("bootstrap_total_too_large", "Bootstrap files exceed the total character budget.", {
+        chars: totalBootstrapChars,
         bytes: totalBootstrapBytes,
       }),
     );
@@ -587,6 +725,12 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
     }
   }
   const runtimeOutcome = await runtimePromise;
+  const runtimeText = await readFileIfPresent(runtimePath);
+  const parsedRuntimeConfig =
+    runtimeText === null ? undefined : parseJson(runtimeText, runtimePath);
+  const runtimeConfig = parsedRuntimeConfig?.parseError ? undefined : parsedRuntimeConfig;
+  const runtimeEntry = configuredAgentEntry(runtimeConfig, "program-manager");
+  const skillVisibility = resolveProgramManagerSkillVisibility(runtimeConfig);
   if ("result" in runtimeOutcome) {
     const runtimeResult = runtimeOutcome.result;
     issues.push(...runtimeResult.issues);
@@ -599,12 +743,44 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
       ),
     );
   }
-  if (contract !== null) {
-    for (const term of ["PLAN", "STATUS", "HANDOFF", "COMPLETION", "Unknown", "local model"]) {
-      if (!contract.includes(term)) {
-        issues.push(issue("contract_term_missing", `CONTRACT.md is missing ${term}.`, { term }));
+  if (canonicalInstructions !== null) {
+    for (const marker of REQUIRED_CANONICAL_CONTRACT_MARKERS) {
+      if (!canonicalInstructions.includes(marker)) {
+        issues.push(
+          issue("canonical_contract_marker_missing", `AGENTS.md is missing ${marker}.`, {
+            marker,
+          }),
+        );
       }
     }
+    if (canonicalInstructions.includes("CONTRACT.md")) {
+      issues.push(
+        issue(
+          "canonical_contract_depends_on_reference",
+          "AGENTS.md must contain the complete required contract without referring to CONTRACT.md.",
+        ),
+      );
+    }
+  }
+  if (contract !== null && !/optional|examples|AGENTS\.md/.test(contract)) {
+    issues.push(
+      issue(
+        "contract_reference_not_optional",
+        "CONTRACT.md must be an optional reference containing examples, not the injected contract.",
+      ),
+    );
+  }
+  if (
+    contract !== null &&
+    contract.includes("sole normative contract") &&
+    !contract.includes("optional")
+  ) {
+    issues.push(
+      issue(
+        "contract_reference_conflicting",
+        "CONTRACT.md must not present itself as the required normative source.",
+      ),
+    );
   }
   if (
     tools?.includes("Required output") ||
@@ -621,10 +797,30 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
     metrics: {
       managedFiles: MANAGED_FILES.length,
       bootstrapFiles: BOOTSTRAP_FILES.length,
+      totalBootstrapChars,
+      largestBootstrapChars,
+      maxBootstrapFileChars: MAX_BOOTSTRAP_FILE_CHARS,
+      maxBootstrapTotalChars: MAX_BOOTSTRAP_TOTAL_CHARS,
       totalBootstrapBytes,
       largestBootstrapBytes,
-      maxBootstrapFileBytes: MAX_BOOTSTRAP_FILE_BYTES,
-      maxBootstrapTotalBytes: MAX_BOOTSTRAP_TOTAL_BYTES,
+      skillPromptChars: 0,
+      resolvedSkills: [],
+      effectivePromptChars: totalBootstrapChars,
+      skillVisibility,
+      toolCount: PROGRAM_MANAGER_ALLOWED_TOOLS.length,
+      allowedTools: Array.isArray(runtimeEntry?.tools?.alsoAllow)
+        ? sorted(runtimeEntry.tools.alsoAllow)
+        : [],
+      effectiveToolSchemas: sorted(PROGRAM_MANAGER_EFFECTIVE_TOOL_SCHEMAS),
+      deniedTools: Array.isArray(runtimeEntry?.tools?.deny) ? sorted(runtimeEntry.tools.deny) : [],
+      contextInjection: runtimeEntry?.contextInjection,
+      memoryGetMaxChars: runtimeEntry?.contextLimits?.memoryGetMaxChars,
+      postCompactionMaxChars: runtimeEntry?.contextLimits?.postCompactionMaxChars,
+      delegationTargets: Array.isArray(runtimeEntry?.subagents?.allowAgents)
+        ? sorted(runtimeEntry.subagents.allowAgents)
+        : [],
+      delegationMode: runtimeEntry?.subagents?.delegationMode,
+      delegationRequiresExplicitId: runtimeEntry?.subagents?.requireAgentId,
     },
   };
 }
@@ -649,13 +845,17 @@ export async function checkRuntimeConfig(configPath) {
   }
   const registry = validateConfiguredAgentRegistry(config);
   const result = validateRuntimeEntry(registry.programManager);
-  const issues = [...registry.issues, ...result];
+  const issues = [...registry.issues, ...validateProgramManagerSkillIsolation(config), ...result];
   return { ok: issues.length === 0, issues };
 }
 
 function configIssues(config) {
   const registry = validateConfiguredAgentRegistry(config);
-  return [...registry.issues, ...validateRuntimeEntry(registry.programManager)];
+  return [
+    ...registry.issues,
+    ...validateProgramManagerSkillIsolation(config),
+    ...validateRuntimeEntry(registry.programManager),
+  ];
 }
 
 function replaceRuntimeFields(target, source) {
