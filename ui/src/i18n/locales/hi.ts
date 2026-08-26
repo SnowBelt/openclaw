@@ -2146,6 +2146,8 @@ export const hi: TranslationMap = {
       faster: "तेज़",
       smarter: "अधिक बुद्धिमान",
       useDefaultModel: "डिफ़ॉल्ट मॉडल का उपयोग करें",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "पेयरिंग QR की समय-सीमा समाप्त हो गई",

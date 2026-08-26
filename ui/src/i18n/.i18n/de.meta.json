@@ -1,11 +1,14 @@
 {
-  "fallbackKeys": [],
-  "generatedAt": "2026-08-01T10:41:39.128Z",
+  "fallbackKeys": [
+    "chat.modelPicker.contentionWarning",
+    "chat.modelPicker.unavailable"
+  ],
+  "generatedAt": "2026-08-26T11:23:16.093Z",
   "locale": "de",
   "model": "qwen3.6:27b-q8_0",
   "provider": "ollama",
-  "sourceHash": "e162d8aca6ada5e5ff195510cfb38427f7c48d714cb7c9c41faa03289fb7c12a",
-  "totalKeys": 2111,
+  "sourceHash": "36230f8abd977a7b808e9fe5307c7d9473751783b952bf734f478b3d51587a5b",
+  "totalKeys": 2113,
   "translatedKeys": 2111,
   "workflow": 1
 }

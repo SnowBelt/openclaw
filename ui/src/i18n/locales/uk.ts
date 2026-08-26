@@ -2175,6 +2175,8 @@ export const uk: TranslationMap = {
       faster: "Швидше",
       smarter: "Розумніше",
       useDefaultModel: "Використати модель за замовчуванням",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR-код для пар'ювання застарів",

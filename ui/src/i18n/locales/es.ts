@@ -2191,6 +2191,8 @@ export const es: TranslationMap = {
       faster: "Más rápido",
       smarter: "Más inteligente",
       useDefaultModel: "Usar modelo predeterminado",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "Código QR de emparejamiento caducado",

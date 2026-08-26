@@ -2192,6 +2192,8 @@ export const ru: TranslationMap = {
       faster: "Быстрее",
       smarter: "Умнее",
       useDefaultModel: "Использовать модель по умолчанию",
+      unavailable: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR-код сопряжения истек",
