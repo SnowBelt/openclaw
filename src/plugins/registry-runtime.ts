@@ -1025,7 +1025,8 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               !activePluginRuntimeRecords.has(channelOwnerRecord) ||
               isPluginRegistryRetired(registry) ||
               !registry.plugins.some(
-                (record) => record === channelOwnerRecord && record.status === "loaded",
+                (pluginRecord) =>
+                  pluginRecord === channelOwnerRecord && pluginRecord.status === "loaded",
               ) ||
               !registry.channels.some(
                 (channel) => channel.pluginId === pluginId && channel.plugin.id === messageChannel,
