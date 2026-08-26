@@ -381,6 +381,7 @@ public struct SelfImprovementProposal: Codable, Sendable {
     public let curatorproof: String?
     public let curatorreason: String?
     public let curatorupdatedat: Int?
+    public let curationreview: [String: AnyCodable]?
     public let workshopproposalid: String?
     public let workshopproposalstatus: AnyCodable?
     public let promotionproof: String?
@@ -409,6 +410,7 @@ public struct SelfImprovementProposal: Codable, Sendable {
         curatorproof: String?,
         curatorreason: String?,
         curatorupdatedat: Int?,
+        curationreview: [String: AnyCodable]?,
         workshopproposalid: String?,
         workshopproposalstatus: AnyCodable?,
         promotionproof: String?)
@@ -436,6 +438,7 @@ public struct SelfImprovementProposal: Codable, Sendable {
         self.curatorproof = curatorproof
         self.curatorreason = curatorreason
         self.curatorupdatedat = curatorupdatedat
+        self.curationreview = curationreview
         self.workshopproposalid = workshopproposalid
         self.workshopproposalstatus = workshopproposalstatus
         self.promotionproof = promotionproof
@@ -465,6 +468,7 @@ public struct SelfImprovementProposal: Codable, Sendable {
         case curatorproof = "curatorProof"
         case curatorreason = "curatorReason"
         case curatorupdatedat = "curatorUpdatedAt"
+        case curationreview = "curationReview"
         case workshopproposalid = "workshopProposalId"
         case workshopproposalstatus = "workshopProposalStatus"
         case promotionproof = "promotionProof"
@@ -2142,6 +2146,7 @@ public struct SelfImprovementCuratorUpdateParams: Codable, Sendable {
     public let reason: String?
     public let workshopproposalid: String?
     public let workshopproposalstatus: AnyCodable?
+    public let curationreview: [String: AnyCodable]?
     public let note: String?
 
     public init(
@@ -2151,6 +2156,7 @@ public struct SelfImprovementCuratorUpdateParams: Codable, Sendable {
         reason: String?,
         workshopproposalid: String?,
         workshopproposalstatus: AnyCodable?,
+        curationreview: [String: AnyCodable]?,
         note: String?)
     {
         self.id = id
@@ -2159,6 +2165,7 @@ public struct SelfImprovementCuratorUpdateParams: Codable, Sendable {
         self.reason = reason
         self.workshopproposalid = workshopproposalid
         self.workshopproposalstatus = workshopproposalstatus
+        self.curationreview = curationreview
         self.note = note
     }
 
@@ -2169,6 +2176,7 @@ public struct SelfImprovementCuratorUpdateParams: Codable, Sendable {
         case reason
         case workshopproposalid = "workshopProposalId"
         case workshopproposalstatus = "workshopProposalStatus"
+        case curationreview = "curationReview"
         case note
     }
 }
