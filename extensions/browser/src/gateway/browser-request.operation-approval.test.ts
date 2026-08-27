@@ -626,7 +626,7 @@ describe("browser.request operation approval", () => {
       agentId: identity.agentId,
       agentSessionKey: identity.sessionKey,
       nodeId: "node-1",
-      allowAutomaticHostFallback: false,
+      allowAutomaticHostFallback: true,
     });
     let observedAuthority: unknown;
     let onClosed: (() => void) | undefined;
@@ -638,7 +638,7 @@ describe("browser.request operation approval", () => {
         body,
         profile: "openclaw",
         nodeId: "node-1",
-        allowAutomaticHostFallback: false,
+        allowAutomaticHostFallback: true,
       },
       (request: unknown) => {
         const nodeRequest = request as TestNodeInvokeRequest;
@@ -686,5 +686,6 @@ describe("browser.request operation approval", () => {
         message: "agent runtime authority is no longer active",
       }),
     ]);
+    expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
   });
 });
