@@ -85,15 +85,21 @@ type TestNode = {
   platform?: string;
 };
 
+type TestNodeInvokeRequest = {
+  signal?: AbortSignal;
+};
+
+type TestAuthorityClosedRegistration = (authority: unknown, onClosed: () => void) => () => void;
+
 function createContext(
   invokeResult?: unknown,
   connectedNodes?: TestNode[],
   leaseIsCurrent = true,
   validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
 ) {
-  const invoke = vi.fn(async (_request: unknown) => {
+  const invoke = vi.fn(async (request: unknown) => {
     if (typeof invokeResult === "function") {
-      return await invokeResult();
+      return await invokeResult(request);
     }
     return invokeResult === undefined
       ? { ok: true, payload: { result: { ok: true } } }
@@ -140,6 +146,8 @@ async function runBrowserRequest(
   } | null,
   leaseIsCurrent = true,
   validateAgentRuntimeApprovalAuthority: (identity: unknown) => boolean = () => true,
+  registerAgentRuntimeAuthorityClosed?: TestAuthorityClosedRegistration,
+  signal?: AbortSignal,
 ) {
   const respond = vi.fn();
   const nodeRegistry = createContext(
@@ -154,10 +162,15 @@ async function runBrowserRequest(
   )({
     params,
     respond: respond as never,
-    context: { nodeRegistry, validateAgentRuntimeApprovalAuthority } as never,
+    context: {
+      nodeRegistry,
+      validateAgentRuntimeApprovalAuthority,
+      ...(registerAgentRuntimeAuthorityClosed ? { registerAgentRuntimeAuthorityClosed } : {}),
+    } as never,
     client: (client ?? null) as Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
     req: { type: "req", id: "req-1", method: "browser.request" },
     isWebchatConnect: () => false,
+    ...(signal ? { signal } : {}),
   });
   return { respond, nodeRegistry };
 }
@@ -167,7 +180,12 @@ function invokeParams(nodeRegistry: ReturnType<typeof createContext>) {
   if (!call) {
     throw new Error("expected browser node invoke call");
   }
-  return call[0] as { nodeId?: string; command?: string; params?: Record<string, unknown> };
+  return call[0] as {
+    nodeId?: string;
+    command?: string;
+    params?: Record<string, unknown>;
+    signal?: AbortSignal;
+  };
 }
 
 function firstRespondCall(respond: ReturnType<typeof vi.fn>): RespondCall {
@@ -585,5 +603,88 @@ describe("browser.request operation approval", () => {
 
     expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
     expect(firstRespondCall(respond)).toEqual([true, { targetId: "node-tab" }]);
+  });
+
+  it("aborts an in-flight node request when the originating run authority closes", async () => {
+    const delegatedAuthority = {
+      operationalRunInstance: { instanceId: "instance-1", runId: "run-1" },
+      lifecycleGeneration: "lifecycle-1",
+      claimId: "claim-1",
+    };
+    const body = { url: "https://example.com" };
+    const identity = {
+      agentId: "browser-session-credential-steward",
+      sessionKey: "agent:browser-session-credential-steward:node:opaque",
+      delegatedAuthority,
+    };
+    const claim = createBrowserStewardGatewayApprovalClaim({
+      command: "browser.proxy",
+      method: "POST",
+      path: "/tabs/open",
+      body,
+      profile: "openclaw",
+      agentId: identity.agentId,
+      agentSessionKey: identity.sessionKey,
+      nodeId: "node-1",
+      allowAutomaticHostFallback: false,
+    });
+    let observedAuthority: unknown;
+    let onClosed: (() => void) | undefined;
+    let unregisterCalls = 0;
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "POST",
+        path: "/tabs/open",
+        body,
+        profile: "openclaw",
+        nodeId: "node-1",
+        allowAutomaticHostFallback: false,
+      },
+      (request: unknown) => {
+        const nodeRequest = request as TestNodeInvokeRequest;
+        return new Promise((resolve) => {
+          const finish = () => resolve({ ok: false, error: { message: "aborted" } });
+          if (nodeRequest.signal?.aborted) {
+            finish();
+          } else {
+            nodeRequest.signal?.addEventListener("abort", finish, { once: true });
+          }
+          onClosed?.();
+        });
+      },
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          agentRuntimeIdentity: {
+            kind: "agentRuntime",
+            ...identity,
+            gatewayToolOperationApproval: { owner: "browser", ...claim },
+          },
+        },
+      },
+      true,
+      () => true,
+      (authority, closed) => {
+        observedAuthority = authority;
+        onClosed = closed;
+        return () => {
+          unregisterCalls += 1;
+        };
+      },
+    );
+
+    expect(observedAuthority).toEqual(delegatedAuthority);
+    expect(unregisterCalls).toBe(1);
+    expect(nodeRegistry.invoke).toHaveBeenCalledOnce();
+    expect(invokeParams(nodeRegistry).signal?.aborted).toBe(true);
+    expect(firstRespondCall(respond)).toEqual([
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "INVALID_REQUEST",
+        message: "agent runtime authority is no longer active",
+      }),
+    ]);
   });
 });
