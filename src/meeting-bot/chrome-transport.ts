@@ -11,12 +11,8 @@ import {
   type MeetingAudioRuntime,
 } from "./audio-backend.js";
 import { openMeetingWithBrowser, recoverMeetingBrowserTab } from "./browser-controller.js";
-import {
-  callBrowserStewardMeetingBrowserProxyOnNode,
-  callMeetingBrowserProxyOnNode,
-  resolveMeetingBrowserNode,
-} from "./browser-node.js";
-import { resolveMeetingBrowserRequest } from "./browser-request.js";
+import { callMeetingBrowserProxyOnNode, resolveMeetingBrowserNode } from "./browser-node.js";
+import { resolveLocalMeetingBrowserRequest } from "./browser-request.js";
 import {
   leaveMeetingWithBrowser,
   readMeetingTranscriptWithBrowser,
@@ -310,7 +306,10 @@ export function createMeetingChromeTransport<
           timeoutMs: Math.min(params.config.chrome.joinTimeoutMs, 10_000),
         })
       : undefined;
-    const callBrowser = await resolveMeetingBrowserRequest(params.runtime, options.browserRouting);
+    const callBrowser = await resolveLocalMeetingBrowserRequest(
+      params.runtime,
+      options.browserRouting,
+    );
     const result = await openOrRecoverMeeting({
       callBrowser,
       config: params.config,
@@ -363,13 +362,10 @@ export function createMeetingChromeTransport<
     body?: unknown;
     timeoutMs: number;
   }) {
-    const call =
-      options.browserRouting === "browser-steward"
-        ? callBrowserStewardMeetingBrowserProxyOnNode
-        : callMeetingBrowserProxyOnNode;
-    return await call({
+    return await callMeetingBrowserProxyOnNode({
       ...params,
       adapter: options.browserNodeAdapter,
+      browserRouting: options.browserRouting,
     });
   }
 
@@ -628,7 +624,7 @@ export function createMeetingChromeTransport<
                 body: request.body,
                 timeoutMs: request.timeoutMs,
               })
-          : await resolveMeetingBrowserRequest(params.runtime, options.browserRouting),
+          : await resolveLocalMeetingBrowserRequest(params.runtime, options.browserRouting),
         captureCaptions:
           params.mode === "transcribe" ||
           resolveTranscriptsConfig(params.fullConfig?.transcripts).enabled,
@@ -666,7 +662,7 @@ export function createMeetingChromeTransport<
               body: request.body,
               timeoutMs: request.timeoutMs,
             })
-        : await resolveMeetingBrowserRequest(params.runtime, options.browserRouting),
+        : await resolveLocalMeetingBrowserRequest(params.runtime, options.browserRouting),
       launch: params.config.chrome.launch || !params.tab.openedByPlugin,
       meetingSessionId: params.meetingSessionId,
       meetingUrl: params.meetingUrl,
@@ -697,7 +693,7 @@ export function createMeetingChromeTransport<
               body: request.body,
               timeoutMs: request.timeoutMs,
             })
-        : await resolveMeetingBrowserRequest(params.runtime, options.browserRouting),
+        : await resolveLocalMeetingBrowserRequest(params.runtime, options.browserRouting),
       finalize: params.finalize === true,
       meetingUrl: params.meetingUrl,
       meetingSessionId: params.meetingSessionId,

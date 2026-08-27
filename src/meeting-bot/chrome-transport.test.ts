@@ -9,17 +9,13 @@ import type { createNodeMeetingRealtimeAudioTransport } from "./realtime-node-au
 
 const browserMocks = vi.hoisted(() => ({
   callNode: vi.fn(),
-  callBrowserStewardNode: vi.fn(),
   leave: vi.fn(),
   open: vi.fn(),
-  resolveBrowserSteward: vi.fn(),
   resolveLocal: vi.fn(),
-  resolveMeeting: vi.fn(),
   resolveNode: vi.fn(),
 }));
 
 vi.mock("./browser-node.js", () => ({
-  callBrowserStewardMeetingBrowserProxyOnNode: browserMocks.callBrowserStewardNode,
   callMeetingBrowserProxyOnNode: browserMocks.callNode,
   resolveMeetingBrowserNode: browserMocks.resolveNode,
 }));
@@ -28,9 +24,7 @@ vi.mock("./browser-controller.js", () => ({
   recoverMeetingBrowserTab: vi.fn(),
 }));
 vi.mock("./browser-request.js", () => ({
-  resolveBrowserStewardMeetingBrowserRequest: browserMocks.resolveBrowserSteward,
   resolveLocalMeetingBrowserRequest: browserMocks.resolveLocal,
-  resolveMeetingBrowserRequest: browserMocks.resolveMeeting,
 }));
 vi.mock("./browser-session-control.js", () => ({
   leaveMeetingWithBrowser: browserMocks.leave,
@@ -135,13 +129,7 @@ describe.each(cases)("$name Chrome transport parity", (testCase) => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
-    browserMocks.resolveBrowserSteward.mockResolvedValue(vi.fn());
     browserMocks.resolveLocal.mockResolvedValue(vi.fn());
-    browserMocks.resolveMeeting.mockImplementation(async (_runtime, routing) =>
-      routing === "browser-steward"
-        ? await browserMocks.resolveBrowserSteward()
-        : await browserMocks.resolveLocal(),
-    );
     browserMocks.resolveNode.mockResolvedValue("node-1");
     browserMocks.open.mockResolvedValue({
       launched: true,
@@ -191,8 +179,7 @@ describe.each(cases)("$name Chrome transport parity", (testCase) => {
       url: "https://example.test/meeting",
     });
 
-    expect(browserMocks.resolveBrowserSteward).toHaveBeenCalledOnce();
-    expect(browserMocks.resolveLocal).not.toHaveBeenCalled();
+    expect(browserMocks.resolveLocal).toHaveBeenCalledWith({}, "browser-steward");
     expect(browserMocks.open).toHaveBeenCalledOnce();
   });
 

@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { attachBrowserNodeDelegationResolver } from "../plugins/runtime/browser-node-delegation.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
-import {
-  callBrowserStewardMeetingBrowserProxyOnNode,
-  callMeetingBrowserProxyOnNode,
-} from "./browser-node.js";
+import { callMeetingBrowserProxyOnNode } from "./browser-node.js";
 
 const adapter = {
   displayName: "Test meeting",
@@ -52,10 +49,11 @@ describe("meeting browser node routes", () => {
     const request = vi.fn(async () => ({ ok: true }));
     attachBrowserNodeDelegationResolver(runtime, () => ({ request }));
 
-    await callBrowserStewardMeetingBrowserProxyOnNode({
+    await callMeetingBrowserProxyOnNode({
       runtime,
       adapter,
       nodeId: "node-1",
+      browserRouting: "browser-steward",
       method: "DELETE",
       path: "/tabs/tab-1",
       timeoutMs: 1_000,

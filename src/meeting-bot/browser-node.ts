@@ -125,37 +125,28 @@ export async function resolveMeetingBrowserNode(params: {
   return node.nodeId;
 }
 
-export async function callBrowserStewardMeetingBrowserProxyOnNode(
-  params: {
-    runtime: PluginRuntime;
-    adapter: NodeAdapter;
-    nodeId: string;
-  } & MeetingBrowserRequestParams,
-) {
-  // Browser owns the proxy boundary. Meeting plugins must not invoke the raw
-  // browser.proxy node command with their generic plugin identity.
-  const browser = resolveBrowserNodeDelegationRuntime(params.runtime);
-  if (!browser) {
-    throw new Error("Browser-owned node delegation is unavailable");
-  }
-  return await browser.request({
-    method: params.method,
-    path: params.path,
-    ...(params.body !== undefined ? { body: params.body } : {}),
-    timeoutMs: params.timeoutMs,
-    nodeId: params.nodeId,
-  });
-}
-
 /** Keeps the public helper compatible while routing through the Browser Gateway owner. */
 export async function callMeetingBrowserProxyOnNode(
   params: {
     runtime: PluginRuntime;
     adapter: NodeAdapter;
     nodeId: string;
+    browserRouting?: "legacy" | "browser-steward";
   } & MeetingBrowserRequestParams,
 ) {
   const browser = resolveBrowserNodeDelegationRuntime(params.runtime);
+  if (params.browserRouting === "browser-steward") {
+    if (!browser) {
+      throw new Error("Browser-owned node delegation is unavailable");
+    }
+    return await browser.request({
+      method: params.method,
+      path: params.path,
+      ...(params.body !== undefined ? { body: params.body } : {}),
+      timeoutMs: params.timeoutMs,
+      nodeId: params.nodeId,
+    });
+  }
   if (browser) {
     return await browser.request({
       method: params.method,

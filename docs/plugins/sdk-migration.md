@@ -978,11 +978,10 @@ Meeting browser access has two SDK paths. The legacy
 `resolveLocalMeetingBrowserRequest` and `callMeetingBrowserProxyOnNode` helpers
 remain source-compatible and route through the Browser Gateway when used by a
 trusted plugin runtime; they do not invoke a raw node command. Bundled meeting
-plugins use the Browser-owned `resolveBrowserStewardMeetingBrowserRequest` and
-`callBrowserStewardMeetingBrowserProxyOnNode` helpers (or
-`browserRouting: "browser-steward"` on the shared Chrome transport). New
-meeting plugins should use the Browser-owned path so lifecycle, approval, and
-node-pairing authority stays with the Browser plugin.
+plugins pass `"browser-steward"` to those same helpers (or set
+`browserRouting: "browser-steward"` on the shared Chrome transport) to use the
+Browser-owned path. New meeting plugins should use the Browser-owned mode so
+lifecycle, approval, and node-pairing authority stays with the Browser plugin.
 
 All bundled surfaces run on the shared controller: browser relay,
 managed-room handoff, voice-call realtime, voice-call streaming STT, Google

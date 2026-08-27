@@ -38,9 +38,29 @@ async function callLocalBrowserRequest(params: MeetingBrowserRequestParams) {
   );
 }
 
+type MeetingBrowserRouting = "legacy" | "browser-steward";
+
 export async function resolveLocalMeetingBrowserRequest(
   runtime: PluginRuntime,
+  routing: MeetingBrowserRouting = "legacy",
 ): Promise<MeetingBrowserRequestCaller> {
+  if (routing === "browser-steward") {
+    if (!(await runtime.gateway.isAvailable())) {
+      throw new Error("Browser-owned browser capability unavailable");
+    }
+    const browser = resolveBrowserNodeDelegationRuntime(runtime);
+    if (!browser) {
+      throw new Error("Browser-owned browser capability unavailable");
+    }
+    return async (params) =>
+      await browser.request({
+        method: params.method,
+        path: params.path,
+        ...(params.body !== undefined ? { body: params.body } : {}),
+        timeoutMs: params.timeoutMs,
+        nodeId: "",
+      });
+  }
   // Gateway-hosted plugin work stays in-process; otherwise agent tools would
   // need an external operator.admin token just to reach the local browser.
   if (!(await runtime.gateway.isAvailable())) {
@@ -61,34 +81,4 @@ export async function resolveLocalMeetingBrowserRequest(
         scopes: ["operator.admin"],
       },
     );
-}
-
-/** Resolves the versioned Browser-owned route used by bundled meeting plugins. */
-export async function resolveBrowserStewardMeetingBrowserRequest(
-  runtime: PluginRuntime,
-): Promise<MeetingBrowserRequestCaller> {
-  if (!(await runtime.gateway.isAvailable())) {
-    throw new Error("Browser-owned browser capability unavailable");
-  }
-  const browser = resolveBrowserNodeDelegationRuntime(runtime);
-  if (!browser) {
-    throw new Error("Browser-owned browser capability unavailable");
-  }
-  return async (params) =>
-    await browser.request({
-      method: params.method,
-      path: params.path,
-      ...(params.body !== undefined ? { body: params.body } : {}),
-      timeoutMs: params.timeoutMs,
-      nodeId: "",
-    });
-}
-
-export async function resolveMeetingBrowserRequest(
-  runtime: PluginRuntime,
-  routing: "legacy" | "browser-steward" = "legacy",
-): Promise<MeetingBrowserRequestCaller> {
-  return routing === "browser-steward"
-    ? await resolveBrowserStewardMeetingBrowserRequest(runtime)
-    : await resolveLocalMeetingBrowserRequest(runtime);
 }

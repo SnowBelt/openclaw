@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { attachBrowserNodeDelegationResolver } from "../plugins/runtime/browser-node-delegation.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
-import {
-  resolveBrowserStewardMeetingBrowserRequest,
-  resolveLocalMeetingBrowserRequest,
-} from "./browser-request.js";
+import { resolveLocalMeetingBrowserRequest } from "./browser-request.js";
 
 function createRuntime(params: {
   available: boolean;
@@ -47,7 +44,7 @@ describe("meeting browser request routes", () => {
   it("fails closed when the Browser-owned route has no Gateway", async () => {
     const runtime = createRuntime({ available: false });
 
-    await expect(resolveBrowserStewardMeetingBrowserRequest(runtime)).rejects.toThrow(
+    await expect(resolveLocalMeetingBrowserRequest(runtime, "browser-steward")).rejects.toThrow(
       "Browser-owned browser capability unavailable",
     );
   });
@@ -59,7 +56,7 @@ describe("meeting browser request routes", () => {
       request,
     }));
 
-    const callBrowser = await resolveBrowserStewardMeetingBrowserRequest(runtime);
+    const callBrowser = await resolveLocalMeetingBrowserRequest(runtime, "browser-steward");
     await callBrowser({
       method: "POST",
       path: "/act",
