@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-node-env
         with:
-          cache-mode: restore
+          use-actions-cache: "true"
           node-version: ${{ env.NODE_VERSION }}
           install-bun: "false"
       - name: Validate source package
