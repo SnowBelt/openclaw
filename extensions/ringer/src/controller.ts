@@ -223,6 +223,7 @@ export class RingerController {
     }
     const preparationDir = preparationRoot(this.#config, manifestSha256);
     await fs.mkdir(preparationDir, { recursive: true, mode: 0o700 });
+    await fs.mkdir(path.join(preparationDir, "tmp"), { recursive: true, mode: 0o700 });
     const native = await materializeNativeManifest({
       config: this.#config,
       manifest,
@@ -423,6 +424,7 @@ export class RingerController {
     const logPath = path.join(runRoot, "ringer.log");
     await fs.mkdir(runRoot, { recursive: true, mode: 0o700 });
     await fs.mkdir(path.join(runRoot, "home"), { recursive: true, mode: 0o700 });
+    await fs.mkdir(path.join(runRoot, "tmp"), { recursive: true, mode: 0o700 });
     const logHandle = await fs.open(logPath, "wx", 0o600);
     this.#reservedWorkerCount += requestedWorkers;
     this.#runWorkerReservations.set(runId, requestedWorkers);

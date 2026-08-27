@@ -1172,6 +1172,10 @@
     "target": "workboard"
   },
   {
+    "source": "Ringer plugin",
+    "target": "Ringer 插件"
+  },
+  {
     "source": "Control UI",
     "target": "Control UI"
   },

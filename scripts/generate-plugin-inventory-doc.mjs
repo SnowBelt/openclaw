@@ -28,7 +28,6 @@ const PLUGIN_DOC_ALIASES = new Map([
   ["parallel", "/tools/parallel-search"],
   ["perplexity", "/tools/perplexity-search"],
   ["policy", "/cli/policy"],
-  ["ringer", "/plugins/ringer"],
   ["tavily", "/tools/tavily"],
   ["tokenjuice", "/tools/tokenjuice"],
 ]);

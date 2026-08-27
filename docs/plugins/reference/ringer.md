@@ -17,7 +17,3 @@ Proof-gated local agent swarms controlled by Codex through an exact-pinned Ringe
 ## Surface
 
 plugin
-
-## Related docs
-
-- [ringer](/plugins/ringer)

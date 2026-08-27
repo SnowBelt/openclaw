@@ -1,7 +1,7 @@
 // SAFETY-RATCHET: template-aware
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { WorkspaceState } from "./snapshot.js";
+import type { WorkspaceState } from "./snapshot-types.js";
 import type { ResolvedRingerConfig } from "./types.js";
 
 const SNAPSHOT_STORAGE_SAFETY_MULTIPLIER = 1.25;

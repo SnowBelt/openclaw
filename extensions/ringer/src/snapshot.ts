@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { sha256Bytes } from "./crypto.js";
 import { commandFailure, runCommand, SAFE_EXEC_PATH } from "./process.js";
 import { assertSnapshotStorage, writeJsonPrivate } from "./snapshot-storage.js";
+import type { WorkspaceState } from "./snapshot-types.js";
 import type {
   ResolvedRingerConfig,
   RingerRepositoryPolicy,
@@ -101,17 +102,7 @@ export async function resolveRepositoryPolicy(
   throw new Error(`Repository is not allowlisted for Local AI Assist: ${canonicalRepo}`);
 }
 
-export type WorkspaceState = {
-  baseSha: string;
-  diff: Buffer;
-  trackedBytes: number;
-  overlaySha256: string;
-  workspaceDigest: string;
-  includedUntrackedPaths: string[];
-  excludedPaths: string[];
-  untrackedContents: Map<string, Buffer>;
-  untrackedModes: Map<string, number>;
-};
+export type { WorkspaceState } from "./snapshot-types.js";
 
 async function assertContainedSymlink(repo: string, relativePath: string): Promise<void> {
   const canonicalRepo = await fs.realpath(repo);

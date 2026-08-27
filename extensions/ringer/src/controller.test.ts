@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../api.js";
+import { ringerEnv } from "./controller-capacity.js";
 import {
   assertQualificationCanaryManifest,
   buildNativeTaskReceipts,
@@ -42,6 +43,11 @@ describe("Local AI Assist supervision", () => {
     expect(
       canReserveWorkerSlots({ admittedParallel: 2, reservedWorkers: 1, requestedWorkers: 2 }),
     ).toBe(false);
+  });
+
+  it("keeps worker temporary files inside the isolated run root", () => {
+    const env = ringerEnv("/private/tmp/ringer-run", "/private/tmp/ringer-contracts");
+    expect(env.TMPDIR).toBe("/private/tmp/ringer-run/tmp");
   });
 
   it("retains successful task attempts and artifacts when a sibling fails", () => {

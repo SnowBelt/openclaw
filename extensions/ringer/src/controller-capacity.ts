@@ -4,6 +4,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import {
+  fetchWithSsrFGuard,
+  ssrfPolicyFromHttpBaseUrlAllowedOrigin,
+} from "openclaw/plugin-sdk/ssrf-runtime";
 import { preparationRoot } from "./controller-receipts.js";
 import { runCommand, SAFE_EXEC_PATH } from "./process.js";
 import type { ResolvedRingerConfig, RingerRunReceipt, RingerRunRequest } from "./types.js";
@@ -44,7 +48,7 @@ export function ringerEnv(runRoot: string, verifierRoot: string): NodeJS.Process
   return {
     HOME: path.join(runRoot, "home"),
     PATH: SAFE_EXEC_PATH,
-    TMPDIR: os.tmpdir(),
+    TMPDIR: path.join(runRoot, "tmp"),
     LANG: "C.UTF-8",
     RINGER_NO_SELF_UPDATE: "1",
     RINGER_NO_CATALOG_REFRESH: "1",
@@ -88,11 +92,20 @@ async function fetchOllamaJson(baseUrl: string, endpoint: string): Promise<unkno
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 2_000);
   try {
-    const response = await fetch(`${baseUrl}${endpoint}`, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const guarded = await fetchWithSsrFGuard({
+      url: `${baseUrl}${endpoint}`,
+      signal: controller.signal,
+      policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(baseUrl),
+      auditContext: "ringer-ollama-capacity-probe",
+    });
+    try {
+      if (!guarded.response.ok) {
+        throw new Error(`HTTP ${guarded.response.status}`);
+      }
+      return await guarded.response.json();
+    } finally {
+      await guarded.release();
     }
-    return await response.json();
   } finally {
     clearTimeout(timer);
   }
@@ -115,30 +128,38 @@ export async function warmOllamaModel(
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let release: (() => Promise<void>) | undefined;
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: "Reply exactly OK." }],
-        stream: false,
-        think: false,
-        keep_alive: "10m",
-        options: { num_predict: 8, temperature: 0 },
-      }),
+    const guarded = await fetchWithSsrFGuard({
+      url: `${baseUrl}/api/chat`,
+      init: {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: "Reply exactly OK." }],
+          stream: false,
+          think: false,
+          keep_alive: "10m",
+          options: { num_predict: 8, temperature: 0 },
+        }),
+      },
       signal: controller.signal,
+      policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(baseUrl),
+      auditContext: "ringer-ollama-model-prewarm",
     });
-    if (!response.ok) {
+    release = guarded.release;
+    if (!guarded.response.ok) {
       return false;
     }
     // SAFETY: The JSON response is treated as an object and only validated fields are read below.
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = (await guarded.response.json()) as Record<string, unknown>;
     return payload.model === model && payload.done === true;
   } catch {
     return false;
   } finally {
     clearTimeout(timer);
+    await release?.();
   }
 }
 
