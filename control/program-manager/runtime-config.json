@@ -1,8 +1,8 @@
 {
   "agents": {
-    "ownership": "explicit",
-    "entries": {
-      "program-manager": {
+    "list": [
+      {
+        "id": "program-manager",
         "skills": [],
         "skillsLimits": {
           "maxSkillsPromptChars": 0
@@ -79,8 +79,12 @@
           "profile": "minimal"
         }
       },
-      "builder-agent": {},
-      "research-brief-agent": {}
-    }
+      {
+        "id": "builder-agent"
+      },
+      {
+        "id": "research-brief-agent"
+      }
+    ]
   }
 }

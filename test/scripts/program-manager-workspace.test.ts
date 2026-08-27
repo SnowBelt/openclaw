@@ -14,8 +14,7 @@ import {
   validateProgramManagerSkillIsolation,
   verifyInstalledWorkspace,
 } from "../../scripts/program-manager-workspace.mjs";
-import type { OpenClawConfig } from "../../src/config/config.js";
-import { resolveWorkspaceSkillPromptEntries } from "../../src/skills/loading/workspace-skill-loader.js";
+import { resolveSkillsPromptForRun } from "../../src/skills/loading/workspace.js";
 import { createCanonicalFixtureSkill } from "../../src/skills/test-support/test-helpers.js";
 import type { SkillEntry } from "../../src/skills/types.js";
 import { cleanupTempDirs, makeTempDir } from "../helpers/temp-dir.js";
@@ -98,6 +97,13 @@ describe("Program Manager context package", () => {
   });
 
   it("validates the reviewed runtime entry", async () => {
+    const config = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"));
+    expect(config.agents.entries).toBeUndefined();
+    expect(config.agents.list.map((entry) => entry.id)).toEqual([
+      "program-manager",
+      "builder-agent",
+      "research-brief-agent",
+    ]);
     const result = await checkRuntimeConfig(path.join(sourceRoot, "runtime-config.json"));
     expect(result).toEqual({ ok: true, issues: [] });
   });
@@ -146,7 +152,8 @@ describe("Program Manager context package", () => {
     });
     expect(validateProgramManagerSkillIsolation(config)).toEqual([]);
 
-    delete config.agents.entries["program-manager"].skills;
+    const programManager = config.agents.list.find((entry) => entry.id === "program-manager");
+    delete programManager.skills;
     const issues = validateProgramManagerSkillIsolation(config);
     expect(issues.map((entry) => entry.code)).toEqual([
       "skills_not_explicit",
@@ -160,24 +167,22 @@ describe("Program Manager context package", () => {
     const config = {
       agents: {
         defaults: { skills: ["unrelated-skill"] },
-        entries: {
-          "program-manager": { skills: [] },
-        },
+        list: [{ id: "program-manager", skills: [] }],
       },
       skills: { load: { extraDirs: ["/tmp/unrelated-skills"] } },
-    } as unknown as OpenClawConfig;
-    const result = resolveWorkspaceSkillPromptEntries("/tmp/program-manager", {
+    };
+    const result = resolveSkillsPromptForRun({
       config,
       agentId: "program-manager",
+      workspaceDir: "/tmp/program-manager",
       entries: [makeSkillEntry("unrelated-skill"), makeSkillEntry("bundled-skill")],
     });
-    expect(result.skillFilter).toEqual([]);
-    expect(result.eligible).toEqual([]);
+    expect(result).toBe("");
   });
 
   it("keeps the exact bounded PM tool surface and hard denies", async () => {
     const config = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"));
-    const entry = config.agents.entries["program-manager"];
+    const entry = config.agents.list.find((candidate) => candidate.id === "program-manager");
     expect(entry.tools.alsoAllow.toSorted()).toEqual(PROGRAM_MANAGER_ALLOWED_TOOLS.toSorted());
     expect(entry.tools.alsoAllow).not.toContain("read");
     for (const tool of PROGRAM_MANAGER_REQUIRED_DENIED_TOOLS) {
@@ -188,7 +193,7 @@ describe("Program Manager context package", () => {
 
   it("bounds continuation injection and preserves recovery limits", async () => {
     const config = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"));
-    const entry = config.agents.entries["program-manager"];
+    const entry = config.agents.list.find((candidate) => candidate.id === "program-manager");
     expect(entry.contextInjection).toBe("continuation-skip");
     expect(entry.bootstrapMaxChars).toBe(2_200);
     expect(entry.bootstrapTotalMaxChars).toBe(2_200);
@@ -200,9 +205,10 @@ describe("Program Manager context package", () => {
 
   it("keeps runtime replies bounded and missing-state handling terminal", async () => {
     const agents = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"))
-      .agents.entries;
-    expect(agents["program-manager"].params.maxTokens).toBe(1024);
-    expect(agents["program-manager"].params.chat_template_kwargs).toEqual({
+      .agents.list;
+    const programManager = agents.find((entry) => entry.id === "program-manager");
+    expect(programManager.params.maxTokens).toBe(1024);
+    expect(programManager.params.chat_template_kwargs).toEqual({
       enable_thinking: false,
       preserve_thinking: false,
     });
@@ -218,9 +224,9 @@ describe("Program Manager context package", () => {
     const backupRoot = path.join(root, "backup");
     const sourceConfig = JSON.parse(
       await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"),
-    ) as { agents: { entries: Record<string, TestAgentEntry> } };
-    const list: TestAgentEntry[] = Object.entries(sourceConfig.agents.entries).map(([id, entry]) =>
-      Object.assign({ id }, entry),
+    ) as { agents: { list: TestAgentEntry[] } };
+    const list: TestAgentEntry[] = sourceConfig.agents.list.map((entry) =>
+      Object.assign({}, entry),
     );
     const programManagerIndex = list.findIndex((entry) => entry.id === "program-manager");
     list[programManagerIndex] = {
@@ -327,7 +333,7 @@ describe("Program Manager context package", () => {
     const root = makeTempDir(temporaryRoots, "openclaw-pm-context-registry-");
     const configPath = path.join(root, "runtime-config.json");
     const config = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"));
-    delete config.agents.entries["research-brief-agent"];
+    config.agents.list = config.agents.list.filter((entry) => entry.id !== "research-brief-agent");
     await writeFile(configPath, `${JSON.stringify(config)}\n`, "utf8");
 
     const result = await checkRuntimeConfig(configPath);

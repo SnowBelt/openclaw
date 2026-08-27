@@ -23,9 +23,8 @@ supporting bootstrap files contain only identity, style, operator, or mechanics.
 3. Apply only the controlled Program Manager fields to an existing Director
    config with a dedicated backup:
    `node scripts/program-manager-workspace.mjs apply-config --config <path> --backup-dir <path>`.
-   The command supports both `agents.list` and `agents.entries`, preserves the
-   agent identity/workspace, and rolls back automatically if its contract check
-   fails.
+   The command updates the canonical `agents.list` entry, preserves the agent
+   identity/workspace, and rolls back automatically if its contract check fails.
 4. Validate the active config with the OpenClaw binary, restart the local
    gateway only when that config is the managed service authority, and run the
    local smoke.

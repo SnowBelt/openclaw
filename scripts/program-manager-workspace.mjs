@@ -256,20 +256,12 @@ function configuredAgentEntry(config, agentId) {
   if (Array.isArray(config?.agents?.list)) {
     return config.agents.list.find((entry) => entry?.id === agentId);
   }
-  if (isObject(config?.agents?.entries)) {
-    return config.agents.entries[agentId];
-  }
   return undefined;
 }
 
 function configuredAgentEntries(config) {
   if (Array.isArray(config?.agents?.list)) {
     return config.agents.list.filter((entry) => isObject(entry) && typeof entry.id === "string");
-  }
-  if (isObject(config?.agents?.entries)) {
-    return Object.entries(config.agents.entries).map(([id, entry]) =>
-      Object.assign({}, isObject(entry) ? entry : {}, { id }),
-    );
   }
   return [];
 }
@@ -354,9 +346,7 @@ function validateConfiguredAgentRegistry(config) {
   const entries = configuredAgentEntries(config);
   const issues = [];
   if (entries.length === 0) {
-    issues.push(
-      issue("agent_registry_missing", "Config must define agents.list or agents.entries."),
-    );
+    issues.push(issue("agent_registry_missing", "Config must define agents.list."));
   }
   const ids = new Set(entries.map((entry) => entry.id));
   const programManager = entries.find((entry) => entry.id === "program-manager");
@@ -422,8 +412,7 @@ async function validateCanonicalConfig(configPath) {
         path: typeof entry?.path === "string" ? entry.path : "<unknown>",
       }),
     );
-    canonicalValidationCache.set(cacheKey, issues);
-    return [...issues];
+    return cacheCanonicalValidation(configPath, cacheKey, issues);
   } catch (error) {
     const stdout = typeof error?.stdout === "string" ? error.stdout : "";
     try {

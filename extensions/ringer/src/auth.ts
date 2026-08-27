@@ -1,5 +1,4 @@
 // SAFETY-RATCHET: template-aware
-// SAFETY-RATCHET: template-aware
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -163,10 +162,7 @@ async function acquireNonceLock(nonceDir: string): Promise<() => Promise<void>> 
         acquiredAt: new Date().toISOString(),
         token: crypto.randomUUID(),
       };
-      await fs.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify(owner)}\n`, {
-        mode: 0o600,
-        flag: "wx",
-      });
+      await writeJsonAtomic(path.join(lockDir, "owner.json"), owner);
       return async () => {
         try {
           const ownerPath = path.join(lockDir, "owner.json");

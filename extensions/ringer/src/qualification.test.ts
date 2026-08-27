@@ -76,7 +76,7 @@ describe("Local AI Assist qualification gates", () => {
 
   it("fails closed on one violation or insufficient canaries", () => {
     const input = evidence();
-    input.tasks[0]!.violations.push("network access");
+    input.tasks[0].violations.push("network access");
     input.canaries.pop();
     const receipt = evaluateQualification(input, Buffer.from(JSON.stringify(input)));
     expect(receipt.promotionEligible).toBe(false);
@@ -90,13 +90,13 @@ describe("Local AI Assist qualification gates", () => {
     ).toThrow(/unknown field/u);
 
     const mismatched = evidence();
-    mismatched.canaries[0]!.sourceDigest = digest("other-source");
+    mismatched.canaries[0].sourceDigest = digest("other-source");
     expect(() => evaluateQualification(mismatched, Buffer.from("{}"))).toThrow(/invalid/u);
   });
 
   it("requires reviewed accepted receipts and includes review time in speed", () => {
     const input = evidence();
-    input.tasks[0]!.reviewed = false;
+    input.tasks[0].reviewed = false;
     for (const task of input.tasks) {
       task.reviewDurationMs = 100;
     }

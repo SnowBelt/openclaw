@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import {
-  asNonArrayRecord,
+  asOptionalRecord,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { OpenClawConfig } from "../api.js";
@@ -19,6 +19,10 @@ const DEFAULT_MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024;
 const DEFAULT_MAX_SNAPSHOT_STORAGE_BYTES = 16 * 1024 * 1024 * 1024;
 const DEFAULT_MIN_FREE_MEMORY_BYTES = 64 * 1024 * 1024 * 1024;
 const ROLES = new Set<RingerRole>(["code", "clerical", "analysis", "critic"]);
+
+function asNonArrayRecord(value: unknown): Record<string, unknown> {
+  return asOptionalRecord(value) ?? {};
+}
 
 function supportedModelRoles(model: RingerModelPolicy): boolean {
   const id = model.ref.slice("ollama/".length).toLowerCase();
