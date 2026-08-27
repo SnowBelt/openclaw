@@ -1528,6 +1528,9 @@ export const zh_CN: TranslationMap = {
     toolCallsToggle: "切换工具调用和工具结果",
     commentaryToggle: "在最终答案后保留评述",
     commentaryLabel: "评述",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "自动滚动模式",
     autoScrollAlways: "始终",
     autoScrollNearBottom: "接近底部",
@@ -1594,12 +1597,17 @@ export const zh_CN: TranslationMap = {
       retry: "重试",
       retrySend: "重试发送",
       retryQueuedMessage: "重试排队消息",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "放弃",
       faster: "更快",
       smarter: "更智能",
       useDefaultModel: "使用默认模型",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "配对二维码已过期",

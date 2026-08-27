@@ -1573,6 +1573,9 @@ export const nl: TranslationMap = {
     toolCallsToggle: "Tool-aanroepen en toolresultaten schakelen",
     commentaryToggle: "Commentaar na het uiteindelijke antwoord behouden",
     commentaryLabel: "Commentaar",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "Automatisch scrollen",
     autoScrollAlways: "Altijd",
     autoScrollNearBottom: "Bijna onderaan",
@@ -1639,12 +1642,17 @@ export const nl: TranslationMap = {
       retry: "Opnieuw proberen",
       retrySend: "Verzenden opnieuw proberen",
       retryQueuedMessage: "Bericht in wachtrij opnieuw proberen",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "Verwerpen",
       faster: "Sneller",
       smarter: "Slimmer",
       useDefaultModel: "Standaardmodel gebruiken",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "Koppelings-QR verlopen",

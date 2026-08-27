@@ -1574,6 +1574,9 @@ export const ja_JP: TranslationMap = {
     toolCallsToggle: "ツール呼び出しとツール結果の表示を切り替え",
     commentaryToggle: "最終回答の後にコメントを残す",
     commentaryLabel: "コメント",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "自動スクロールモード",
     autoScrollAlways: "常に",
     autoScrollNearBottom: "下部付近",
@@ -1640,12 +1643,17 @@ export const ja_JP: TranslationMap = {
       retry: "再試行",
       retrySend: "送信を再試行",
       retryQueuedMessage: "キュー内のメッセージを再試行",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "破棄",
       faster: "より速く",
       smarter: "より賢く",
       useDefaultModel: "デフォルトモデルを使用",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "ペアリングQRの有効期限が切れました",

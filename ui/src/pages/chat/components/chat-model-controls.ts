@@ -958,7 +958,7 @@ function renderChatModelReasoningSelect(params: {
                     <span
                       class="chat-controls__model-option-warning chat-controls__model-unavailable"
                     >
-                      Unavailable — choose another model
+                      ${t("chat.modelPicker.unavailableChooseAnother")}
                     </span>
                   `
                 : ""}
@@ -968,7 +968,7 @@ function renderChatModelReasoningSelect(params: {
                       class="chat-controls__model-option-warning"
                       data-chat-model-contention="true"
                     >
-                      Used by another active agent — may be slower
+                      ${t("chat.modelPicker.contentionWarning")}
                     </span>
                   `
                 : ""}

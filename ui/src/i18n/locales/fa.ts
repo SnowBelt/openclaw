@@ -1567,6 +1567,9 @@ export const fa: TranslationMap = {
     toolCallsToggle: "تغییر وضعیت نمایش فراخوانی‌های ابزار و نتایج ابزار",
     commentaryToggle: "حفظ توضیحات پس از پاسخ نهایی",
     commentaryLabel: "توضیحات",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "حالت پیمایش خودکار",
     autoScrollAlways: "همیشه",
     autoScrollNearBottom: "نزدیک پایین",
@@ -1633,12 +1636,17 @@ export const fa: TranslationMap = {
       retry: "تلاش دوباره",
       retrySend: "تلاش دوباره برای ارسال",
       retryQueuedMessage: "تلاش دوباره برای پیام در صف",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "رد کردن",
       faster: "سریع‌تر",
       smarter: "هوشمندتر",
       useDefaultModel: "استفاده از مدل پیش‌فرض",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "کد QR جفت‌سازی منقضی شد",

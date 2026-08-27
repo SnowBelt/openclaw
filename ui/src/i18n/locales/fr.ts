@@ -1586,6 +1586,9 @@ export const fr: TranslationMap = {
     toolCallsToggle: "Afficher/masquer les appels d’outil et les résultats d’outil",
     commentaryToggle: "Conserver le commentaire après la réponse finale",
     commentaryLabel: "Commentaire",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "Mode de défilement automatique",
     autoScrollAlways: "Toujours",
     autoScrollNearBottom: "Près du bas",
@@ -1652,12 +1655,17 @@ export const fr: TranslationMap = {
       retry: "Réessayer",
       retrySend: "Réessayer l’envoi",
       retryQueuedMessage: "Réessayer le message en file d’attente",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "Abandonner",
       faster: "Plus rapide",
       smarter: "Plus intelligent",
       useDefaultModel: "Utiliser le modèle par défaut",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR d'appairage expiré",

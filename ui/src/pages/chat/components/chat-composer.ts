@@ -983,15 +983,15 @@ export function renderChatQueue(props: ChatQueueProps) {
                   : nothing}
                 <openclaw-tooltip
                   content=${item.sendState === "sending"
-                    ? "This message is sending now"
-                    : "Remove queued message"}
+                    ? t("chat.queue.sendingMessage")
+                    : t("chat.queue.removeQueuedMessage")}
                 >
                   <button
                     class="btn chat-queue__remove"
                     type="button"
                     aria-label=${item.sendState === "sending"
-                      ? "Queued message is sending"
-                      : "Remove queued message"}
+                      ? t("chat.queue.queuedMessageSending")
+                      : t("chat.queue.removeQueuedMessage")}
                     ?disabled=${item.sendState === "sending"}
                     @click=${() => {
                       if (item.sendState !== "sending") {

@@ -1533,6 +1533,9 @@ export const th: TranslationMap = {
     toolCallsToggle: "สลับการแสดงการเรียกใช้ tool และผลลัพธ์ของ tool",
     commentaryToggle: "เก็บคำอธิบายหลังคำตอบสุดท้าย",
     commentaryLabel: "คำอธิบาย",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "โหมดเลื่อนอัตโนมัติ",
     autoScrollAlways: "เสมอ",
     autoScrollNearBottom: "ใกล้ด้านล่าง",
@@ -1599,12 +1602,17 @@ export const th: TranslationMap = {
       retry: "ลองอีกครั้ง",
       retrySend: "ลองส่งอีกครั้ง",
       retryQueuedMessage: "ลองส่งข้อความในคิวอีกครั้ง",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "ละทิ้ง",
       faster: "เร็วขึ้น",
       smarter: "ฉลาดขึ้น",
       useDefaultModel: "ใช้โมเดลเริ่มต้น",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR การจับคู่หมดอายุ",

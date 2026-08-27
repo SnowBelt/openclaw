@@ -1569,6 +1569,9 @@ export const uk: TranslationMap = {
     toolCallsToggle: "Перемкнути виклики інструментів і результати інструментів",
     commentaryToggle: "Зберігати коментар після остаточної відповіді",
     commentaryLabel: "Коментар",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "Режим автопрокручування",
     autoScrollAlways: "Завжди",
     autoScrollNearBottom: "Біля низу",
@@ -1635,12 +1638,17 @@ export const uk: TranslationMap = {
       retry: "Повторити",
       retrySend: "Повторити надсилання",
       retryQueuedMessage: "Повторити повідомлення в черзі",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "Відкинути",
       faster: "Швидше",
       smarter: "Розумніше",
       useDefaultModel: "Використати модель за замовчуванням",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR-код для пар'ювання застарів",

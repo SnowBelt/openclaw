@@ -1530,6 +1530,9 @@ export const zh_TW: TranslationMap = {
     toolCallsToggle: "切換工具呼叫與工具結果",
     commentaryToggle: "在最終答案後保留評註",
     commentaryLabel: "評註",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "自動捲動模式",
     autoScrollAlways: "一律",
     autoScrollNearBottom: "接近底部",
@@ -1596,12 +1599,17 @@ export const zh_TW: TranslationMap = {
       retry: "重試",
       retrySend: "重新傳送",
       retryQueuedMessage: "重試佇列中的訊息",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "捨棄",
       faster: "更快",
       smarter: "更智慧",
       useDefaultModel: "使用預設模型",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "配對 QR 碼已過期",

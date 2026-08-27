@@ -1556,6 +1556,9 @@ export const ko: TranslationMap = {
     toolCallsToggle: "도구 호출 및 도구 결과 전환",
     commentaryToggle: "최종 답변 후에도 해설 유지",
     commentaryLabel: "해설",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "자동 스크롤 모드",
     autoScrollAlways: "항상",
     autoScrollNearBottom: "하단 근처",
@@ -1622,12 +1625,17 @@ export const ko: TranslationMap = {
       retry: "다시 시도",
       retrySend: "보내기 다시 시도",
       retryQueuedMessage: "대기 중인 메시지 다시 시도",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "버리기",
       faster: "더 빠르게",
       smarter: "더 똑똑하게",
       useDefaultModel: "기본 모델 사용",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "페어링 QR 만료됨",

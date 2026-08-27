@@ -1573,6 +1573,9 @@ export const tr: TranslationMap = {
     toolCallsToggle: "Araç çağrılarını ve araç sonuçlarını aç/kapat",
     commentaryToggle: "Nihai yanıttan sonra yorumu koru",
     commentaryLabel: "Yorum",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "Otomatik kaydırma modu",
     autoScrollAlways: "Her zaman",
     autoScrollNearBottom: "Alta yakın",
@@ -1639,12 +1642,17 @@ export const tr: TranslationMap = {
       retry: "Yeniden dene",
       retrySend: "Göndermeyi yeniden dene",
       retryQueuedMessage: "Kuyruğa alınan iletiyi yeniden dene",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "Vazgeç",
       faster: "Daha hızlı",
       smarter: "Daha akıllı",
       useDefaultModel: "Varsayılan modeli kullan",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "Eşleştirme QR kodunun süresi doldu",

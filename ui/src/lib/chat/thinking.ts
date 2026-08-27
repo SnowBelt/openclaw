@@ -5,6 +5,7 @@ import type {
   ModelCatalogEntry,
   SessionsListResult,
 } from "../../api/types.ts";
+import { t } from "../../i18n/index.ts";
 import { pushUniqueTrimmedSelectOption } from "../select-options.ts";
 import { sessionModelMatchesDefaults } from "../session-model-defaults.ts";
 import { normalizeLowercaseStringOrEmpty } from "../string-coerce.ts";
@@ -286,7 +287,7 @@ export function resolveChatThinkingSelectState(params: {
       ? (normalizeThinkLevel(persisted) ?? persisted.trim())
       : "";
   const levels = lunaPolicy
-    ? [{ id: "max", label: "Maximum" }]
+    ? [{ id: "max", label: t("chat.thinking.maximum") }]
     : resolveThinkingLevelOptions({
         catalog: params.catalog,
         defaults,
@@ -356,7 +357,7 @@ function formatThinkingLevelDisplayLabel(value: string): string {
     case "xhigh":
       return "Extra high";
     case "max":
-      return "Maximum";
+      return t("chat.thinking.maximum");
     case "ultra":
       return "Ultra";
     default:

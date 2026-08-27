@@ -1551,6 +1551,9 @@ export const hi: TranslationMap = {
     toolCallsToggle: "टूल कॉल और टूल परिणाम टॉगल करें",
     commentaryToggle: "अंतिम उत्तर के बाद टिप्पणी बनाए रखें",
     commentaryLabel: "टिप्पणी",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "ऑटो-स्क्रॉल मोड",
     autoScrollAlways: "हमेशा",
     autoScrollNearBottom: "नीचे के पास",
@@ -1617,12 +1620,17 @@ export const hi: TranslationMap = {
       retry: "पुनः प्रयास करें",
       retrySend: "भेजने का पुनः प्रयास करें",
       retryQueuedMessage: "कतारबद्ध संदेश का पुनः प्रयास करें",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "त्यागें",
       faster: "तेज़",
       smarter: "अधिक बुद्धिमान",
       useDefaultModel: "डिफ़ॉल्ट मॉडल का उपयोग करें",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "पेयरिंग QR की समय-सीमा समाप्त हो गई",

@@ -1,14 +1,20 @@
 {
   "fallbackKeys": [
+    "chat.modelPicker.contentionWarning",
+    "chat.modelPicker.unavailableChooseAnother",
+    "chat.queue.queuedMessageSending",
+    "chat.queue.removeQueuedMessage",
+    "chat.queue.sendingMessage",
+    "chat.thinking.maximum",
     "subtitles.operations",
     "tabs.operations"
   ],
-  "generatedAt": "2026-07-19T02:35:45.401Z",
+  "generatedAt": "2026-08-27T13:56:31.154Z",
   "locale": "id",
   "model": "gpt-5.5",
   "provider": "openai",
-  "sourceHash": "6e87cc69b3a5a96eab1d82aadf5db2389a846dd7c6ae5d10a211caddadc25d64",
-  "totalKeys": 1671,
+  "sourceHash": "00470fb739f23e260a4ba39aaab039638bfee9ebf5181570e44c47f72e588f61",
+  "totalKeys": 1677,
   "translatedKeys": 1669,
   "workflow": 1
 }

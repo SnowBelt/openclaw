@@ -1549,6 +1549,9 @@ export const ar: TranslationMap = {
     toolCallsToggle: "تبديل استدعاءات الأدوات ونتائج الأدوات",
     commentaryToggle: "الاحتفاظ بالتعليق بعد الإجابة النهائية",
     commentaryLabel: "التعليق",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "وضع التمرير التلقائي",
     autoScrollAlways: "دائمًا",
     autoScrollNearBottom: "قرب الأسفل",
@@ -1615,12 +1618,17 @@ export const ar: TranslationMap = {
       retry: "إعادة المحاولة",
       retrySend: "إعادة محاولة الإرسال",
       retryQueuedMessage: "إعادة محاولة الرسالة في قائمة الانتظار",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "تجاهل",
       faster: "أسرع",
       smarter: "أذكى",
       useDefaultModel: "استخدام النموذج الافتراضي",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "انتهت صلاحية رمز الاقتران QR",

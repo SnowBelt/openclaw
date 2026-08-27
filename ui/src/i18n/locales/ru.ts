@@ -1580,6 +1580,9 @@ export const ru: TranslationMap = {
     toolCallsToggle: "Показать или скрыть вызовы инструментов и их результаты",
     commentaryToggle: "Сохранять комментарии после окончательного ответа",
     commentaryLabel: "Комментарии",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "Режим автопрокрутки",
     autoScrollAlways: "Всегда",
     autoScrollNearBottom: "Рядом с нижним краем",
@@ -1646,12 +1649,17 @@ export const ru: TranslationMap = {
       retry: "Повторить",
       retrySend: "Повторить отправку",
       retryQueuedMessage: "Повторить сообщение в очереди",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "Сбросить",
       faster: "Быстрее",
       smarter: "Умнее",
       useDefaultModel: "Использовать модель по умолчанию",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR-код сопряжения истек",

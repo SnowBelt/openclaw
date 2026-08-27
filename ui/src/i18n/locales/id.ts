@@ -1568,6 +1568,9 @@ export const id: TranslationMap = {
     toolCallsToggle: "Alihkan panggilan alat dan hasil alat",
     commentaryToggle: "Simpan komentar setelah jawaban akhir",
     commentaryLabel: "Komentar",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "Mode gulir otomatis",
     autoScrollAlways: "Selalu",
     autoScrollNearBottom: "Dekat bagian bawah",
@@ -1634,12 +1637,17 @@ export const id: TranslationMap = {
       retry: "Coba lagi",
       retrySend: "Coba kirim lagi",
       retryQueuedMessage: "Coba lagi pesan dalam antrean",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "Buang",
       faster: "Lebih cepat",
       smarter: "Lebih cerdas",
       useDefaultModel: "Gunakan model default",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "QR pemasangan kedaluwarsa",

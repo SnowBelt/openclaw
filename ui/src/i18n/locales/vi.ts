@@ -1558,6 +1558,9 @@ export const vi: TranslationMap = {
     toolCallsToggle: "Bật/tắt lượt gọi công cụ và kết quả công cụ",
     commentaryToggle: "Giữ lại bình luận sau câu trả lời cuối cùng",
     commentaryLabel: "Bình luận",
+    thinking: {
+      maximum: "Maximum",
+    },
     autoScrollMode: "Chế độ tự động cuộn",
     autoScrollAlways: "Luôn luôn",
     autoScrollNearBottom: "Gần cuối",
@@ -1624,12 +1627,17 @@ export const vi: TranslationMap = {
       retry: "Thử lại",
       retrySend: "Thử gửi lại",
       retryQueuedMessage: "Thử lại tin nhắn trong hàng đợi",
+      removeQueuedMessage: "Remove queued message",
+      sendingMessage: "This message is sending now",
+      queuedMessageSending: "Queued message is sending",
     },
     modelPicker: {
       discard: "Bỏ",
       faster: "Nhanh hơn",
       smarter: "Thông minh hơn",
       useDefaultModel: "Dùng mô hình mặc định",
+      unavailableChooseAnother: "Unavailable — choose another model",
+      contentionWarning: "Used by another active agent — may be slower",
     },
     pairingQrExpired: {
       title: "Mã QR ghép nối đã hết hạn",
