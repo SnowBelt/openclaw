@@ -46,6 +46,30 @@ export async function resolveLocalMeetingBrowserRequest(
   if (!(await runtime.gateway.isAvailable())) {
     return callLocalBrowserRequest;
   }
+  return async (params) =>
+    await runtime.gateway.request(
+      "browser.request",
+      {
+        method: params.method,
+        path: params.path,
+        body: params.body,
+        timeoutMs: params.timeoutMs,
+        legacyMeetingRuntime: true,
+      },
+      {
+        timeoutMs: resolveBrowserGatewayTimeoutMs(params.timeoutMs),
+        scopes: ["operator.admin"],
+      },
+    );
+}
+
+/** Resolves the versioned Browser-owned route used by bundled meeting plugins. */
+export async function resolveBrowserStewardMeetingBrowserRequest(
+  runtime: PluginRuntime,
+): Promise<MeetingBrowserRequestCaller> {
+  if (!(await runtime.gateway.isAvailable())) {
+    throw new Error("Browser-owned browser capability unavailable");
+  }
   const browser = resolveBrowserNodeDelegationRuntime(runtime);
   if (!browser) {
     throw new Error("Browser-owned browser capability unavailable");
@@ -58,4 +82,13 @@ export async function resolveLocalMeetingBrowserRequest(
       timeoutMs: params.timeoutMs,
       nodeId: "",
     });
+}
+
+export async function resolveMeetingBrowserRequest(
+  runtime: PluginRuntime,
+  routing: "legacy" | "browser-steward" = "legacy",
+): Promise<MeetingBrowserRequestCaller> {
+  return routing === "browser-steward"
+    ? await resolveBrowserStewardMeetingBrowserRequest(runtime)
+    : await resolveLocalMeetingBrowserRequest(runtime);
 }

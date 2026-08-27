@@ -56,9 +56,12 @@ export {
 export {
   asMeetingBrowserTabs,
   readMeetingBrowserTab,
+  resolveBrowserStewardMeetingBrowserRequest,
   resolveLocalMeetingBrowserRequest,
+  resolveMeetingBrowserRequest,
 } from "../meeting-bot/browser-request.js";
 export {
+  callBrowserStewardMeetingBrowserProxyOnNode,
   callMeetingBrowserProxyOnNode,
   createMeetingBrowserNodeCaller,
   resolveMeetingBrowserNode,

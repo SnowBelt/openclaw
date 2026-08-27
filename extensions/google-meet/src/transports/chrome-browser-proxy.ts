@@ -1,7 +1,7 @@
 // Google Meet URL/account rules stay adapter-owned; browser/node mechanics live in core.
 import {
   asMeetingBrowserTabs,
-  callMeetingBrowserProxyOnNode,
+  callBrowserStewardMeetingBrowserProxyOnNode,
   readMeetingBrowserTab,
   resolveMeetingBrowserNode,
   resolveMeetingBrowserNodeInfo,
@@ -40,7 +40,7 @@ export async function callBrowserProxyOnNode(params: {
   body?: unknown;
   timeoutMs: number;
 }) {
-  return await callMeetingBrowserProxyOnNode({
+  return await callBrowserStewardMeetingBrowserProxyOnNode({
     ...params,
     adapter: GOOGLE_MEET_BROWSER_NODE_ADAPTER,
   });

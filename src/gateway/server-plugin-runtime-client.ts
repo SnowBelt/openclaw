@@ -31,6 +31,7 @@ export function createSyntheticPluginRuntimeClient(params?: {
   internalDeliveryMediaUrls?: string[];
   internalDeliverySuppressText?: boolean;
   pluginRuntimeOwnerId?: string;
+  browserRequestCompatibility?: boolean;
   pluginRuntimeAuthority?: () => boolean;
   pluginSubagentRequester?: PluginSubagentRequesterContext;
   runtimePluginToolGrant?: RuntimePluginToolGrant;
@@ -75,6 +76,9 @@ export function createSyntheticPluginRuntimeClient(params?: {
         : {}),
       ...(params?.scopes?.includes(APPROVALS_SCOPE) ? { approvalRuntime: true } : {}),
       ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
+      ...(params?.browserRequestCompatibility === true
+        ? { browserRequestCompatibility: true as const }
+        : {}),
       ...(params?.pluginRuntimeAuthority
         ? { pluginRuntimeAuthority: params.pluginRuntimeAuthority }
         : {}),

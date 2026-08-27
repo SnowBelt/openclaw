@@ -163,7 +163,10 @@ async function handleBrowserGatewayRequestInternal({
   const hasBrowserStewardOperationClaim = browserStewardOperationClaim?.owner === "browser";
   const pluginRuntimeOwnerId = normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId);
   const browserPluginRuntime = pluginRuntimeOwnerId === "browser";
-  if (pluginRuntimeOwnerId && !browserPluginRuntime) {
+  // This fact is host-issued by trusted in-process dispatch; the wire marker
+  // is stripped before reaching this handler and cannot grant the authority.
+  const compatibilityMeetingRuntime = client?.internal?.browserRequestCompatibility === true;
+  if (pluginRuntimeOwnerId && !browserPluginRuntime && !compatibilityMeetingRuntime) {
     respond(
       false,
       undefined,
@@ -189,11 +192,16 @@ async function handleBrowserGatewayRequestInternal({
       agentId: effectiveRequestedAgentId,
     }) ||
     browserPluginRuntime ||
+    compatibilityMeetingRuntime ||
     directOperator;
   const effectiveAgentId =
-    browserPluginRuntime || directOperator ? BROWSER_STEWARD_AGENT_ID : effectiveRequestedAgentId;
+    browserPluginRuntime || compatibilityMeetingRuntime || directOperator
+      ? BROWSER_STEWARD_AGENT_ID
+      : effectiveRequestedAgentId;
   const effectiveAgentSessionKey =
-    browserPluginRuntime || directOperator ? undefined : effectiveRequestedAgentSessionKey;
+    browserPluginRuntime || compatibilityMeetingRuntime || directOperator
+      ? undefined
+      : effectiveRequestedAgentSessionKey;
   const operatorApproved = operatorAdmin && !trustedAgentRuntime;
   let browserStewardOperationApproved =
     operatorApproved || browserPluginRuntime || hasBrowserStewardOperationClaim;
@@ -528,6 +536,7 @@ async function handleBrowserGatewayRequestInternal({
         requestedNode === undefined);
     const browserNodeRoutePinned =
       browserPluginRuntime ||
+      compatibilityMeetingRuntime ||
       hasBrowserStewardOperationClaim ||
       browserNodeSessionLease !== undefined;
     const allowAutomaticHostFallback =

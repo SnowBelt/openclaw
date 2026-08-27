@@ -1,3 +1,4 @@
+import { addTimerTimeoutGraceMs } from "@openclaw/normalization-core/number-coercion";
 import { resolveBrowserNodeDelegationRuntime } from "../plugins/runtime/browser-node-delegation.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type {
@@ -124,7 +125,7 @@ export async function resolveMeetingBrowserNode(params: {
   return node.nodeId;
 }
 
-export async function callMeetingBrowserProxyOnNode(
+export async function callBrowserStewardMeetingBrowserProxyOnNode(
   params: {
     runtime: PluginRuntime;
     adapter: NodeAdapter;
@@ -144,6 +145,45 @@ export async function callMeetingBrowserProxyOnNode(
     timeoutMs: params.timeoutMs,
     nodeId: params.nodeId,
   });
+}
+
+/** Keeps the public helper compatible while routing through the Browser Gateway owner. */
+export async function callMeetingBrowserProxyOnNode(
+  params: {
+    runtime: PluginRuntime;
+    adapter: NodeAdapter;
+    nodeId: string;
+  } & MeetingBrowserRequestParams,
+) {
+  const browser = resolveBrowserNodeDelegationRuntime(params.runtime);
+  if (browser) {
+    return await browser.request({
+      method: params.method,
+      path: params.path,
+      ...(params.body !== undefined ? { body: params.body } : {}),
+      timeoutMs: params.timeoutMs,
+      nodeId: params.nodeId,
+    });
+  }
+  if (!(await params.runtime.gateway.isAvailable())) {
+    throw new Error(`${params.adapter.displayName} Browser Gateway is unavailable`);
+  }
+  return await params.runtime.gateway.request(
+    "browser.request",
+    {
+      method: params.method,
+      path: params.path,
+      ...(params.body !== undefined ? { body: params.body } : {}),
+      timeoutMs: params.timeoutMs,
+      nodeId: params.nodeId,
+      legacyMeetingRuntime: true,
+      allowAutomaticHostFallback: false,
+    },
+    {
+      timeoutMs: addTimerTimeoutGraceMs(params.timeoutMs) ?? 1,
+      scopes: ["operator.admin"],
+    },
+  );
 }
 
 export function createMeetingBrowserNodeCaller(params: {

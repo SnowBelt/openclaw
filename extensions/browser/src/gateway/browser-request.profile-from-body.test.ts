@@ -138,6 +138,7 @@ async function runBrowserRequest(
     internal?: {
       agentRuntimeIdentity?: unknown;
       pluginRuntimeOwnerId?: string;
+      browserRequestCompatibility?: true;
       pluginRuntimeAuthority?: () => boolean;
     };
   } | null,
@@ -304,6 +305,7 @@ describe("browser.request profile selection", () => {
         method: "GET",
         path: "/profiles",
         agentSessionKey: "agent:google-meet:direct:private-thread",
+        legacyMeetingRuntime: true,
       },
       undefined,
       undefined,
@@ -322,6 +324,27 @@ describe("browser.request profile selection", () => {
     });
     expect(JSON.stringify(error)).not.toContain("private-thread");
     expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+  });
+
+  it("accepts only the host-issued legacy meeting compatibility authority", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "GET",
+        path: "/profiles",
+      },
+      undefined,
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          pluginRuntimeOwnerId: "google-meet",
+          browserRequestCompatibility: true,
+        },
+      },
+    );
+
+    expect(invokeParams(nodeRegistry).nodeId).toBe("node-1");
+    expect(firstRespondCall(respond)[0]).toBe(true);
   });
 
   it("carries a redacted admin approval envelope to the browser node", async () => {

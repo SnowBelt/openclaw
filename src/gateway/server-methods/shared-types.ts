@@ -145,6 +145,8 @@ export type GatewayClient = {
     cronRunContinuation?: boolean;
     agentRuntimeIdentity?: AgentRuntimeIdentity;
     pluginRuntimeOwnerId?: string;
+    /** Host-issued Browser compatibility authority; never accepted from wire params. */
+    browserRequestCompatibility?: true;
     /** Internal plugin lifecycle authority rechecked immediately before effects. */
     pluginRuntimeAuthority?: () => boolean;
     /** Plugin-owned in-process invoke hooks; never accepted from Gateway wire params. */
