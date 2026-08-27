@@ -1,9 +1,12 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
-import { controlUiSmokeViteResolve } from "./control-ui-smoke-vite.ts";
+import {
+  controlUiChatSmokeOptimizeDeps,
+  controlUiSmokeViteResolve,
+} from "./control-ui-smoke-vite.ts";
 
 type SmokeModeResult = {
   bodyText: string;
@@ -271,8 +274,14 @@ async function main() {
 
   const server: ViteDevServer = await createServer({
     appType: "spa",
+    cacheDir: resolve(artifactDir, "vite-cache"),
+    configFile: false,
     define: { "process.env": "{}" },
     logLevel: "error",
+    optimizeDeps: {
+      include: [...controlUiChatSmokeOptimizeDeps],
+      noDiscovery: true,
+    },
     resolve: controlUiSmokeViteResolve(),
     root: process.cwd(),
     server: { host: "127.0.0.1", port: 0, strictPort: false },
