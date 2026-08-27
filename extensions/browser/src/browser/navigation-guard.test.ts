@@ -254,9 +254,8 @@ describe("browser navigation guard", () => {
 
   it("blocks network URLs with embedded credentials before lookup", async () => {
     const lookupFn = createLookupFn("93.184.216.34");
-    const credentialedUrl = ["https://user", "secret@example.com/private"].join(":");
     const result = assertBrowserNavigationAllowed({
-      url: credentialedUrl,
+      url: "https://user:secret@example.com/private",
       lookupFn,
     });
     await expect(result).rejects.toThrow("URL-embedded credentials are not supported");
@@ -398,9 +397,8 @@ describe("browser navigation guard", () => {
   });
 
   it("redacts malformed credential-bearing URLs from diagnostics", async () => {
-    const credentialedUrl = ["https://user", "secret@"].join(":");
     const result = assertBrowserNavigationAllowed({
-      url: credentialedUrl,
+      url: "https://user:secret@",
     });
     await expect(result).rejects.toThrow("Invalid URL: [redacted credential-bearing URL]");
     await expect(result).rejects.not.toThrow("secret");

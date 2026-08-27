@@ -1,8 +1,13 @@
 // Browser tests cover the node-host Browser Steward final-effect approval gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  BROWSER_PROXY_ERROR_ENVELOPE,
+  BROWSER_PROXY_OWNED_TAB_CLOSE_PATH,
+} from "../browser-proxy-envelope.js";
 import { createBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
 
 const mocks = vi.hoisted(() => ({
+  closeTrackedCdpTarget: vi.fn(async () => ({ status: "closed" as const })),
   dispatch: vi.fn(),
   startBrowserControlService: vi.fn(async () => true),
   loadConfig: vi.fn(() => ({
@@ -62,7 +67,7 @@ vi.mock("../control-service.js", () => ({
 }));
 
 vi.mock("../browser/cdp.helpers.js", () => ({
-  closeTrackedCdpTarget: vi.fn(),
+  closeTrackedCdpTarget: mocks.closeTrackedCdpTarget,
   redactCdpUrl: vi.fn((url: string) => url),
 }));
 
@@ -88,6 +93,7 @@ const baseParams = {
 
 describe("node-host Browser Steward approval", () => {
   beforeEach(() => {
+    mocks.closeTrackedCdpTarget.mockReset().mockResolvedValue({ status: "closed" });
     mocks.dispatch.mockReset();
     mocks.startBrowserControlService.mockClear().mockResolvedValue(true);
   });
@@ -136,6 +142,57 @@ describe("node-host Browser Steward approval", () => {
       ),
     ).rejects.toThrow(/approval_required/);
     expect(mocks.dispatch).toHaveBeenCalledOnce();
+  });
+
+  it("passes a live approval predicate to owned tab close", async () => {
+    const ownership = {
+      status: "durable",
+      nativeTargetId: "NATIVE-7",
+      profileFingerprint: "sha256:profile",
+      browserInstanceFingerprint: "sha256:browser",
+    } as const;
+    const closeParams = {
+      ...baseParams,
+      path: BROWSER_PROXY_OWNED_TAB_CLOSE_PATH,
+      body: { ownership },
+      invocationId: "invoke-close-approval",
+    } as const;
+    const approval = createBrowserStewardGatewayApproval({
+      command: "browser.proxy",
+      ...closeParams,
+    });
+
+    await expect(
+      runBrowserProxyCommand(
+        JSON.stringify({
+          ...closeParams,
+          errorEnvelope: BROWSER_PROXY_ERROR_ENVELOPE,
+          browserStewardApproval: approval,
+        }),
+        "browser.proxy",
+        undefined,
+        {
+          nodeId: "node-1",
+          pairingGeneration: "pairing-1",
+          invocationId: "invoke-close-approval",
+        },
+      ),
+    ).resolves.toBe(
+      JSON.stringify({
+        result: { status: "closed" },
+        route: { status: "resolved", profile: "openclaw", driver: "openclaw" },
+      }),
+    );
+
+    expect(mocks.closeTrackedCdpTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shouldClose: expect.any(Function),
+      }),
+    );
+    const closeCall = mocks.closeTrackedCdpTarget.mock.calls[0]?.[0] as {
+      shouldClose?: () => boolean;
+    };
+    expect(closeCall.shouldClose?.()).toBe(true);
   });
 
   it("rejects replay on a different node or invocation and consumes once", async () => {

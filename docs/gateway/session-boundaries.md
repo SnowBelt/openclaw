@@ -152,7 +152,8 @@ check that any agent-scoped selector has a non-empty owner segment and a
 non-empty opaque tail. The valid shape is `agent:<agentId>:<session-scope>`;
 the tail may itself contain additional colons. Empty owners and missing tails,
 such as `agent::...` or `agent:<agentId>`, are malformed. A selector such as
-`agent:<agentId>:` has a non-empty opaque tail (`:`) and is therefore accepted.
+`agent:<agentId>:` has an empty tail and is therefore malformed; a trailing colon
+is accepted only after a non-empty scope, such as `agent:<agentId>:<scope>:`.
 
 If diagnostics appear to contain raw session material, treat that as a redaction
 bug. Capture the diagnostic event type and surface, but do not paste secrets,

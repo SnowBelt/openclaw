@@ -436,6 +436,7 @@ export async function runBrowserProxyCommand(
             timeoutMs: liveResolved.remoteCdpTimeoutMs,
             ssrfPolicy: resolveCdpControlPolicy(profile, liveResolved.ssrfPolicy),
             signal: invocationSignal,
+            shouldClose: browserStewardNodeAuthority?.isActive,
           })
         : { status: "ownership-mismatch" as const };
     return JSON.stringify({
