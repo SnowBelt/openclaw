@@ -2,6 +2,7 @@
 import type { JsonSchemaObject } from "../shared/json-schema.types.js";
 import type { PluginCompatCode } from "./compat/registry.js";
 import type { PluginActivationSource } from "./config-state.js";
+import type { PluginManifestRecord } from "./manifest-registry.js";
 import type { PluginBundleFormat, PluginConfigUiHint, PluginFormat } from "./manifest-types.js";
 import type {
   PluginManifestContracts,
@@ -9,7 +10,6 @@ import type {
   PluginManifestMcpServer,
 } from "./manifest.js";
 import type { PluginKind } from "./plugin-kind.types.js";
-import type { PluginManifestRecord } from "./manifest-registry.js";
 import type { PluginOrigin } from "./plugin-origin.types.js";
 import type { PluginDependencyStatus } from "./status-dependencies-core.js";
 

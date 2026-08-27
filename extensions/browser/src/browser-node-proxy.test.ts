@@ -190,7 +190,6 @@ describe("Browser node proxy nested watchdogs", () => {
     expect(runtimeMocks.fetchBrowserJson).not.toHaveBeenCalled();
   });
 
-
   it("keeps a requested action inside separate node and Gateway watchdogs", async () => {
     const signal = new AbortController().signal;
 
