@@ -7,7 +7,9 @@ import {
 import { createBrowserStewardGatewayApproval } from "../browser/browser-steward-approval.js";
 
 const mocks = vi.hoisted(() => ({
-  closeTrackedCdpTarget: vi.fn(async () => ({ status: "closed" as const })),
+  closeTrackedCdpTarget: vi.fn<
+    (params: { shouldClose?: () => boolean }) => Promise<{ status: "closed" }>
+  >(async () => ({ status: "closed" })),
   dispatch: vi.fn(),
   startBrowserControlService: vi.fn(async () => true),
   loadConfig: vi.fn(() => ({
@@ -189,10 +191,8 @@ describe("node-host Browser Steward approval", () => {
         shouldClose: expect.any(Function),
       }),
     );
-    const closeCall = mocks.closeTrackedCdpTarget.mock.calls[0]?.[0] as {
-      shouldClose?: () => boolean;
-    };
-    expect(closeCall.shouldClose?.()).toBe(true);
+    const closeCall = mocks.closeTrackedCdpTarget.mock.calls[0]?.[0];
+    expect(closeCall?.shouldClose?.()).toBe(true);
   });
 
   it("rejects replay on a different node or invocation and consumes once", async () => {
