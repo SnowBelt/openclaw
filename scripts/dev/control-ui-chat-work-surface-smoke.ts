@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { controlUiSmokeViteResolve } from "./control-ui-smoke-vite.ts";
@@ -22,6 +22,39 @@ type SmokeSummary = {
   screenshots: string[];
   url: string;
 };
+
+const chatSmokeOptimizeDeps = [
+  "dompurify",
+  "highlight.js/lib/core",
+  "highlight.js/lib/languages/bash",
+  "highlight.js/lib/languages/cpp",
+  "highlight.js/lib/languages/css",
+  "highlight.js/lib/languages/diff",
+  "highlight.js/lib/languages/go",
+  "highlight.js/lib/languages/java",
+  "highlight.js/lib/languages/javascript",
+  "highlight.js/lib/languages/json",
+  "highlight.js/lib/languages/markdown",
+  "highlight.js/lib/languages/python",
+  "highlight.js/lib/languages/rust",
+  "highlight.js/lib/languages/typescript",
+  "highlight.js/lib/languages/xml",
+  "highlight.js/lib/languages/yaml",
+  "ipaddr.js",
+  "json5",
+  "lit",
+  "lit/decorators.js",
+  "lit/directives/guard.js",
+  "lit/directives/if-defined.js",
+  "lit/directives/keyed.js",
+  "lit/directives/ref.js",
+  "lit/directives/repeat.js",
+  "lit/directives/unsafe-html.js",
+  "lit/directives/until.js",
+  "markdown-it",
+  "markdown-it-task-lists",
+  "zod",
+] as const;
 
 function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -338,8 +371,14 @@ async function main() {
   try {
     server = await createServer({
       appType: "spa",
+      cacheDir: resolve(artifactDir, "vite-cache"),
+      configFile: false,
       define: { "process.env": "{}" },
       logLevel: "error",
+      optimizeDeps: {
+        include: [...chatSmokeOptimizeDeps],
+        noDiscovery: true,
+      },
       root: process.cwd(),
       resolve: controlUiSmokeViteResolve(),
       server: { host: "127.0.0.1", port: 0, strictPort: false },

@@ -89,6 +89,7 @@ window.runPccShellSmoke = async () => {
     renderPccDashboard({
       loading: false,
       error: null,
+      viewMode: "detailed",
       updatedAt: Date.now(),
       portfolio: {
         projectsTotal: 2,
@@ -175,6 +176,7 @@ function pccSmokeProps() {
     props: {
       loading: false,
       error: null,
+      viewMode: "detailed" as const,
       updatedAt: Date.now(),
       portfolio: {
         projectsTotal: 2,
