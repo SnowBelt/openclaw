@@ -204,6 +204,60 @@ describe("custom runtime launcher", () => {
     expect(result.stdout).toContain("gateway --port 18789");
   });
 
+  it("keeps integrity verification output off the CLI stdout stream", () => {
+    const input = fixture(["pcc"]);
+    const integrity = path.join(
+      input.release,
+      "scripts",
+      "custom-runtime",
+      "runtime-package-integrity.mjs",
+    );
+    const closureHash = "b".repeat(64);
+    const snapshotPath = path.join(input.release, "snapshot.json");
+    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as Record<string, unknown>;
+    snapshot.runtimeClosureVersion = 1;
+    snapshot.runtimeClosureHash = closureHash;
+    writeFile(snapshotPath, `${JSON.stringify(snapshot)}\n`);
+    writeFile(integrity, "// fixture verifier\n");
+    writeFile(
+      path.join(input.release, ".openclaw-runtime-sealed"),
+      `${input.sourceSha} ${closureHash}\n`,
+    );
+    const invocationLog = path.join(input.home, "integrity-invocation.log");
+    writeFile(
+      input.fakeNode,
+      [
+        "#!/bin/sh",
+        'case "$1" in',
+        "  */runtime-package-integrity.mjs)",
+        `    printf '%s\\n' integrity >> '${invocationLog}'`,
+        `    printf '%s\\n' '{"result":"passed"}'`,
+        "    ;;",
+        "  *)",
+        `    printf '%s\\n' '{"result":"cli"}'`,
+        "    ;;",
+        "esac",
+        "",
+      ].join("\n"),
+      0o700,
+    );
+
+    const result = spawnSync(launcher, ["gateway", "--port", "18789"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: input.home,
+        OPENCLAW_CUSTOM_RUNTIME_POINTER: input.pointer,
+        OPENCLAW_NODE_BIN: input.fakeNode,
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe('{"result":"cli"}\n');
+    expect(readFileSync(invocationLog, "utf8")).toBe("integrity\n");
+  });
+
   it("rejects a release that dropped an active required custom surface", () => {
     const result = verifyLauncher(fixture(["pcc", "kalshi"]));
 
@@ -267,17 +321,29 @@ describe("custom runtime launcher", () => {
   it("fails closed when packaged source provenance changes after selection", () => {
     const input = fixture(["pcc"]);
     const provenance = path.join(input.release, ".openclaw-runtime-provenance.json");
-    writeFile(provenance, `${JSON.stringify({ schemaVersion: 2 })}\n`);
-    const provenanceSha = createHash("sha256").update(readFileSync(provenance)).digest("hex");
-    writeFileSync(path.join(input.release, ".openclaw-production-sha"), `${provenanceSha}\n`);
-    const pointer = JSON.parse(readFileSync(input.pointer, "utf8")) as Record<string, unknown>;
-    pointer.sourceSha = provenanceSha;
-    writeFileSync(input.pointer, `${JSON.stringify(pointer)}\n`);
-    appendFileSync(provenance, "tampered\n");
+    const recordPath = path.join(
+      input.home,
+      ".openclaw-custom-runtime",
+      "source-provenance",
+      input.sourceSha,
+      "provenance.json",
+    );
+    writeFile(recordPath, "{}\n");
+    writeFile(
+      provenance,
+      `${JSON.stringify({
+        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        sourceSha: input.sourceSha,
+        treeSha: "a".repeat(40),
+        recordPath,
+        recordSha256: createHash("sha256").update(readFileSync(recordPath)).digest("hex"),
+      })}\n`,
+    );
+    appendFileSync(recordPath, "tampered\n");
 
     const result = verifyLauncher(input);
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("source provenance hash mismatch");
+    expect(result.stderr).toContain("source provenance record hash mismatch");
   });
 });

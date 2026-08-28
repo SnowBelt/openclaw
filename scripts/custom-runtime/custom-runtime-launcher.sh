@@ -255,7 +255,7 @@ PY
 if [ -n "$closure_identity" ]; then
   integrity="$runtime_root/scripts/custom-runtime/runtime-package-integrity.mjs"
   [ -f "$integrity" ] && [ ! -L "$integrity" ] || fail "runtime integrity verifier missing"
-  "$node_bin" "$integrity" verify --release "$runtime_root" || fail "runtime package integrity mismatch"
+  "$node_bin" "$integrity" verify --release "$runtime_root" >/dev/null || fail "runtime package integrity mismatch"
 fi
 
 for surface in $required_surfaces; do
