@@ -152,6 +152,105 @@ function readJsonAtCommit(sourceRoot, sourceSha, relativePath) {
   return parsed;
 }
 
+const SOURCE_CODE_EXTENSIONS = new Set([
+  ".cjs",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".mts",
+  ".ts",
+  ".tsx",
+]);
+const SOURCE_IMPORT_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
+const SOURCE_IMPORT_PATTERNS = [
+  /\bfrom\s*["']([^"']+)["']/gu,
+  /\bimport\s*(?:\(\s*)?["']([^"']+)["']/gu,
+  /\brequire\s*\(\s*["']([^"']+)["']\s*\)/gu,
+];
+
+function sourceImportSpecifiers(source) {
+  const specifiers = new Set();
+  for (const pattern of SOURCE_IMPORT_PATTERNS) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1];
+      if (specifier?.startsWith(".")) {
+        specifiers.add(specifier);
+      }
+    }
+  }
+  return [...specifiers].toSorted((left, right) => left.localeCompare(right));
+}
+
+function resolveSourceImport(importerPath, specifier, trackedPaths) {
+  const normalized = path.posix.normalize(
+    path.posix.join(path.posix.dirname(importerPath), specifier),
+  );
+  if (normalized === ".." || normalized.startsWith("../") || path.posix.isAbsolute(normalized)) {
+    throw new Error(
+      `Custom runtime source import escapes the repository: ${importerPath} -> ${specifier}`,
+    );
+  }
+  const extension = path.posix.extname(normalized);
+  const stem = extension ? normalized.slice(0, -extension.length) : normalized;
+  const candidates = [normalized];
+  if (!extension || SOURCE_IMPORT_EXTENSIONS.includes(extension)) {
+    for (const candidateExtension of SOURCE_IMPORT_EXTENSIONS) {
+      const candidate = `${stem}${candidateExtension}`;
+      if (!candidates.includes(candidate)) {
+        candidates.push(candidate);
+      }
+    }
+  }
+  for (const candidate of [...candidates]) {
+    for (const candidateExtension of SOURCE_IMPORT_EXTENSIONS) {
+      const indexCandidate = `${candidate}/index${candidateExtension}`;
+      if (!candidates.includes(indexCandidate)) {
+        candidates.push(indexCandidate);
+      }
+    }
+  }
+  const resolved = candidates.find((candidate) => trackedPaths.has(candidate));
+  if (!resolved) {
+    throw new Error(`Custom runtime source import is missing: ${importerPath} -> ${specifier}`);
+  }
+  return resolved;
+}
+
+function findUnregisteredCustomRuntimeScriptImports({ sourceRoot, sourceSha, registeredPaths }) {
+  const trackedOutput = run("git", ["ls-tree", "-r", "--name-only", sourceSha, "--"], {
+    cwd: sourceRoot,
+  });
+  const trackedPaths = new Set(trackedOutput.split(/\r?\n/u).filter(Boolean));
+  const queue = [...trackedPaths]
+    .filter(
+      (relativePath) =>
+        relativePath.startsWith("scripts/custom-runtime/") &&
+        SOURCE_CODE_EXTENSIONS.has(path.posix.extname(relativePath)),
+    )
+    .toSorted((left, right) => left.localeCompare(right));
+  const visited = new Set();
+  const unregistered = [];
+  while (queue.length > 0) {
+    const importerPath = queue.shift();
+    if (!importerPath || visited.has(importerPath)) {
+      continue;
+    }
+    visited.add(importerPath);
+    const source = run("git", ["show", `${sourceSha}:${importerPath}`], { cwd: sourceRoot });
+    for (const specifier of sourceImportSpecifiers(source)) {
+      const resolvedPath = resolveSourceImport(importerPath, specifier, trackedPaths);
+      if (!registeredPaths.has(resolvedPath)) {
+        unregistered.push({ importerPath, specifier, resolvedPath });
+      }
+      if (SOURCE_CODE_EXTENSIONS.has(path.posix.extname(resolvedPath))) {
+        queue.push(resolvedPath);
+      }
+    }
+  }
+  return unregistered;
+}
+
 function requiredCapabilityPaths(sourceRoot, sourceSha) {
   const manifest = readJsonAtCommit(
     sourceRoot,
@@ -174,6 +273,7 @@ function requiredCapabilityPaths(sourceRoot, sourceSha) {
   if (!Array.isArray(manifest.capabilities)) {
     throw new Error("Candidate capability manifest has no capabilities.");
   }
+  const registeredPaths = new Set();
   for (const capability of manifest.capabilities) {
     if (!isRecord(capability) || !Array.isArray(capability.requiredPaths)) {
       throw new Error("Candidate capability manifest contains an invalid capability.");
@@ -182,8 +282,23 @@ function requiredCapabilityPaths(sourceRoot, sourceSha) {
       if (typeof requiredPath !== "string" || !requiredPath) {
         throw new Error("Candidate capability manifest contains an invalid required path.");
       }
+      registeredPaths.add(requiredPath);
       paths.add(requiredPath);
     }
+  }
+  const unregisteredImports = findUnregisteredCustomRuntimeScriptImports({
+    sourceRoot,
+    sourceSha,
+    registeredPaths,
+  });
+  if (unregisteredImports.length > 0) {
+    const details = unregisteredImports
+      .map(
+        ({ importerPath, specifier, resolvedPath }) =>
+          `${importerPath} -> ${specifier} (${resolvedPath})`,
+      )
+      .join("; ");
+    throw new Error(`Custom runtime script source import has no capability owner: ${details}`);
   }
   return [...paths].toSorted((left, right) => left.localeCompare(right));
 }
@@ -326,6 +441,7 @@ export function assembleManagedRuntimePackage({
   if (sourceSnapshot.artifactHash !== sourceArtifactHash) {
     throw new Error("Gateway build snapshot artifact hash does not match its bytes.");
   }
+  const capabilityPaths = requiredCapabilityPaths(candidateSourceRoot, sourceSha);
 
   let releaseCreated = false;
   try {
@@ -347,7 +463,7 @@ export function assembleManagedRuntimePackage({
       sourceRoot: candidateSourceRoot,
       sourceSha,
       targetRoot: stagingRoot,
-      relativePaths: requiredCapabilityPaths(candidateSourceRoot, sourceSha),
+      relativePaths: capabilityPaths,
     });
     fs.writeFileSync(path.join(stagingRoot, ".openclaw-production-sha"), `${sourceSha}\n`, {
       mode: 0o600,

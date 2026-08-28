@@ -31,7 +31,12 @@ function writeFile(root: string, relativePath: string, contents = `${relativePat
   fs.writeFileSync(target, contents);
 }
 
-function createRepository(): { root: string; activeSha: string; candidateSha: string } {
+function createRepository(
+  options: {
+    includeSourceImport?: boolean;
+    registerSourceDependency?: boolean;
+  } = {},
+): { root: string; activeSha: string; candidateSha: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-source-"));
   roots.push(root);
   runGit(root, ["init", "-q"]);
@@ -41,6 +46,14 @@ function createRepository(): { root: string; activeSha: string; candidateSha: st
   writeFile(root, "config/release-governor-policy.json", "{}\n");
   writeFile(root, "src/pcc/capability-addition-registry.ts");
   writeFile(root, "scripts/custom-runtime/placeholder.sh");
+  if (options.includeSourceImport) {
+    writeFile(
+      root,
+      "scripts/custom-runtime/placeholder.ts",
+      'import { runtimeDependency } from "../../src/runtime-dependency.js";\nexport { runtimeDependency };\n',
+    );
+    writeFile(root, "src/runtime-dependency.ts", 'export const runtimeDependency = "ok";\n');
+  }
   writeFile(root, "extensions/research-manager/index.ts");
   writeFile(root, "extensions/research-manager/openclaw.plugin.json", "{}\n");
   writeFile(root, "extensions/research-manager/src/tool-descriptor.ts");
@@ -64,6 +77,12 @@ function createRepository(): { root: string; activeSha: string; candidateSha: st
             "extensions/research-manager/openclaw.plugin.json",
             "extensions/research-manager/package.json",
             "extensions/research-manager/src/tool-descriptor.ts",
+            ...(options.includeSourceImport
+              ? [
+                  "scripts/custom-runtime/placeholder.ts",
+                  ...(options.registerSourceDependency ? ["src/runtime-dependency.ts"] : []),
+                ]
+              : []),
           ],
         },
       ],
@@ -130,7 +149,10 @@ describe("custom managed-runtime packaging", () => {
   });
 
   it("assembles a self-contained exact-build package with a verified closure hash", () => {
-    const { root, activeSha, candidateSha } = createRepository();
+    const { root, activeSha, candidateSha } = createRepository({
+      includeSourceImport: true,
+      registerSourceDependency: true,
+    });
     writeBuildSnapshot(root, candidateSha);
     const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
     roots.push(releasesDir);
@@ -161,6 +183,31 @@ describe("custom managed-runtime packaging", () => {
     expect(fs.realpathSync(path.join(result.releaseRoot, "node_modules/pdfjs-dist"))).toContain(
       result.releaseRoot,
     );
+    expect(
+      fs.readFileSync(path.join(result.releaseRoot, "src/runtime-dependency.ts"), "utf8"),
+    ).toBe('export const runtimeDependency = "ok";\n');
+  });
+
+  it("fails before deployment when a custom-runtime source import has no capability owner", () => {
+    const { root, activeSha, candidateSha } = createRepository({ includeSourceImport: true });
+    writeBuildSnapshot(root, candidateSha);
+    const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
+    roots.push(releasesDir);
+
+    expect(() =>
+      assembleManagedRuntimePackage({
+        sourceRoot: root,
+        releasesDir,
+        sourceSha: candidateSha,
+        activeSha,
+        releaseId: "unregistered-source-dependency-release",
+        seal: false,
+        deploy() {
+          throw new Error("deployment should not start before source-closure validation");
+        },
+      }),
+    ).toThrow(/source import has no capability owner.*src\/runtime-dependency\.ts/u);
+    expect(fs.readdirSync(releasesDir)).toEqual([]);
   });
 
   it("fails closed and removes staging when deployment dirties the candidate source", () => {
