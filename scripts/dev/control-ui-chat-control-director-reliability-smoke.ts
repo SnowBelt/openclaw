@@ -354,9 +354,7 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
   checks.goalControls =
     controlCalls.some((call) => call.action === "retry") &&
     controlCalls.some((call) => call.action === "stop");
-  const closeGoal = root.querySelector<HTMLButtonElement>(
-    '[aria-label="Close pursue goal panel"]',
-  );
+  const closeGoal = root.querySelector<HTMLButtonElement>('[aria-label="Close pursue goal"]');
   const goalReachability = pointerReachability(closeGoal);
   checks.goalCloseInViewport = goalReachability.inViewport;
   checks.goalPointerTarget = goalReachability.isTopTarget;
@@ -373,7 +371,7 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
       project.textContent?.includes("same project ID") &&
       project.textContent?.includes("does not create a second project plan"),
   );
-  const closeProject = root.querySelector<HTMLButtonElement>('[aria-label="Close project panel"]');
+  const closeProject = root.querySelector<HTMLButtonElement>('[aria-label="Close project picker"]');
   const projectReachability = pointerReachability(closeProject);
   checks.projectCloseInViewport = projectReachability.inViewport;
   checks.projectPointerTarget = projectReachability.isTopTarget;
