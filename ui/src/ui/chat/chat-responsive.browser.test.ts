@@ -442,6 +442,210 @@ describeBrowserLayout("chat responsive browser layout", () => {
     }
   });
 
+  it("keeps opened chat status panels inside the viewport and above the composer", async () => {
+    const page = await openBrowserPage(390, 844);
+    try {
+      const cases = [
+        ["chat-project-picker", "chat-project-picker__summary", "chat-project-picker__panel"],
+        ["chat-goal", "chat-goal__summary", "chat-goal__panel"],
+        ["chat-work-surface", "chat-work-surface__summary", "chat-work-surface__panel"],
+        ["chat-approval-card", "chat-approval-card__summary", "chat-approval-card__panel"],
+      ] as const;
+
+      for (const [detailClass, summaryClass, panelClass] of cases) {
+        await page.setContent(
+          `<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+            <div style="height: 540px"></div>
+            <div class="chat-session-status">
+              <details class="${detailClass}" open>
+                <summary class="${summaryClass}">Status summary</summary>
+                <div class="${panelClass}" role="region" style="height: 230px">
+                  <strong>Panel content</strong>
+                </div>
+              </details>
+            </div>
+            <div class="agent-chat__input" style="box-sizing: border-box; position: fixed; left: 8px; right: 8px; bottom: 8px; height: 80px; z-index: 80">
+              <textarea>Keep composing</textarea>
+            </div>
+          </body></html>`,
+        );
+
+        const metrics = await page
+          .locator(`.${panelClass}`)
+          .evaluate((panel, expectedSummaryClass) => {
+            const details = panel.parentElement;
+            const summary = details?.querySelector<HTMLElement>(":scope > summary");
+            const status = details?.parentElement;
+            const composer = document.querySelector<HTMLElement>(".agent-chat__input");
+            const panelRect = panel.getBoundingClientRect();
+            const summaryRect = summary?.getBoundingClientRect();
+            const hit = summaryRect
+              ? document.elementFromPoint(
+                  summaryRect.left + summaryRect.width / 2,
+                  summaryRect.top + summaryRect.height / 2,
+                )
+              : null;
+            return {
+              panel: {
+                bottom: panelRect.bottom,
+                left: panelRect.left,
+                right: panelRect.right,
+                top: panelRect.top,
+              },
+              panelPosition: getComputedStyle(panel).position,
+              panelTransform: getComputedStyle(panel).transform,
+              panelZIndex: Number.parseInt(getComputedStyle(panel).zIndex, 10),
+              summaryZIndex: summary
+                ? Number.parseInt(getComputedStyle(summary).zIndex, 10)
+                : Number.NaN,
+              statusOverflowX: status ? getComputedStyle(status).overflowX : "",
+              statusOverflowY: status ? getComputedStyle(status).overflowY : "",
+              composerZIndex: composer
+                ? Number.parseInt(getComputedStyle(composer).zIndex, 10)
+                : Number.NaN,
+              summaryHit: hit?.closest(`.${expectedSummaryClass}`) !== null,
+            };
+          }, summaryClass);
+
+        expect(metrics.panelPosition).toBe("fixed");
+        expect(metrics.panelTransform).toBe("none");
+        expect(metrics.panel.left).toBeGreaterThanOrEqual(0);
+        expect(metrics.panel.right).toBeLessThanOrEqual(391);
+        expect(metrics.panel.top).toBeGreaterThanOrEqual(0);
+        expect(metrics.panel.bottom).toBeLessThanOrEqual(844);
+        expect(metrics.panelZIndex).toBeGreaterThanOrEqual(100);
+        expect(metrics.panelZIndex).toBeGreaterThan(metrics.composerZIndex);
+        expect(metrics.summaryZIndex).toBeGreaterThanOrEqual(metrics.panelZIndex);
+        expect(metrics.statusOverflowX).toBe("auto");
+        expect(metrics.statusOverflowY).toBe("auto");
+        expect(metrics.summaryHit).toBe(true);
+      }
+    } finally {
+      await closeBrowserPage(page);
+    }
+  });
+
+  it("keeps opened Truth and Completion details above the composer", async () => {
+    const page = await openBrowserPage(390, 844);
+    try {
+      await page.setContent(
+        `<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+          <div style="height: 540px"></div>
+          <details class="chat-control-director-diagnostics chat-control-director-diagnostics--blocked" open>
+            <summary class="chat-control-director-diagnostics__summary">Truth &amp; Completion</summary>
+            <div class="chat-control-director-diagnostics__panel" style="height: 230px">Details</div>
+          </details>
+          <div class="agent-chat__input" style="box-sizing: border-box; position: fixed; left: 8px; right: 8px; bottom: 8px; height: 80px; z-index: 80">
+            <textarea>Keep composing</textarea>
+          </div>
+        </body></html>`,
+      );
+
+      const metrics = await page
+        .locator(".chat-control-director-diagnostics__panel")
+        .evaluate((panel) => {
+          const details = panel.parentElement;
+          const summary = details?.querySelector<HTMLElement>(":scope > summary");
+          const composer = document.querySelector<HTMLElement>(".agent-chat__input");
+          const panelRect = panel.getBoundingClientRect();
+          const summaryRect = summary?.getBoundingClientRect();
+          const hit = summaryRect
+            ? document.elementFromPoint(
+                summaryRect.left + summaryRect.width / 2,
+                summaryRect.top + summaryRect.height / 2,
+              )
+            : null;
+          return {
+            bottom: panelRect.bottom,
+            left: panelRect.left,
+            right: panelRect.right,
+            top: panelRect.top,
+            position: getComputedStyle(panel).position,
+            transform: getComputedStyle(panel).transform,
+            panelZIndex: Number.parseInt(getComputedStyle(panel).zIndex, 10),
+            summaryZIndex: summary
+              ? Number.parseInt(getComputedStyle(summary).zIndex, 10)
+              : Number.NaN,
+            composerZIndex: composer
+              ? Number.parseInt(getComputedStyle(composer).zIndex, 10)
+              : Number.NaN,
+            summaryHit: hit?.closest(".chat-control-director-diagnostics__summary") !== null,
+          };
+        });
+
+      expect(metrics.position).toBe("fixed");
+      expect(metrics.transform).toBe("none");
+      expect(metrics.left).toBeGreaterThanOrEqual(0);
+      expect(metrics.right).toBeLessThanOrEqual(391);
+      expect(metrics.top).toBeGreaterThanOrEqual(0);
+      expect(metrics.bottom).toBeLessThanOrEqual(844);
+      expect(metrics.panelZIndex).toBeGreaterThanOrEqual(100);
+      expect(metrics.panelZIndex).toBeGreaterThan(metrics.composerZIndex);
+      expect(metrics.summaryZIndex).toBeGreaterThanOrEqual(metrics.panelZIndex);
+      expect(metrics.summaryHit).toBe(true);
+    } finally {
+      await closeBrowserPage(page);
+    }
+  });
+
+  it("keeps the standalone approval panel above the composer", async () => {
+    const page = await openBrowserPage(390, 844);
+    try {
+      await page.setContent(
+        `<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+          <div style="height: 540px"></div>
+          <details class="chat-approval-card" open>
+            <summary class="chat-approval-card__summary">Approval needed</summary>
+            <div class="chat-approval-card__panel" role="region" style="height: 230px">Approval</div>
+          </details>
+          <div class="agent-chat__input" style="box-sizing: border-box; position: fixed; left: 8px; right: 8px; bottom: 8px; height: 80px; z-index: 80">
+            <textarea>Keep composing</textarea>
+          </div>
+        </body></html>`,
+      );
+
+      const metrics = await page.locator(".chat-approval-card__panel").evaluate((panel) => {
+        const details = panel.parentElement;
+        const summary = details?.querySelector<HTMLElement>(":scope > summary");
+        const composer = document.querySelector<HTMLElement>(".agent-chat__input");
+        const panelRect = panel.getBoundingClientRect();
+        const summaryRect = summary?.getBoundingClientRect();
+        const hit = summaryRect
+          ? document.elementFromPoint(
+              summaryRect.left + summaryRect.width / 2,
+              summaryRect.top + summaryRect.height / 2,
+            )
+          : null;
+        return {
+          bottom: panelRect.bottom,
+          left: panelRect.left,
+          right: panelRect.right,
+          top: panelRect.top,
+          position: getComputedStyle(panel).position,
+          panelZIndex: Number.parseInt(getComputedStyle(panel).zIndex, 10),
+          summaryZIndex: summary
+            ? Number.parseInt(getComputedStyle(summary).zIndex, 10)
+            : Number.NaN,
+          composerZIndex: composer
+            ? Number.parseInt(getComputedStyle(composer).zIndex, 10)
+            : Number.NaN,
+          summaryHit: hit?.closest(".chat-approval-card__summary") !== null,
+        };
+      });
+
+      expect(metrics.position).toBe("fixed");
+      expect(metrics.left).toBeGreaterThanOrEqual(0);
+      expect(metrics.right).toBeLessThanOrEqual(391);
+      expect(metrics.top).toBeGreaterThanOrEqual(0);
+      expect(metrics.bottom).toBeLessThanOrEqual(844);
+      expect(metrics.panelZIndex).toBeGreaterThan(metrics.composerZIndex);
+      expect(metrics.summaryZIndex).toBeGreaterThanOrEqual(metrics.panelZIndex);
+      expect(metrics.summaryHit).toBe(true);
+    } finally {
+      await closeBrowserPage(page);
+    }
+  });
+
   it.each([
     [1120, 740],
     [1366, 900],

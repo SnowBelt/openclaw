@@ -4971,6 +4971,27 @@ describe("chat Working Now surface", () => {
     );
   });
 
+  it("closes the open panel from its close control and restores summary focus", () => {
+    const container = renderChatView();
+    document.body.append(container);
+    try {
+      const surface = container.querySelector<HTMLDetailsElement>("[data-chat-work-surface]");
+      const summary = surface?.querySelector<HTMLElement>(":scope > summary");
+      const close = surface?.querySelector<HTMLButtonElement>('[aria-label="Close Working Now"]');
+      expect(surface).not.toBeNull();
+      expect(summary).not.toBeNull();
+      expect(close).not.toBeNull();
+
+      surface!.open = true;
+      close!.click();
+
+      expect(surface!.open).toBe(false);
+      expect(document.activeElement).toBe(summary);
+    } finally {
+      container.remove();
+    }
+  });
+
   it("shows an active goal instead of contradicting it with Nothing running", () => {
     const container = renderChatView({
       goalFlows: [
@@ -5679,6 +5700,29 @@ describe("chat project picker", () => {
     expect(onProjectCreateFieldChange).toHaveBeenCalledWith("name", "Edited plan");
   });
 
+  it("closes the open picker from its close control", () => {
+    const onProjectPickerToggle = vi.fn();
+    const container = renderChatView({
+      projectPickerOpen: true,
+      projectsList,
+      onProjectPickerToggle,
+    });
+    document.body.append(container);
+    try {
+      const picker = container.querySelector<HTMLDetailsElement>("[data-chat-project-picker]");
+      const close = picker?.querySelector<HTMLButtonElement>('[aria-label="Close project picker"]');
+      expect(picker).not.toBeNull();
+      expect(close).not.toBeNull();
+
+      close!.click();
+
+      expect(picker!.open).toBe(false);
+      expect(onProjectPickerToggle).toHaveBeenCalledWith(false);
+    } finally {
+      container.remove();
+    }
+  });
+
   it("renders project loading failures without disabling chat", () => {
     const onSend = vi.fn();
     const container = renderChatView({
@@ -5721,6 +5765,28 @@ describe("chat Pursue Goal surface", () => {
     goalInput!.value = "Updated goal";
     goalInput!.dispatchEvent(new Event("input", { bubbles: true }));
     expect(onGoalDraftChange).toHaveBeenCalledWith("Updated goal");
+  });
+
+  it("closes the open goal panel from its close control", () => {
+    const onGoalPanelToggle = vi.fn();
+    const container = renderChatView({
+      goalPanelOpen: true,
+      onGoalPanelToggle,
+    });
+    document.body.append(container);
+    try {
+      const surface = container.querySelector<HTMLDetailsElement>("[data-chat-goal]");
+      const close = surface?.querySelector<HTMLButtonElement>('[aria-label="Close pursue goal"]');
+      expect(surface).not.toBeNull();
+      expect(close).not.toBeNull();
+
+      close!.click();
+
+      expect(surface!.open).toBe(false);
+      expect(onGoalPanelToggle).toHaveBeenCalledWith(false);
+    } finally {
+      container.remove();
+    }
   });
 
   it("renders running goal details and exposes continue, pause, edit, and stop actions", () => {

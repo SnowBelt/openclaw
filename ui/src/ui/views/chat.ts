@@ -1928,7 +1928,9 @@ function closeDetailsOnEscape(event: KeyboardEvent, onClose?: () => void) {
   details.querySelector<HTMLElement>(":scope > summary")?.focus();
 }
 
-function closeDetailsFromControl(event: MouseEvent) {
+function closeDetailsFromControl(event: MouseEvent, onClose?: () => void) {
+  event.preventDefault();
+  event.stopPropagation();
   const details = (event.currentTarget as HTMLElement | null)?.closest<HTMLDetailsElement>(
     "details",
   );
@@ -1936,6 +1938,7 @@ function closeDetailsFromControl(event: MouseEvent) {
     return;
   }
   details.open = false;
+  onClose?.();
   details.querySelector<HTMLElement>(":scope > summary")?.focus();
 }
 
@@ -2153,6 +2156,15 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
                 : "Nothing is running."}
             </p>
           </div>
+          <button
+            class="btn btn--sm btn--icon chat-panel-close"
+            type="button"
+            aria-label="Close Working Now"
+            title="Close"
+            @click=${closeDetailsFromControl}
+          >
+            ${icons.x}
+          </button>
         </div>
         ${hasError
           ? html`<div class="chat-work-surface__error">Work status unavailable</div>`
@@ -2646,15 +2658,27 @@ function renderChatProjectPicker(props: ChatProps) {
             <h3>Project</h3>
             <p>Link this chat to the same project record used by PCC.</p>
           </div>
-          <button
-            class="btn btn--sm btn--subtle"
-            type="button"
-            aria-label="Refresh projects"
-            ?disabled=${props.projectBusy || props.projectsLoading}
-            @click=${() => props.onProjectRefresh?.()}
-          >
-            Refresh
-          </button>
+          <div class="chat-panel-header-actions">
+            <button
+              class="btn btn--sm btn--subtle"
+              type="button"
+              aria-label="Refresh projects"
+              ?disabled=${props.projectBusy || props.projectsLoading}
+              @click=${() => props.onProjectRefresh?.()}
+            >
+              Refresh
+            </button>
+            <button
+              class="btn btn--sm btn--icon chat-panel-close"
+              type="button"
+              aria-label="Close project picker"
+              title="Close"
+              @click=${(event: MouseEvent) =>
+                closeDetailsFromControl(event, () => props.onProjectPickerToggle?.(false))}
+            >
+              ${icons.x}
+            </button>
+          </div>
         </div>
         ${hasError
           ? html`<div class="chat-project-picker__error" role="alert">
@@ -2867,14 +2891,26 @@ function renderPursueGoal(props: ChatProps) {
                     : "Create durable work from the current request, then continue it with evidence."}
                 </p>
               </div>
-              <button
-                class="btn btn--subtle btn--sm"
-                type="button"
-                aria-label="Refresh goal status"
-                @click=${() => props.onGoalRefresh?.()}
-              >
-                Refresh
-              </button>
+              <div class="chat-panel-header-actions">
+                <button
+                  class="btn btn--subtle btn--sm"
+                  type="button"
+                  aria-label="Refresh goal status"
+                  @click=${() => props.onGoalRefresh?.()}
+                >
+                  Refresh
+                </button>
+                <button
+                  class="btn btn--sm btn--icon chat-panel-close"
+                  type="button"
+                  aria-label="Close pursue goal"
+                  title="Close"
+                  @click=${(event: MouseEvent) =>
+                    closeDetailsFromControl(event, () => props.onGoalPanelToggle?.(false))}
+                >
+                  ${icons.x}
+                </button>
+              </div>
             </div>
             ${props.goalError
               ? html`

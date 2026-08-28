@@ -857,6 +857,20 @@
   backdrop-filter: blur(18px);
 }
 
+.chat-panel-header-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.chat-panel-close {
+  flex: 0 0 auto;
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+}
+
 @media (min-width: 721px) {
   .chat-work-surface__panel,
   .chat-project-picker__panel,
@@ -889,9 +903,40 @@
 }
 
 @media (max-width: 720px) {
+  .chat-session-status:has(> details[open]) {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
+  .chat-session-status > details[open] > summary {
+    position: relative;
+    z-index: 101;
+  }
+
+  .chat-session-status > details[open] > .chat-work-surface__panel,
+  .chat-session-status > details[open] > .chat-project-picker__panel,
+  .chat-session-status > details[open] > .chat-approval-card__panel,
+  .chat-session-status > details[open] > .chat-goal__panel {
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+    left: 0.75rem;
+    max-height: min(calc(100dvh - 10rem), 39rem);
+    max-width: none;
+    position: fixed;
+    right: 0.75rem;
+    top: auto;
+    transform: none;
+    width: auto;
+    z-index: 100;
+  }
+
+  .chat-approval-card[open] > .chat-approval-card__summary {
+    position: relative;
+    z-index: 101;
+  }
+
   .chat-work-surface[open] .chat-work-surface__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 5.75rem;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
     left: 0.75rem;
     margin: 0;
@@ -900,7 +945,7 @@
     overflow: auto;
     position: fixed;
     right: 0.75rem;
-    z-index: 50;
+    z-index: 100;
   }
 
   .chat-work-surface__item {
@@ -930,7 +975,7 @@
 
   .chat-project-picker[open] .chat-project-picker__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 5.75rem;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
     left: 0.75rem;
     margin: 0;
@@ -939,7 +984,7 @@
     overflow: auto;
     position: fixed;
     right: 0.75rem;
-    z-index: 55;
+    z-index: 100;
   }
 
   .chat-project-picker__item {
@@ -953,7 +998,7 @@
 
   .chat-approval-card[open] .chat-approval-card__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 5.75rem;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
     left: 0.75rem;
     margin: 0;
@@ -962,7 +1007,7 @@
     overflow: auto;
     position: fixed;
     right: 0.75rem;
-    z-index: 56;
+    z-index: 100;
   }
 
   .chat-approval-card__meta-row {
@@ -979,7 +1024,7 @@
 
   .chat-goal[open] .chat-goal__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 5.75rem;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
     left: 0.75rem;
     margin: 0;
@@ -988,7 +1033,7 @@
     overflow: auto;
     position: fixed;
     right: 0.75rem;
-    z-index: 57;
+    z-index: 100;
   }
 }
 
