@@ -1913,6 +1913,8 @@ function closeDetailsOnEscape(event: KeyboardEvent, onClose?: () => void) {
 }
 
 function closeDetailsFromControl(event: MouseEvent, onClose?: () => void) {
+  event.preventDefault();
+  event.stopPropagation();
   const details = (event.currentTarget as HTMLElement | null)?.closest<HTMLDetailsElement>(
     "details",
   );
@@ -2138,6 +2140,15 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
                 : "Nothing is running."}
             </p>
           </div>
+          <button
+            class="btn btn--sm btn--icon chat-panel-close"
+            type="button"
+            aria-label="Close Working Now"
+            title="Close"
+            @click=${closeDetailsFromControl}
+          >
+            ${icons.x}
+          </button>
         </div>
         ${hasError
           ? html`<div class="chat-work-surface__error">Work status unavailable</div>`
@@ -2753,9 +2764,9 @@ function renderChatProjectPicker(props: ChatProps) {
               Refresh
             </button>
             <button
-              class="btn btn--sm btn--icon"
+              class="btn btn--sm btn--icon chat-panel-close"
               type="button"
-              aria-label="Close project panel"
+              aria-label="Close project picker"
               title="Close"
               @click=${(event: MouseEvent) =>
                 closeDetailsFromControl(event, () => props.onProjectPickerToggle?.(false))}
@@ -2945,9 +2956,9 @@ function renderPursueGoal(props: ChatProps) {
                   Refresh
                 </button>
                 <button
-                  class="btn btn--sm btn--icon"
+                  class="btn btn--sm btn--icon chat-panel-close"
                   type="button"
-                  aria-label="Close pursue goal panel"
+                  aria-label="Close pursue goal"
                   title="Close"
                   @click=${(event: MouseEvent) =>
                     closeDetailsFromControl(event, () => props.onGoalPanelToggle?.(false))}

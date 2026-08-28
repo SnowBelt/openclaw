@@ -399,6 +399,125 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 describeBrowserLayout("chat responsive browser layout", () => {
+  it("keeps opened chat command-rail sheets above the composer", async () => {
+    const page = await openBrowserPage(390, 844);
+    try {
+      const cases = [
+        ["chat-project-picker", "chat-project-picker__summary", "chat-project-picker__panel"],
+        ["chat-goal", "chat-goal__summary", "chat-goal__panel"],
+        ["chat-work-surface", "chat-work-surface__summary", "chat-work-surface__panel"],
+        ["chat-approval-card", "chat-approval-card__summary", "chat-approval-card__panel"],
+        ["chat-queue-popover", "chat-queue-popover__summary", "chat-queue-popover__panel"],
+        ["chat-system-status", "chat-system-status__summary", "chat-system-status__panel"],
+      ] as const;
+
+      for (const [detailClass, summaryClass, panelClass] of cases) {
+        await page.setContent(
+          `<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+            <div class="chat-command-rail">
+              <details class="${detailClass}" open>
+                <summary class="${summaryClass}">Status summary</summary>
+                <div class="${panelClass}" role="region" style="height: 230px">
+                  <strong>Panel content</strong>
+                </div>
+              </details>
+            </div>
+            <div class="agent-chat__input" style="box-sizing: border-box; position: fixed; left: 8px; right: 8px; bottom: 8px; height: 80px; z-index: 80">
+              <textarea>Keep composing</textarea>
+            </div>
+          </body></html>`,
+        );
+
+        const metrics = await page
+          .locator(`.${panelClass}`)
+          .evaluate((panel, expectedSummaryClass) => {
+            const details = panel.parentElement;
+            const summary = details?.querySelector<HTMLElement>(":scope > summary");
+            const composer = document.querySelector<HTMLElement>(".agent-chat__input");
+            const panelRect = panel.getBoundingClientRect();
+            const summaryRect = summary?.getBoundingClientRect();
+            const hit = summaryRect
+              ? document.elementFromPoint(
+                  summaryRect.left + summaryRect.width / 2,
+                  summaryRect.top + summaryRect.height / 2,
+                )
+              : null;
+            return {
+              bottom: panelRect.bottom,
+              left: panelRect.left,
+              right: panelRect.right,
+              top: panelRect.top,
+              position: getComputedStyle(panel).position,
+              transform: getComputedStyle(panel).transform,
+              panelZIndex: Number.parseInt(getComputedStyle(panel).zIndex, 10),
+              summaryZIndex: summary
+                ? Number.parseInt(getComputedStyle(summary).zIndex, 10)
+                : Number.NaN,
+              composerZIndex: composer
+                ? Number.parseInt(getComputedStyle(composer).zIndex, 10)
+                : Number.NaN,
+              summaryHit: hit?.closest(`.${expectedSummaryClass}`) !== null,
+            };
+          }, summaryClass);
+
+        expect(metrics.position).toBe("fixed");
+        expect(metrics.transform).toBe("none");
+        expect(metrics.left).toBeGreaterThanOrEqual(0);
+        expect(metrics.right).toBeLessThanOrEqual(391);
+        expect(metrics.top).toBeGreaterThanOrEqual(0);
+        expect(metrics.bottom).toBeLessThanOrEqual(844);
+        expect(metrics.panelZIndex).toBeGreaterThanOrEqual(100);
+        expect(metrics.panelZIndex).toBeGreaterThan(metrics.composerZIndex);
+        expect(metrics.summaryZIndex).toBeGreaterThanOrEqual(metrics.panelZIndex);
+        expect(metrics.summaryHit).toBe(true);
+      }
+
+      await page.setContent(
+        `<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+          <details class="chat-control-director-diagnostics chat-control-director-diagnostics--blocked" open>
+            <summary class="chat-control-director-diagnostics__summary">Truth &amp; Completion</summary>
+            <div class="chat-control-director-diagnostics__panel" style="height: 230px">Details</div>
+          </details>
+          <div class="agent-chat__input" style="box-sizing: border-box; position: fixed; left: 8px; right: 8px; bottom: 8px; height: 80px; z-index: 80">
+            <textarea>Keep composing</textarea>
+          </div>
+        </body></html>`,
+      );
+
+      const diagnostics = await page
+        .locator(".chat-control-director-diagnostics__panel")
+        .evaluate((panel) => {
+          const details = panel.parentElement;
+          const summary = details?.querySelector<HTMLElement>(":scope > summary");
+          const composer = document.querySelector<HTMLElement>(".agent-chat__input");
+          const rect = panel.getBoundingClientRect();
+          return {
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            position: getComputedStyle(panel).position,
+            panelZIndex: Number.parseInt(getComputedStyle(panel).zIndex, 10),
+            summaryZIndex: summary
+              ? Number.parseInt(getComputedStyle(summary).zIndex, 10)
+              : Number.NaN,
+            composerZIndex: composer
+              ? Number.parseInt(getComputedStyle(composer).zIndex, 10)
+              : Number.NaN,
+          };
+        });
+      expect(diagnostics.position).toBe("fixed");
+      expect(diagnostics.left).toBeGreaterThanOrEqual(0);
+      expect(diagnostics.right).toBeLessThanOrEqual(391);
+      expect(diagnostics.top).toBeGreaterThanOrEqual(0);
+      expect(diagnostics.bottom).toBeLessThanOrEqual(844);
+      expect(diagnostics.panelZIndex).toBeGreaterThanOrEqual(100);
+      expect(diagnostics.panelZIndex).toBeGreaterThan(diagnostics.composerZIndex);
+      expect(diagnostics.summaryZIndex).toBeGreaterThanOrEqual(diagnostics.panelZIndex);
+    } finally {
+      await closeBrowserPage(page);
+    }
+  });
   it.each([
     [1120, 740],
     [1366, 900],

@@ -4882,6 +4882,27 @@ describe("chat Working Now surface", () => {
     );
   });
 
+  it("closes the open panel from its close control and restores summary focus", () => {
+    const container = renderChatView();
+    document.body.append(container);
+    try {
+      const surface = container.querySelector<HTMLDetailsElement>("[data-chat-work-surface]");
+      const summary = surface?.querySelector<HTMLElement>(":scope > summary");
+      const close = surface?.querySelector<HTMLButtonElement>('[aria-label="Close Working Now"]');
+      expect(surface).not.toBeNull();
+      expect(summary).not.toBeNull();
+      expect(close).not.toBeNull();
+
+      surface!.open = true;
+      close!.click();
+
+      expect(surface!.open).toBe(false);
+      expect(document.activeElement).toBe(summary);
+    } finally {
+      container.remove();
+    }
+  });
+
   it("shows an active goal instead of contradicting it with Nothing running", () => {
     const container = renderChatView({
       goalFlows: [
@@ -5463,8 +5484,8 @@ describe("chat polish accessibility", () => {
     expect(project.open).toBe(true);
     expect(goal.open).toBe(true);
 
-    project.querySelector<HTMLButtonElement>('[aria-label="Close project panel"]')?.click();
-    goal.querySelector<HTMLButtonElement>('[aria-label="Close pursue goal panel"]')?.click();
+    project.querySelector<HTMLButtonElement>('[aria-label="Close project picker"]')?.click();
+    goal.querySelector<HTMLButtonElement>('[aria-label="Close pursue goal"]')?.click();
 
     expect(project.open).toBe(false);
     expect(goal.open).toBe(false);

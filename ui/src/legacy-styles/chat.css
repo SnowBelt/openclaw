@@ -267,10 +267,13 @@
     left: 0.75rem;
     max-height: min(calc(100dvh - 10rem), 34rem);
     max-width: none;
+    margin: 0;
     position: fixed;
     right: 0.75rem;
+    top: auto;
+    transform: none;
     width: auto;
-    z-index: 58;
+    z-index: 100;
   }
 
   .chat-queue__item {
@@ -286,10 +289,13 @@
     left: 0.75rem;
     max-height: min(calc(100dvh - 10rem), 34rem);
     max-width: none;
+    margin: 0;
     position: fixed;
     right: 0.75rem;
+    top: auto;
+    transform: none;
     width: auto;
-    z-index: 58;
+    z-index: 100;
   }
 }
 
@@ -1138,22 +1144,40 @@
   backdrop-filter: blur(18px);
 }
 
+.chat-panel-close {
+  flex: 0 0 auto;
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+}
+
 @media (max-width: 720px) {
+  .chat-command-rail:has(> details[open]) {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
+  .chat-command-rail > details[open] > summary,
+  .chat-approval-card[open] > .chat-approval-card__summary,
+  .chat-system-status[open] > .chat-system-status__summary,
+  .chat-queue-popover[open] > .chat-queue-popover__summary {
+    position: relative;
+    z-index: 101;
+  }
   .chat-work-surface[open] .chat-work-surface__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: auto;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 50dvw;
+    left: 0.75rem;
     margin: 0;
     max-height: min(calc(100dvh - 10rem), 34rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: auto;
-    top: max(4.5rem, env(safe-area-inset-top));
-    transform: translateX(-50%);
-    width: calc(100dvw - 1.5rem);
-    z-index: 50;
+    right: 0.75rem;
+    top: auto;
+    transform: none;
+    width: auto;
+    z-index: 100;
   }
 
   .chat-work-surface__item {
@@ -1183,19 +1207,19 @@
 
   .chat-project-picker[open] .chat-project-picker__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: auto;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 50dvw;
+    left: 0.75rem;
     margin: 0;
     max-height: min(calc(100dvh - 10rem), 39rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: auto;
-    top: max(4.5rem, env(safe-area-inset-top));
-    transform: translateX(-50%);
-    width: calc(100dvw - 1.5rem);
-    z-index: 55;
+    right: 0.75rem;
+    top: auto;
+    transform: none;
+    width: auto;
+    z-index: 100;
   }
 
   .chat-project-picker__item {
@@ -1209,19 +1233,19 @@
 
   .chat-approval-card[open] .chat-approval-card__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: auto;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 50dvw;
+    left: 0.75rem;
     margin: 0;
     max-height: min(calc(100dvh - 10rem), 39rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: auto;
-    top: max(4.5rem, env(safe-area-inset-top));
-    transform: translateX(-50%);
-    width: calc(100dvw - 1.5rem);
-    z-index: 56;
+    right: 0.75rem;
+    top: auto;
+    transform: none;
+    width: auto;
+    z-index: 100;
   }
 
   .chat-approval-card__meta-row {
@@ -1238,19 +1262,19 @@
 
   .chat-goal[open] .chat-goal__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: auto;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 50dvw;
+    left: 0.75rem;
     margin: 0;
     max-height: min(calc(100dvh - 10rem), 39rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: auto;
-    top: max(4.5rem, env(safe-area-inset-top));
-    transform: translateX(-50%);
-    width: calc(100dvw - 1.5rem);
-    z-index: 57;
+    right: 0.75rem;
+    top: auto;
+    transform: none;
+    width: auto;
+    z-index: 100;
   }
 }
 
