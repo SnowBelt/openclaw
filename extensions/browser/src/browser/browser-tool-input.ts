@@ -60,6 +60,7 @@ const LEGACY_BROWSER_ACT_SHARED_REQUEST_KEYS = new Set<
 export function readActRequestParam(params: Record<string, unknown>) {
   const requestParam = params.request;
   if (requestParam && typeof requestParam === "object") {
+    // SAFETY: the object branch is narrowed above; Browser act params use string keys.
     const request = { ...(requestParam as Record<string, unknown>) };
     const hasMismatchedKind =
       typeof request.kind === "string" &&
@@ -77,6 +78,8 @@ export function readActRequestParam(params: Record<string, unknown>) {
       }
       request[key] = params[key];
     }
+    // SAFETY: legacy fields are copied from the validated Browser act input shape.
+    // SAFETY: the legacy key list narrows this record to the Browser act request shape.
     return request as Parameters<typeof browserAct>[1];
   }
 
@@ -92,6 +95,7 @@ export function readActRequestParam(params: Record<string, unknown>) {
     }
     request[key] = params[key];
   }
+  // SAFETY: the legacy key list narrows this record to the Browser act request shape.
   return request as Parameters<typeof browserAct>[1];
 }
 

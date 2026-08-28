@@ -98,9 +98,8 @@ export function createBrowserToolExecutor(params: {
 }): NonNullable<AnyAgentTool["execute"]> {
   const { opts, binding, capabilities } = params;
   return async (_toolCallId, args, signal) => {
-    const publicParams = binding
-      ? applyBrowserTabToolBinding(args as Record<string, unknown>, binding)
-      : (args as Record<string, unknown>);
+    const inputParams = asNullableRecord(args) ?? {};
+    const publicParams = binding ? applyBrowserTabToolBinding(inputParams, binding) : inputParams;
     const approved = isBrowserStewardRuntimeApproved(publicParams, opts?.approvalAuthority);
     const browserStewardGatewayApproval = approved
       ? (request: Parameters<typeof createBrowserStewardGatewayApprovalClaim>[0]) =>
@@ -140,11 +139,11 @@ export function createBrowserToolExecutor(params: {
     const requestedProfile = readStringParam(effectiveParams, "profile");
     const requestedNode = readStringParam(effectiveParams, "node");
     const requestedTimeoutMs = readToolTimeoutMs(effectiveParams);
-    let target = readStringParam(effectiveParams, "target") as
-      | "sandbox"
-      | "host"
-      | "node"
-      | undefined;
+    const requestedTarget = readStringParam(effectiveParams, "target");
+    let target: "sandbox" | "host" | "node" | undefined;
+    if (requestedTarget === "sandbox" || requestedTarget === "host" || requestedTarget === "node") {
+      target = requestedTarget;
+    }
     const runtimeConfig = getRuntimeConfig();
     const resolvedBrowser = resolveBrowserConfig(runtimeConfig.browser, runtimeConfig);
     const effectiveProfile = requestedProfile ?? resolvedBrowser.defaultProfile;
@@ -317,8 +316,7 @@ export function createBrowserToolExecutor(params: {
         ? await proxyRequest({ method: "POST", path, profile, body })
         : await runLocal();
       sessionTabs.touch(
-        readStringValue((result as { targetId?: unknown }).targetId) ??
-          readStringValue(body.targetId),
+        readStringValue(asNullableRecord(result)?.targetId) ?? readStringValue(body.targetId),
       );
       return jsonResult(result);
     };
@@ -400,7 +398,7 @@ export function createBrowserToolExecutor(params: {
               timeoutMs: toolTimeoutMs,
               signal,
             });
-        sessionTabs.touch(readStringValue((result as { targetId?: unknown }).targetId) ?? targetId);
+        sessionTabs.touch(readStringValue(asNullableRecord(result)?.targetId) ?? targetId);
         return jsonResult(result);
       }
       case "close": {
@@ -420,9 +418,7 @@ export function createBrowserToolExecutor(params: {
                 body: { kind: "close" },
                 timeoutMs: toolTimeoutMs,
               });
-          sessionTabs.untrack(
-            readStringValue((result as { targetId?: unknown }).targetId) ?? targetId,
-          );
+          sessionTabs.untrack(readStringValue(asNullableRecord(result)?.targetId) ?? targetId);
           return jsonResult(result);
         }
         const result = targetId
@@ -489,16 +485,15 @@ export function createBrowserToolExecutor(params: {
               profile,
               signal,
             });
-        const navigatedTargetId =
-          readStringValue((result as { targetId?: unknown }).targetId) ?? targetId;
+        const navigatedTargetId = readStringValue(asNullableRecord(result)?.targetId) ?? targetId;
         sessionTabs.touch(navigatedTargetId);
         const formatted = formatBrowserExternalToolResult({
-          kind: (result as { download?: unknown }).download ? "download" : "act",
+          kind: asNullableRecord(result)?.download ? "download" : "act",
           payload: result,
         });
         // A navigation that resolved to a download leaves the document
         // unchanged, so inline page state would describe the wrong thing.
-        if ((result as { download?: unknown }).download) {
+        if (asNullableRecord(result)?.download) {
           return formatted;
         }
         return await appendNavigatedPageState({
@@ -519,9 +514,7 @@ export function createBrowserToolExecutor(params: {
           signal,
         });
         const targetId = readStringParam(effectiveParams, "targetId");
-        const canonicalTargetId = readStringValue(
-          (result.details as { targetId?: unknown } | undefined)?.targetId,
-        );
+        const canonicalTargetId = readStringValue(asNullableRecord(result.details)?.targetId);
         sessionTabs.touch(canonicalTargetId ?? targetId);
         return result;
       }
@@ -551,16 +544,21 @@ export function createBrowserToolExecutor(params: {
       case "pdf": {
         const targetId = normalizeOptionalString(effectiveParams.targetId);
         const result = proxyRequest
-          ? ((await proxyRequest({
+          ? await proxyRequest({
               method: "POST",
               path: "/pdf",
               profile,
               body: { targetId },
-            })) as Awaited<ReturnType<typeof browserPdfSave>>)
+            })
           : await browserPdfSave(baseUrl, { targetId, profile, signal });
-        sessionTabs.touch(readStringValue(result.targetId) ?? targetId);
+        const resultRecord = asNullableRecord(result);
+        const resultPath = readStringValue(resultRecord?.path);
+        if (!resultPath) {
+          throw new Error("browser PDF response missing path");
+        }
+        sessionTabs.touch(readStringValue(resultRecord?.targetId) ?? targetId);
         return {
-          content: [{ type: "text" as const, text: `FILE:${result.path}` }],
+          content: [{ type: "text" as const, text: `FILE:${resultPath}` }],
           details: result,
         };
       }
