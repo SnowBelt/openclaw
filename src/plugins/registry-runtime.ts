@@ -26,18 +26,28 @@ import {
 import type { PluginRegistryState } from "./registry-state.js";
 import type { PluginRecord } from "./registry-types.js";
 import {
+  attachBrowserNodeDelegationResolver,
+  type BrowserNodeDelegationRuntime,
+} from "./runtime/browser-node-delegation.js";
+import {
   getGatewayContextResolver,
+  withPluginRuntimeGatewayRequestAuthority,
   withPluginRuntimePluginIdScope,
   withPluginRuntimePluginScope,
   withPluginRuntimeRegistryScope,
 } from "./runtime/gateway-request-scope.js";
 import type { PluginRuntime } from "./runtime/types.js";
 
+function isTrustedBrowserPluginRecord(record: PluginRecord | undefined): boolean {
+  return record?.origin === "bundled" || record?.trustedOfficialInstall === true;
+}
+
 export function createPluginRuntimeResolver(state: PluginRegistryState) {
   const { registry, registryParams } = state;
-  const pluginRuntimeById = new Map<string, PluginRuntime>();
+  const pluginRuntimeByRecord = new WeakMap<PluginRecord, PluginRuntime>();
   const pluginRuntimeRecordById = new Map<string, PluginRecord>();
   const activePluginRuntimeRecords = new WeakSet<PluginRecord>();
+  const browserNodeDelegationEpochByRecord = new WeakMap<PluginRecord, object>();
   const recordChannelRuntime = new WeakMap<PluginRecord, PluginRuntime["channel"]>();
   const registeredChannelRuntime = new WeakMap<PluginRecord, PluginRuntime["channel"]>();
   const registeredRuntimeRecordById = new Map<string, PluginRecord>();
@@ -155,8 +165,9 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
     return scoped;
   };
 
-  const resolvePluginRuntime = (pluginId: string): PluginRuntime => {
-    const cached = pluginRuntimeById.get(pluginId);
+  const resolvePluginRuntime = (record: PluginRecord): PluginRuntime => {
+    const pluginId = record.id;
+    const cached = pluginRuntimeByRecord.get(record);
     if (cached) {
       return cached;
     }
@@ -185,24 +196,21 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
         );
       }
     };
+    const runWithPluginScope = <T>(run: () => T): T => {
+      return record.source
+        ? withPluginRuntimePluginScope(
+            {
+              pluginId,
+              pluginSource: record.source,
+              pluginOrigin: record.origin,
+              pluginTrustedOfficialInstall: record.trustedOfficialInstall,
+            },
+            run,
+          )
+        : withPluginRuntimePluginScope({ pluginId }, run);
+    };
     const runtime = new Proxy(registryParams.runtime, {
       get(target, prop, receiver) {
-        const runWithPluginScope = <T>(run: () => T): T => {
-          const record =
-            pluginRuntimeRecordById.get(pluginId) ??
-            registry.plugins.find((entry) => entry.id === pluginId);
-          return record?.source
-            ? withPluginRuntimePluginScope(
-                {
-                  pluginId,
-                  pluginSource: record.source,
-                  pluginOrigin: record.origin,
-                  pluginTrustedOfficialInstall: record.trustedOfficialInstall,
-                },
-                run,
-              )
-            : withPluginRuntimePluginScope({ pluginId }, run);
-        };
         const getRuntimeProperty = () => {
           try {
             return Reflect.get(target, prop, receiver);
@@ -288,11 +296,7 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
           } satisfies PluginRuntime["config"];
         }
         if (prop === "channel") {
-          const ownerRecord = pluginRuntimeRecordById.get(pluginId);
-          if (!ownerRecord) {
-            return getRuntimeProperty();
-          }
-          return resolveRecordChannelRuntime(ownerRecord, true);
+          return resolveRecordChannelRuntime(record, true);
         }
         if (prop === "llm") {
           const llm = getRuntimeProperty();
@@ -461,8 +465,11 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
                     storePath: params.storePath,
                   });
                 const ownerPluginId = resolveCurrentExecutionOwner();
-                const admissionSession = ownerPluginId
-                  ? resolvePluginRuntime(ownerPluginId).agent.session
+                const ownerRecord = ownerPluginId
+                  ? pluginRuntimeRecordById.get(ownerPluginId)
+                  : undefined;
+                const admissionSession = ownerRecord
+                  ? resolvePluginRuntime(ownerRecord).agent.session
                   : session;
                 return await admissionSession.runWithWorkAdmission(params, async (signal) => {
                   // Admission can wait behind another run that changes ownership.
@@ -512,7 +519,11 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
             return await runWithPluginScope(async () => {
               const ownerPluginId = resolveRunSessionExecutionOwner(runParams);
               if (ownerPluginId) {
-                return await resolvePluginRuntime(ownerPluginId).agent.runEmbeddedAgent(runParams);
+                const ownerRecord = pluginRuntimeRecordById.get(ownerPluginId);
+                if (!ownerRecord) {
+                  throw new Error(`Plugin runtime owner "${ownerPluginId}" is not active.`);
+                }
+                return await resolvePluginRuntime(ownerRecord).agent.runEmbeddedAgent(runParams);
               }
               // The public runtime adapter owns admission preparation. Passing
               // host authority through this plugin wrapper is rejected by design.
@@ -605,7 +616,95 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
         } satisfies PluginRuntime["subagent"];
       },
     });
-    pluginRuntimeById.set(pluginId, runtime);
+    attachBrowserNodeDelegationResolver(runtime, (): BrowserNodeDelegationRuntime | undefined => {
+      const registration = registry.browserNodeDelegations.find((entry) =>
+        entry.delegation.consumerPluginIds.includes(pluginId),
+      );
+      if (!registration) {
+        return undefined;
+      }
+      const providerRecord = registration.providerRecord;
+      const isProviderRuntimeActive = () =>
+        pluginRuntimeRecordById.get(registration.pluginId) === providerRecord &&
+        activePluginRuntimeRecords.has(providerRecord) &&
+        isTrustedBrowserPluginRecord(providerRecord) &&
+        providerRecord.status === "loaded" &&
+        providerRecord.enabled &&
+        providerRecord.origin === registration.provider.origin &&
+        providerRecord.source === registration.provider.source &&
+        providerRecord.rootDir === registration.provider.rootDir &&
+        providerRecord.trustedOfficialInstall === registration.provider.trustedOfficialInstall;
+      if (!isProviderRuntimeActive()) {
+        return undefined;
+      }
+      if (
+        pluginRuntimeRecordById.get(pluginId) !== record ||
+        !isTrustedBrowserPluginRecord(record) ||
+        record.status !== "loaded" ||
+        !record.enabled
+      ) {
+        return undefined;
+      }
+      const consumerRecord = record;
+      let consumerEpoch = browserNodeDelegationEpochByRecord.get(consumerRecord);
+      const resolveConsumerEpoch = () => {
+        if (consumerEpoch) {
+          return consumerEpoch;
+        }
+        if (!isPluginRegistryActivated(registry) || isPluginRegistryRetired(registry)) {
+          return undefined;
+        }
+        if (
+          pluginRuntimeRecordById.get(pluginId) !== consumerRecord ||
+          !activePluginRuntimeRecords.has(consumerRecord) ||
+          consumerRecord.status !== "loaded" ||
+          !consumerRecord.enabled ||
+          !registry.plugins.some((entry) => entry === consumerRecord && entry.status === "loaded")
+        ) {
+          return undefined;
+        }
+        consumerEpoch = activatePluginRecordLifecycleEpoch(registry, consumerRecord);
+        if (consumerEpoch) {
+          browserNodeDelegationEpochByRecord.set(consumerRecord, consumerEpoch);
+        }
+        return consumerEpoch;
+      };
+      const isConsumerRuntimeActive = () => {
+        const epoch = resolveConsumerEpoch();
+        return Boolean(
+          epoch &&
+          pluginRuntimeRecordById.get(pluginId) === consumerRecord &&
+          activePluginRuntimeRecords.has(consumerRecord) &&
+          consumerRecord.status === "loaded" &&
+          consumerRecord.enabled &&
+          registry.plugins.some((entry) => entry === consumerRecord && entry.status === "loaded") &&
+          isPluginRecordLifecycleEpochActive(registry, consumerRecord, epoch),
+        );
+      };
+      const isBrowserNodeDelegationActive = () =>
+        registry.browserNodeDelegations.includes(registration) &&
+        isProviderRuntimeActive() &&
+        isConsumerRuntimeActive();
+      return {
+        request: async (params) => {
+          if (!registry.browserNodeDelegations.includes(registration)) {
+            throw new Error("Browser node delegation is no longer active.");
+          }
+          if (!isProviderRuntimeActive()) {
+            throw new Error("Browser node delegation provider lifecycle is no longer active.");
+          }
+          if (!isConsumerRuntimeActive()) {
+            throw new Error("Browser node delegation consumer lifecycle is no longer active.");
+          }
+          return await withPluginRuntimeGatewayRequestAuthority(isBrowserNodeDelegationActive, () =>
+            runWithPluginScope(() =>
+              registration.delegation.request({ ...params, consumerPluginId: pluginId }),
+            ),
+          );
+        },
+      };
+    });
+    pluginRuntimeByRecord.set(record, runtime);
     return runtime;
   };
 
@@ -614,6 +713,12 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
     resolveRegisteredChannelRuntime: (record: PluginRecord) =>
       resolveRecordChannelRuntime(record, false),
     setPluginRuntimeRecord: (record: PluginRecord) => {
+      const previousRecord = pluginRuntimeRecordById.get(record.id);
+      if (previousRecord && previousRecord !== record) {
+        activePluginRuntimeRecords.delete(previousRecord);
+        revokePluginRecordLifecycleEpoch(registry, previousRecord);
+        browserNodeDelegationEpochByRecord.delete(previousRecord);
+      }
       pluginRuntimeRecordById.set(record.id, record);
       activePluginRuntimeRecords.add(record);
     },
@@ -622,6 +727,7 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
       if (ownedRecord) {
         activePluginRuntimeRecords.delete(ownedRecord);
         revokePluginRecordLifecycleEpoch(registry, ownedRecord);
+        browserNodeDelegationEpochByRecord.delete(ownedRecord);
         registeredAdmissionOwnerByRecord.get(ownedRecord)?.dispose();
         registeredAdmissionOwnerByRecord.delete(ownedRecord);
         if (registeredRuntimeRecordById.get(pluginId) === ownedRecord) {

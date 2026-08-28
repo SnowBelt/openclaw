@@ -6,6 +6,11 @@ import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import {
+  onTrustedInternalDiagnosticEvent,
+  resetDiagnosticEventsForTest,
+  type DiagnosticEventPayload,
+} from "../../infra/diagnostic-events.js";
 import { withEnvAsync } from "../../test-utils/env.js";
 
 vi.mock("../../config/config.js", () => {
@@ -246,6 +251,7 @@ async function withUsageState(
 describe("sessions.usage", () => {
   beforeEach(() => {
     testApi.sessionsUsageCache.clear();
+    resetDiagnosticEventsForTest();
     vi.useRealTimers();
     vi.clearAllMocks();
   });
@@ -306,6 +312,81 @@ describe("sessions.usage", () => {
     expect(mockArg(withKey, 0, 0)).toBe(false);
     expect(vi.mocked(discoverAllSessions)).not.toHaveBeenCalled();
   });
+
+  it("rejects cross-agent specific keys before usage resolution and redacts the session tail", async () => {
+    const events: DiagnosticEventPayload[] = [];
+    const stop = onTrustedInternalDiagnosticEvent((event) => events.push(event));
+    const config: OpenClawConfig = {
+      agents: {
+        list: [{ id: "main" }, { id: "worker" }],
+      },
+      session: {},
+    };
+
+    const respond = await runSessionsUsage(
+      {
+        ...BASE_USAGE_RANGE,
+        key: "agent:main:direct:user-1",
+        agentId: "worker",
+      },
+      config,
+    );
+    stop();
+
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(mockArg(respond, 0, 0)).toBe(false);
+    expect(mockArg(respond, 0, 2)).toMatchObject({
+      code: "INVALID_REQUEST",
+      message: 'agent "worker" does not match session key agent "main"',
+    });
+    expect(JSON.stringify(respond.mock.calls)).not.toContain("user-1");
+    expect(vi.mocked(loadCombinedSessionStoreForGatewayCore)).not.toHaveBeenCalled();
+    expect(vi.mocked(discoverAllSessions)).not.toHaveBeenCalled();
+    expect(events.map((event) => event.type)).toEqual([
+      "session_steward.boundary_decision",
+      "session_steward.boundary_rejected",
+    ]);
+    expect(JSON.stringify(events)).not.toContain("user-1");
+    expect(events[1]).toMatchObject({
+      type: "session_steward.boundary_rejected",
+      affectedSession: "agent:main:REDACTED",
+      outcome: "reject",
+    });
+  });
+
+  it.each(["agent::main", "agent:main:"])(
+    "rejects malformed specific key %s without exposing it",
+    async (key) => {
+      const events: DiagnosticEventPayload[] = [];
+      const stop = onTrustedInternalDiagnosticEvent((event) => events.push(event));
+      const respond = await runSessionsUsage({
+        ...BASE_USAGE_RANGE,
+        key,
+        agentId: "main",
+      });
+      stop();
+
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(mockArg(respond, 0, 0)).toBe(false);
+      expect(mockArg(respond, 0, 2)).toMatchObject({
+        code: "INVALID_REQUEST",
+        message: "malformed session boundary",
+      });
+      expect(JSON.stringify(respond.mock.calls)).not.toContain(key);
+      expect(JSON.stringify(events)).not.toContain(key);
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({
+        type: "session_steward.boundary_decision",
+        affectedSession: "UNKNOWN",
+        outcome: "reject",
+      });
+      expect(events[1]).toMatchObject({
+        type: "session_steward.boundary_rejected",
+        affectedSession: "UNKNOWN",
+        outcome: "reject",
+      });
+    },
+  );
 
   it("uses the requested agent for list-style usage queries", async () => {
     const respond = await runSessionsUsage({ ...BASE_USAGE_RANGE, agentId: "opus" });
