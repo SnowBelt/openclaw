@@ -6,14 +6,10 @@ import {
   parsePluginInstallRecordMap,
   PluginInstallRecordSchema,
 } from "../config/plugin-install-record-map.js";
-import { isSqliteSchemaVersionError } from "../infra/sqlite-user-version.js";
-import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import { safeParseWithSchema } from "../utils/zod-parse.js";
 import { recordInstalledPluginIndexInstallOwner } from "./installed-plugin-index-install-owner.js";
-import {
-  resolveInstalledPluginIndexStateDatabaseOptions,
-  type InstalledPluginIndexStoreOptions,
-} from "./installed-plugin-index-store-path.js";
+import { getPersistedInstalledPluginIndexCacheEntry } from "./installed-plugin-index-record-state.js";
+import type { InstalledPluginIndexStoreOptions } from "./installed-plugin-index-store-path.js";
 import {
   extractPluginInstallRecordsFromInstalledPluginIndex,
   INSTALLED_PLUGIN_INDEX_VERSION,
@@ -181,6 +177,12 @@ export function readInstalledPluginIndexRow(
     .prepare("SELECT value_json FROM config_machine_state WHERE state_key = ?")
     // SAFETY: config_machine_state.value_json is TEXT NOT NULL under STRICT.
     .get(INSTALLED_PLUGIN_INDEX_STATE_KEY) as { value_json: string } | undefined;
+  return parsePersistedInstalledPluginIndexRow(row);
+}
+
+function parsePersistedInstalledPluginIndexRow(
+  row: { value_json: string } | undefined,
+): PersistedInstalledPluginIndexValue | undefined {
   if (!row) {
     return undefined;
   }
@@ -197,27 +199,6 @@ export function readInstalledPluginIndexRow(
   return value as PersistedInstalledPluginIndexValue;
 }
 
-function readPersistedInstalledPluginIndexFromSqlite(
-  options: InstalledPluginIndexStoreOptions = {},
-): InstalledPluginIndex | null {
-  if (options.filePath?.endsWith(".json")) {
-    return null;
-  }
-  try {
-    return (
-      withExistingOpenClawStateDatabaseReadOnly(
-        ({ db }) => parseInstalledPluginIndexSqliteRow(readInstalledPluginIndexRow(db)),
-        resolveInstalledPluginIndexStateDatabaseOptions(options),
-      ) ?? null
-    );
-  } catch (error) {
-    if (isSqliteSchemaVersionError(error)) {
-      throw error;
-    }
-    return null;
-  }
-}
-
 export async function readPersistedInstalledPluginIndex(
   options: InstalledPluginIndexStoreOptions = {},
 ): Promise<InstalledPluginIndex | null> {
@@ -227,5 +208,16 @@ export async function readPersistedInstalledPluginIndex(
 export function readPersistedInstalledPluginIndexSync(
   options: InstalledPluginIndexStoreOptions = {},
 ): InstalledPluginIndex | null {
-  return readPersistedInstalledPluginIndexFromSqlite(options);
+  const entry = getPersistedInstalledPluginIndexCacheEntry(options);
+  if (entry.index === undefined) {
+    const value = entry.state.status === "present" ? entry.state.value : undefined;
+    entry.index =
+      value &&
+      typeof value === "object" &&
+      "revision" in value &&
+      typeof value.revision === "number"
+        ? parseInstalledPluginIndex("index" in value ? value.index : undefined)
+        : null;
+  }
+  return entry.index;
 }

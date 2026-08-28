@@ -32,6 +32,7 @@ import { SwarmActivityTracker } from "./swarm-activity.ts";
 export {
   buildSessionUsageDateParams,
   requestSessionUsage,
+  requestSessionUsageContextWeight,
   requestSessionUsageLogs,
   requestSessionUsageTimeSeries,
 } from "./usage.ts";
@@ -43,7 +44,7 @@ export type {
   SessionMessageSubscription,
 } from "./session-capability.ts";
 export type { SessionPatch } from "./patch.ts";
-export { DEFAULT_SESSION_LIST_QUERY } from "./session-requests.ts";
+export { DEFAULT_SESSION_LIST_QUERY, SESSIONS_PAGE_DEFAULT_LIMIT } from "./session-requests.ts";
 export { reconcileSessionRunTerminal, type SessionRunTerminal } from "./reconcile.ts";
 export { requestSessionCreate } from "./create.ts";
 export { resolveSessionKey } from "./navigation.ts";
