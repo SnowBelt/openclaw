@@ -4747,7 +4747,7 @@ describe("browser observation actions and tab previews", () => {
       browserTab: { targetId: "canonical", url: payload.url },
     });
     if (target === "node") {
-      expect(nodeInvokeCall(0).request.params).toMatchObject({
+      expect(nodeInvokeCall(0).request).toMatchObject({
         method: "GET",
         path: "/requests",
         query: { filter: "fetch", clear: true },
@@ -4883,7 +4883,7 @@ describe("browser observation actions and tab previews", () => {
       browserTab: { targetId: "canonical", url: payload.url },
     });
     if (target === "node") {
-      expect(nodeInvokeCall(0).request.params).toMatchObject({
+      expect(nodeInvokeCall(0).request).toMatchObject({
         method: "GET",
         path: "/text",
         query: { selector: "article", maxChars: DEFAULT_AI_SNAPSHOT_MAX_CHARS },
@@ -4992,7 +4992,7 @@ describe("browser observation actions and tab previews", () => {
       ] as const;
       expected.forEach(([setting, body], index) => {
         if (target === "node") {
-          expect(nodeInvokeCall(index).request.params).toMatchObject({
+          expect(nodeInvokeCall(index).request).toMatchObject({
             method: "POST",
             path: `/set/${setting}`,
             body,
