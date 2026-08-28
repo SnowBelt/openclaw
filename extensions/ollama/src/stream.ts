@@ -823,11 +823,11 @@ function normalizeOllamaToolSchema(schema: unknown, isRoot = false): Record<stri
     normalized[key] = value;
   }
 
-  const schemaType = normalized.type;
+  const normalizedType = normalized.type;
   if (
-    typeof schemaType !== "string" &&
-    (!Array.isArray(schemaType) ||
-      !schemaType.some((entry) => typeof entry === "string" && entry !== "null"))
+    typeof normalizedType !== "string" &&
+    (!Array.isArray(normalizedType) ||
+      !normalizedType.some((entry) => typeof entry === "string" && entry !== "null"))
   ) {
     normalized.type = inferOllamaSchemaType(normalized) ?? (isRoot ? "object" : "string");
   }
@@ -1317,7 +1317,7 @@ function parseOllamaStructuredJson(text: string): unknown {
   const candidates = new Set<string>([original]);
   const firstObject = original.indexOf("{");
   const firstArray = original.indexOf("[");
-  const starts = [firstObject, firstArray].filter((index) => index >= 0).sort((a, b) => a - b);
+  const starts = [firstObject, firstArray].filter((index) => index >= 0).toSorted((a, b) => a - b);
   if (starts[0] !== undefined && starts[0] > 0) {
     candidates.add(original.slice(starts[0]));
   }
@@ -1337,9 +1337,8 @@ function parseOllamaStructuredJson(text: string): unknown {
     }
   }
 
-  throw new Error(
-    `Ollama structured output was not JSON: ${firstError instanceof Error ? firstError.message : String(firstError ?? "invalid JSON")}`,
-  );
+  const errorMessage = firstError === undefined ? "invalid JSON" : formatErrorMessage(firstError);
+  throw new Error(`Ollama structured output was not JSON: ${errorMessage}`);
 }
 
 function closeJsonDelimiter(open: "{" | "["): "}" | "]" {
@@ -1349,7 +1348,7 @@ function closeJsonDelimiter(open: "{" | "["): "}" | "]" {
 function balanceJsonEnvelope(text: string): string | undefined {
   const firstObject = text.indexOf("{");
   const firstArray = text.indexOf("[");
-  const starts = [firstObject, firstArray].filter((index) => index >= 0).sort((a, b) => a - b);
+  const starts = [firstObject, firstArray].filter((index) => index >= 0).toSorted((a, b) => a - b);
   const start = starts[0];
   if (start === undefined) {
     return undefined;

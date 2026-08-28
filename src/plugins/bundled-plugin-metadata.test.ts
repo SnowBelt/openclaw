@@ -53,6 +53,7 @@ const EXPECTED_BUNDLED_STARTUP_PLUGIN_IDS = [
   "openshell",
   "phone-control",
   "policy",
+  "research-manager",
   "talk-voice",
   "thread-ownership",
   "voice-call",

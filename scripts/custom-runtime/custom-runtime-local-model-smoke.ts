@@ -290,13 +290,18 @@ export function runReadOnly(
       timeout: 5_000,
       maxBuffer: 128 * 1024,
       stdio: ["ignore", "pipe", "pipe"],
-    }).toString();
+    });
   } catch (error) {
     // lsof exits 1 when a valid query has no matching sockets. Treat that as
     // an empty observation; preserve non-empty stderr and every other failure
     // as a hard probe error so permission/tool failures cannot look quiescent.
     const probeError = error as { status?: unknown; stderr?: unknown };
-    const stderr = probeError.stderr == null ? "" : String(probeError.stderr);
+    const stderr =
+      typeof probeError.stderr === "string"
+        ? probeError.stderr
+        : Buffer.isBuffer(probeError.stderr)
+          ? probeError.stderr.toString("utf8")
+          : "";
     if (command === "lsof" && probeError.status === 1 && stderr.trim() === "") {
       return "";
     }
@@ -344,12 +349,12 @@ export function readLocalModelResourceSnapshot(): LocalModelResourceSnapshot {
   );
   const activeClients = [...clients]
     .filter((pid) => !listeners.has(pid) && pid !== selfPid)
-    .sort((a, b) => a - b);
+    .toSorted((a, b) => a - b);
   return {
     observedAt: new Date().toISOString(),
     activeOpenClawWorkerCount: workers.size,
     activeOllamaClientCount: activeClients.length,
-    activeOpenClawWorkerPids: [...workers].sort((a, b) => a - b),
+    activeOpenClawWorkerPids: [...workers].toSorted((a, b) => a - b),
     activeOllamaClientPids: activeClients,
   };
 }
@@ -471,7 +476,9 @@ function processGroupAlive(pid: number): boolean {
 async function waitForProcessGroupGone(pid: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (processGroupAlive(pid) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
   }
   return !processGroupAlive(pid);
 }
@@ -534,7 +541,15 @@ function executeOwnedProcess(params: {
     let stdoutTruncated = false;
     let stderrTruncated = false;
     let timedOut = false;
-    let timeout: NodeJS.Timeout | undefined;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      const pid = child?.pid;
+      void (async () => {
+        const ownedProcessCleanup =
+          pid === undefined ? true : await terminateOwnedProcessGroup(pid);
+        finish(null, "SIGTERM", ownedProcessCleanup);
+      })();
+    }, params.timeoutMs);
     let settled = false;
     const finish = (
       status: number | null,
@@ -581,15 +596,6 @@ function executeOwnedProcess(params: {
       finish(null, null);
     });
     child.once("close", (status, signal) => finish(status, signal));
-    timeout = setTimeout(() => {
-      timedOut = true;
-      const pid = child?.pid;
-      void (async () => {
-        const ownedProcessCleanup =
-          pid === undefined ? true : await terminateOwnedProcessGroup(pid);
-        finish(null, "SIGTERM", ownedProcessCleanup);
-      })();
-    }, params.timeoutMs);
     timeout.unref?.();
   });
 }
