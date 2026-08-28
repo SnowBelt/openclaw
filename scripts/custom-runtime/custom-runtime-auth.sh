@@ -259,6 +259,59 @@ for field, value in expected.items():
     if record.get(field) != value:
         fail(f"{field} does not match")
 PY
+  if [ "$?" -ne 0 ]; then
+    return 78
+  fi
+  custom_runtime_migration_candidate_version=$(python3 - "$custom_runtime_migration_candidate_root/config/release-governor-policy.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    version = json.load(handle).get("version")
+if not isinstance(version, int) or isinstance(version, bool):
+    raise SystemExit("candidate policy version is invalid")
+print(version)
+PY
+  ) || return 78
+  if [ "$custom_runtime_migration_candidate_version" -ge 4 ]; then
+    custom_runtime_require_signed_policy_migration \
+      "$custom_runtime_migration_record" "$custom_runtime_migration_operation" \
+      "$custom_runtime_migration_candidate_sha" "$custom_runtime_migration_candidate_root" || return $?
+  fi
+}
+
+# Policy v4 is the first release-governance policy that can authorize a
+# candidate transition from a private receipt. Require the local Ed25519
+# device signature for that boundary; older test fixtures remain valid only
+# for their older policy versions.
+custom_runtime_require_signed_policy_migration() {
+  custom_runtime_signed_migration_record=${1:-}
+  custom_runtime_signed_migration_operation=${2:-}
+  custom_runtime_signed_migration_candidate_sha=${3:-}
+  custom_runtime_signed_migration_candidate_root=${4:-}
+  custom_runtime_signed_migration_helper="$custom_runtime_signed_migration_candidate_root/scripts/custom-runtime/custom-runtime-signature.mjs"
+  [ -f "$custom_runtime_signed_migration_helper" ] && [ ! -L "$custom_runtime_signed_migration_helper" ] || {
+    printf '%s\n' 'release governance policy migration blocked: signature verifier is missing' >&2
+    return 78
+  }
+  if [ -n "${OPENCLAW_DEVICE_IDENTITY_PATH:-}" ]; then
+    if ! "${OPENCLAW_NODE_BIN:-node}" "$custom_runtime_signed_migration_helper" verify \
+      --record "$custom_runtime_signed_migration_record" \
+      --operation "$custom_runtime_signed_migration_operation" \
+      --candidate-sha "$custom_runtime_signed_migration_candidate_sha" \
+      --identity "$OPENCLAW_DEVICE_IDENTITY_PATH" >/dev/null; then
+      printf '%s\n' 'release governance policy migration blocked: device signature is invalid' >&2
+      return 78
+    fi
+  else
+    if ! "${OPENCLAW_NODE_BIN:-node}" "$custom_runtime_signed_migration_helper" verify \
+      --record "$custom_runtime_signed_migration_record" \
+      --operation "$custom_runtime_signed_migration_operation" \
+      --candidate-sha "$custom_runtime_signed_migration_candidate_sha" >/dev/null; then
+      printf '%s\n' 'release governance policy migration blocked: device signature is invalid' >&2
+      return 78
+    fi
+  fi
 }
 
 # Resolve the governor from the active immutable runtime whenever possible. A

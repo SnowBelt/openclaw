@@ -25,13 +25,13 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 
 usage() {
   printf '%s\n' \
-    'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' \
+    'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--provenance-migration PATH] [--port 18789] [--enable-sig-background]' \
     '       custom-runtime-promote.sh --lease-acquire|--lease-heartbeat|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification|human-usability-finalization --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600] [--usability-campaign PATH]' \
     '       custom-runtime-promote.sh --lease-recover-orphaned --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification --approval-id ID --operation-id ID --invocation-id ID --recovery-approval-id ID --activity-proof PATH --github-repo OWNER/REPO --reason ID' \
     '       custom-runtime-promote.sh --lease-status' >&2
   exit 64
 }
-release= source_sha= source_repo= source_branch= port=18789 enable_sig_background=false
+release= source_sha= source_repo= source_branch= provenance_migration= port=18789 enable_sig_background=false
 lease_action= lease_active_sha= lease_candidate_sha= lease_owner= lease_operation_class=
 lease_ttl_seconds= lease_approval_id= lease_operation_id= lease_invocation_id=
 lease_usability_campaign=
@@ -42,6 +42,7 @@ while [ $# -gt 0 ]; do
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --source-repo) source_repo=${2:-}; shift 2 ;;
     --source-branch) source_branch=${2:-}; shift 2 ;;
+    --provenance-migration) provenance_migration=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
     --lease-acquire) [ -z "$lease_action" ] || usage; lease_action=acquire; shift ;;
@@ -186,6 +187,57 @@ if [ "$(tr -d '[:space:]' < "$stamp_file")" != "$source_sha" ]; then
   printf '%s\n' 'release source stamp conflicts with requested source SHA' >&2
   exit 64
 fi
+verify_release_source_provenance() {
+  provenance_envelope="$release/.openclaw-runtime-provenance.json"
+  if [ ! -e "$provenance_envelope" ]; then
+    return 0
+  fi
+  [ -f "$provenance_envelope" ] && [ ! -L "$provenance_envelope" ] || {
+    printf '%s\n' 'promotion blocked: source provenance envelope is unsafe' >&2
+    return 1
+  }
+  provenance_fields=$(python3 - "$provenance_envelope" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    value = json.load(handle)
+if value.get("schema") != "openclaw.custom-runtime-runtime-provenance.v1":
+    raise SystemExit("source provenance envelope schema is invalid")
+if value.get("sourceSha") is None or not isinstance(value.get("recordPath"), str):
+    raise SystemExit("source provenance envelope is incomplete")
+print(value["recordPath"])
+print(value.get("migrationPath", ""))
+print(value.get("historicalSourceSha", ""))
+print(value.get("recordSha256", ""))
+print(value.get("migrationSha256", ""))
+PY
+) || return 1
+  provenance_record=$(printf '%s\n' "$provenance_fields" | sed -n '1p')
+  provenance_migration=$(printf '%s\n' "$provenance_fields" | sed -n '2p')
+  provenance_historical=$(printf '%s\n' "$provenance_fields" | sed -n '3p')
+  provenance_record_sha=$(printf '%s\n' "$provenance_fields" | sed -n '4p')
+  provenance_migration_sha=$(printf '%s\n' "$provenance_fields" | sed -n '5p')
+  [ -f "$provenance_record" ] && [ ! -L "$provenance_record" ] || return 1
+  [ "$(shasum -a 256 "$provenance_record" | awk '{print $1}')" = "$provenance_record_sha" ] || return 1
+  provenance_helper="$release/scripts/custom-runtime/custom-runtime-source-provenance.mjs"
+  [ -f "$provenance_helper" ] && [ ! -L "$provenance_helper" ] || return 1
+  "${OPENCLAW_NODE_BIN:-node}" "$provenance_helper" verify --record "$provenance_record" \
+    --expected-sha "$source_sha" --deep true >/dev/null || return 1
+  if [ -n "$provenance_migration" ]; then
+    [ -n "$provenance_historical" ] && [ -n "$provenance_migration_sha" ] || return 1
+    [ "$(shasum -a 256 "$provenance_migration" | awk '{print $1}')" = "$provenance_migration_sha" ] || return 1
+    [ -n "$provenance_migration" ] || return 1
+    "${OPENCLAW_NODE_BIN:-node}" "$provenance_helper" verify-migration \
+      --migration "$provenance_migration" --historical-source-sha "$provenance_historical" \
+      --candidate-sha "$source_sha" >/dev/null || return 1
+  fi
+  return 0
+}
+verify_release_source_provenance || {
+  printf '%s\n' 'promotion blocked: durable source provenance verification failed' >&2
+  exit 64
+}
 custom_runtime_require_release_governance promotion "$source_sha" "$release"
 mkdir -p "$runtime_home/backups" "$runtime_home/receipts" "$runtime_home/locks"
 rollback_bundle_tmp=
@@ -236,30 +288,67 @@ fi
 custom_runtime_certification_lease verify-promotion "$runtime_home" \
   "$active_source_sha" "$source_sha" "" "" "" || exit $?
 if [ -n "$active_source_sha" ] && [ "$active_source_sha" != "$source_sha" ]; then
-  [ -n "$source_repo" ] && [ -n "$source_branch" ] || {
-    printf '%s\n' 'promotion blocked: source repository and branch are required to verify active runtime ancestry' >&2
-    exit 64
-  }
-  git -C "$source_repo" cat-file -e "$active_source_sha^{commit}" 2>/dev/null || {
-    printf '%s\n' 'promotion blocked: active runtime source commit is unavailable' >&2
-    exit 64
-  }
-  git -C "$source_repo" cat-file -e "$source_sha^{commit}" 2>/dev/null || {
-    printf '%s\n' 'promotion blocked: candidate source commit is unavailable' >&2
-    exit 64
-  }
-  branch_sha=$(git -C "$source_repo" rev-parse --verify "$source_branch^{commit}" 2>/dev/null) || {
-    printf '%s\n' 'promotion blocked: candidate source branch is unavailable' >&2
-    exit 64
-  }
-  [ "$branch_sha" = "$source_sha" ] || {
-    printf '%s\n' 'promotion blocked: candidate source branch does not identify the requested source SHA' >&2
-    exit 64
-  }
-  git -C "$source_repo" merge-base --is-ancestor "$active_source_sha" "$source_sha" || {
-    printf '%s\n' 'promotion blocked: active managed runtime is not an ancestor of the candidate' >&2
-    exit 64
-  }
+  if [ -n "$provenance_migration" ]; then
+    [ -f "$provenance_migration" ] && [ ! -L "$provenance_migration" ] || {
+      printf '%s\n' 'promotion blocked: provenance migration is missing or unsafe' >&2
+      exit 64
+    }
+    release_migration=$(python3 - "$release/.openclaw-runtime-provenance.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    value = json.load(handle)
+migration = value.get("migrationPath")
+if not isinstance(migration, str) or not migration:
+    raise SystemExit("release source provenance migration is missing")
+print(migration)
+PY
+) || {
+      printf '%s\n' 'promotion blocked: release provenance migration is missing' >&2
+      exit 64
+    }
+    [ "$(cd "$(dirname "$release_migration")" && pwd -P)/$(basename "$release_migration")" = \
+      "$(cd "$(dirname "$provenance_migration")" && pwd -P)/$(basename "$provenance_migration")" ] || {
+      printf '%s\n' 'promotion blocked: requested provenance migration is not the release migration' >&2
+      exit 64
+    }
+    [ -z "$source_repo" ] && [ -z "$source_branch" ] || {
+      printf '%s\n' 'promotion blocked: legacy source paths cannot accompany a provenance migration' >&2
+      exit 64
+    }
+    "$release/scripts/custom-runtime/custom-runtime-source-provenance.mjs" verify-migration \
+      --migration "$provenance_migration" --historical-source-sha "$active_source_sha" \
+      --candidate-sha "$source_sha" >/dev/null || {
+        printf '%s\n' 'promotion blocked: provenance migration identity is invalid' >&2
+        exit 64
+      }
+  else
+    [ -n "$source_repo" ] && [ -n "$source_branch" ] || {
+      printf '%s\n' 'promotion blocked: source repository and branch are required to verify active runtime ancestry' >&2
+      exit 64
+    }
+    git -C "$source_repo" cat-file -e "$active_source_sha^{commit}" 2>/dev/null || {
+      printf '%s\n' 'promotion blocked: active runtime source commit is unavailable' >&2
+      exit 64
+    }
+    git -C "$source_repo" cat-file -e "$source_sha^{commit}" 2>/dev/null || {
+      printf '%s\n' 'promotion blocked: candidate source commit is unavailable' >&2
+      exit 64
+    }
+    branch_sha=$(git -C "$source_repo" rev-parse --verify "$source_branch^{commit}" 2>/dev/null) || {
+      printf '%s\n' 'promotion blocked: candidate source branch is unavailable' >&2
+      exit 64
+    }
+    [ "$branch_sha" = "$source_sha" ] || {
+      printf '%s\n' 'promotion blocked: candidate source branch does not identify the requested source SHA' >&2
+      exit 64
+    }
+    git -C "$source_repo" merge-base --is-ancestor "$active_source_sha" "$source_sha" || {
+      printf '%s\n' 'promotion blocked: active managed runtime is not an ancestor of the candidate' >&2
+      exit 64
+    }
+  fi
 fi
 
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
@@ -388,9 +477,9 @@ fi
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
 capability_manifest_sha=$(shasum -a 256 "$capability_manifest" | awk '{print $1}')
 pointer_tmp="$runtime_home/active-runtime.$$.json"
-python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" "$source_repo" "$source_branch" <<'PY'
+python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" "$source_repo" "$source_branch" "$release/.openclaw-runtime-provenance.json" <<'PY'
 import json, os, sys
-target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at, source_repo, source_branch = sys.argv[1:]
+target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at, source_repo, source_branch, provenance_path = sys.argv[1:]
 previous = None
 previous_required = []
 previous_capabilities = []
@@ -448,7 +537,15 @@ if missing_capabilities:
     raise SystemExit("release removed required custom capabilities: " + ", ".join(missing_capabilities))
 required = list(dict.fromkeys([*previous_required, *surfaces.keys()]))
 required_capabilities = list(dict.fromkeys([*previous_capabilities, *capabilities.keys()]))
-data = {"schemaVersion": 1, "releaseId": os.path.basename(root), "runtimeRoot": root,
+provenance = None
+if os.path.exists(provenance_path):
+    if os.path.islink(provenance_path):
+        raise SystemExit("release source provenance envelope is unsafe")
+    with open(provenance_path, encoding="utf-8") as f:
+        provenance = json.load(f)
+    if not isinstance(provenance, dict) or provenance.get("sourceSha") != sha:
+        raise SystemExit("release source provenance envelope does not match the candidate")
+data = {"schemaVersion": 2 if provenance is not None else 1, "releaseId": os.path.basename(root), "runtimeRoot": root,
         "entrypoint": os.path.join(root, "dist", "index.js"), "sourceSha": sha,
         "openclawVersion": version, "manifestPath": manifest,
         "manifestSha256": manifest_sha,
@@ -457,6 +554,8 @@ data = {"schemaVersion": 1, "releaseId": os.path.basename(root), "runtimeRoot": 
         "capabilityManifestSha256": capability_manifest_sha,
         "requiredCapabilities": required_capabilities,
         "previousRelease": previous, "promotedAt": promoted_at}
+if provenance is not None:
+    data["sourceProvenance"] = provenance
 if source_repo and source_branch:
     data["sourceRepo"] = source_repo
     data["sourceBranch"] = source_branch

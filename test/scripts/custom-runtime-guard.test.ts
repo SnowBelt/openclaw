@@ -14,6 +14,10 @@ describe("custom runtime guard verification cache", () => {
     expect(guard).toContain("pointerSha256");
     expect(guard).toContain("launcherSha256");
     expect(guard).toContain("plistSha256");
+    expect(guard).toContain("provenanceSha256");
+    expect(guard).toContain("provenanceRecordSha256");
+    expect(guard).toContain("provenanceMigrationSha256");
+    expect(guard).toContain("provenance_invalid=false");
     expect(guard).toContain('pgrep -f "$runtime_root/dist/index.js gateway"');
     expect(guard).toContain('"$launcher" --verify');
     expect(guard).toContain("os.lstat(path)");

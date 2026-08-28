@@ -33,36 +33,45 @@ pointer_fields=$(python3 - "$active_pointer" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     value = json.load(f)
-for key in ("sourceSha", "sourceRepo", "sourceBranch", "capabilityManifestPath"):
-    item = value.get(key, "")
+print(value.get("sourceSha", "") if isinstance(value.get("sourceSha"), str) else "")
+provenance = value.get("sourceProvenance")
+if not isinstance(provenance, dict):
+    provenance = {}
+for key in ("recordPath", "recordSha256", "treeSha", "storePath"):
+    item = provenance.get(key, "")
     print(item if isinstance(item, str) else "")
 PY
 ) || fail active_pointer
 active_sha=$(printf '%s\n' "$pointer_fields" | sed -n '1p')
-pointer_repo=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
-pointer_branch=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
-active_capability_manifest=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
-[ -n "$repo" ] || repo=$pointer_repo
-[ -n "$branch" ] || branch=$pointer_branch
-[ -n "$repo" ] && [ -n "$branch" ] || fail durable_source_config
+provenance_record=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
+provenance_record_sha=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
+provenance_tree=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
+provenance_store=$(printf '%s\n' "$pointer_fields" | sed -n '5p')
 case "$active_sha" in *[!0-9a-fA-F]*|'') fail durable_source_sha ;; esac
-[ "${#active_sha}" -eq 40 ] || fail durable_source_sha
-[ -d "$repo/.git" ] || git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || fail durable_source_repo
-[ -z "$(git -C "$repo" status --porcelain)" ] || fail durable_source_dirty
-git -C "$repo" cat-file -e "$active_sha^{commit}" 2>/dev/null || fail durable_source_missing_commit
-git -C "$repo" rev-parse --verify "$branch^{commit}" >/dev/null 2>&1 || fail durable_source_branch
-git -C "$repo" merge-base --is-ancestor "$active_sha" "$branch" || fail durable_source_branch_history
-[ -f "$repo/config/custom-runtime-capabilities.json" ] || fail durable_source_capabilities
-[ -f "$repo/scripts/custom-runtime/custom-runtime-activate.sh" ] || fail durable_source_control_plane
+[ "${#active_sha}" -eq 40 ] || [ "${#active_sha}" -eq 64 ] || fail durable_source_sha
+if [ -n "$provenance_record" ]; then
+  [ -n "$provenance_record_sha" ] && [ -n "$provenance_tree" ] && [ -n "$provenance_store" ] || fail durable_source_provenance
+  [ -f "$provenance_record" ] && [ ! -L "$provenance_record" ] || fail durable_source_provenance
+  [ "$(shasum -a 256 "$provenance_record" | awk '{print $1}')" = "$provenance_record_sha" ] || fail durable_source_provenance
+  provenance_helper="$runtime_home/bin/custom-runtime-source-provenance.mjs"
+  [ -f "$provenance_helper" ] && [ ! -L "$provenance_helper" ] || fail durable_source_provenance
+  "${OPENCLAW_NODE_BIN:-node}" "$provenance_helper" verify --record "$provenance_record" \
+    --expected-sha "$active_sha" --deep true >/dev/null || fail durable_source_provenance
+  [ -d "$provenance_store" ] && [ ! -L "$provenance_store" ] || fail durable_source_provenance
+  source_git() { git --git-dir "$provenance_store" "$@"; }
+  repo="$provenance_store"
+  branch="refs/provenance/$active_sha"
+else
+  fail durable_source_provenance
+fi
+source_git cat-file -e "$active_sha^{commit}" 2>/dev/null || fail durable_source_missing_commit
+source_git rev-parse --verify "$branch^{commit}" >/dev/null 2>&1 || fail durable_source_branch
+source_git rev-parse "$active_sha^{tree}" >/dev/null 2>&1 || fail durable_source_tree
 active_source_manifest="$receipts/active-capabilities-$stamp.json"
 active_source_manifest_tmp="$active_source_manifest.tmp"
-git -C "$repo" show "$active_sha:config/custom-runtime-capabilities.json" \
+source_git show "$active_sha:config/custom-runtime-capabilities.json" \
   > "$active_source_manifest_tmp" || fail durable_source_capabilities
 mv "$active_source_manifest_tmp" "$active_source_manifest"
-if [ -n "$active_capability_manifest" ]; then
-  [ -f "$active_capability_manifest" ] || fail durable_source_capabilities
-  cmp -s "$active_capability_manifest" "$active_source_manifest" || fail durable_source_capabilities
-fi
 active_capability_manifest=$active_source_manifest
 
 if [ -z "$official_ref" ]; then
@@ -70,17 +79,17 @@ if [ -z "$official_ref" ]; then
   case "$stable_version" in ''|*[!0-9.]*) fail stable_version_invalid ;; esac
   official_ref="v$stable_version"
 fi
-git -C "$repo" fetch --prune --tags "$official_remote" || fail fetch
-git -C "$repo" rev-parse --verify "$official_ref^{commit}" >/dev/null 2>&1 || fail stable_ref
+source_git fetch --prune --tags "$official_remote" || fail fetch
+source_git rev-parse --verify "$official_ref^{commit}" >/dev/null 2>&1 || fail stable_ref
 
 base_ref=$active_sha
-if git -C "$repo" merge-base --is-ancestor "$official_ref" "$base_ref"; then
+if source_git merge-base --is-ancestor "$official_ref" "$base_ref"; then
   printf '{"at":"%s","result":"no_update","stableRef":"%s","base":"%s"}\n' \
     "$stamp" "$official_ref" "$base_ref" > "$receipt"
   exit 0
 fi
 
-git -C "$repo" worktree add -b "$update_branch" "$candidate" "$base_ref" || fail worktree
+source_git worktree add -b "$update_branch" "$candidate" "$base_ref" || fail worktree
 if ! git -C "$candidate" merge --no-ff --no-edit "$official_ref"; then
   git -C "$candidate" diff --binary > "$candidate/openclaw-update-merge-conflict.patch" || true
   git -C "$candidate" merge --abort || true

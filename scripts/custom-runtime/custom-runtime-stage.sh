@@ -79,43 +79,48 @@ python3 "$(dirname "$0")/copy_stage_state.py" "$state_source" "$stage/state" \
   > "$stage/state-copy.json"
 
 # Keep staging local-only and side-effect-free while retaining dashboard plugins
-# declared by the candidate capability contract.
-python3 - "$stage/openclaw.director.json" "$capability_manifest" "$port" <<'PY'
-import json, os, stat, sys
+# declared by the candidate capability contract. The authored config is JSON5;
+# using the installed canonical parser here avoids the old strict-JSON bypass.
+OPENCLAW_STAGE_RELEASE="$release" node --input-type=module - "$stage/openclaw.director.json" "$capability_manifest" "$port" <<'NODE'
+import fs from "node:fs";
+import { createRequire } from "node:module";
 
-path, capability_manifest, port = sys.argv[1:]
-with open(path, encoding="utf-8") as f:
-    config = json.load(f)
-with open(capability_manifest, encoding="utf-8") as f:
-    manifest = json.load(f)
-plugins = config.get("plugins", {})
-allowed = plugins.get("allow", [])
-entries = plugins.get("entries", {})
-required_plugins = [
-    item.get("pluginId") for item in manifest.get("capabilities", [])
-    if isinstance(item, dict) and item.get("kind") == "plugin"
-]
-if not required_plugins or not all(isinstance(item, str) and item for item in required_plugins):
-    raise SystemExit("candidate capability manifest has no valid required plugins")
-for plugin_id in required_plugins:
-    if plugin_id not in allowed or entries.get(plugin_id, {}).get("enabled") is not True:
-        raise SystemExit(f"required dashboard plugin unavailable: {plugin_id}")
-gateway = config.setdefault("gateway", {})
-if not isinstance(gateway, dict):
-    raise SystemExit("gateway config must be an object")
-gateway["port"] = int(port)
-tailscale = gateway.setdefault("tailscale", {})
-if not isinstance(tailscale, dict):
-    raise SystemExit("gateway.tailscale config must be an object")
-tailscale["mode"] = "off"
-mode = stat.S_IMODE(os.stat(path).st_mode)
-temporary = path + ".tmp"
-with open(temporary, "w", encoding="utf-8") as f:
-    json.dump(config, f, indent=2, sort_keys=True)
-    f.write("\n")
-os.chmod(temporary, mode)
-os.replace(temporary, path)
-PY
+const [configPath, capabilityManifestPath, rawPort] = process.argv.slice(2);
+const require = createRequire(`${process.env.OPENCLAW_STAGE_RELEASE}/package.json`);
+const JSON5 = require("json5");
+const config = JSON5.parse(fs.readFileSync(configPath, "utf8"));
+const manifest = JSON.parse(fs.readFileSync(capabilityManifestPath, "utf8"));
+if (!config || typeof config !== "object" || Array.isArray(config)) {
+  throw new Error("candidate config must be an object");
+}
+const plugins = config.plugins && typeof config.plugins === "object" ? config.plugins : {};
+const allowed = Array.isArray(plugins.allow) ? plugins.allow : [];
+const entries = plugins.entries && typeof plugins.entries === "object" ? plugins.entries : {};
+const requiredPlugins = (Array.isArray(manifest.capabilities) ? manifest.capabilities : [])
+  .filter((item) => item && typeof item === "object" && item.kind === "plugin")
+  .map((item) => item.pluginId);
+if (requiredPlugins.length === 0 || requiredPlugins.some((item) => typeof item !== "string" || !item)) {
+  throw new Error("candidate capability manifest has no valid required plugins");
+}
+for (const pluginId of requiredPlugins) {
+  if (!allowed.includes(pluginId) || entries[pluginId]?.enabled !== true) {
+    throw new Error(`required dashboard plugin unavailable: ${pluginId}`);
+  }
+}
+const gateway = config.gateway && typeof config.gateway === "object" ? config.gateway : {};
+config.gateway = gateway;
+const port = Number.parseInt(rawPort, 10);
+if (!Number.isInteger(port) || port < 1 || port > 65535 || String(port) !== rawPort) {
+  throw new Error("candidate Gateway port is invalid");
+}
+gateway.port = port;
+const tailscale = gateway.tailscale && typeof gateway.tailscale === "object" ? gateway.tailscale : {};
+gateway.tailscale = tailscale;
+tailscale.mode = "off";
+const temporary = `${configPath}.tmp-${process.pid}`;
+fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+fs.renameSync(temporary, configPath);
+NODE
 
 # Reuse the launcher's verification logic with a private staging pointer.
 manifest="$release/dist/control-ui/dashboard-surfaces.json"

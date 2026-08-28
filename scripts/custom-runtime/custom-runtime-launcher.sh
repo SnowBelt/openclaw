@@ -70,9 +70,62 @@ case "$runtime_root" in *'/tmp/'*|*'/private/tmp/'*|*'/.worktrees/'*|*'/.npm-glo
 [ "$(tr -d '[:space:]' < "$runtime_root/.openclaw-production-sha")" = "$source_sha" ] || fail "source stamp mismatch"
 seal_marker="$runtime_root/.openclaw-runtime-sealed"
 source_provenance="$runtime_root/.openclaw-runtime-provenance.json"
-if [ -f "$source_provenance" ]; then
-  [ "$(shasum -a 256 "$source_provenance" | awk '{print $1}')" = "$source_sha" ] || \
-    fail "source provenance hash mismatch"
+if [ -L "$source_provenance" ]; then
+  fail "source provenance envelope is a symbolic link"
+elif [ -f "$source_provenance" ]; then
+  provenance_fields=$(python3 - "$source_provenance" "$runtime_home" "$source_sha" <<'PY'
+import json
+import os
+import re
+import sys
+
+envelope_path, runtime_home, expected_sha = sys.argv[1:]
+with open(envelope_path, encoding="utf-8") as handle:
+    envelope = json.load(handle)
+if envelope.get("schema") != "openclaw.custom-runtime-runtime-provenance.v1":
+    raise SystemExit("invalid source provenance envelope schema")
+if envelope.get("sourceSha") != expected_sha:
+    raise SystemExit("source provenance source identity mismatch")
+for key in ("treeSha", "recordPath", "recordSha256"):
+    if not isinstance(envelope.get(key), str) or not envelope[key]:
+        raise SystemExit(f"source provenance envelope field missing: {key}")
+if not re.fullmatch(r"[a-f0-9]{40,64}", str(envelope.get("treeSha"))):
+    raise SystemExit("source provenance tree identity is invalid")
+if not re.fullmatch(r"[a-f0-9]{64}", envelope["recordSha256"]):
+    raise SystemExit("source provenance record hash is invalid")
+provenance_root = os.path.realpath(os.path.join(runtime_home, "source-provenance"))
+record_path = os.path.realpath(envelope["recordPath"])
+if os.path.commonpath((provenance_root, record_path)) != provenance_root:
+    raise SystemExit("source provenance record is outside the private provenance root")
+print(record_path)
+print(envelope["recordSha256"])
+print(envelope.get("migrationPath", ""))
+print(envelope.get("migrationSha256", ""))
+print(envelope.get("historicalSourceSha", ""))
+PY
+) || fail "invalid source provenance envelope"
+  provenance_record=$(printf '%s\n' "$provenance_fields" | sed -n '1p')
+  provenance_record_sha=$(printf '%s\n' "$provenance_fields" | sed -n '2p')
+  provenance_migration=$(printf '%s\n' "$provenance_fields" | sed -n '3p')
+  provenance_migration_sha=$(printf '%s\n' "$provenance_fields" | sed -n '4p')
+  provenance_historical_sha=$(printf '%s\n' "$provenance_fields" | sed -n '5p')
+  [ "$(shasum -a 256 "$provenance_record" | awk '{print $1}')" = "$provenance_record_sha" ] || \
+    fail "source provenance record hash mismatch"
+  provenance_helper="$runtime_root/scripts/custom-runtime/custom-runtime-source-provenance.mjs"
+  [ -f "$provenance_helper" ] && [ ! -L "$provenance_helper" ] || \
+    fail "source provenance verifier is missing"
+  "$node_bin" "$provenance_helper" verify --record "$provenance_record" \
+    --expected-sha "$source_sha" --deep true >/dev/null || \
+    fail "source provenance verification failed"
+  if [ -n "$provenance_migration" ]; then
+    [ -n "$provenance_migration_sha" ] && [ -n "$provenance_historical_sha" ] || \
+      fail "source provenance migration identity is incomplete"
+    [ "$(shasum -a 256 "$provenance_migration" | awk '{print $1}')" = "$provenance_migration_sha" ] || \
+      fail "source provenance migration hash mismatch"
+    "$node_bin" "$provenance_helper" verify-migration --migration "$provenance_migration" \
+      --historical-source-sha "$provenance_historical_sha" --candidate-sha "$source_sha" >/dev/null || \
+      fail "source provenance migration verification failed"
+  fi
 elif [ "${#source_sha}" -ne 40 ]; then
   fail "release without source provenance must use a Git commit source stamp"
 fi

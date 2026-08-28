@@ -100,7 +100,7 @@ afterEach(() => {
 });
 
 describe("custom runtime update broker", () => {
-  it("rejects a provenance-only active source before network or build work", () => {
+  it("rejects an active source without durable provenance before network or build work", () => {
     const base = root("openclaw-update-broker-source-");
     const runtimeHome = path.join(base, "runtime-home");
     const repo = path.join(base, "source");
@@ -122,11 +122,11 @@ describe("custom runtime update broker", () => {
     expect(result.status).toBe(1);
     expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
       result: "failed",
-      stage: "durable_source_sha",
+      stage: "durable_source_provenance",
     });
   });
 
-  it("rejects a dirty canonical source checkout", () => {
+  it("rejects a legacy source checkout before trusting its dirty state", () => {
     const base = root("openclaw-update-broker-dirty-");
     const runtimeHome = path.join(base, "runtime-home");
     const repo = path.join(base, "source");
@@ -161,7 +161,7 @@ describe("custom runtime update broker", () => {
     expect(result.status).toBe(1);
     expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
       result: "failed",
-      stage: "durable_source_dirty",
+      stage: "durable_source_provenance",
     });
   });
 

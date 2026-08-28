@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 // Builds one self-contained immutable managed-runtime release from an exact source SHA.
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import {
+  importSourceProvenance,
+  verifyProvenanceMigration,
+} from "./custom-runtime-source-provenance.mjs";
 import {
   hashBuildArtifactTree,
   hashRuntimeClosure,
@@ -61,7 +66,16 @@ function runBuffer(command, args, options = {}) {
   return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? "");
 }
 
-export function assertCandidateLineage({ sourceRoot, sourceSha, activeSha }) {
+function sha256File(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+export function assertCandidateLineage({
+  sourceRoot,
+  sourceSha,
+  activeSha,
+  provenanceMigrationPath,
+}) {
   if (!SOURCE_SHA_PATTERN.test(sourceSha) || !SOURCE_SHA_PATTERN.test(activeSha)) {
     throw new Error("Candidate and active source identities must be exact lowercase Git SHAs.");
   }
@@ -75,7 +89,15 @@ export function assertCandidateLineage({ sourceRoot, sourceSha, activeSha }) {
   if (status) {
     throw new Error("Candidate worktree must be clean before runtime packaging.");
   }
-  run("git", ["merge-base", "--is-ancestor", activeSha, sourceSha], { cwd: sourceRoot });
+  try {
+    run("git", ["merge-base", "--is-ancestor", activeSha, sourceSha], { cwd: sourceRoot });
+    return { mode: "ancestor" };
+  } catch (error) {
+    if (!provenanceMigrationPath) {
+      throw error;
+    }
+    return { mode: "provenance_migration" };
+  }
 }
 
 function assertPathInside(root, candidate, label) {
@@ -239,13 +261,39 @@ export function assembleManagedRuntimePackage({
   releaseId,
   deploy = defaultDeploy,
   seal = true,
+  provenanceRuntimeHome,
+  provenanceMigrationPath,
 }) {
   const candidateSourceRoot = fs.realpathSync(sourceRoot);
   let managedReleasesDir = path.resolve(releasesDir);
   if (!RELEASE_ID_PATTERN.test(releaseId)) {
     throw new Error(`Invalid managed-runtime release ID: ${releaseId}`);
   }
-  assertCandidateLineage({ sourceRoot: candidateSourceRoot, sourceSha, activeSha });
+  let sourceProvenance;
+  if (provenanceRuntimeHome) {
+    sourceProvenance = importSourceProvenance({
+      sourceRoot: candidateSourceRoot,
+      sourceSha,
+      runtimeHome: provenanceRuntimeHome,
+      historicalSourceSha: provenanceMigrationPath ? activeSha : undefined,
+    });
+  }
+  const lineage = assertCandidateLineage({
+    sourceRoot: candidateSourceRoot,
+    sourceSha,
+    activeSha,
+    provenanceMigrationPath,
+  });
+  if (lineage.mode === "provenance_migration") {
+    if (!provenanceMigrationPath || !sourceProvenance) {
+      throw new Error("Provenance migration requires a durable source provenance record.");
+    }
+    verifyProvenanceMigration({
+      migrationPath: provenanceMigrationPath,
+      expectedHistoricalSha: activeSha,
+      expectedCandidateSha: sourceSha,
+    });
+  }
   fs.mkdirSync(managedReleasesDir, { recursive: true, mode: 0o700 });
   const releasesStat = fs.lstatSync(managedReleasesDir);
   if (!releasesStat.isDirectory() || releasesStat.isSymbolicLink()) {
@@ -289,7 +337,12 @@ export function assembleManagedRuntimePackage({
     copyExact(buildRoot, stagingRoot, "dist");
     copyExact(buildRoot, stagingRoot, "dist-runtime");
     copyExact(buildRoot, stagingRoot, "package.json");
-    assertCandidateLineage({ sourceRoot: candidateSourceRoot, sourceSha, activeSha });
+    assertCandidateLineage({
+      sourceRoot: candidateSourceRoot,
+      sourceSha,
+      activeSha,
+      provenanceMigrationPath,
+    });
     copyGitPaths({
       sourceRoot: candidateSourceRoot,
       sourceSha,
@@ -299,6 +352,25 @@ export function assembleManagedRuntimePackage({
     fs.writeFileSync(path.join(stagingRoot, ".openclaw-production-sha"), `${sourceSha}\n`, {
       mode: 0o600,
     });
+    if (sourceProvenance) {
+      writeJson(path.join(stagingRoot, ".openclaw-runtime-provenance.json"), {
+        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        sourceSha: sourceProvenance.sourceSha,
+        treeSha: sourceProvenance.treeSha,
+        objectFormat: sourceProvenance.objectFormat,
+        recordPath: sourceProvenance.recordPath,
+        recordSha256: sha256File(sourceProvenance.recordPath),
+        ...(sourceProvenance.historicalSourceSha
+          ? { historicalSourceSha: sourceProvenance.historicalSourceSha }
+          : {}),
+        ...(provenanceMigrationPath
+          ? {
+              migrationPath: path.resolve(provenanceMigrationPath),
+              migrationSha256: sha256File(provenanceMigrationPath),
+            }
+          : {}),
+      });
+    }
     const artifactHash = hashBuildArtifactTree(stagingRoot);
     if (artifactHash !== sourceArtifactHash) {
       throw new Error("Packaged build artifact differs from the verified build snapshot.");
@@ -318,6 +390,14 @@ export function assembleManagedRuntimePackage({
         root: candidateSourceRoot,
         commit: sourceSha,
         sourceSnapshotReleaseId: sourceSnapshot.releaseId,
+        ...(sourceProvenance
+          ? {
+              provenancePath: path.join(releaseRoot, ".openclaw-runtime-provenance.json"),
+              provenanceSha256: sha256File(
+                path.join(stagingRoot, ".openclaw-runtime-provenance.json"),
+              ),
+            }
+          : {}),
       },
       paths: {
         entrypoint: path.join(releaseRoot, "dist", "index.js"),
@@ -389,6 +469,12 @@ if (isMainModule()) {
       sourceSha: values.get("source-sha"),
       activeSha: values.get("active-sha"),
       releaseId: values.get("release-id"),
+      ...(values.get("provenance-runtime-home")
+        ? { provenanceRuntimeHome: values.get("provenance-runtime-home") }
+        : {}),
+      ...(values.get("provenance-migration")
+        ? { provenanceMigrationPath: values.get("provenance-migration") }
+        : {}),
     });
     process.stdout.write(`${JSON.stringify({ result: "packaged", ...result })}\n`);
   } catch (error) {

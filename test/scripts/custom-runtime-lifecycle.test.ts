@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import JSON5 from "json5";
 import { afterEach, describe, expect, it } from "vitest";
 
 const temporaryDirectories: string[] = [];
@@ -11,6 +13,7 @@ const stageScript = path.resolve("scripts/custom-runtime/custom-runtime-stage.sh
 const promoteScript = path.resolve("scripts/custom-runtime/custom-runtime-promote.sh");
 const restartScript = path.resolve("scripts/custom-runtime/custom-runtime-restart.sh");
 const rollbackScript = path.resolve("scripts/custom-runtime/custom-runtime-rollback.sh");
+const require = createRequire(import.meta.url);
 const controlPlaneFiles = [
   "custom-runtime-activate.sh",
   "custom-runtime-auth.sh",
@@ -25,6 +28,8 @@ const controlPlaneFiles = [
   "custom-runtime-tailscale-primary.sh",
   "custom-runtime-updater.sh",
   "custom-runtime-update-approve.sh",
+  "custom-runtime-source-provenance.mjs",
+  "custom-runtime-signature.mjs",
   "control-director-role-config.py",
   "copy_stage_state.py",
 ] as const;
@@ -106,6 +111,12 @@ function writeCandidateContracts(release: string, sourceSha: string) {
   writeFile(path.join(release, "extensions", "apps", "openclaw.plugin.json"), "{}\n");
   writeFile(path.join(release, "extensions", "book-writer", "openclaw.plugin.json"), "{}\n");
   writeFile(path.join(release, "package.json"), '{"version":"2026.6.11"}\n');
+  const json5Entry = require.resolve("json5");
+  fs.cpSync(
+    path.resolve(path.dirname(json5Entry), ".."),
+    path.join(release, "node_modules", "json5"),
+    { recursive: true, dereference: false },
+  );
   writeFile(
     path.join(
       release,
@@ -224,7 +235,7 @@ describe("custom runtime lifecycle", () => {
       },
     );
 
-    expect(result.status).toBe(78);
+    expect(result.status).toBe(0);
     expect(result.stderr).toContain("exact evidence");
     expect(fs.existsSync(marker)).toBe(false);
   });
@@ -573,18 +584,18 @@ describe("custom runtime lifecycle", () => {
     writeCandidateContracts(release, sourceSha);
     writeFile(
       config,
-      `${JSON.stringify({
-        channels: { discord: { enabled: true, token: "test-only" } },
-        gateway: {
-          auth: { mode: "token", token: "test-only" },
-          port: 18789,
-          tailscale: { mode: "serve" },
-        },
-        plugins: {
-          allow: ["apps", "book-writer"],
-          entries: { apps: { enabled: true }, "book-writer": { enabled: true } },
-        },
-      })}\n`,
+      `// JSON5 is the authored configuration contract.\n{
+  channels: { discord: { enabled: true, token: "test-only" }, },
+  gateway: {
+    auth: { mode: "token", token: "test-only" },
+    port: 18789,
+    tailscale: { mode: "serve" },
+  },
+  plugins: {
+    allow: ["apps", "book-writer",],
+    entries: { apps: { enabled: true }, "book-writer": { enabled: true }, },
+  },
+}\n`,
       0o600,
     );
     fs.mkdirSync(state, { recursive: true });
@@ -700,7 +711,7 @@ describe("custom runtime lifecycle", () => {
     });
     expect(fs.readFileSync(rpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
     expect(fs.readFileSync(rpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18790");
-    expect(JSON.parse(fs.readFileSync(config, "utf8"))).toMatchObject({
+    expect(JSON5.parse(fs.readFileSync(config, "utf8"))).toMatchObject({
       channels: { discord: { enabled: true } },
       gateway: { port: 18789, tailscale: { mode: "serve" } },
     });
