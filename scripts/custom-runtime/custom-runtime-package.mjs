@@ -202,7 +202,9 @@ function resolveSourceImport(importerPath, specifier, trackedPaths) {
       }
     }
   }
-  for (const candidate of [...candidates]) {
+  const initialCandidateCount = candidates.length;
+  for (let index = 0; index < initialCandidateCount; index += 1) {
+    const candidate = candidates[index];
     for (const candidateExtension of SOURCE_IMPORT_EXTENSIONS) {
       const indexCandidate = `${candidate}/index${candidateExtension}`;
       if (!candidates.includes(indexCandidate)) {
