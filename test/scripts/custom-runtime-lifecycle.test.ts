@@ -235,7 +235,7 @@ describe("custom runtime lifecycle", () => {
       },
     );
 
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(78);
     expect(result.stderr).toContain("exact evidence");
     expect(fs.existsSync(marker)).toBe(false);
   });
