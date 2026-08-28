@@ -1,4 +1,4 @@
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -22,7 +22,32 @@ export const LOCAL_MODEL_COMPATIBILITY_SAMPLE_INTERVAL_MS = 5_000;
 export const LOCAL_MODEL_COMPATIBILITY_AGENT_ID = "patternlab-runtime-smoke" as const;
 const MAX_CAPTURE_BYTES = 64 * 1024;
 const EVIDENCE_TAIL_BYTES = 4_000;
+const MAX_PROBE_BYTES = 128 * 1024;
+const PROCESS_CLEANUP_GRACE_MS = 2_000;
+const ADMISSION_RELEASE_TIMEOUT_MS = 5_000;
+const EXECUTION_MONITOR_INTERVAL_MS = 1_000;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+
+export type CompatibilitySmokeFailureCode =
+  | "probe_unavailable"
+  | "probe_overflow"
+  | "resource_contention"
+  | "resource_contention_during_execution"
+  | "smoke_timeout"
+  | "smoke_warning"
+  | "smoke_response_mismatch"
+  | "leftover_child"
+  | "receipt_write_failed";
+
+class CompatibilitySmokeError extends Error {
+  readonly code: CompatibilitySmokeFailureCode;
+
+  constructor(code: CompatibilitySmokeFailureCode, message: string) {
+    super(message);
+    this.name = "CompatibilitySmokeError";
+    this.code = code;
+  }
+}
 
 type SmokeIdentity = {
   runtimeRoot: string;
@@ -44,10 +69,20 @@ type OwnedProcessResult = {
   signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
+  stdoutTail: string;
+  stderrTail: string;
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
   timedOut: boolean;
   ownedProcessCleanup: boolean;
+  resourceContentionDuringExecution: boolean;
+  monitorError: string | null;
+};
+
+type OwnedReadableStream = NodeJS.ReadableStream & {
+  destroyed?: boolean;
+  readableEnded?: boolean;
+  destroy?: () => void;
 };
 
 type ExecuteOwnedProcess = (params: {
@@ -56,6 +91,8 @@ type ExecuteOwnedProcess = (params: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
+  probe?: () => LocalModelResourceSnapshot | Promise<LocalModelResourceSnapshot>;
+  monitorIntervalMs?: number;
 }) => Promise<OwnedProcessResult>;
 
 type CompatibilitySmokeRuntime = {
@@ -285,32 +322,70 @@ export function runReadOnly(
   execute: typeof execFileSync = execFileSync,
 ): string {
   try {
-    return execute(command, args, {
+    const output = execute(command, args, {
       encoding: "utf8",
       timeout: 5_000,
-      maxBuffer: 128 * 1024,
+      maxBuffer: MAX_PROBE_BYTES + 1,
       stdio: ["ignore", "pipe", "pipe"],
     }).toString();
+    if (Buffer.byteLength(output, "utf8") > MAX_PROBE_BYTES) {
+      throw new CompatibilitySmokeError(
+        "probe_overflow",
+        `probe_overflow:${path.basename(command)} exceeded ${MAX_PROBE_BYTES} bytes`,
+      );
+    }
+    return output;
   } catch (error) {
-    // lsof exits 1 when a valid query has no matching sockets. Treat that as
+    if (error instanceof CompatibilitySmokeError) {
+      throw error;
+    }
+    const probeError = error as { code?: unknown; status?: unknown; stderr?: unknown };
+    if (probeError.code === "ENOBUFS") {
+      throw new CompatibilitySmokeError(
+        "probe_overflow",
+        `probe_overflow:${path.basename(command)} exceeded ${MAX_PROBE_BYTES} bytes`,
+      );
+    }
+    // lsof and pgrep exit 1 when a valid query has no matches. Treat that as
     // an empty observation; preserve non-empty stderr and every other failure
     // as a hard probe error so permission/tool failures cannot look quiescent.
-    const probeError = error as { status?: unknown; stderr?: unknown };
     const stderr = probeError.stderr == null ? "" : String(probeError.stderr);
-    if (command === "lsof" && probeError.status === 1 && stderr.trim() === "") {
+    if (
+      ["lsof", "pgrep"].includes(path.basename(command)) &&
+      probeError.status === 1 &&
+      stderr.trim() === ""
+    ) {
       return "";
     }
-    throw error;
+    throw new CompatibilitySmokeError(
+      "probe_unavailable",
+      `probe_unavailable:${path.basename(command)} failed`,
+    );
+  }
+}
+
+function systemTool(name: "lsof" | "pgrep" | "ps"): string {
+  const selected =
+    name === "lsof" ? "/usr/sbin/lsof" : name === "pgrep" ? "/usr/bin/pgrep" : "/bin/ps";
+  try {
+    const info = fs.lstatSync(selected);
+    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o111) === 0) {
+      throw new Error("unsafe system tool");
+    }
+    return selected;
+  } catch {
+    throw new CompatibilitySmokeError(
+      "probe_unavailable",
+      `probe_unavailable:${name} is missing or unsafe`,
+    );
   }
 }
 
 function parsePids(output: string): Set<number> {
   const pids = new Set<number>();
   for (const line of output.split(/\r?\n/u)) {
-    if (!line.startsWith("p")) {
-      continue;
-    }
-    const pid = Number(line.slice(1));
+    const normalized = line.trim();
+    const pid = Number(normalized.startsWith("p") ? normalized.slice(1) : normalized);
     if (Number.isInteger(pid) && pid > 0) {
       pids.add(pid);
     }
@@ -329,18 +404,13 @@ function ollamaPort(): number {
 
 export function readLocalModelResourceSnapshot(): LocalModelResourceSnapshot {
   const selfPid = process.pid;
-  const workers = new Set<number>();
-  const ps = runReadOnly("ps", ["-axo", "pid=,command="]);
-  for (const line of ps.split(/\r?\n/u)) {
-    const match = /^\s*(\d+)\s+(.+)$/u.exec(line);
-    if (match && Number(match[1]) !== selfPid && /openclaw-agent/u.test(match[2])) {
-      workers.add(Number(match[1]));
-    }
-  }
+  const workers = parsePids(runReadOnly(systemTool("pgrep"), ["-x", "openclaw-agent"]));
+  workers.delete(selfPid);
   const port = ollamaPort();
-  const listeners = parsePids(runReadOnly("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"]));
+  const lsof = systemTool("lsof");
+  const listeners = parsePids(runReadOnly(lsof, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"]));
   const clients = parsePids(
-    runReadOnly("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:ESTABLISHED", "-Fp"]),
+    runReadOnly(lsof, ["-nP", `-iTCP:${port}`, "-sTCP:ESTABLISHED", "-Fp"]),
   );
   const activeClients = [...clients]
     .filter((pid) => !listeners.has(pid) && pid !== selfPid)
@@ -446,17 +516,33 @@ function childEnvironment(params: {
   return env;
 }
 
-function appendCapture(
-  current: string,
-  chunk: Buffer | string,
-): {
-  value: string;
-  truncated: boolean;
-} {
-  const next = current + chunk.toString();
-  return next.length <= MAX_CAPTURE_BYTES
-    ? { value: next, truncated: false }
-    : { value: next.slice(0, MAX_CAPTURE_BYTES), truncated: true };
+type BoundedCapture = {
+  prefix: Buffer;
+  tail: Buffer;
+  totalBytes: number;
+};
+
+function emptyCapture(): BoundedCapture {
+  return { prefix: Buffer.alloc(0), tail: Buffer.alloc(0), totalBytes: 0 };
+}
+
+function appendCapture(capture: BoundedCapture, chunk: Buffer | string): void {
+  const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  capture.totalBytes += bytes.byteLength;
+  if (capture.prefix.byteLength < MAX_CAPTURE_BYTES) {
+    const remaining = MAX_CAPTURE_BYTES - capture.prefix.byteLength;
+    capture.prefix = Buffer.concat([capture.prefix, bytes.subarray(0, remaining)]);
+  }
+  const combinedTail = Buffer.concat([capture.tail, bytes]);
+  capture.tail = combinedTail.subarray(Math.max(0, combinedTail.byteLength - EVIDENCE_TAIL_BYTES));
+}
+
+function captureText(capture: BoundedCapture): string {
+  return capture.prefix.toString("utf8");
+}
+
+function captureTail(capture: BoundedCapture): string {
+  return redact(capture.tail.toString("utf8"));
 }
 
 function processGroupAlive(pid: number): boolean {
@@ -487,7 +573,7 @@ async function terminateOwnedProcessGroup(pid: number): Promise<boolean> {
       return false;
     }
   }
-  if (await waitForProcessGroupGone(pid, 2_000)) {
+  if (await waitForProcessGroupGone(pid, PROCESS_CLEANUP_GRACE_MS)) {
     return true;
   }
   try {
@@ -497,18 +583,122 @@ async function terminateOwnedProcessGroup(pid: number): Promise<boolean> {
       return false;
     }
   }
-  return await waitForProcessGroupGone(pid, 2_000);
+  return await waitForProcessGroupGone(pid, PROCESS_CLEANUP_GRACE_MS);
 }
 
-function executeOwnedProcess(params: {
+function processGroupId(pid: number): number {
+  const output = runReadOnly(systemTool("ps"), ["-p", String(pid), "-o", "pgid="]);
+  const value = Number(output.trim());
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new CompatibilitySmokeError(
+      "probe_unavailable",
+      "probe_unavailable:invalid process group",
+    );
+  }
+  return value;
+}
+
+function hasUnrelatedActivity(snapshot: LocalModelResourceSnapshot, ownedGroupId: number): boolean {
+  const workerPids = snapshot.activeOpenClawWorkerPids ?? [];
+  const clientPids = snapshot.activeOllamaClientPids ?? [];
+  if (
+    snapshot.activeOpenClawWorkerCount > workerPids.length ||
+    snapshot.activeOllamaClientCount > clientPids.length
+  ) {
+    return true;
+  }
+  return [...workerPids, ...clientPids].some((pid) => {
+    try {
+      return processGroupId(pid) !== ownedGroupId;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+        return false;
+      }
+      throw error;
+    }
+  });
+}
+
+export function executeOwnedProcess(params: {
   executable: string;
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
+  probe?: () => LocalModelResourceSnapshot | Promise<LocalModelResourceSnapshot>;
+  monitorIntervalMs?: number;
 }): Promise<OwnedProcessResult> {
   return new Promise((resolve) => {
-    let child: ChildProcess | undefined;
+    const stdout = emptyCapture();
+    const stderr = emptyCapture();
+    let timedOut = false;
+    let resourceContentionDuringExecution = false;
+    let monitorError: string | null = null;
+    let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+    let monitor: NodeJS.Timeout | undefined;
+    let monitorRunning = false;
+    const complete = async (
+      childPid: number | undefined,
+      status: number | null,
+      signal: NodeJS.Signals | null,
+      streams?: {
+        stdout?: OwnedReadableStream | null;
+        stderr?: OwnedReadableStream | null;
+      },
+    ) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      if (monitor) {
+        clearInterval(monitor);
+      }
+      const ownedProcessCleanup =
+        childPid === undefined ? true : await terminateOwnedProcessGroup(childPid);
+      await Promise.all(
+        [streams?.stdout, streams?.stderr].map(
+          (stream) =>
+            new Promise<void>((streamResolved) => {
+              if (!stream || stream.destroyed || stream.readableEnded) {
+                streamResolved();
+                return;
+              }
+              const done = () => {
+                clearTimeout(deadline);
+                stream.removeListener?.("end", done);
+                stream.removeListener?.("close", done);
+                stream.removeListener?.("error", done);
+                streamResolved();
+              };
+              const deadline = setTimeout(done, 250);
+              stream.once?.("end", done);
+              stream.once?.("close", done);
+              stream.once?.("error", done);
+            }),
+        ),
+      );
+      streams?.stdout?.destroy?.();
+      streams?.stderr?.destroy?.();
+      resolve({
+        status,
+        signal,
+        stdout: captureText(stdout),
+        stderr: captureText(stderr),
+        stdoutTail: captureTail(stdout),
+        stderrTail: captureTail(stderr),
+        stdoutTruncated: stdout.totalBytes > MAX_CAPTURE_BYTES,
+        stderrTruncated: stderr.totalBytes > MAX_CAPTURE_BYTES,
+        timedOut,
+        ownedProcessCleanup,
+        resourceContentionDuringExecution,
+        monitorError,
+      });
+    };
+    let child: ReturnType<typeof spawn>;
     try {
       child = spawn(params.executable, params.args, {
         cwd: params.cwd,
@@ -522,75 +712,56 @@ function executeOwnedProcess(params: {
         signal: null,
         stdout: "",
         stderr: redact(String(error)),
+        stdoutTail: "",
+        stderrTail: redact(String(error)),
         stdoutTruncated: false,
         stderrTruncated: false,
         timedOut: false,
         ownedProcessCleanup: true,
+        resourceContentionDuringExecution: false,
+        monitorError: null,
       });
       return;
     }
-    let stdout = "";
-    let stderr = "";
-    let stdoutTruncated = false;
-    let stderrTruncated = false;
-    let timedOut = false;
-    let timeout: NodeJS.Timeout | undefined;
-    let settled = false;
-    const finish = (
-      status: number | null,
-      signal: NodeJS.Signals | null,
-      cleanupOverride?: boolean,
-    ) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      const pid = child?.pid;
-      void (async () => {
-        const ownedProcessCleanup =
-          cleanupOverride ?? (pid === undefined ? true : await terminateOwnedProcessGroup(pid));
-        resolve({
-          status,
-          signal,
-          stdout,
-          stderr,
-          stdoutTruncated,
-          stderrTruncated,
-          timedOut,
-          ownedProcessCleanup,
-        });
-      })();
-    };
     child.stdout?.on("data", (chunk: Buffer | string) => {
-      const captured = appendCapture(stdout, chunk);
-      stdout = captured.value;
-      stdoutTruncated ||= captured.truncated;
+      appendCapture(stdout, chunk);
     });
     child.stderr?.on("data", (chunk: Buffer | string) => {
-      const captured = appendCapture(stderr, chunk);
-      stderr = captured.value;
-      stderrTruncated ||= captured.truncated;
+      appendCapture(stderr, chunk);
     });
     child.once("error", (error) => {
-      const captured = appendCapture(stderr, redact(String(error)));
-      stderr = captured.value;
-      stderrTruncated ||= captured.truncated;
-      finish(null, null);
+      appendCapture(stderr, redact(String(error)));
+      void complete(child.pid, null, null, child);
     });
-    child.once("close", (status, signal) => finish(status, signal));
+    child.once("exit", (status, signal) => {
+      void complete(child.pid, status, signal, child);
+    });
+    if (params.probe) {
+      monitor = setInterval(() => {
+        if (settled || monitorRunning) {
+          return;
+        }
+        monitorRunning = true;
+        void Promise.resolve(params.probe!())
+          .then((snapshot) => {
+            if (!settled && child.pid && hasUnrelatedActivity(snapshot, child.pid)) {
+              resourceContentionDuringExecution = true;
+              void complete(child.pid, null, "SIGTERM", child);
+            }
+          })
+          .catch((error: unknown) => {
+            monitorError = redact(error instanceof Error ? error.message : String(error));
+            void complete(child.pid, null, "SIGTERM", child);
+          })
+          .finally(() => {
+            monitorRunning = false;
+          });
+      }, params.monitorIntervalMs ?? EXECUTION_MONITOR_INTERVAL_MS);
+    }
     timeout = setTimeout(() => {
       timedOut = true;
-      const pid = child?.pid;
-      void (async () => {
-        const ownedProcessCleanup =
-          pid === undefined ? true : await terminateOwnedProcessGroup(pid);
-        finish(null, "SIGTERM", ownedProcessCleanup);
-      })();
+      void complete(child.pid, null, "SIGTERM", child);
     }, params.timeoutMs);
-    timeout.unref?.();
   });
 }
 
@@ -640,6 +811,26 @@ function baseReport(params: CompatibilitySmokeParams): Record<string, unknown> {
 
 function writeReport(params: CompatibilitySmokeParams, report: Record<string, unknown>): void {
   writeFreshJson(params.reportPath, report);
+}
+
+function failureCode(error: unknown): CompatibilitySmokeFailureCode | null {
+  return error instanceof CompatibilitySmokeError ? error.code : null;
+}
+
+async function withDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error("operation deadline exceeded")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 export async function runLocalModelCompatibilitySmoke(
@@ -699,6 +890,7 @@ export async function runLocalModelCompatibilitySmoke(
       cwd: identity.runtimeRoot,
       env: childEnvironment({ configPath, stateDir, admission: lease }),
       timeoutMs: params.timeoutMs ?? LOCAL_MODEL_COMPATIBILITY_TIMEOUT_MS,
+      probe: params.runtime?.probe ?? readLocalModelResourceSnapshot,
     });
     report.process = {
       status: result.status,
@@ -706,8 +898,8 @@ export async function runLocalModelCompatibilitySmoke(
       timedOut: result.timedOut,
       ownedProcessCleanup: result.ownedProcessCleanup,
     };
-    report.stdoutTail = tail(result.stdout);
-    report.stderrTail = tail(result.stderr);
+    report.stdoutTail = tail(result.stdoutTail || result.stdout);
+    report.stderrTail = tail(result.stderrTail || result.stderr);
     const warnings: string[] = [];
     if (result.stderr.trim() || result.stderrTruncated) {
       warnings.push("stderr_output");
@@ -716,7 +908,12 @@ export async function runLocalModelCompatibilitySmoke(
       warnings.push("output_truncated");
     }
     report.warnings = warnings;
-    if (result.timedOut) {
+    if (result.resourceContentionDuringExecution) {
+      report.blockers = ["resource_contention_during_execution"];
+    } else if (result.monitorError) {
+      report.blockers = ["probe_unavailable"];
+      report.monitorError = result.monitorError;
+    } else if (result.timedOut) {
       report.blockers = ["smoke_timeout"];
     } else if (!result.ownedProcessCleanup) {
       report.blockers = ["leftover_child"];
@@ -781,12 +978,14 @@ export async function runLocalModelCompatibilitySmoke(
       report.blockers = ["resource_contention"];
       report.consumed = false;
     } else {
-      report.blockers = [error instanceof Error ? error.message : "smoke_failed"];
+      report.blockers = [
+        failureCode(error) ?? (error instanceof Error ? error.message : "smoke_failed"),
+      ];
     }
   } finally {
     if (lease) {
       try {
-        await lease.release();
+        await withDeadline(lease.release(), ADMISSION_RELEASE_TIMEOUT_MS);
       } catch (error) {
         report.status = "blocked";
         report.blockers = [

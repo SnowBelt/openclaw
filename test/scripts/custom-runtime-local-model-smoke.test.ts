@@ -3,14 +3,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocalModelAdmissionError } from "../../src/agents/local-model-admission.js";
 import {
   LOCAL_MODEL_COMPATIBILITY_AGENT_ID,
   LOCAL_MODEL_COMPATIBILITY_MODEL,
+  executeOwnedProcess,
   runReadOnly,
   runLocalModelCompatibilitySmoke,
   type CompatibilitySmokeParams,
-} from "./custom-runtime-local-model-smoke.js";
+} from "../../scripts/custom-runtime/custom-runtime-local-model-smoke.js";
+import { LocalModelAdmissionError } from "../../src/agents/local-model-admission.js";
 
 const roots: string[] = [];
 const SOURCE_COMMIT = "a".repeat(40);
@@ -142,10 +143,14 @@ describe("custom runtime local-model compatibility smoke", () => {
           result: { payloads: [{ text: "PATTERNLAB_RUNTIME_COMPAT_OK" }] },
         }),
         stderr: "",
+        stdoutTail: "PATTERNLAB_RUNTIME_COMPAT_OK",
+        stderrTail: "",
         stdoutTruncated: false,
         stderrTruncated: false,
         timedOut: false,
         ownedProcessCleanup: true,
+        resourceContentionDuringExecution: false,
+        monitorError: null,
       };
     });
     const report = await runLocalModelCompatibilitySmoke({
@@ -201,16 +206,21 @@ describe("custom runtime local-model compatibility smoke", () => {
           signal: "SIGTERM" as const,
           stdout: "token=super-secret",
           stderr: "",
+          stdoutTail: "token=super-secret",
+          stderrTail: "",
           stdoutTruncated: false,
           stderrTruncated: false,
           timedOut: true,
           ownedProcessCleanup: true,
+          resourceContentionDuringExecution: false,
+          monitorError: null,
         })),
       },
     });
 
     expect(report).toMatchObject({ status: "blocked", blockers: ["smoke_timeout"] });
     expect(report.stdoutTail).toContain("[REDACTED]");
+    expect(fs.existsSync(params.reportPath)).toBe(true);
     expect(fs.existsSync(params.receiptPath)).toBe(false);
   });
 
@@ -228,6 +238,63 @@ describe("custom runtime local-model compatibility smoke", () => {
       });
       throw error;
     });
-    expect(() => runReadOnly("lsof", ["-nP"], probeFailure)).toThrow("probe failed");
+    expect(() => runReadOnly("lsof", ["-nP"], probeFailure)).toThrow("probe_unavailable");
+  });
+
+  it("fails with a typed overflow instead of accepting an oversized probe", () => {
+    const oversized = vi.fn(() => "p123\n".repeat(30_000));
+    expect(() => runReadOnly("/usr/bin/pgrep", ["-x", "openclaw-agent"], oversized)).toThrow(
+      "probe_overflow",
+    );
+  });
+
+  it("fails closed when an exact probe tool is unavailable", () => {
+    const unavailable = vi.fn(() => {
+      const error = Object.assign(new Error("missing"), { code: "ENOENT", stderr: "" });
+      throw error;
+    });
+    expect(() => runReadOnly("/usr/bin/pgrep", ["-x", "openclaw-agent"], unavailable)).toThrow(
+      "probe_unavailable",
+    );
+  });
+
+  it("enforces the real deadline when a grandchild inherits output pipes", async () => {
+    const startedAt = Date.now();
+    const result = await executeOwnedProcess({
+      executable: "/bin/sh",
+      args: ["-c", "(sleep 30) & wait"],
+      cwd: os.tmpdir(),
+      env: { ...process.env },
+      timeoutMs: 100,
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(result.ownedProcessCleanup).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+  });
+
+  it("aborts when unrelated local-model activity appears during execution", async () => {
+    let samples = 0;
+    const result = await executeOwnedProcess({
+      executable: "/bin/sh",
+      args: ["-c", "sleep 30"],
+      cwd: os.tmpdir(),
+      env: { ...process.env },
+      timeoutMs: 5_000,
+      monitorIntervalMs: 10,
+      probe: () => {
+        samples += 1;
+        return {
+          observedAt: new Date().toISOString(),
+          activeOpenClawWorkerCount: samples > 1 ? 1 : 0,
+          activeOllamaClientCount: 0,
+          activeOpenClawWorkerPids: [],
+          activeOllamaClientPids: [],
+        };
+      },
+    });
+
+    expect(result.resourceContentionDuringExecution).toBe(true);
+    expect(result.ownedProcessCleanup).toBe(true);
   });
 });
