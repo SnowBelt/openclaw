@@ -1,6 +1,6 @@
 {
   "schema": "openclaw.release-governor-policy.v1",
-  "version": 3,
+  "version": 4,
   "confidenceThreshold": 0.95,
   "reviewConfidenceThreshold": 0.9,
   "classificationRules": [
@@ -98,7 +98,8 @@
       "immutable_build",
       "build_stamp",
       "capability_preservation",
-      "rollback_ready"
+      "rollback_ready",
+      "isolated_local_model_compatibility"
     ],
     "promotion": [
       "candidate_sha",
@@ -114,7 +115,8 @@
       "gateway_readiness",
       "browser_desktop",
       "browser_mobile",
-      "ledger_ready"
+      "ledger_ready",
+      "isolated_local_model_compatibility"
     ],
     "restart": [
       "candidate_sha",
@@ -130,7 +132,8 @@
       "gateway_readiness",
       "browser_desktop",
       "browser_mobile",
-      "ledger_ready"
+      "ledger_ready",
+      "isolated_local_model_compatibility"
     ],
     "rollback": [
       "candidate_sha",
@@ -193,7 +196,8 @@
           "build_stamp",
           "immutable_candidate",
           "capability_preservation",
-          "rollback_ready"
+          "rollback_ready",
+          "isolated_local_model_compatibility"
         ],
         "promotion": [
           "candidate_sha",
@@ -214,7 +218,8 @@
           "rpc_health",
           "authenticated_local_candidate_control_director_pcc_browser",
           "local_disposable_pcc_e2e",
-          "ledger_ready"
+          "ledger_ready",
+          "isolated_local_model_compatibility"
         ],
         "restart": [
           "candidate_sha",
@@ -235,7 +240,8 @@
           "rpc_health",
           "authenticated_local_candidate_control_director_pcc_browser",
           "local_disposable_pcc_e2e",
-          "ledger_ready"
+          "ledger_ready",
+          "isolated_local_model_compatibility"
         ],
         "rollback": [
           "candidate_sha",

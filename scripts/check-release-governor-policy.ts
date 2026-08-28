@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { releasePathMatches } from "../src/pcc/release-governance/classifier.js";
-import { readReleaseGovernorPolicy } from "../src/pcc/release-governance/policy.js";
+import {
+  readReleaseGovernorPolicy,
+  RELEASE_GOVERNOR_POLICY_VERSION,
+} from "../src/pcc/release-governance/policy.js";
 
 const policyPath = path.join(process.cwd(), "config", "release-governor-policy.json");
 const policy = readReleaseGovernorPolicy(policyPath);
@@ -29,8 +32,10 @@ for (const [operation, checks] of Object.entries(policy.requiredChecks)) {
     throw new Error(`Release Governor operation ${operation} has no required checks.`);
   }
 }
-if (policy.version !== 3) {
-  throw new Error("Release Governor policy must use the phase-aware proof contract version 3.");
+if (policy.version !== RELEASE_GOVERNOR_POLICY_VERSION) {
+  throw new Error(
+    `Release Governor policy must use the phase-aware proof contract version ${RELEASE_GOVERNOR_POLICY_VERSION}.`,
+  );
 }
 const localProfile = policy.proofProfiles.mac_studio_control_director;
 if (!localProfile) {

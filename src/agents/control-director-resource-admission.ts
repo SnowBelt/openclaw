@@ -164,3 +164,21 @@ export async function assessControlDirectorResourceAdmission(params: {
     capacity,
   };
 }
+
+// Keep the generic host lease available from the existing Control Director
+// resource-admission seam without making the assessment own lease storage.
+export {
+  acquireExclusiveLocalModelAdmission,
+  acquireLocalModelAdmission,
+  acquireSharedLocalModelAdmission,
+  LOCAL_MODEL_ADMISSION_SCHEMA,
+  LOCAL_MODEL_ADMISSION_TOKEN_ENV,
+  LocalModelAdmissionError,
+} from "./local-model-admission.js";
+export type {
+  AcquireLocalModelAdmissionParams,
+  LocalModelAdmissionErrorCode,
+  LocalModelAdmissionLease,
+  LocalModelAdmissionMode,
+  LocalModelResourceSnapshot,
+} from "./local-model-admission.js";

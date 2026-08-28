@@ -3,6 +3,7 @@ import type { ModelDefinitionConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PccExecutionCapacitySnapshot } from "../pcc/execution-capacity.js";
 import { assessControlDirectorResourceAdmission } from "./control-director-resource-admission.js";
+import { acquireSharedLocalModelAdmission } from "./control-director-resource-admission.js";
 
 function modelDefinition(id: string): ModelDefinitionConfig {
   return {
@@ -60,6 +61,10 @@ function capacity(): PccExecutionCapacitySnapshot {
 }
 
 describe("assessControlDirectorResourceAdmission", () => {
+  it("exposes the generic local-model lease from the resource seam", () => {
+    expect(acquireSharedLocalModelAdmission).toBeTypeOf("function");
+  });
+
   it("admits the evaluated model from one shared resource projection", async () => {
     const collectCapacity = vi.fn(() => capacity());
     const assessment = await assessControlDirectorResourceAdmission({

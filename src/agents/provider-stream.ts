@@ -7,6 +7,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { Api, Model } from "../llm/types.js";
 import { resolveProviderStreamFn } from "../plugins/provider-runtime.js";
 import { ensureCustomApiRegistered } from "./custom-api-registry.js";
+import { createLocalModelAdmissionStreamFn } from "./local-model-admission-stream.js";
 import {
   unwrapHeaderSentinelsForProviderEgress,
   unwrapModelHeaderSentinelsForProviderEgress,
@@ -64,10 +65,17 @@ export function registerProviderStreamForModel<TApi extends Api>(params: {
   if (!streamFn) {
     return undefined;
   }
+  const admittedStreamFn =
+    params.model.provider === "ollama" || params.model.api === "ollama"
+      ? createLocalModelAdmissionStreamFn({
+          streamFn,
+          owner: `openclaw:provider:${params.model.provider}:${params.model.id}`,
+        })
+      : streamFn;
   // Register custom APIs only after a concrete stream exists, so later callers
   // can route by model.api without reloading provider runtime hooks.
-  ensureCustomApiRegistered(params.model.api, streamFn);
-  return streamFn;
+  ensureCustomApiRegistered(params.model.api, admittedStreamFn);
+  return admittedStreamFn;
 }
 
 function wrapPluginProviderStream(streamFn: StreamFn): StreamFn {

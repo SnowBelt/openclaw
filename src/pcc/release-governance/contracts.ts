@@ -114,6 +114,34 @@ export type ReleaseCheck = {
   recordedAt: string;
 };
 
+export type ReleaseLocalModelAdmissionSample = {
+  observedAt: string;
+  activeOpenClawWorkerCount: number;
+  activeOllamaClientCount: number;
+};
+
+export type ReleaseLocalModelCompatibilityProof = {
+  operation: "isolated_local_model_compatibility";
+  candidateReleaseId: string;
+  sourceCommit: string;
+  sourceSha256: string;
+  artifactSha256: string;
+  runtimeClosureSha256: string;
+  manifestSha256: string;
+  activeRuntimeBaselineSha256: string;
+  configuredModel: string;
+  configuredModelSha256: string;
+  promptSha256: string;
+  responseSha256: string;
+  responseMarker: "PATTERNLAB_RUNTIME_COMPAT_OK";
+  resourceAdmissionSamples: ReleaseLocalModelAdmissionSample[];
+  ownedProcessCleanup: true;
+  warnings: string[];
+  proofOrder: ["resource_admission", "process_spawn", "response", "owned_process_cleanup"];
+  startedAt: string;
+  completedAt: string;
+};
+
 export type ReleaseLocalProofReceipt = {
   schema: typeof RELEASE_LOCAL_PROOF_SCHEMA;
   candidateSha: string;
@@ -126,6 +154,8 @@ export type ReleaseLocalProofReceipt = {
   verifierSha256: string;
   browserArtifactSha256: string | null;
   result: "passed";
+  recordedAt?: string;
+  localModelCompatibility?: ReleaseLocalModelCompatibilityProof;
 };
 
 export type ReleaseReview = {
@@ -275,6 +305,15 @@ export type ReleaseEvidenceBundleInput = {
     gatewayVersion: string;
     activeRuntimeSha: string | null;
     candidateRuntimeSha: string;
+    candidateReleaseId?: string;
+    candidateSourceCommit?: string;
+    candidateSourceSha256?: string;
+    candidateArtifactSha256?: string;
+    candidateRuntimeClosureSha256?: string;
+    candidateManifestSha256?: string;
+    activeRuntimeBaselineSha256?: string;
+    configuredModel?: string;
+    configuredModelSha256?: string;
   };
   deployment: {
     deployedAt: string | null;

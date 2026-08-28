@@ -29,6 +29,17 @@ import { parseReleaseGovernorPolicy, readReleaseGovernorPolicy } from "./policy.
 const NOW = "2026-07-15T12:00:00.000Z";
 const SHA = "a".repeat(40);
 const PARENT_SHA = "b".repeat(40);
+const LOCAL_MODEL_RUNTIME = {
+  candidateReleaseId: "candidate-release",
+  candidateSourceCommit: SHA,
+  candidateSourceSha256: "c".repeat(64),
+  candidateArtifactSha256: "d".repeat(64),
+  candidateRuntimeClosureSha256: "e".repeat(64),
+  candidateManifestSha256: "f".repeat(64),
+  activeRuntimeBaselineSha256: "1".repeat(64),
+  configuredModel: "qwen3.6:27b-q8_0",
+  configuredModelSha256: "2".repeat(64),
+} as const;
 const policy = readReleaseGovernorPolicy();
 const roots: string[] = [];
 
@@ -98,6 +109,51 @@ function customChecks(operation: ReleaseOperation): ReleaseCheck[] {
     const browserArtifactSha256 = browserProofPhaseForCheckId(id)
       ? createHash("sha256").update(`browser-artifact:${id}`).digest("hex")
       : null;
+    const localModelCompatibility =
+      id === "isolated_local_model_compatibility"
+        ? {
+            operation: "isolated_local_model_compatibility" as const,
+            candidateReleaseId: LOCAL_MODEL_RUNTIME.candidateReleaseId,
+            sourceCommit: LOCAL_MODEL_RUNTIME.candidateSourceCommit,
+            sourceSha256: LOCAL_MODEL_RUNTIME.candidateSourceSha256,
+            artifactSha256: LOCAL_MODEL_RUNTIME.candidateArtifactSha256,
+            runtimeClosureSha256: LOCAL_MODEL_RUNTIME.candidateRuntimeClosureSha256,
+            manifestSha256: LOCAL_MODEL_RUNTIME.candidateManifestSha256,
+            activeRuntimeBaselineSha256: LOCAL_MODEL_RUNTIME.activeRuntimeBaselineSha256,
+            configuredModel: LOCAL_MODEL_RUNTIME.configuredModel,
+            configuredModelSha256: LOCAL_MODEL_RUNTIME.configuredModelSha256,
+            promptSha256: "3".repeat(64),
+            responseSha256: "4".repeat(64),
+            responseMarker: "PATTERNLAB_RUNTIME_COMPAT_OK" as const,
+            resourceAdmissionSamples: [
+              {
+                observedAt: "2026-07-15T11:59:40.000Z",
+                activeOpenClawWorkerCount: 0,
+                activeOllamaClientCount: 0,
+              },
+              {
+                observedAt: "2026-07-15T11:59:45.000Z",
+                activeOpenClawWorkerCount: 0,
+                activeOllamaClientCount: 0,
+              },
+              {
+                observedAt: "2026-07-15T11:59:50.000Z",
+                activeOpenClawWorkerCount: 0,
+                activeOllamaClientCount: 0,
+              },
+            ],
+            ownedProcessCleanup: true as const,
+            warnings: [],
+            proofOrder: [
+              "resource_admission",
+              "process_spawn",
+              "response",
+              "owned_process_cleanup",
+            ] as ["resource_admission", "process_spawn", "response", "owned_process_cleanup"],
+            startedAt: "2026-07-15T11:59:40.000Z",
+            completedAt: "2026-07-15T11:59:55.000Z",
+          }
+        : undefined;
     const contents = `${JSON.stringify({
       schema: "openclaw.release-local-proof.v2",
       candidateSha: SHA,
@@ -110,6 +166,7 @@ function customChecks(operation: ReleaseOperation): ReleaseCheck[] {
       verifierSha256,
       browserArtifactSha256,
       result: "passed",
+      ...(localModelCompatibility ? { recordedAt: NOW, localModelCompatibility } : {}),
     })}\n`;
     fs.writeFileSync(artifact, contents, { mode: 0o600 });
     return {
@@ -340,6 +397,7 @@ function customBundleInput(
       gatewayVersion: "2026.7.15",
       activeRuntimeSha,
       candidateRuntimeSha: SHA,
+      ...LOCAL_MODEL_RUNTIME,
     },
     deployment: {
       deployedAt: evaluation.decision.operation === "stage" ? null : NOW,
@@ -394,7 +452,7 @@ afterEach(() => {
 
 describe("PCC Release Governor", () => {
   it("preserves default proof requirements while defining one exact local Mac Studio profile", () => {
-    expect(policy.version).toBe(3);
+    expect(policy.version).toBe(4);
     expect(policy.requiredChecks.promotion).toEqual(
       expect.arrayContaining(["workflow_sanity", "browser_mobile"]),
     );
@@ -572,6 +630,53 @@ describe("PCC Release Governor", () => {
     const fabricated = createReleaseEvidenceBundle({ ...validInput, checks: tamperedChecks });
     expect(verifyReleaseEvidenceAuthorization({ bundle: fabricated, policy, now: NOW })).toContain(
       "Local proof artifact hash mismatch: local_tests.",
+    );
+
+    const compatibilityInput = customInput("promotion");
+    const compatibilityEvaluation = evaluateReleaseGovernor(compatibilityInput, policy);
+    const compatibilityBundleInput = customBundleInput(
+      compatibilityEvaluation,
+      compatibilityInput.checks,
+    );
+    const compatibilityCheck = compatibilityBundleInput.checks.find(
+      (check) => check.id === "isolated_local_model_compatibility",
+    );
+    if (!compatibilityCheck?.artifact) {
+      throw new Error("Test local-model compatibility proof is missing.");
+    }
+    const compatibilityReceipt = JSON.parse(
+      fs.readFileSync(compatibilityCheck.artifact, "utf8"),
+    ) as Record<string, unknown>;
+    const compatibilityProof = compatibilityReceipt.localModelCompatibility as Record<
+      string,
+      unknown
+    >;
+    compatibilityProof.completedAt = "2026-07-15T12:00:30.000Z";
+    const staleCompatibilityContents = `${JSON.stringify(compatibilityReceipt)}\n`;
+    const staleCompatibilityPath = path.join(
+      path.dirname(compatibilityCheck.artifact),
+      "stale-local-model-compatibility.json",
+    );
+    fs.writeFileSync(staleCompatibilityPath, staleCompatibilityContents, { mode: 0o600 });
+    const staleCompatibility = createReleaseEvidenceBundle({
+      ...compatibilityBundleInput,
+      checks: compatibilityBundleInput.checks.map((check) =>
+        check.id === compatibilityCheck.id
+          ? {
+              ...check,
+              artifact: staleCompatibilityPath,
+              artifactSha256: createHash("sha256").update(staleCompatibilityContents).digest("hex"),
+            }
+          : check,
+      ),
+    });
+    const staleErrors = verifyReleaseEvidenceAuthorization({
+      bundle: staleCompatibility,
+      policy,
+      now: NOW,
+    });
+    expect(staleErrors).toContain(
+      "Local model compatibility proof is invalid: Local model compatibility proof completed after its receipt was recorded.",
     );
 
     const localTestCheck = validInput.checks.find((check) => check.id === "local_tests");

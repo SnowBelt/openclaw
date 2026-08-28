@@ -12,6 +12,10 @@ import {
   type ControlDirectorModelWarmupResult,
   type ControlDirectorResidencyObservation,
 } from "./control-director-resource-runtime.js";
+import {
+  acquireSharedLocalModelAdmission,
+  type LocalModelAdmissionLease,
+} from "./local-model-admission.js";
 
 export const CONTROL_DIRECTOR_STARTUP_KEEP_ALIVE_MS = 15 * 60_000;
 export const CONTROL_DIRECTOR_STARTUP_WARMUP_TIMEOUT_MS = 3 * 60_000;
@@ -28,12 +32,14 @@ type WarmupRuntime = {
   assess: typeof assessControlDirectorResourceAdmission;
   requestWarmup: typeof requestControlDirectorModelWarmup;
   collectResidency: typeof collectControlDirectorResidencyObservation;
+  acquireSharedAdmission: typeof acquireSharedLocalModelAdmission;
 };
 
 const DEFAULT_RUNTIME: WarmupRuntime = {
   assess: assessControlDirectorResourceAdmission,
   requestWarmup: requestControlDirectorModelWarmup,
   collectResidency: collectControlDirectorResidencyObservation,
+  acquireSharedAdmission: acquireSharedLocalModelAdmission,
 };
 
 function selectedModelIsResident(assessment: ControlDirectorResourceAssessment): boolean {
@@ -101,13 +107,50 @@ export async function warmConfiguredControlDirectorModel(params: {
       selectedModel,
     };
   }
-  const providerResult = await runtime.requestWarmup({
-    config: params.config,
-    selectedModel,
-    keepAliveMs: params.keepAliveMs ?? CONTROL_DIRECTOR_STARTUP_KEEP_ALIVE_MS,
-    timeoutMs: params.timeoutMs ?? CONTROL_DIRECTOR_STARTUP_WARMUP_TIMEOUT_MS,
-    signal: params.signal,
-  });
+  let admission: LocalModelAdmissionLease;
+  try {
+    admission = await runtime.acquireSharedAdmission({
+      owner: `openclaw:control-director-warmup:${selectedModel}`,
+    });
+  } catch (error) {
+    return {
+      status: "deferred",
+      reason: `Local-model resource admission was not available: ${error instanceof Error ? error.message : String(error)}`,
+      selectedModel,
+      residency: assessment.residency,
+    };
+  }
+  let providerResult: ControlDirectorModelWarmupResult;
+  try {
+    providerResult = await runtime.requestWarmup({
+      config: params.config,
+      selectedModel,
+      keepAliveMs: params.keepAliveMs ?? CONTROL_DIRECTOR_STARTUP_KEEP_ALIVE_MS,
+      timeoutMs: params.timeoutMs ?? CONTROL_DIRECTOR_STARTUP_WARMUP_TIMEOUT_MS,
+      signal: params.signal,
+    });
+  } catch (error) {
+    try {
+      await admission.release();
+    } catch {
+      // The provider failure remains the primary diagnostic.
+    }
+    return {
+      status: params.signal.aborted ? "cancelled" : "failed",
+      reason: `Control Director model warmup failed: ${error instanceof Error ? error.message : String(error)}`,
+      selectedModel,
+    };
+  }
+  try {
+    await admission.release();
+  } catch (error) {
+    return {
+      status: "failed",
+      reason: `Local-model resource admission could not be released: ${error instanceof Error ? error.message : String(error)}`,
+      selectedModel,
+      providerResult,
+    };
+  }
   if (!providerResult.ready) {
     return {
       status: params.signal.aborted ? "cancelled" : "failed",

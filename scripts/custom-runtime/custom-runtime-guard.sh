@@ -10,6 +10,7 @@ desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-secret-provider"}
 port=${OPENCLAW_GATEWAY_PORT:-18789}
 tailscale_primary_guard="$runtime_home/bin/custom-runtime-tailscale-primary.sh"
+full_verification_ttl=900
 uid=$(id -u)
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
@@ -76,9 +77,107 @@ PY
 then
   plist_uses_launcher=true
 fi
-if "$launcher" --verify >/dev/null 2>&1 && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1
+pointer_sha=
+launcher_sha=
+plist_sha=
+[ -f "$runtime_home/active-runtime.json" ] && pointer_sha=$(shasum -a 256 "$runtime_home/active-runtime.json" | awk '{print $1}') || true
+[ -f "$launcher" ] && launcher_sha=$(shasum -a 256 "$launcher" | awk '{print $1}') || true
+[ -f "$plist" ] && plist_sha=$(shasum -a 256 "$plist" | awk '{print $1}') || true
+
+# The cheap path is intentionally limited to identity, launcher, plist, and
+# process checks. A hash-bound full verification receipt is trusted for at
+# most fifteen minutes and only when every input hash is unchanged.
+cache_valid=false
+verification_receipt="$runtime_home/receipts/guard-verification-current.json"
+if [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && [ -n "$runtime_source_sha" ] && \
+  [ -n "$pointer_sha" ] && [ -n "$launcher_sha" ] && [ -n "$plist_sha" ] && \
+  pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1
 then
+  if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" "$full_verification_ttl" <<'PY'
+import json
+import os
+import stat
+import sys
+import time
+
+path, runtime_root, source_sha, pointer_sha, launcher_sha, plist_sha, ttl = sys.argv[1:]
+try:
+    info = os.lstat(path)
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o077:
+        raise OSError("unsafe verification receipt")
+    with open(path, encoding="utf-8") as handle:
+        value = json.load(handle)
+    valid = (
+        value.get("schema") == "openclaw.custom-runtime-guard-verification.v1"
+        and value.get("result") == "passed"
+        and value.get("runtimeRoot") == runtime_root
+        and value.get("sourceSha") == source_sha
+        and value.get("pointerSha256") == pointer_sha
+        and value.get("launcherSha256") == launcher_sha
+        and value.get("plistSha256") == plist_sha
+        and isinstance(value.get("verifiedAt"), int)
+        and not isinstance(value.get("verifiedAt"), bool)
+        and 0 <= time.time() - value["verifiedAt"] <= int(ttl)
+    )
+except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY
+  then
+    cache_valid=true
+  fi
+fi
+if [ "$cache_valid" = true ]; then
   complete_guard
+fi
+if [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && \
+  pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1 && \
+  "$launcher" --verify >/dev/null 2>&1
+then
+  if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" <<'PY'
+import json
+import os
+import sys
+import tempfile
+import time
+
+target, runtime_root, source_sha, pointer_sha, launcher_sha, plist_sha = sys.argv[1:]
+directory = os.path.dirname(target)
+temporary = None
+try:
+    descriptor, temporary = tempfile.mkstemp(prefix=".guard-verification-", dir=directory, text=True)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "schema": "openclaw.custom-runtime-guard-verification.v1",
+                "result": "passed",
+                "verifiedAt": int(time.time()),
+                "runtimeRoot": runtime_root,
+                "sourceSha": source_sha,
+                "pointerSha256": pointer_sha,
+                "launcherSha256": launcher_sha,
+                "plistSha256": plist_sha,
+            },
+            handle,
+            separators=(",", ":"),
+        )
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+    os.chmod(target, 0o600)
+except Exception:
+    if temporary:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+    raise
+PY
+  then
+    complete_guard
+  fi
 fi
 
 # Never restart into a configuration that cannot retrieve its required secret.

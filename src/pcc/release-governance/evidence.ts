@@ -20,6 +20,10 @@ import {
 } from "./contracts.js";
 import { decideReleasePolicy, requiredReleaseReviewRoles } from "./decision.js";
 import { evaluateReleaseHealth } from "./health.js";
+import {
+  RELEASE_LOCAL_MODEL_COMPATIBILITY_CHECK_ID,
+  validateReleaseLocalModelCompatibilityProof,
+} from "./local-proof.js";
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -113,6 +117,62 @@ function safeArtifactPath(value: string): boolean {
 const NON_ATTESTED_LOCAL_CHECKS = new Set(["candidate_sha", "parent_sha"]);
 const SHA256_PATTERN = /^[a-f0-9]{64}$/iu;
 
+function verifyLocalModelCompatibilityProof(params: {
+  bundle: ReleaseEvidenceBundle;
+  check: ReleaseCheck;
+  receipt: Record<string, unknown>;
+}): string[] {
+  const { bundle, check, receipt } = params;
+  const errors = validateReleaseLocalModelCompatibilityProof(receipt.localModelCompatibility);
+  const proof = receipt.localModelCompatibility;
+  if (!proof || typeof proof !== "object" || Array.isArray(proof)) {
+    return errors;
+  }
+  const payload = proof as Record<string, unknown>;
+  const expectedRuntime = {
+    candidateReleaseId: bundle.runtime.candidateReleaseId,
+    sourceCommit: bundle.runtime.candidateSourceCommit,
+    sourceSha256: bundle.runtime.candidateSourceSha256,
+    artifactSha256: bundle.runtime.candidateArtifactSha256,
+    runtimeClosureSha256: bundle.runtime.candidateRuntimeClosureSha256,
+    manifestSha256: bundle.runtime.candidateManifestSha256,
+    activeRuntimeBaselineSha256: bundle.runtime.activeRuntimeBaselineSha256,
+    configuredModel: bundle.runtime.configuredModel,
+    configuredModelSha256: bundle.runtime.configuredModelSha256,
+  } as const;
+  for (const [key, label] of [
+    ["candidateReleaseId", "candidate release"],
+    ["sourceCommit", "source commit"],
+    ["sourceSha256", "source"],
+    ["artifactSha256", "artifact"],
+    ["runtimeClosureSha256", "runtime closure"],
+    ["manifestSha256", "manifest"],
+    ["activeRuntimeBaselineSha256", "active baseline"],
+    ["configuredModel", "configured model"],
+    ["configuredModelSha256", "configured model"],
+  ] as const) {
+    const expected = expectedRuntime[key];
+    if (typeof expected !== "string" || !expected.trim()) {
+      errors.push(`Local model compatibility runtime ${label} identity is missing.`);
+    } else if (payload[key] !== expected) {
+      errors.push(`Local model compatibility ${label} identity does not match the runtime bundle.`);
+    }
+  }
+  if (receipt.recordedAt !== check.recordedAt) {
+    errors.push("Local model compatibility receipt timestamp does not match its check record.");
+  }
+  if (typeof receipt.recordedAt !== "string" || !Number.isFinite(Date.parse(receipt.recordedAt))) {
+    errors.push("Local model compatibility receipt timestamp is invalid.");
+  } else if (
+    typeof payload.completedAt === "string" &&
+    Number.isFinite(Date.parse(payload.completedAt)) &&
+    Date.parse(payload.completedAt) > Date.parse(receipt.recordedAt)
+  ) {
+    errors.push("Local model compatibility proof completed after its receipt was recorded.");
+  }
+  return errors;
+}
+
 function verifyLocalProofReceipt(params: {
   bundle: ReleaseEvidenceBundle;
   check: ReleaseCheck;
@@ -159,6 +219,16 @@ function verifyLocalProofReceipt(params: {
       value.result !== "passed"
     ) {
       return `Local proof receipt is not bound to the candidate, phase, profile, hashes, check, command, and passed result: ${check.id}.`;
+    }
+    if (check.id === RELEASE_LOCAL_MODEL_COMPATIBILITY_CHECK_ID) {
+      const compatibilityErrors = verifyLocalModelCompatibilityProof({
+        bundle,
+        check,
+        receipt: value,
+      });
+      if (compatibilityErrors.length > 0) {
+        return `Local model compatibility proof is invalid: ${compatibilityErrors.join(" ")}`;
+      }
     }
     return null;
   } catch {

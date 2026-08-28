@@ -9,7 +9,7 @@ import {
 } from "./contracts.js";
 
 const OPERATIONS: ReleaseOperation[] = ["stage", "promotion", "restart", "rollback", "finalize"];
-const RELEASE_GOVERNOR_POLICY_VERSION = 3;
+export const RELEASE_GOVERNOR_POLICY_VERSION = 4;
 const MAC_STUDIO_CONTROL_DIRECTOR_PROFILE_VERSION = 2;
 const RISKS = new Set<ReleaseRiskLevel>(["P0", "P1", "P2", "P3"]);
 const CUSTOM_PROOF_PROFILES = new Set<Exclude<ReleaseProofProfile, "default">>([

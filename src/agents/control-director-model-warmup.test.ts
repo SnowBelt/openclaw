@@ -125,6 +125,7 @@ describe("warmConfiguredControlDirectorModel", () => {
       result: { modelId: "openclaw-control-gemma4-31b-q8:latest", ready: true },
       reason: "ready",
     }));
+    const release = vi.fn(async () => undefined);
     const collectResidency = vi.fn(async () => ({
       available: true,
       observedProcessCount: 1,
@@ -140,6 +141,7 @@ describe("warmConfiguredControlDirectorModel", () => {
         assess: async () => assessment(),
         requestWarmup,
         collectResidency,
+        acquireSharedAdmission: async () => ({ release }) as never,
       },
     });
 
@@ -166,6 +168,7 @@ describe("warmConfiguredControlDirectorModel", () => {
           modelId: "model",
           reason: "hook unavailable",
         }),
+        acquireSharedAdmission: async () => ({ release: vi.fn(async () => undefined) }) as never,
       },
     });
 
