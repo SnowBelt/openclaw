@@ -7,6 +7,7 @@ import { LocalModelAdmissionError } from "../../src/agents/local-model-admission
 import {
   LOCAL_MODEL_COMPATIBILITY_AGENT_ID,
   LOCAL_MODEL_COMPATIBILITY_MODEL,
+  runReadOnly,
   runLocalModelCompatibilitySmoke,
   type CompatibilitySmokeParams,
 } from "./custom-runtime-local-model-smoke.js";
@@ -202,5 +203,22 @@ describe("custom runtime local-model compatibility smoke", () => {
     expect(report).toMatchObject({ status: "blocked", blockers: ["smoke_timeout"] });
     expect(report.stdoutTail).toContain("[REDACTED]");
     expect(fs.existsSync(params.receiptPath)).toBe(false);
+  });
+
+  it("treats an empty lsof result as zero clients without hiding probe errors", () => {
+    const noMatches = vi.fn(() => {
+      const error = Object.assign(new Error("no matches"), { status: 1, stderr: Buffer.alloc(0) });
+      throw error;
+    });
+    expect(runReadOnly("lsof", ["-nP"], noMatches)).toBe("");
+
+    const probeFailure = vi.fn(() => {
+      const error = Object.assign(new Error("probe failed"), {
+        status: 1,
+        stderr: Buffer.from("permission denied"),
+      });
+      throw error;
+    });
+    expect(() => runReadOnly("lsof", ["-nP"], probeFailure)).toThrow("probe failed");
   });
 });

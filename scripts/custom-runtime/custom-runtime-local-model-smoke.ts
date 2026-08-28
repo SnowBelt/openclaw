@@ -279,13 +279,29 @@ function readCandidateIdentity(params: CompatibilitySmokeParams): SmokeIdentity 
   };
 }
 
-function runReadOnly(command: string, args: string[]): string {
-  return execFileSync(command, args, {
-    encoding: "utf8",
-    timeout: 5_000,
-    maxBuffer: 128 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+export function runReadOnly(
+  command: string,
+  args: string[],
+  execute: typeof execFileSync = execFileSync,
+): string {
+  try {
+    return execute(command, args, {
+      encoding: "utf8",
+      timeout: 5_000,
+      maxBuffer: 128 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).toString();
+  } catch (error) {
+    // lsof exits 1 when a valid query has no matching sockets. Treat that as
+    // an empty observation; preserve non-empty stderr and every other failure
+    // as a hard probe error so permission/tool failures cannot look quiescent.
+    const probeError = error as { status?: unknown; stderr?: unknown };
+    const stderr = probeError.stderr == null ? "" : String(probeError.stderr);
+    if (command === "lsof" && probeError.status === 1 && stderr.trim() === "") {
+      return "";
+    }
+    throw error;
+  }
 }
 
 function parsePids(output: string): Set<number> {
