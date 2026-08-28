@@ -111,18 +111,26 @@ describe("custom runtime local-model compatibility smoke", () => {
       expect(input.args).toContain("180");
       expect(input.env.OPENAI_API_KEY).toBeUndefined();
       expect(input.env.OPENCLAW_SKIP_CHANNELS).toBe("1");
-      expect(input.env.OPENCLAW_SKIP_PROVIDERS).toBe("1");
+      expect(input.env.OPENCLAW_SKIP_PROVIDERS).toBeUndefined();
       expect(input.env.HTTP_PROXY).toBeUndefined();
       expect(input.env.OPENCLAW_LOCAL_MODEL_ADMISSION_TOKEN).toBe("lease-token");
       const isolatedConfig = JSON.parse(
         fs.readFileSync(input.env.OPENCLAW_CONFIG_PATH!, "utf8"),
       ) as {
-        plugins: { enabled: boolean };
+        plugins: {
+          enabled: boolean;
+          allow: string[];
+          entries: Record<string, { enabled: boolean }>;
+        };
         browser: { enabled: boolean };
         cron: { enabled: boolean; triggers: { enabled: boolean } };
       };
       expect(isolatedConfig).toMatchObject({
-        plugins: { enabled: false },
+        plugins: {
+          enabled: true,
+          allow: ["ollama"],
+          entries: { ollama: { enabled: true } },
+        },
         browser: { enabled: false },
         cron: { enabled: false, triggers: { enabled: false } },
       });

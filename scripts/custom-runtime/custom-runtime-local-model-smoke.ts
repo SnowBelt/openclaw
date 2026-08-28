@@ -382,7 +382,15 @@ function createIsolatedConfig(tempRoot: string, model: string): string {
         },
       },
     },
-    plugins: { enabled: false },
+    // The Ollama provider is a plugin-owned API. Keep plugin loading enabled
+    // only for that provider; disabling plugins globally leaves the model
+    // catalog intact but removes the stream registration, producing the
+    // misleading "No API provider registered for api: ollama" failure.
+    plugins: {
+      enabled: true,
+      allow: ["ollama"],
+      entries: { ollama: { enabled: true } },
+    },
     browser: { enabled: false },
     cron: { enabled: false, triggers: { enabled: false } },
     tools: { profile: "minimal", deny: ["*"] },
@@ -430,7 +438,6 @@ function childEnvironment(params: {
   env.OPENCLAW_LOCAL_MODEL_ADMISSION_PATH = params.admission.statePath;
   env.OPENCLAW_LOCAL_MODEL_ADMISSION_TOKEN = params.admission.token;
   env.OPENCLAW_SKIP_CHANNELS = "1";
-  env.OPENCLAW_SKIP_PROVIDERS = "1";
   env.OPENCLAW_SKIP_CRON = "1";
   env.OPENCLAW_SKIP_CANVAS_HOST = "1";
   env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER = "1";
