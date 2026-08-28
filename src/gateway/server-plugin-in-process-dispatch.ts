@@ -74,6 +74,7 @@ type DispatchGatewayMethodInProcessOptions = {
   onSignalAbort?: () => Promise<void> | void;
   operatorRoleActor?: GatewayOperatorRoleActor;
   pluginRuntimeOwnerId?: string;
+  browserRequestCompatibility?: boolean;
   pluginRuntimeAuthority?: () => boolean;
   pluginSubagentRequester?: PluginSubagentRequesterContext;
   runtimePluginToolGrant?: RuntimePluginToolGrant;
@@ -182,6 +183,7 @@ function resolveInProcessGatewayDispatch(
     internalDeliveryMediaUrls: options?.internalDeliveryMediaUrls,
     internalDeliverySuppressText: options?.internalDeliverySuppressText,
     ...(pluginRuntimeOwnerId ? { pluginRuntimeOwnerId } : {}),
+    ...(options?.browserRequestCompatibility === true ? { browserRequestCompatibility: true } : {}),
     ...(options?.pluginRuntimeAuthority
       ? { pluginRuntimeAuthority: options.pluginRuntimeAuthority }
       : {}),

@@ -61,6 +61,8 @@ import {
 
 const logger = createSubsystemLogger("browser");
 
+type BrowserGatewayRequestOptions = Parameters<GatewayRequestHandlers["browser.request"]>[0];
+
 function hasActiveBrowserNodeRuntimeAuthority(
   client: Parameters<GatewayRequestHandlers["browser.request"]>[0]["client"],
   context: Parameters<GatewayRequestHandlers["browser.request"]>[0]["context"],
@@ -105,12 +107,45 @@ type BrowserRequestParams = {
 };
 
 /** Handles one browser.request gateway call and streams a success/error response. */
-export async function handleBrowserGatewayRequest({
+export async function handleBrowserGatewayRequest(options: BrowserGatewayRequestOptions) {
+  const authority = options.client?.internal?.agentRuntimeIdentity?.delegatedAuthority;
+  const registerAuthorityClosed = options.context.registerAgentRuntimeAuthorityClosed;
+  if (!authority || !registerAuthorityClosed) {
+    return await handleBrowserGatewayRequestInternal(options);
+  }
+
+  const authorityAbortController = new AbortController();
+  let unregisterAuthorityClosed: (() => void) | undefined;
+  try {
+    unregisterAuthorityClosed = registerAuthorityClosed(authority, () => {
+      authorityAbortController.abort(new Error("agent runtime authority closed"));
+    });
+  } catch {
+    options.respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.INVALID_REQUEST, "agent runtime authority unavailable"),
+    );
+    return;
+  }
+
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, authorityAbortController.signal])
+    : authorityAbortController.signal;
+  try {
+    return await handleBrowserGatewayRequestInternal({ ...options, signal });
+  } finally {
+    unregisterAuthorityClosed?.();
+  }
+}
+
+async function handleBrowserGatewayRequestInternal({
   params,
   respond,
   context,
   client,
-}: Parameters<GatewayRequestHandlers["browser.request"]>[0]) {
+  signal,
+}: BrowserGatewayRequestOptions) {
   const typed = params as BrowserRequestParams;
   const methodRaw = (normalizeOptionalString(typed.method) ?? "").toUpperCase();
   const path = normalizeOptionalString(typed.path) ?? "";
@@ -128,7 +163,10 @@ export async function handleBrowserGatewayRequest({
   const hasBrowserStewardOperationClaim = browserStewardOperationClaim?.owner === "browser";
   const pluginRuntimeOwnerId = normalizeOptionalString(client?.internal?.pluginRuntimeOwnerId);
   const browserPluginRuntime = pluginRuntimeOwnerId === "browser";
-  if (pluginRuntimeOwnerId && !browserPluginRuntime) {
+  // This fact is host-issued by trusted in-process dispatch; the wire marker
+  // is stripped before reaching this handler and cannot grant the authority.
+  const compatibilityMeetingRuntime = client?.internal?.browserRequestCompatibility === true;
+  if (pluginRuntimeOwnerId && !browserPluginRuntime && !compatibilityMeetingRuntime) {
     respond(
       false,
       undefined,
@@ -154,11 +192,16 @@ export async function handleBrowserGatewayRequest({
       agentId: effectiveRequestedAgentId,
     }) ||
     browserPluginRuntime ||
+    compatibilityMeetingRuntime ||
     directOperator;
   const effectiveAgentId =
-    browserPluginRuntime || directOperator ? BROWSER_STEWARD_AGENT_ID : effectiveRequestedAgentId;
+    browserPluginRuntime || compatibilityMeetingRuntime || directOperator
+      ? BROWSER_STEWARD_AGENT_ID
+      : effectiveRequestedAgentId;
   const effectiveAgentSessionKey =
-    browserPluginRuntime || directOperator ? undefined : effectiveRequestedAgentSessionKey;
+    browserPluginRuntime || compatibilityMeetingRuntime || directOperator
+      ? undefined
+      : effectiveRequestedAgentSessionKey;
   const operatorApproved = operatorAdmin && !trustedAgentRuntime;
   let browserStewardOperationApproved =
     operatorApproved || browserPluginRuntime || hasBrowserStewardOperationClaim;
@@ -170,7 +213,7 @@ export async function handleBrowserGatewayRequest({
   });
   const cfg = getRuntimeConfig();
   const isBrowserNodeDispatchAuthorized = () =>
-    hasActiveBrowserNodeRuntimeAuthority(client, context);
+    !signal?.aborted && hasActiveBrowserNodeRuntimeAuthority(client, context);
 
   if (routeOnly) {
     if (!operatorAdmin) {
@@ -474,6 +517,7 @@ export async function handleBrowserGatewayRequest({
       timeoutMs,
       idempotencyKey,
       isDispatchAuthorized: isBrowserNodeDispatchAuthorized,
+      signal,
     });
     if (!res.ok && !isBrowserNodeDispatchAuthorized()) {
       // A failed dispatch still needs an active authority before any retry or
@@ -492,6 +536,7 @@ export async function handleBrowserGatewayRequest({
         requestedNode === undefined);
     const browserNodeRoutePinned =
       browserPluginRuntime ||
+      compatibilityMeetingRuntime ||
       hasBrowserStewardOperationClaim ||
       browserNodeSessionLease !== undefined;
     const allowAutomaticHostFallback =
@@ -607,14 +652,20 @@ export async function handleBrowserGatewayRequest({
     }
     result = timeoutMs
       ? await withTimeout(
-          (signal) =>
-            dispatcher.dispatch({
+          (timeoutSignal) => {
+            const dispatchSignal = signal
+              ? timeoutSignal
+                ? AbortSignal.any([signal, timeoutSignal])
+                : signal
+              : timeoutSignal;
+            return dispatcher.dispatch({
               method: methodRaw,
               path,
               query,
               body,
-              signal,
-            }),
+              ...(dispatchSignal ? { signal: dispatchSignal } : {}),
+            });
+          },
           timeoutMs,
           "browser request",
         )
@@ -623,6 +674,7 @@ export async function handleBrowserGatewayRequest({
           path,
           query,
           body,
+          ...(signal ? { signal } : {}),
         });
   } catch (err) {
     respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));

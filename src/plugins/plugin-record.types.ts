@@ -2,6 +2,7 @@
 import type { JsonSchemaObject } from "../shared/json-schema.types.js";
 import type { PluginCompatCode } from "./compat/registry.js";
 import type { PluginActivationSource } from "./config-state.js";
+import type { PluginManifestRecord } from "./manifest-registry.js";
 import type { PluginBundleFormat, PluginConfigUiHint, PluginFormat } from "./manifest-types.js";
 import type {
   PluginManifestContracts,
@@ -64,6 +65,7 @@ export type PluginRecord = {
   services: string[];
   gatewayDiscoveryServiceIds: string[];
   commands: string[];
+  commandAliases?: PluginManifestRecord["commandAliases"];
   httpRoutes: number;
   hookCount: number;
   configSchema: boolean;

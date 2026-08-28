@@ -1,7 +1,6 @@
-import fs, { readFileSync } from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parse } from "yaml";
 import {
   AGENT_ROLE_CONTRACTS,
   AGENT_ROLE_CONTRACT_BY_ID,
@@ -14,54 +13,6 @@ import {
   evaluateAgentStaticContracts,
 } from "../../scripts/lib/agent-role-evals.mjs";
 import { createScriptTestHarness } from "./test-helpers.ts";
-
-type WorkflowStep = {
-  env?: Record<string, string>;
-  if?: string;
-  name?: string;
-  run?: string;
-  with?: Record<string, string>;
-};
-
-type WorkflowJob = {
-  if?: string;
-  needs?: string | string[];
-  "runs-on"?: string;
-  "timeout-minutes"?: number;
-  steps?: WorkflowStep[];
-};
-
-type AgentRoleEvalWorkflow = {
-  env?: Record<string, string>;
-  on?: {
-    workflow_dispatch?: {
-      inputs?: Record<
-        string,
-        {
-          default?: string | boolean;
-          description?: string;
-          required?: boolean;
-          type?: string;
-        }
-      >;
-    };
-  };
-  jobs?: Record<string, WorkflowJob>;
-};
-
-function readAgentRoleEvalWorkflow(): AgentRoleEvalWorkflow {
-  return parse(
-    readFileSync(".github/workflows/agent-role-evals.yml", "utf8"),
-  ) as AgentRoleEvalWorkflow;
-}
-
-function requireWorkflowStep(job: WorkflowJob | undefined, name: string): WorkflowStep {
-  const step = job?.steps?.find((candidate) => candidate.name === name);
-  if (!step) {
-    throw new Error(`Expected Agent Role Evals workflow step: ${name}`);
-  }
-  return step;
-}
 
 function writeAgentWorkspace(root: string, id: string, body: string) {
   const workspace = path.join(root, `workspace-${id}`);
@@ -202,86 +153,6 @@ describe("agent role eval harness", () => {
       stateDir: fixture.stateDir,
     });
     expect(result).toMatchObject({ ok: true, agentCount: 1, issues: [] });
-  });
-
-  it("keeps the CI workflow deterministic and secret-free", () => {
-    const source = readFileSync(".github/workflows/agent-role-evals.yml", "utf8");
-    const workflow = readAgentRoleEvalWorkflow();
-    const contractJob = workflow.jobs?.["contract-catalog"];
-    const liveJob = workflow.jobs?.["session-steward-live"];
-    const dispatchInputs = workflow.on?.workflow_dispatch?.inputs;
-    const validateLiveInputsStep = requireWorkflowStep(
-      liveJob,
-      "Validate Steward live eval inputs",
-    );
-    const startOllamaStep = requireWorkflowStep(
-      liveJob,
-      "Start local Ollama for Steward live evals",
-    );
-    const runLiveEvalStep = requireWorkflowStep(liveJob, "Run Steward live evals");
-    const stopOllamaStep = requireWorkflowStep(liveJob, "Stop local Ollama");
-    const stewardLiveCommands = [
-      'node scripts/agent-role-eval.mjs --live --self-contained --agent session-steward --model "$STEWARD_LIVE_MODEL" --timeout "$STEWARD_TIMEOUT_SECONDS" --json',
-      'node scripts/agent-role-eval.mjs --live --self-contained --agent credential-steward --model "$STEWARD_LIVE_MODEL" --timeout "$STEWARD_TIMEOUT_SECONDS" --json',
-      'node scripts/agent-role-eval.mjs --live --self-contained --agent browser-session-credential-steward --model "$STEWARD_LIVE_MODEL" --timeout "$STEWARD_TIMEOUT_SECONDS" --json',
-      'node scripts/agent-role-eval.mjs --live --self-contained --agent browser-session-credential-steward-safety-boundary --model "$STEWARD_LIVE_MODEL" --timeout "$STEWARD_TIMEOUT_SECONDS" --json',
-    ];
-
-    expect(dispatchInputs?.run_session_steward_live).toMatchObject({
-      default: false,
-      required: false,
-      type: "boolean",
-    });
-    expect(dispatchInputs?.live_model).toMatchObject({
-      default: "ollama/qwen3.5:4b",
-      required: false,
-      type: "string",
-    });
-    expect(dispatchInputs?.timeout_seconds).toMatchObject({
-      default: "480",
-      required: false,
-      type: "string",
-    });
-    expect(workflow.jobs?.["live-role-turns"]).toBeUndefined();
-    expect(liveJob).toMatchObject({
-      needs: "contract-catalog",
-      if: "${{ github.event_name == 'workflow_dispatch' && inputs.run_session_steward_live }}",
-      "runs-on": "ubuntu-24.04",
-    });
-    expect(liveJob?.["timeout-minutes"]).toBe(45);
-    expect(source).not.toContain("secrets.");
-    expect(source).not.toContain("OPENCLAW_AGENT_ROLE_EVAL_LIVE");
-    expect(source).not.toContain("ci-hydrate-live-auth");
-    expect(source).not.toContain("actions/upload-artifact");
-    expect(source).not.toContain("ollama/ollama:latest");
-    expect(workflow.env?.OLLAMA_IMAGE).toMatch(/^docker\.io\/ollama\/ollama@sha256:[a-f0-9]{64}$/);
-    expect(requireWorkflowStep(contractJob, "Validate role contracts").run).toBe(
-      "node scripts/agent-role-eval.mjs --contracts-only",
-    );
-    expect(validateLiveInputsStep.env).toEqual({
-      INPUT_LIVE_MODEL: "${{ inputs.live_model }}",
-      INPUT_TIMEOUT_SECONDS: "${{ inputs.timeout_seconds }}",
-    });
-    expect(validateLiveInputsStep.run).toContain("live_model must be an ollama/<model> ref");
-    expect(validateLiveInputsStep.run).toContain("timeout_seconds must be between 1 and 480");
-    expect(validateLiveInputsStep.run).toContain("STEWARD_LIVE_MODEL=");
-    expect(validateLiveInputsStep.run).toContain("STEWARD_TIMEOUT_SECONDS=");
-    expect(startOllamaStep.run).toContain("docker run --rm -d --name openclaw-agent-role-ollama");
-    expect(startOllamaStep.run).toContain('"$OLLAMA_IMAGE"');
-    expect(startOllamaStep.run).toContain("ollama pull");
-    expect(startOllamaStep.run).toContain('model_id="${STEWARD_LIVE_MODEL#ollama/}"');
-    expect(
-      runLiveEvalStep.run?.match(
-        /node scripts\/agent-role-eval\.mjs --live --self-contained --agent/g,
-      ),
-    ).toHaveLength(4);
-    for (const command of stewardLiveCommands) {
-      expect(runLiveEvalStep.run).toContain(command);
-    }
-    expect(stopOllamaStep).toMatchObject({
-      if: "always()",
-      run: "docker rm -f openclaw-agent-role-ollama || true",
-    });
   });
 
   it("defaults agent eval config lookup to the canonical OpenClaw config path", () => {

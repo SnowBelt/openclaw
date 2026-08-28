@@ -38,24 +38,47 @@ async function callLocalBrowserRequest(params: MeetingBrowserRequestParams) {
   );
 }
 
+type MeetingBrowserRouting = "legacy" | "browser-steward";
+
 export async function resolveLocalMeetingBrowserRequest(
   runtime: PluginRuntime,
+  routing: MeetingBrowserRouting = "legacy",
 ): Promise<MeetingBrowserRequestCaller> {
+  if (routing === "browser-steward") {
+    if (!(await runtime.gateway.isAvailable())) {
+      throw new Error("Browser-owned browser capability unavailable");
+    }
+    const browser = resolveBrowserNodeDelegationRuntime(runtime);
+    if (!browser) {
+      throw new Error("Browser-owned browser capability unavailable");
+    }
+    return async (params) =>
+      await browser.request({
+        method: params.method,
+        path: params.path,
+        ...(params.body !== undefined ? { body: params.body } : {}),
+        timeoutMs: params.timeoutMs,
+        nodeId: "",
+      });
+  }
   // Gateway-hosted plugin work stays in-process; otherwise agent tools would
   // need an external operator.admin token just to reach the local browser.
   if (!(await runtime.gateway.isAvailable())) {
     return callLocalBrowserRequest;
   }
-  const browser = resolveBrowserNodeDelegationRuntime(runtime);
-  if (!browser) {
-    throw new Error("Browser-owned browser capability unavailable");
-  }
   return async (params) =>
-    await browser.request({
-      method: params.method,
-      path: params.path,
-      ...(params.body !== undefined ? { body: params.body } : {}),
-      timeoutMs: params.timeoutMs,
-      nodeId: "",
-    });
+    await runtime.gateway.request(
+      "browser.request",
+      {
+        method: params.method,
+        path: params.path,
+        body: params.body,
+        timeoutMs: params.timeoutMs,
+        legacyMeetingRuntime: true,
+      },
+      {
+        timeoutMs: resolveBrowserGatewayTimeoutMs(params.timeoutMs),
+        scopes: ["operator.admin"],
+      },
+    );
 }

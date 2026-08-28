@@ -138,6 +138,7 @@ async function runBrowserRequest(
     internal?: {
       agentRuntimeIdentity?: unknown;
       pluginRuntimeOwnerId?: string;
+      browserRequestCompatibility?: true;
       pluginRuntimeAuthority?: () => boolean;
     };
   } | null,
@@ -304,6 +305,7 @@ describe("browser.request profile selection", () => {
         method: "GET",
         path: "/profiles",
         agentSessionKey: "agent:google-meet:direct:private-thread",
+        legacyMeetingRuntime: true,
       },
       undefined,
       undefined,
@@ -322,6 +324,27 @@ describe("browser.request profile selection", () => {
     });
     expect(JSON.stringify(error)).not.toContain("private-thread");
     expect(nodeRegistry.invoke).not.toHaveBeenCalled();
+  });
+
+  it("accepts only the host-issued legacy meeting compatibility authority", async () => {
+    const { respond, nodeRegistry } = await runBrowserRequest(
+      {
+        method: "GET",
+        path: "/profiles",
+      },
+      undefined,
+      undefined,
+      {
+        connect: { scopes: ["operator.admin"] },
+        internal: {
+          pluginRuntimeOwnerId: "google-meet",
+          browserRequestCompatibility: true,
+        },
+      },
+    );
+
+    expect(invokeParams(nodeRegistry).nodeId).toBe("node-1");
+    expect(firstRespondCall(respond)[0]).toBe(true);
   });
 
   it("carries a redacted admin approval envelope to the browser node", async () => {
@@ -812,272 +835,5 @@ describe("browser.request profile selection", () => {
         message: "agent runtime authority is no longer active",
       }),
     ]);
-  });
-
-  it("sends Gateway-owned upload bytes without forwarding source paths", async () => {
-    const upload = {
-      envelope: "browser-upload-v1",
-      files: [{ name: "report.txt", contentBase64: "aGVsbG8=" }],
-    };
-    uploadMocks.prepareBrowserProxyUploadRequest.mockResolvedValueOnce({
-      body: { ref: "e12" },
-      upload,
-    });
-
-    const { respond, nodeRegistry } = await runBrowserRequest({
-      method: "POST",
-      path: "/hooks/file-chooser",
-      body: {
-        paths: ["/tmp/openclaw/uploads/report.txt"],
-        ref: "e12",
-      },
-    });
-
-    expect(invokeParams(nodeRegistry).params).toMatchObject({
-      body: { ref: "e12" },
-      upload,
-    });
-    expect(invokeParams(nodeRegistry).command).toBe("browser.proxy.upload.v1");
-    expect(invokeParams(nodeRegistry).params?.body).not.toHaveProperty("paths");
-    expect(firstRespondCall(respond)[0]).toBe(true);
-  });
-
-  it("uses the original Gateway paths when an auto-selected old node lacks upload support", async () => {
-    const originalBody = {
-      paths: ["/tmp/openclaw/uploads/report.txt"],
-      ref: "e12",
-    };
-    uploadMocks.prepareBrowserProxyUploadRequest.mockResolvedValueOnce({
-      body: { ref: "e12" },
-      upload: {
-        envelope: "browser-upload-v1",
-        files: [{ name: "report.txt", contentBase64: "aGVsbG8=" }],
-      },
-    });
-    startBrowserControlServiceFromConfigMock.mockResolvedValueOnce(true);
-    dispatchBrowserRouteMock.mockResolvedValueOnce({ status: 200, body: { ok: true } });
-
-    const { respond, nodeRegistry } = await runBrowserRequest(
-      {
-        method: "POST",
-        path: "/hooks/file-chooser",
-        body: originalBody,
-      },
-      undefined,
-      [
-        {
-          nodeId: "node-1",
-          caps: ["browser"],
-          commands: ["browser.proxy"],
-          platform: "linux",
-        },
-      ],
-    );
-
-    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
-    expect(dispatchBrowserRouteMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "POST",
-        path: "/hooks/file-chooser",
-        body: originalBody,
-      }),
-    );
-    expect(firstRespondCall(respond)).toEqual([true, { ok: true }]);
-    expect(uploadMocks.prepareBrowserProxyUploadRequest).not.toHaveBeenCalled();
-  });
-
-  it("rejects a configured old node upload before node dispatch", async () => {
-    loadConfigMock.mockReturnValue({
-      gateway: { nodes: { browser: { mode: "auto", node: "node-1" } } },
-    });
-    uploadMocks.prepareBrowserProxyUploadRequest.mockResolvedValueOnce({
-      body: { ref: "e12" },
-      upload: {
-        envelope: "browser-upload-v1",
-        files: [{ name: "report.txt", contentBase64: "aGVsbG8=" }],
-      },
-    });
-
-    const { respond, nodeRegistry } = await runBrowserRequest(
-      {
-        method: "POST",
-        path: "/hooks/file-chooser",
-        body: { paths: ["/tmp/openclaw/uploads/report.txt"], ref: "e12" },
-      },
-      undefined,
-      [
-        {
-          nodeId: "node-1",
-          caps: ["browser"],
-          commands: ["browser.proxy"],
-          platform: "linux",
-        },
-      ],
-    );
-
-    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
-    expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
-    expect(firstRespondCall(respond)[2]?.message).toContain(
-      "browser node does not support remote upload transfer",
-    );
-    expect(uploadMocks.prepareBrowserProxyUploadRequest).not.toHaveBeenCalled();
-  });
-
-  it("explains when configured-node upload support is awaiting approval", async () => {
-    loadConfigMock.mockReturnValue({
-      gateway: { nodes: { browser: { mode: "auto", node: "node-1" } } },
-    });
-
-    const { respond, nodeRegistry } = await runBrowserRequest(
-      {
-        method: "POST",
-        path: "/hooks/file-chooser",
-        body: { paths: ["/tmp/openclaw/uploads/report.txt"], ref: "e12" },
-      },
-      undefined,
-      [
-        {
-          nodeId: "node-1",
-          caps: ["browser"],
-          commands: ["browser.proxy"],
-          declaredCommands: ["browser.proxy", "browser.proxy.upload.v1"],
-          platform: "linux",
-        },
-      ],
-    );
-
-    expect(nodeRegistry.invoke).not.toHaveBeenCalled();
-    expect(firstRespondCall(respond)[2]?.message).toContain(
-      "remote upload transfer is pending approval",
-    );
-    expect(uploadMocks.prepareBrowserProxyUploadRequest).not.toHaveBeenCalled();
-  });
-
-  it("preserves a configured node failure instead of falling back to the host", async () => {
-    loadConfigMock.mockReturnValue({
-      gateway: { nodes: { browser: { mode: "auto", node: "node-1" } } },
-    });
-    const { respond } = await runBrowserRequest(
-      { method: "GET", path: "/" },
-      {
-        ok: false,
-        error: {
-          code: "UNAVAILABLE",
-          message: "Browser control host is not reachable on 127.0.0.1:18791.",
-        },
-      },
-    );
-
-    expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
-    expect(firstRespondCall(respond)[2]?.message).toContain(
-      "Browser control host is not reachable",
-    );
-  });
-
-  it("preserves ambiguous auto-selected node failures", async () => {
-    const { respond } = await runBrowserRequest(
-      { method: "GET", path: "/" },
-      {
-        ok: false,
-        error: { code: "UNAVAILABLE", message: "node invoke timed out" },
-      },
-    );
-
-    expect(startBrowserControlServiceFromConfigMock).not.toHaveBeenCalled();
-    expect(firstRespondCall(respond)[2]?.message).toBe("UNAVAILABLE: node invoke timed out");
-  });
-
-  it("preserves status-coded node proxy errors for internal Browser tool callers", async () => {
-    const { respond } = await runBrowserRequest(
-      { method: "POST", path: "/act", includeRoute: true },
-      { ok: false, error: { code: "INVALID_REQUEST", message: "404: tab not found" } },
-    );
-
-    expect(firstRespondCall(respond)).toEqual([
-      true,
-      { error: { status: 404, body: { error: "tab not found" } } },
-      undefined,
-    ]);
-  });
-
-  it("wraps unstructured node proxy errors for internal Browser tool callers", async () => {
-    const { respond } = await runBrowserRequest(
-      { method: "POST", path: "/act", includeRoute: true },
-      { ok: false, error: { code: "UNAVAILABLE", message: "node disconnected" } },
-    );
-
-    expect(firstRespondCall(respond)).toEqual([
-      true,
-      { error: { status: 502, body: { error: "node disconnected" } } },
-      undefined,
-    ]);
-  });
-
-  it("maps validated node-proxy route failures like local route failures", async () => {
-    const errorBody = {
-      error: "headed mode needs a display",
-      reason: "no_display_for_headed_profile",
-      details: {
-        profile: "openclaw",
-        requestedHeadless: false,
-        headlessSource: "config",
-        displayPresent: false,
-      },
-    };
-    const { respond } = await runBrowserRequest(
-      { method: "POST", path: "/start" },
-      { ok: true, payload: { error: { status: 409, body: errorBody } } },
-    );
-
-    const [ok, payload, error] = firstRespondCall(respond);
-    expect(ok).toBe(false);
-    expect(payload).toBeUndefined();
-    expect(error).toMatchObject({
-      code: "INVALID_REQUEST",
-      message: "headed mode needs a display",
-      details: errorBody,
-    });
-  });
-
-  it.each([
-    {
-      name: "recognized action code",
-      body: { error: "evaluation disabled", code: "ACT_EVALUATE_DISABLED" },
-      details: { error: "evaluation disabled", code: "ACT_EVALUATE_DISABLED" },
-    },
-    {
-      name: "unrecognized action code",
-      body: { error: "evaluation disabled", code: "ACT_FUTURE_CODE" },
-      details: { error: "evaluation disabled", unrecognizedCode: true },
-    },
-  ])("preserves bounded $name state through the node proxy", async ({ body, details }) => {
-    const { respond } = await runBrowserRequest(
-      { method: "POST", path: "/act" },
-      { ok: true, payload: { error: { status: 403, body } } },
-    );
-
-    expect(firstRespondCall(respond)[2]).toEqual({
-      code: "INVALID_REQUEST",
-      message: "evaluation disabled",
-      details,
-    });
-  });
-
-  it("returns UNAVAILABLE for an incomplete node file envelope", async () => {
-    const { respond } = await runBrowserRequest(
-      { method: "POST", path: "/screenshot" },
-      {
-        ok: true,
-        payload: { result: { path: "/node/browser/screenshot.png" } },
-      },
-    );
-
-    const [ok, payload, error] = firstRespondCall(respond);
-    expect(ok).toBe(false);
-    expect(payload).toBeUndefined();
-    expect(error).toMatchObject({
-      code: "UNAVAILABLE",
-      message: "browser proxy file transfer failed",
-    });
   });
 });

@@ -143,7 +143,10 @@ export function createPluginApiFactory(
   ): OpenClawPluginApi => {
     const registrationMode = params.registrationMode ?? "full";
     const registrationCapabilities = resolvePluginRegistrationCapabilities(registrationMode);
-    setPluginRuntimeRecord(record);
+    // Setup-only registration describes metadata and must not displace a live runtime record.
+    if (registrationMode !== "setup-only") {
+      setPluginRuntimeRecord(record);
+    }
     const sideEffectGuard = createPluginSideEffectGuard(record.id);
     const isLoadedRecordInRegistry = () =>
       registry.plugins.some((plugin) => plugin.id === record.id && plugin.status === "loaded");
