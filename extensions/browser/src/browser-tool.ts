@@ -4,6 +4,7 @@
  * Builds the model-facing browser tool, chooses sandbox/host/node routing, and
  * maps high-level actions onto browser control client calls.
  */
+/* oxlint-disable max-lines -- The model-facing browser dispatcher keeps one shared route/approval pipeline; action implementations remain split into focused modules. */
 import type { AgentToolResult } from "openclaw/plugin-sdk/agent-core";
 import { asNullableRecord, isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
@@ -631,7 +632,7 @@ export function createBrowserTool(
       if (
         !proxyRequest &&
         isUserBrowserProfile &&
-        ["requests", "text", "emulate"].includes(action)
+        ["requests", "errors", "text", "emulate"].includes(action)
       ) {
         throw new Error(
           `action=${action} is not supported for existing-session profiles; use action=snapshot to inspect this page, or select a managed browser profile for ${action}.`,

@@ -4821,7 +4821,7 @@ describe("browser observation actions and tab previews", () => {
     });
     expect(result.details).not.toHaveProperty("errors");
     if (target === "node") {
-      expect(nodeInvokeCall(0).request.params).toMatchObject({
+      expect(nodeInvokeCall(0).request).toMatchObject({
         method: "GET",
         path: "/errors",
         profile: "openclaw",
