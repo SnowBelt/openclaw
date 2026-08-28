@@ -105,6 +105,7 @@ describe("custom runtime local-model compatibility smoke", () => {
     const admitted = lease();
     const acquire = vi.fn(async () => admitted);
     const execute = vi.fn(async (input) => {
+      expect(input.args.slice(0, 2)).toEqual(["--log-level", "error"]);
       expect(input.args).toContain("--local");
       expect(input.args).toContain(LOCAL_MODEL_COMPATIBILITY_AGENT_ID);
       expect(input.args).toContain("--timeout");

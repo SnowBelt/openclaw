@@ -666,6 +666,8 @@ export async function runLocalModelCompatibilitySmoke(
   const configPath = createIsolatedConfig(tempRoot, identity.configuredModel);
   const prompt = `Reply with exactly ${RELEASE_LOCAL_MODEL_COMPATIBILITY_RESPONSE} and no other text.`;
   const executableArgs = [
+    "--log-level",
+    "error",
     "agent",
     "--local",
     "--agent",
