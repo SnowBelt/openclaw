@@ -1915,6 +1915,8 @@ function closeDetailsOnEscape(event: KeyboardEvent, onClose?: () => void) {
 }
 
 function closeDetailsFromControl(event: MouseEvent, onClose?: () => void) {
+  event.preventDefault();
+  event.stopPropagation();
   const details = (event.currentTarget as HTMLElement | null)?.closest<HTMLDetailsElement>(
     "details",
   );
@@ -2140,6 +2142,15 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
                 : "Nothing is running."}
             </p>
           </div>
+          <button
+            class="btn btn--sm btn--icon chat-panel-close"
+            type="button"
+            aria-label="Close Working Now"
+            title="Close"
+            @click=${closeDetailsFromControl}
+          >
+            ${icons.x}
+          </button>
         </div>
         ${hasError
           ? html`<div class="chat-work-surface__error">Work status unavailable</div>`
@@ -2261,7 +2272,7 @@ function renderControlDirectorSystemStatus(props: ChatProps) {
         <div class="chat-system-status__header">
           <strong>System status</strong>
           <button
-            class="btn btn--sm btn--icon"
+            class="btn btn--sm btn--icon chat-panel-close"
             type="button"
             aria-label="Close system status"
             title="Close"
@@ -2373,7 +2384,7 @@ function renderControlDirectorDiagnosticsCard(
           <div class="chat-control-director-diagnostics__header-actions">
             <span class="chat-control-director-diagnostics__status">${summary.status}</span>
             <button
-              class="btn btn--sm btn--icon chat-control-director-diagnostics__close"
+              class="btn btn--sm btn--icon chat-control-director-diagnostics__close chat-panel-close"
               type="button"
               aria-label="Close truth and completion details"
               title="Close"
@@ -2757,7 +2768,7 @@ function renderChatProjectPicker(props: ChatProps) {
               Refresh
             </button>
             <button
-              class="btn btn--sm btn--icon"
+              class="btn btn--sm btn--icon chat-panel-close"
               type="button"
               aria-label="Close project panel"
               title="Close"
@@ -2949,7 +2960,7 @@ function renderPursueGoal(props: ChatProps) {
                   Refresh
                 </button>
                 <button
-                  class="btn btn--sm btn--icon"
+                  class="btn btn--sm btn--icon chat-panel-close"
                   type="button"
                   aria-label="Close pursue goal panel"
                   title="Close"

@@ -100,7 +100,18 @@
 }
 
 .chat-panel-header-actions {
+  align-items: center;
+  display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.chat-panel-close {
+  flex: 0 0 auto;
+  min-height: 2.25rem;
+  min-width: 2.25rem;
 }
 
 .chat-system-status__summary {
@@ -1267,5 +1278,53 @@
   .chat-approval-card__summary:hover,
   .chat-goal__summary:hover {
     transform: none;
+  }
+}
+
+/* Keep expanded chat sheets above the sticky composer on narrow screens. */
+@media (max-width: 720px) {
+  .chat-session-status:has(> details[open]) {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
+  .chat-session-status > details[open] > summary {
+    position: relative;
+    z-index: 101;
+  }
+
+  .chat-session-status > details[open] > .chat-work-surface__panel,
+  .chat-session-status > details[open] > .chat-project-picker__panel,
+  .chat-session-status > details[open] > .chat-approval-card__panel,
+  .chat-session-status > details[open] > .chat-goal__panel {
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+    left: 0.75rem;
+    max-height: min(calc(100dvh - 10rem), 39rem);
+    max-width: none;
+    position: fixed;
+    right: 0.75rem;
+    top: auto;
+    transform: none;
+    width: auto;
+    z-index: 100;
+  }
+
+  .chat-approval-card[open] > .chat-approval-card__summary {
+    position: relative;
+    z-index: 101;
+  }
+
+  .chat-work-surface[open] .chat-work-surface__panel,
+  .chat-project-picker[open] .chat-project-picker__panel,
+  .chat-approval-card[open] .chat-approval-card__panel,
+  .chat-goal[open] .chat-goal__panel {
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+    left: 0.75rem;
+    max-width: none;
+    right: 0.75rem;
+    top: auto;
+    transform: none;
+    width: auto;
+    z-index: 100;
   }
 }
