@@ -246,7 +246,7 @@ describe("custom runtime local-model compatibility smoke", () => {
   });
 
   it("fails with a typed overflow instead of accepting an oversized probe", () => {
-    const oversized = vi.fn(() => "p123\n".repeat(30_000));
+    const oversized = vi.fn(() => Buffer.from("p123\n".repeat(30_000)));
     expect(() => runReadOnly("/usr/bin/pgrep", ["-x", "openclaw-agent"], oversized)).toThrow(
       "probe_overflow",
     );
