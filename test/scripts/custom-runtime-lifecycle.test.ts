@@ -892,6 +892,24 @@ describe("custom runtime lifecycle", () => {
     );
   });
 
+  it("bounds the candidate and rollback listener startup wait", () => {
+    const source = fs.readFileSync(stageScript, "utf8");
+
+    expect(source).toContain(
+      "stage_startup_wait_seconds=${OPENCLAW_CUSTOM_RUNTIME_STAGE_STARTUP_WAIT_SECONDS:-120}",
+    );
+    expect(source).toContain(
+      'custom_runtime_wait_for_port_owner "$port" "$release" "$stage_startup_wait_seconds"',
+    );
+    expect(source).toContain(
+      'custom_runtime_wait_for_port_owner "$rollback_port" "$rollback_root" "$stage_startup_wait_seconds"',
+    );
+    expect(source).not.toContain('custom_runtime_wait_for_port_owner "$port" "$release" 45');
+    expect(source).not.toContain(
+      'custom_runtime_wait_for_port_owner "$rollback_port" "$rollback_root" 45',
+    );
+  });
+
   it("promotion persists the exact verified runtime identity in the managed service", () => {
     const root = createRoot("openclaw-custom-promote-");
     const home = path.join(root, "home");

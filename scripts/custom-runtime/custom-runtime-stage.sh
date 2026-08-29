@@ -32,6 +32,16 @@ fi
 case "$rollback_port" in ''|*[!0-9]*) usage ;; esac
 [ "$rollback_port" -ge 1 ] && [ "$rollback_port" -le 65535 ] || usage
 [ "$rollback_port" -ne "$port" ] || usage
+stage_startup_wait_seconds=${OPENCLAW_CUSTOM_RUNTIME_STAGE_STARTUP_WAIT_SECONDS:-120}
+case "$stage_startup_wait_seconds" in ''|*[!0-9]*)
+  printf '%s\n' 'candidate stage blocked: startup wait must be an integer from 1 to 120 seconds' >&2
+  exit 64
+  ;;
+esac
+[ "$stage_startup_wait_seconds" -ge 1 ] && [ "$stage_startup_wait_seconds" -le 120 ] || {
+  printf '%s\n' 'candidate stage blocked: startup wait must be an integer from 1 to 120 seconds' >&2
+  exit 64
+}
 [ -f "$release/dist/index.js" ] || usage
 [ -f "$release/dist/release-governor.js" ] || {
   printf '%s\n' 'candidate Release Governor entrypoint is missing' >&2
@@ -233,7 +243,7 @@ OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" OPENCLAW_STATE_DIR="$stage/
 pid=$!
 pid_port=$port
 candidate_pid=
-if candidate_pid=$(custom_runtime_wait_for_port_owner "$port" "$release" 45); then
+if candidate_pid=$(custom_runtime_wait_for_port_owner "$port" "$release" "$stage_startup_wait_seconds"); then
   [ "$candidate_pid" = "$pid" ] || {
     printf '%s\n' 'candidate stage process and port owner do not match' >&2
     exit 1
@@ -348,7 +358,7 @@ PY
       pid=$!
       pid_port=$rollback_port
       rollback_pid=
-      if rollback_pid=$(custom_runtime_wait_for_port_owner "$rollback_port" "$rollback_root" 45); then
+      if rollback_pid=$(custom_runtime_wait_for_port_owner "$rollback_port" "$rollback_root" "$stage_startup_wait_seconds"); then
         [ "$rollback_pid" = "$pid" ] || {
           printf '%s\n' 'candidate stage rollback child and port owner do not match' >&2
           exit 1
