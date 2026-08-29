@@ -40,7 +40,7 @@ const FAILURE_CODES = Object.freeze({
   BUILD: "steward_build_missing",
 });
 
-function isRecord(value) {
+function isStewardConfigObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
@@ -80,12 +80,12 @@ export function evaluateStewardMvpConfig(config) {
     failures: [],
   };
   const entries = config?.agents?.entries;
-  if (!isRecord(entries)) {
+  if (!isStewardConfigObject(entries)) {
     result.failures.push(FAILURE_CODES.CONFIG);
     return result;
   }
   const agent = entries[STEWARD_MVP_AGENT_ID];
-  if (!isRecord(agent)) {
+  if (!isStewardConfigObject(agent)) {
     result.failures.push(FAILURE_CODES.AGENT);
     return result;
   }
@@ -104,7 +104,7 @@ export function evaluateStewardMvpConfig(config) {
   const tools = agent.tools;
   const allow = normalizedToolList(tools?.allow);
   result.toolsPinned =
-    isRecord(tools) &&
+    isStewardConfigObject(tools) &&
     allow !== null &&
     sameStringList(
       allow,
