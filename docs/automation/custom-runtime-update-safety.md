@@ -14,7 +14,7 @@ An update-safe custom runtime uses two separate control planes:
 1. the normal OpenClaw update path for unmodified installations, and
 2. the custom-runtime update broker for installations with registered custom capabilities.
 
-When an immutable custom runtime is active, normal `update.run` requests are rejected with `custom-runtime-update-broker-required`. The managed Gateway also sets `OPENCLAW_NO_AUTO_UPDATE=1`. These independent locks prevent an official package or source update from replacing custom behavior in place.
+When an immutable custom runtime is active, a normal `update.run` request can only start the non-disruptive **Prepare verified update** broker. Installation requires a second `update.run` request carrying the exact prepared candidate SHA from the readiness receipt. The Gateway revalidates that SHA before launching the approval path. The managed Gateway also sets `OPENCLAW_NO_AUTO_UPDATE=1`. These independent locks prevent an official package or source update from replacing custom behavior in place.
 
 ## Source of truth
 
@@ -53,15 +53,40 @@ The live gate fails closed unless every registered file in the immutable release
 
 ## Durable source requirement
 
-The active runtime pointer records an exact 40-character Git commit, canonical source checkout, and source branch. The update broker stops before network or build work when:
+The active runtime pointer records an exact 40-character Git commit and a hash-bound source-provenance envelope. That envelope must resolve inside the private managed-runtime home to:
 
-- the active source is only a working-tree provenance hash,
-- the canonical checkout is dirty,
-- the commit is missing,
-- the configured branch does not contain the active commit, or
-- the preservation manifest or control plane is missing.
+- a standalone bare Git object store with no shallow history or alternates,
+- an exact `refs/provenance/<sha>` reference,
+- a verified full-history recovery bundle,
+- a source tree identity, and
+- a private provenance record whose hashes agree with the pointer and immutable release.
 
-This prevents an update from rebasing custom behavior from an unrelated or incomplete checkout.
+The launcher and update broker deep-verify the Git store and independently restore the recovery bundle before they trust it. The broker stops before backup, network, or build work when any binding is missing, outside the private root, stale, or changed. A temporary checkout, linked worktree, shallow clone, dirty worktree, string-only repository path, or missing Git object can never satisfy durable source authority.
+
+This prevents an update from rebasing custom behavior from an unrelated or incomplete checkout while retaining a recoverable source object database even when the original integration worktree is gone.
+
+## Verified recovery backup
+
+Configure the dedicated encrypted APFS destination once after connecting and unlocking it:
+
+```bash
+~/.openclaw-custom-runtime/bin/custom-runtime-update-backup.mjs configure \
+  --runtime-home "$HOME/.openclaw-custom-runtime" \
+  --external-root /Volumes/<encrypted-openclaw-backup>
+```
+
+The path is stored in the private managed update-safety configuration; no passphrase is stored. Every preparation then runs the active immutable runtime's `openclaw backup create --verify` command before network or merge work. SQLite is snapshotted through OpenClaw's supported backup path rather than by copying live WAL files.
+
+The broker also:
+
+- rehearses archive extraction in an isolated temporary directory,
+- runs SQLite `PRAGMA quick_check` on every recovered database,
+- copies and hash-verifies the archive on the encrypted external volume,
+- records available-space failure before the external copy,
+- creates a separate recovery bundle for the active pointer, rollback identity, launcher definition, capability manifest, immutable runtime identity, and source-provenance record and bundle, and
+- binds the exact active SHA and all recovery hashes into an immutable receipt.
+
+Preparation and later approval both revalidate that receipt. A disconnected drive, stale receipt, changed archive, failed restore rehearsal, missing rollback identity, or missing source recovery bundle blocks installation without changing the live runtime. Recovery points are retained by default; automatic deletion is intentionally excluded so retention cleanup cannot destroy the last known-good copy.
 
 ## Canonical production package
 
@@ -74,30 +99,39 @@ pnpm custom-runtime:package -- \
   --releases "$HOME/.openclaw-runtime-releases" \
   --source-sha <candidate-sha> \
   --active-sha <active-sha> \
-  --release-id <unique-release-id>
+  --release-id <unique-release-id> \
+  --provenance-runtime-home "$HOME/.openclaw-custom-runtime" \
+  --source-remote https://github.com/SnowBelt/openclaw.git \
+  --source-remote-branch <published-candidate-branch>
 ```
 
 The packager uses the exact build snapshot, creates a production-only dependency closure, copies every registered capability path directly from the candidate Git commit rather than mutable working-tree bytes, and writes an additive runtime-closure inventory and SHA-256 digest into `snapshot.json`. It rechecks the candidate after dependency deployment to stop if packaging dirtied the source. Before sealing, after sealing, and before every managed launch, the packaged verifier recomputes both the build-artifact hash and the complete runtime-closure hash. It rejects missing Research Manager dependencies, changed bytes or executable bits, broken or release-escaping symlinks, special filesystem entries, unregistered capability paths, sensitive key or environment files outside dependencies, and forbidden source, state, or build-artifact directories.
+
+Durable packages additionally bind the exact published SnowBelt branch to the candidate SHA in the standalone provenance store. Preparation stops when the active branch is missing remotely, resolves to another SHA, or the local provenance store's origin/ref no longer matches the immutable record.
 
 The seal marker binds both the exact source SHA and the runtime-closure digest. Legacy sealed runtimes remain valid rollback targets, but every newly closure-enabled package must pass the packaged verifier. A packaging failure never changes the active pointer and leaves no accepted unsealed release.
 
 ## Prepare, review, approve
 
-The scheduled broker only prepares a candidate:
+The scheduled broker and the Dashboard's **Prepare verified update** action only prepare a candidate:
 
 ```bash
 custom-runtime-updater.sh --prepare
 ```
 
-Managed promotion installs and loads `ai.openclaw.custom-runtime.update-weekly` and `ai.openclaw.custom-runtime.guard` from the promoted release. The update LaunchAgent runs the prepare-only broker every Sunday at 03:30 local time. The guard watches the managed Gateway definition and periodically verifies runtime health; it defers rather than restarting when the required Keychain secret is unavailable. Promotion renders both LaunchAgents with the active user's portable paths instead of retaining machine-specific source paths. The broker fetches the selected official stable release and creates an exact two-parent merge on a dedicated candidate branch: parent one is the exact active custom commit and parent two is the selected official commit. It proves that ancestry, checks the cumulative capability/path inventory, digest-binds every required candidate path, then runs the ordered verification commands from the preservation manifest. It constructs an immutable release and writes a `ready_for_approval` receipt that binds the update-survival proof by SHA-256. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
+Managed promotion installs and loads `ai.openclaw.custom-runtime.update-weekly` and `ai.openclaw.custom-runtime.guard` from the promoted release. The update LaunchAgent runs the prepare-only broker every Sunday at 03:30 local time. The guard watches the managed Gateway definition and periodically verifies runtime, Dashboard build, and service-worker identity; it defers rather than restarting when the required Keychain secret is unavailable. Promotion renders both LaunchAgents with the active user's portable paths instead of retaining machine-specific source paths. The broker accepts only `https://github.com/openclaw/openclaw.git` as the official upstream remote, fetches the selected exact stable tag, and creates an exact two-parent merge on a dedicated candidate branch: parent one is the exact active custom commit and parent two is the selected official commit. It proves that ancestry, checks the cumulative capability/path inventory, digest-binds every required candidate path, then runs the ordered verification commands from the preservation manifest. It publishes only that clean exact candidate SHA to the fixed private `SnowBelt/openclaw` repository under the generated `codex/runtime-update-*` branch, dispatches only `.github/workflows/control-director-reliability.yml`, and waits for every GitHub-hosted job to pass. The helper refuses arbitrary repositories, workflows, branch namespaces, dirty source, ambiguous workflow runs, or a run for another SHA. It imports the candidate into a new standalone provenance store and recovery bundle, constructs an immutable release, and writes a `ready_for_approval` receipt that digest-binds the backup, update-survival, and repository-native GitHub proof. It does not change the live runtime. The receipt names that exact candidate provenance ref so an approved runtime remains the durable base for the following update cycle.
+
+On Tailnet-managed installations, the guard also requires the configured Tailscale DNS name to be present explicitly in `gateway.controlUi.allowedOrigins`. A healthy Serve proxy is not accepted as proof that the browser origin can authenticate with the Gateway. Origin drift therefore blocks update readiness before a candidate can be offered for installation.
 
 After reviewing the receipt, an operator approves that exact candidate:
 
 ```bash
-custom-runtime-update-approve.sh --receipt /path/to/update-receipt.json
+custom-runtime-update-approve.sh --receipt /path/to/update-receipt.json --sha EXACT_PREPARED_SHA
 ```
 
-Approval fails if the active runtime changed after preparation, the preservation proof or digest changed, any preservation-bound release path is missing, unsafe, or no longer matches its proof digest, the proof names another candidate or parent pair, the release moved outside the immutable release root, the active runtime's trusted seal verifier finds any writable release file or directory, or the source stamp changed. The broker also rechecks that the verified candidate source remains clean immediately before snapshotting it. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
+The Dashboard exposes **Install verified update** only when the readiness receipt contains a valid exact candidate SHA. That button sends the SHA back to the Gateway; a stale or mismatched SHA fails closed. The command above is the equivalent recovery path for an operator terminal.
+
+Approval fails if the active runtime changed after preparation, the preservation proof or digest changed, the repository-native proof is missing, stale, changed, unsuccessful, or no longer resolves to the exact candidate SHA, any preservation-bound release path is missing, unsafe, or no longer matches its proof digest, the proof names another candidate or parent pair, the release moved outside the immutable release root, the active runtime's trusted seal verifier finds any writable release file or directory, or the source stamp changed. The broker also rechecks that the verified candidate source remains clean immediately before snapshotting it. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
 
 Direct managed promotion independently reads the current active pointer under the promotion lock and verifies that its exact source commit is an ancestor of the requested candidate commit. A changed or invalid active source identity, missing candidate repository provenance, branch-to-SHA mismatch, or non-ancestor candidate stops before backups, rollback registration, pointer replacement, service files, or launchd are changed. This closes the race where a candidate's CI remains green after another approved runtime is promoted.
 
@@ -157,7 +191,9 @@ custom-runtime-promote.sh --lease-acquire \
 
 ## Dashboard customization rule
 
-Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, automated desktop/tablet/mobile proof, owner acceptance in production Chrome on the managed Mac Studio, restart recovery, rollback-and-restore, and soak remain separate truth surfaces. Blacksmith, Testbox, Crabbox, and equivalent third-party execution environments are optional for Operations Room and Control Director work; their availability is never a completion requirement.
+Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, automated desktop/tablet/mobile proof, owner acceptance in production Chrome on the managed Mac Studio, restart recovery, rollback-and-restore, and soak remain separate truth surfaces.
+
+For this managed update workflow, Blacksmith, Testbox, Crabbox, Azure, and substitute execution boxes are prohibited. Remote validation is repository-native GitHub Actions only. Local deterministic proof and the exact GitHub-hosted result remain separate evidence surfaces.
 
 ## Project Command Center status
 
@@ -165,7 +201,8 @@ The PCC Update Safety card reports:
 
 - whether normal updates are blocked,
 - whether source identity is durable,
-- whether the prepare-only broker and approval command are installed and its weekly LaunchAgent is loaded,
+- whether the encrypted recovery destination is configured and currently available,
+- whether the prepare-only broker, backup helper, and approval command are installed and its weekly LaunchAgent is loaded,
 - whether the managed runtime recovery guard is installed and its LaunchAgent is loaded,
 - whether a candidate is waiting for approval,
 - the active release, source branch, and latest update receipt,

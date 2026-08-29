@@ -2113,6 +2113,11 @@ export const vi: TranslationMap = {
     runningVersion: "đang chạy v{version}",
     updating: "Đang cập nhật…",
     updateNow: "Cập nhật ngay",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "Bỏ qua banner cập nhật",
     switchedSession: "Đã chuyển sang {session}",
     splitView: {

@@ -2122,6 +2122,11 @@ export const uk: TranslationMap = {
     runningVersion: "працює v{version}",
     updating: "Оновлення…",
     updateNow: "Оновити зараз",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "Закрити банер оновлення",
     switchedSession: "Перемкнуто на {session}",
     splitView: {

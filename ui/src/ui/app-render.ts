@@ -2908,11 +2908,40 @@ export function renderApp(state: AppViewState) {
               <span class="update-banner__actions">
                 <button
                   class="btn btn--sm update-banner__btn"
-                  ?disabled=${state.updateRunning || !state.connected}
+                  ?disabled=${state.updateRunning ||
+                  !state.connected ||
+                  (state.customRuntimeUpdatePolicy?.approvalPending === true &&
+                    !state.customRuntimeUpdatePolicy.pendingCandidateSha) ||
+                  state.customRuntimeUpdatePolicy?.preparationRunning === true ||
+                  (state.customRuntimeUpdatePolicy?.standardUpdateBlocked === true &&
+                    (!state.customRuntimeUpdatePolicy.sourceDurable ||
+                      !state.customRuntimeUpdatePolicy.backupConfigured))}
                   @click=${() => runUpdate(state)}
                 >
-                  ${state.updateRunning ? t("chat.updating") : t("chat.updateNow")}
+                  ${state.updateRunning || state.customRuntimeUpdatePolicy?.preparationRunning
+                    ? t("chat.preparingVerifiedUpdate")
+                    : state.customRuntimeUpdatePolicy?.approvalPending &&
+                        state.customRuntimeUpdatePolicy.pendingCandidateSha
+                      ? t("chat.installVerifiedUpdate")
+                      : state.customRuntimeUpdatePolicy?.approvalPending
+                        ? t("chat.exactShaApprovalRequired")
+                        : state.customRuntimeUpdatePolicy?.managedRuntime
+                          ? t("chat.prepareVerifiedUpdate")
+                          : t("chat.updateNow")}
                 </button>
+                ${state.customRuntimeUpdatePolicy?.preparationStatus === "failed"
+                  ? html`<span class="update-banner__running"
+                      >Preparation failed:
+                      ${state.customRuntimeUpdatePolicy.preparationReason ??
+                      "unknown failure"}</span
+                    >`
+                  : state.customRuntimeUpdatePolicy?.standardUpdateBlocked === true &&
+                      (!state.customRuntimeUpdatePolicy.sourceDurable ||
+                        !state.customRuntimeUpdatePolicy.backupConfigured)
+                    ? html`<span class="update-banner__running"
+                        >${t("chat.updateProtectionIncomplete")}</span
+                      >`
+                    : nothing}
                 <button
                   class="update-banner__close"
                   type="button"

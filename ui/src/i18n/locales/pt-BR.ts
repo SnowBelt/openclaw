@@ -2129,6 +2129,11 @@ export const pt_BR: TranslationMap = {
     runningVersion: "executando v{version}",
     updating: "Atualizando…",
     updateNow: "Atualizar agora",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "Dispensar banner de atualização",
     switchedSession: "Mudou para {session}",
     splitView: {

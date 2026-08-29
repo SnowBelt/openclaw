@@ -225,6 +225,7 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     expect(status.status, status.stderr).toBe(0);
     expect(JSON.parse(status.stdout)).toEqual({
       configured: true,
+      dnsName: "primary.example.ts.net.",
       healthy: true,
       plistMatches: true,
       serveConfigured: true,
@@ -270,12 +271,33 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     );
     const fakeBin = path.join(fixture.root, "guard-bin");
     const gatewayPlist = path.join(fixture.root, "gateway.plist");
+    const runtimeRoot = path.join(fixture.root, "immutable", "openclaw-release");
+    const dashboardManifest = path.join(
+      runtimeRoot,
+      "dist",
+      "control-ui",
+      "dashboard-surfaces.json",
+    );
     writeFile(launcher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n', 0o755);
     writeFile(primaryGuard, "#!/bin/sh\nexit 1\n", 0o755);
     writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(dashboardManifest, '{"buildId":"test-build","surfaces":[]}\n');
+    writeFile(
+      path.join(fakeBin, "curl"),
+      [
+        "#!/bin/sh",
+        'case "$*" in',
+        `  *control-ui-config.json*) printf '%s\\n' '${JSON.stringify({ runtimeIdentity: { runtimeRoot, dashboardBuildId: "test-build" } })}' ;;`,
+        `  *sw.js*) printf '%s\\n' 'const BUILD = "test-build";' ;;`,
+        "  *) exit 1 ;;",
+        "esac",
+        "",
+      ].join("\n"),
+      0o755,
+    );
     writeFile(
       path.join(fixture.runtimeHome, "active-runtime.json"),
-      `${JSON.stringify({ runtimeRoot: "/immutable/openclaw-release" })}\n`,
+      `${JSON.stringify({ runtimeRoot })}\n`,
     );
     writePlist(gatewayPlist, [launcher, "gateway"]);
     const env = {
@@ -293,7 +315,24 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     });
     expect(failed.status, failed.stderr).toBe(1);
 
-    writeFile(primaryGuard, "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(
+      primaryGuard,
+      '#!/bin/sh\n[ "${1:-}" != status ] || printf \'%s\\n\' \'{"configured":true,"dnsName":"primary.example.ts.net."}\'\nexit 0\n',
+      0o755,
+    );
+    const missingOrigin = spawnSync("sh", [runtimeGuardScript], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(missingOrigin.status, missingOrigin.stderr).toBe(1);
+
+    writeFile(
+      path.join(fixture.home, ".openclaw", "openclaw.director.json"),
+      `${JSON.stringify({
+        gateway: { controlUi: { allowedOrigins: ["https://primary.example.ts.net"] } },
+      })}\n`,
+    );
     const healthy = spawnSync("sh", [runtimeGuardScript], {
       cwd: process.cwd(),
       encoding: "utf8",

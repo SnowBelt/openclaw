@@ -421,6 +421,16 @@ export const TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
       title: "Memory Get",
       detailKeys: ["path", "from", "lines"],
     },
+    curator_get: {
+      emoji: "🧭",
+      title: "Curator Proposal",
+      detailKeys: ["proposalId"],
+    },
+    curator_decide: {
+      emoji: "🧭",
+      title: "Curator Decision",
+      detailKeys: ["proposalId", "curatorStatus"],
+    },
     web_search: {
       emoji: "🔎",
       title: "Web Search",

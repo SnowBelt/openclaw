@@ -2139,6 +2139,11 @@ export const ru: TranslationMap = {
     runningVersion: "запущена v{version}",
     updating: "Обновление…",
     updateNow: "Обновить сейчас",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "Скрыть баннер обновления",
     switchedSession: "Переключено на {session}",
     splitView: {

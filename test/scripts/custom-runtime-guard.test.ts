@@ -17,6 +17,10 @@ describe("custom runtime guard verification cache", () => {
     expect(guard).toContain("provenanceSha256");
     expect(guard).toContain("provenanceRecordSha256");
     expect(guard).toContain("provenanceMigrationSha256");
+    expect(guard).toContain("dashboardManifestSha256");
+    expect(guard).toContain("dashboard_runtime_ok");
+    expect(guard).toContain("served Dashboard build does not match the active manifest");
+    expect(guard).toContain("served service worker does not match the Dashboard build");
     expect(guard).toContain("provenance_invalid=false");
     expect(guard).toContain('pgrep -f "$runtime_root/dist/index.js gateway"');
     expect(guard).toContain('"$launcher" --verify');

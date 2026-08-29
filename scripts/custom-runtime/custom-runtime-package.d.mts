@@ -12,6 +12,10 @@ export function assembleManagedRuntimePackage(params: {
   releaseId: string;
   deploy?: (params: { sourceRoot: string; stagingRoot: string }) => void;
   seal?: boolean;
+  provenanceRuntimeHome?: string;
+  provenanceMigrationPath?: string;
+  sourceRemote?: string;
+  sourceRemoteBranch?: string;
 }): {
   releaseRoot: string;
   releaseId: string;

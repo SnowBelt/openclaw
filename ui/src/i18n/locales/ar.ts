@@ -2087,6 +2087,11 @@ export const ar: TranslationMap = {
     runningVersion: "الإصدار قيد التشغيل v{version}",
     updating: "جارٍ التحديث…",
     updateNow: "التحديث الآن",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "إغلاق لافتة التحديث",
     switchedSession: "تم التبديل إلى {session}",
     splitView: {

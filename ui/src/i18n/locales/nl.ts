@@ -2133,6 +2133,11 @@ export const nl: TranslationMap = {
     runningVersion: "actieve versie v{version}",
     updating: "Bijwerken…",
     updateNow: "Nu bijwerken",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "Updatebanner sluiten",
     switchedSession: "Overgeschakeld naar {session}",
     splitView: {
