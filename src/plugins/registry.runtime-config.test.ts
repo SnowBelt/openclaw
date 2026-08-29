@@ -224,6 +224,24 @@ describe("plugin registry runtime config scope", () => {
     expect(message).toContain("source:/plugins/diagnostic-plugin/index.js");
   });
 
+  it("rejects plugin runtime state for untrusted plugins", () => {
+    const pluginRegistry = createTestRegistry(createPluginRuntime());
+    const record = createPluginRecord({
+      id: "untrusted-state-plugin",
+      source: "/plugins/untrusted-state-plugin/index.js",
+      origin: "global",
+      enabled: true,
+      configSchema: false,
+    });
+    const api = pluginRegistry.createApi(record, { config: {} as OpenClawConfig });
+
+    expect(() =>
+      api.runtime.state.openSyncKeyedStore({ namespace: "registry-runtime-test", maxEntries: 1 }),
+    ).toThrow(
+      'openSyncKeyedStore is only available for trusted plugins in this release. Plugin "untrusted-state-plugin" loaded with origin "global"',
+    );
+  });
+
   it("runs config helpers with the owning plugin scope", async () => {
     let currentScope = getPluginRuntimeGatewayRequestScope();
     let mutateScope = getPluginRuntimeGatewayRequestScope();

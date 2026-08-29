@@ -1,0 +1,77 @@
+name: MindFire Steward MVP Qualification
+
+on:
+  push:
+    branches:
+      - steward-mvp
+      - "codex/steward-mvp-*"
+  pull_request:
+    branches:
+      - steward-mvp
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: steward-mvp-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+
+jobs:
+  qualify:
+    name: Steward MVP qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node and dependencies
+        uses: ./.github/actions/setup-node-env
+        with:
+          cache-mode: restore
+          install-bun: "false"
+          install-trufflehog: "true"
+
+      - name: Verify Steward source boundary
+        run: node scripts/steward-mvp-verify.mjs --source-only --json
+
+      - name: Verify role contract catalog
+        run: node scripts/agent-role-eval.mjs --contracts-only --json
+
+      - name: Run Steward regression tests
+        run: >-
+          OPENCLAW_HEAVY_CHECK_LOCK_SCOPE=worktree
+          node scripts/run-vitest.mjs
+          src/sessions/session-steward-policy.test.ts
+          src/gateway/session-steward-boundary.test.ts
+          src/gateway/server-methods/sessions-files.test.ts
+          src/gateway/server-methods/tools-effective.test.ts
+          src/gateway/tools-invoke-http.test.ts
+          src/gateway/server.sessions.create.test.ts
+          src/infra/diagnostic-events.test.ts
+          src/plugins/registry.runtime-config.test.ts
+          extensions/browser/src/browser/browser-steward-runtime-guard.test.ts
+          extensions/browser/src/browser/credential-steward-policy.test.ts
+          extensions/browser/src/browser/session-tab-registry.test.ts
+          extensions/browser/src/browser/browser-steward-approval.test.ts
+          test/scripts/agent-role-eval.test.ts
+          test/scripts/steward-mvp-verify.test.ts
+
+      - name: Build exact Steward runtime
+        # This qualification lane covers the Gateway/plugin runtime. The
+        # Control UI performance ratchet is a separate release surface.
+        run: pnpm build qaRuntime
+
+      - name: Verify built Steward boundary
+        run: node scripts/steward-mvp-verify.mjs --build-only --runtime-root . --json
+
+      - name: Check whitespace
+        run: git diff --check

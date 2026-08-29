@@ -118,8 +118,9 @@ and [Prometheus label policy](/gateway/prometheus#label-policy).
 
 ## Browser Steward compatibility
 
-The combined Browser / Session / Credential Steward remains active for browser
-runtime compatibility. Browser-side checks use exact owner classification and
+The combined Browser / Session / Credential Steward remains available for browser
+runtime compatibility. It is operational only when that exact agent is configured
+and running in the active Gateway. Browser-side checks use exact owner classification and
 the same `global`, unscoped, malformed, and redacted agent-boundary semantics as
 the core policy. Credential-side checks classify credential-like request data,
 block raw credential exposure from generic diagnostics, and keep Browser
