@@ -202,31 +202,27 @@ def copy_stage_state(source: Path, target: Path) -> dict[str, object]:
     if target.exists() and any(target.iterdir()):
         raise ValueError("stage target directory must be empty")
     target.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "rsync",
-            "-a",
-            "--exclude",
-            "logs",
-            "--exclude",
-            "tmp",
-            "--exclude",
-            "codex-home",
-            "--exclude",
-            "*.reindex-lock.sqlite",
-            "--exclude",
-            "*.sqlite",
-            "--exclude",
-            "*.sqlite-wal",
-            "--exclude",
-            "*.sqlite-shm",
-            "--exclude",
-            "*.sqlite-journal",
-            f"{source}/",
-            f"{target}/",
-        ],
-        check=True,
+    # Immutable governance source capsules are evidence-store inputs, not
+    # Gateway runtime state. Copying them into every disposable stage can
+    # amplify disk usage by tens of gigabytes and make a valid stage fail with
+    # ENOSPC. Keep the surrounding governance metadata available while leaving
+    # the immutable capsules in their canonical store.
+    rsync_excludes = (
+        "logs",
+        "tmp",
+        "codex-home",
+        "pcc/release-governance/**/source-capsules",
+        "*.reindex-lock.sqlite",
+        "*.sqlite",
+        "*.sqlite-wal",
+        "*.sqlite-shm",
+        "*.sqlite-journal",
     )
+    rsync_command = ["rsync", "-a"]
+    for pattern in rsync_excludes:
+        rsync_command.extend(("--exclude", pattern))
+    rsync_command.extend((f"{source}/", f"{target}/"))
+    subprocess.run(rsync_command, check=True)
     all_databases = sqlite_paths(source)
     databases = [
         database for database in all_databases if not excluded_from_gateway_stage(source, database)

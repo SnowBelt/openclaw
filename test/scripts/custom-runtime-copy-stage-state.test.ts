@@ -15,6 +15,48 @@ afterEach(() => {
 });
 
 describe("custom runtime staging state copy", () => {
+  it("does not replicate immutable governance source capsules into disposable state", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-stage-governance-capsules-"));
+    temporaryDirectories.push(root);
+    const source = path.join(root, "source");
+    const target = path.join(root, "target");
+    const capsule = path.join(
+      source,
+      "pcc",
+      "release-governance",
+      "control-director-composite-v1",
+      "source-capsules",
+      "source-capsule-test",
+      "base-source.tar",
+    );
+    fs.mkdirSync(path.dirname(capsule), { recursive: true });
+    fs.writeFileSync(capsule, Buffer.alloc(1024, 7));
+    fs.mkdirSync(path.join(source, "pcc", "release-governance"), { recursive: true });
+    fs.writeFileSync(
+      path.join(source, "pcc", "release-governance", "status.json"),
+      '{"ready":true}\n',
+      "utf8",
+    );
+
+    const result = spawnSync("python3", [script, source, target], { encoding: "utf8" });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(fs.existsSync(path.join(target, "pcc", "release-governance", "status.json"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          target,
+          "pcc",
+          "release-governance",
+          "control-director-composite-v1",
+          "source-capsules",
+          "source-capsule-test",
+          "base-source.tar",
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it("backs up live WAL databases consistently and excludes transient state", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-stage-state-"));
     temporaryDirectories.push(root);
