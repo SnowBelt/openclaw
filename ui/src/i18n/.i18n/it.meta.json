@@ -1,17 +1,11 @@
 {
-  "fallbackKeys": [
-    "chat.exactShaApprovalRequired",
-    "chat.installVerifiedUpdate",
-    "chat.prepareVerifiedUpdate",
-    "chat.preparingVerifiedUpdate",
-    "chat.updateProtectionIncomplete"
-  ],
+  "fallbackKeys": [],
   "generatedAt": "2026-08-29T18:24:02.789Z",
   "locale": "it",
   "model": "qwen2.5:14b-instruct-q4_K_M",
   "provider": "ollama",
   "sourceHash": "66d83814c5c69341219c367c639271258e17ac98252dd1890116571c841dc892",
   "totalKeys": 2118,
-  "translatedKeys": 2113,
+  "translatedKeys": 2118,
   "workflow": 1
 }

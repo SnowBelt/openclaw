@@ -12,11 +12,14 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const roots: string[] = [];
+const require = createRequire(import.meta.url);
+const json5PackageRoot = path.dirname(require.resolve("json5/package.json"));
 
 function createRuntimeFixtureRoot(prefix: string): string {
   // The production launcher intentionally rejects /tmp releases. Linux exposes
@@ -81,6 +84,8 @@ function fixture() {
     guardSchedulerPath,
   );
   writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
+  mkdirSync(path.join(release, "node_modules"), { recursive: true });
+  cpSync(json5PackageRoot, path.join(release, "node_modules", "json5"), { recursive: true });
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   executable(
     path.join(release, "dist", "release-governor.js"),
