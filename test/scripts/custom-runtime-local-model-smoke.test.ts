@@ -8,6 +8,7 @@ import {
   LOCAL_MODEL_COMPATIBILITY_MODEL,
   executeOwnedProcess,
   isOwnedLocalModelProcess,
+  parsePids,
   runReadOnly,
   runLocalModelCompatibilitySmoke,
   type CompatibilitySmokeParams,
@@ -259,6 +260,15 @@ describe("custom runtime local-model compatibility smoke", () => {
     expect(() => runReadOnly("/usr/bin/pgrep", ["-x", "openclaw-agent"], unavailable)).toThrow(
       "probe_unavailable",
     );
+  });
+
+  it("rejects malformed, duplicate, and incorrectly formatted process probe rows", () => {
+    expect(parsePids("123\n456\n")).toEqual(new Set([123, 456]));
+    expect(parsePids("p123\np456\n", "lsof")).toEqual(new Set([123, 456]));
+    expect(() => parsePids("not-a-pid\n")).toThrow("probe_unavailable");
+    expect(() => parsePids("123\n123\n")).toThrow("probe_unavailable");
+    expect(() => parsePids("123\n", "lsof")).toThrow("probe_unavailable");
+    expect(() => parsePids("p123\n", "plain")).toThrow("probe_unavailable");
   });
 
   it("enforces the real deadline when a grandchild inherits output pipes", async () => {

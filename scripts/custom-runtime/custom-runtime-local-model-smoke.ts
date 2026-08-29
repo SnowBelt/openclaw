@@ -388,14 +388,29 @@ function systemTool(name: "lsof" | "pgrep" | "ps"): string {
   }
 }
 
-function parsePids(output: string): Set<number> {
+export function parsePids(output: string, format: "plain" | "lsof" = "plain"): Set<number> {
   const pids = new Set<number>();
   for (const line of output.split(/\r?\n/u)) {
     const normalized = line.trim();
-    const pid = Number(normalized.startsWith("p") ? normalized.slice(1) : normalized);
-    if (Number.isInteger(pid) && pid > 0) {
-      pids.add(pid);
+    if (!normalized) {
+      continue;
     }
+    const value = format === "lsof" ? normalized.slice(1) : normalized;
+    const valid = format === "lsof" ? /^p\d+$/u.test(normalized) : /^\d+$/u.test(value);
+    if (!valid) {
+      throw new CompatibilitySmokeError(
+        "probe_unavailable",
+        `probe_unavailable:malformed ${format} process id`,
+      );
+    }
+    const pid = Number(value);
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pids.has(pid)) {
+      throw new CompatibilitySmokeError(
+        "probe_unavailable",
+        `probe_unavailable:invalid ${format} process id`,
+      );
+    }
+    pids.add(pid);
   }
   return pids;
 }
@@ -415,9 +430,13 @@ export function readLocalModelResourceSnapshot(): LocalModelResourceSnapshot {
   workers.delete(selfPid);
   const port = ollamaPort();
   const lsof = systemTool("lsof");
-  const listeners = parsePids(runReadOnly(lsof, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"]));
+  const listeners = parsePids(
+    runReadOnly(lsof, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fp"]),
+    "lsof",
+  );
   const clients = parsePids(
     runReadOnly(lsof, ["-nP", `-iTCP:${port}`, "-sTCP:ESTABLISHED", "-Fp"]),
+    "lsof",
   );
   const activeClients = [...clients]
     .filter((pid) => !listeners.has(pid) && pid !== selfPid)
