@@ -14,23 +14,7 @@
           "memoryGetMaxChars": 4000,
           "postCompactionMaxChars": 1800
         },
-        "model": {
-          "primary": "omlx-qwen38-agent/openclaw-qwen38-builder-standard-q8-mtp",
-          "fallbacks": [
-            "ollama/openclaw-control-qwen25-32b:latest",
-            "ollama/qwen3.5:27b-q8_0"
-          ]
-        },
-        "params": {
-          "cacheRetention": "short",
-          "chat_template_kwargs": {
-            "enable_thinking": false,
-            "preserve_thinking": false
-          },
-          "maxTokens": 1024,
-          "text_verbosity": "low"
-        },
-        "thinkingDefault": "low",
+        "thinkingDefault": "off",
         "subagents": {
           "allowAgents": [
             "builder-agent",

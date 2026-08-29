@@ -78,6 +78,8 @@ const REQUIRED_CANONICAL_CONTRACT_MARKERS = Object.freeze([
   "builder-agent",
   "research-brief-agent",
   "Output: choose exactly one profile",
+  "never combine profiles",
+  "After tools, return that full profile",
   "PLAN:",
   "STATUS:",
   "HANDOFF:",
@@ -93,8 +95,6 @@ const CONFIG_MANAGED_FIELDS = Object.freeze([
   "bootstrapTotalMaxChars",
   "contextInjection",
   "contextLimits",
-  "model",
-  "params",
   "thinkingDefault",
   "subagents",
   "tools",
@@ -551,33 +551,8 @@ export function validateRuntimeEntry(value) {
       ),
     );
   }
-  if (
-    value.params?.maxTokens !== 1024 ||
-    value.params?.text_verbosity !== "low" ||
-    value.params?.cacheRetention !== "short" ||
-    value.params?.chat_template_kwargs?.enable_thinking !== false ||
-    value.params?.chat_template_kwargs?.preserve_thinking !== false
-  ) {
-    issues.push(
-      issue(
-        "model_budget_changed",
-        "Model parameters must keep the bounded low-verbosity, thinking-off profile.",
-      ),
-    );
-  }
-  if (typeof value.model?.primary !== "string" || value.model.primary.length === 0) {
-    issues.push(issue("model_primary_missing", "Program Manager must define a primary model ref."));
-  }
-  if (
-    !Array.isArray(value.model?.fallbacks) ||
-    value.model.fallbacks.some((modelRef) => typeof modelRef !== "string" || modelRef.length === 0)
-  ) {
-    issues.push(
-      issue("model_fallbacks_invalid", "Program Manager model fallbacks must be non-empty refs."),
-    );
-  }
-  if (value.thinkingDefault !== "low") {
-    issues.push(issue("thinking_default_changed", "thinkingDefault must be low."));
+  if (value.thinkingDefault !== "off") {
+    issues.push(issue("thinking_default_changed", "thinkingDefault must use portable off mode."));
   }
   const configuredAllowed = sorted(value.tools?.alsoAllow ?? []);
   if (JSON.stringify(configuredAllowed) !== JSON.stringify(sorted(PROGRAM_MANAGER_ALLOWED_TOOLS))) {
@@ -731,6 +706,19 @@ export async function checkSource(sourceRoot = DEFAULT_SOURCE_ROOT) {
         `Unable to read runtime-config.json: ${error instanceof Error ? error.message : String(error)}`,
       ),
     );
+  }
+  if (isObject(runtimeEntry)) {
+    for (const field of ["model", "params", "models", "modelPolicy"]) {
+      if (Object.hasOwn(runtimeEntry, field)) {
+        issues.push(
+          issue(
+            "model_policy_embedded_in_role",
+            `Program Manager source role config must not define operator-owned ${field}.`,
+            { field },
+          ),
+        );
+      }
+    }
   }
   if (canonicalInstructions !== null) {
     for (const marker of REQUIRED_CANONICAL_CONTRACT_MARKERS) {

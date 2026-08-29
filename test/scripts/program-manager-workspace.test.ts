@@ -53,6 +53,8 @@ type TestAgentEntry = {
   bootstrapTotalMaxChars?: number;
   contextInjection?: string;
   contextLimits?: { memoryGetMaxChars?: number; postCompactionMaxChars?: number };
+  model?: { primary?: string; fallbacks?: string[] };
+  thinkingDefault?: string;
   params?: {
     cacheRetention?: string;
     chat_template_kwargs?: { enable_thinking?: boolean; preserve_thinking?: boolean };
@@ -113,6 +115,8 @@ describe("Program Manager context package", () => {
     const reference = await readFile(path.join(sourceRoot, "CONTRACT.md"), "utf8");
     expect(instructions).toContain("Source order:");
     expect(instructions).toContain("Output: choose exactly one profile");
+    expect(instructions).toContain("never combine profiles");
+    expect(instructions).toContain("After tools, return that full profile");
     expect(instructions).toContain("Completion requires current");
     expect(instructions).not.toContain("CONTRACT.md");
     expect(reference).toContain("optional");
@@ -203,15 +207,15 @@ describe("Program Manager context package", () => {
     });
   });
 
-  it("keeps runtime replies bounded and missing-state handling terminal", async () => {
+  it("keeps model policy outside the source role and missing-state handling terminal", async () => {
     const agents = JSON.parse(await readFile(path.join(sourceRoot, "runtime-config.json"), "utf8"))
       .agents.list;
     const programManager = agents.find((entry) => entry.id === "program-manager");
-    expect(programManager.params.maxTokens).toBe(1024);
-    expect(programManager.params.chat_template_kwargs).toEqual({
-      enable_thinking: false,
-      preserve_thinking: false,
-    });
+    expect(programManager).not.toHaveProperty("model");
+    expect(programManager).not.toHaveProperty("params");
+    expect(programManager).not.toHaveProperty("models");
+    expect(programManager).not.toHaveProperty("modelPolicy");
+    expect(programManager.thinkingDefault).toBe("off");
     const instructions = await readFile(path.join(sourceRoot, "workspace/AGENTS.md"), "utf8");
     expect(instructions).toContain("stop tools");
     expect(instructions).toContain("never search for a missing packet");
@@ -234,7 +238,12 @@ describe("Program Manager context package", () => {
       name: "Program Manager",
       role: "program_manager",
       workspace: "/tmp/program-manager",
+      model: {
+        primary: "provider/candidate",
+        fallbacks: ["provider/last-known-good"],
+      },
       params: { maxTokens: 3072, text_verbosity: "low" },
+      thinkingDefault: "low",
       tools: {
         alsoAllow: ["memory_search", "sessions_list"],
         deny: ["exec", "write"],
@@ -261,11 +270,12 @@ describe("Program Manager context package", () => {
     ) {
       throw new Error("Applied Program Manager entry is incomplete.");
     }
-    expect(programManager.params.maxTokens).toBe(1024);
-    expect(programManager.params.chat_template_kwargs).toEqual({
-      enable_thinking: false,
-      preserve_thinking: false,
+    expect(programManager.model).toEqual({
+      primary: "provider/candidate",
+      fallbacks: ["provider/last-known-good"],
     });
+    expect(programManager.params).toEqual({ maxTokens: 3072, text_verbosity: "low" });
+    expect(programManager.thinkingDefault).toBe("off");
     expect(programManager.tools.alsoAllow.toSorted()).toEqual([
       "get_goal",
       "memory_get",
