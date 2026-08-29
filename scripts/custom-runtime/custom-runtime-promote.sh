@@ -148,6 +148,16 @@ fi
   [ -z "$lease_github_repo" ] && [ -z "$lease_reason" ] || usage
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
+promotion_startup_wait_seconds=${OPENCLAW_CUSTOM_RUNTIME_PROMOTION_STARTUP_WAIT_SECONDS:-120}
+case "$promotion_startup_wait_seconds" in ''|*[!0-9]*)
+  printf '%s\n' 'custom runtime promotion blocked: startup wait must be an integer from 1 to 120 seconds' >&2
+  exit 64
+  ;;
+esac
+[ "$promotion_startup_wait_seconds" -ge 1 ] && [ "$promotion_startup_wait_seconds" -le 120 ] || {
+  printf '%s\n' 'custom runtime promotion blocked: startup wait must be an integer from 1 to 120 seconds' >&2
+  exit 64
+}
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
   [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
   source_repo=$(cd "$source_repo" && pwd -P)
@@ -699,7 +709,7 @@ restore() {
   fi
   rollback_pid=
   if [ -n "$previous_runtime_root" ]; then
-    rollback_pid=$(custom_runtime_wait_for_port_owner "$port" "$previous_runtime_root" 45) || {
+    rollback_pid=$(custom_runtime_wait_for_port_owner "$port" "$previous_runtime_root" "$promotion_startup_wait_seconds") || {
       printf '{"at":"%s","result":"rollback_port_owner_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
       return 1
     }
@@ -888,7 +898,7 @@ if ! launchctl bootstrap "gui/$uid" "$plist"; then
 fi
 
 candidate_pid=
-if candidate_pid=$(custom_runtime_wait_for_port_owner "$port" "$release" 45); then
+if candidate_pid=$(custom_runtime_wait_for_port_owner "$port" "$release" "$promotion_startup_wait_seconds"); then
   :
 else
   candidate_owner_status=$?

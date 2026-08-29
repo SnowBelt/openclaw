@@ -908,6 +908,21 @@ describe("custom runtime lifecycle", () => {
     expect(source).not.toContain(
       'custom_runtime_wait_for_port_owner "$rollback_port" "$rollback_root" 45',
     );
+
+    const promotion = fs.readFileSync(promoteScript, "utf8");
+    expect(promotion).toContain(
+      "promotion_startup_wait_seconds=${OPENCLAW_CUSTOM_RUNTIME_PROMOTION_STARTUP_WAIT_SECONDS:-120}",
+    );
+    expect(promotion).toContain(
+      'custom_runtime_wait_for_port_owner "$port" "$release" "$promotion_startup_wait_seconds"',
+    );
+    expect(promotion).toContain(
+      'custom_runtime_wait_for_port_owner "$port" "$previous_runtime_root" "$promotion_startup_wait_seconds"',
+    );
+    expect(promotion).not.toContain('custom_runtime_wait_for_port_owner "$port" "$release" 45');
+    expect(promotion).not.toContain(
+      'custom_runtime_wait_for_port_owner "$port" "$previous_runtime_root" 45',
+    );
   });
 
   it("promotion persists the exact verified runtime identity in the managed service", () => {
@@ -926,6 +941,7 @@ describe("custom runtime lifecycle", () => {
     const sigRpcEnvMarker = path.join(root, "sig-rpc-env");
     const sigRpcUrlMarker = path.join(root, "sig-rpc-url");
     const delayedPccRouteMarker = path.join(root, "delayed-pcc-route");
+    const delayedPortOwnerMarker = path.join(root, "delayed-port-owner-probes");
     const bootstrapMarker = path.join(root, "launchctl-bootstrap-args");
     const sourceSha = "c".repeat(64);
     const previousRelease = path.join(releases, "previous");
@@ -993,7 +1009,13 @@ describe("custom runtime lifecycle", () => {
       path.join(fakeBin, "lsof"),
       [
         "#!/bin/sh",
-        `if [ -f ${JSON.stringify(bootstrapMarker)} ]; then printf '99999\\n'; exit 0; fi`,
+        `if [ -f ${JSON.stringify(bootstrapMarker)} ]; then`,
+        `  count=$(cat ${JSON.stringify(delayedPortOwnerMarker)} 2>/dev/null || printf 0)`,
+        "  count=$((count + 1))",
+        `  printf '%s\\n' "$count" > ${JSON.stringify(delayedPortOwnerMarker)}`,
+        '  [ "$count" -ge 47 ] || exit 1',
+        "  printf '99999\\n'; exit 0",
+        "fi",
         "exit 1",
         "",
       ].join("\n"),
@@ -1057,6 +1079,7 @@ describe("custom runtime lifecycle", () => {
           OPENCLAW_LSOF_BIN: path.join(fakeBin, "lsof"),
           OPENCLAW_PS_BIN: path.join(fakeBin, "ps"),
           OPENCLAW_PGREP_BIN: path.join(fakeBin, "pgrep"),
+          OPENCLAW_CUSTOM_RUNTIME_PROMOTION_STARTUP_WAIT_SECONDS: "47",
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       },
@@ -1071,6 +1094,9 @@ describe("custom runtime lifecycle", () => {
       }),
     ).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_PROMOTED release=candidate");
+    expect(Number(fs.readFileSync(delayedPortOwnerMarker, "utf8").trim())).toBeGreaterThanOrEqual(
+      47,
+    );
     expect(fs.existsSync(delayedPccRouteMarker)).toBe(true);
     expect(fs.existsSync(sigRpcMarker)).toBe(true);
     expect(fs.readFileSync(sigRpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
