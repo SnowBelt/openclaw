@@ -15,6 +15,7 @@ const CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v1";
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
 const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MINIMUM_FREE_SPACE_RESERVE_BYTES = 1024 * 1024 * 1024;
 
 function fail(message) {
   throw new Error(`custom runtime update backup blocked: ${message}`);
@@ -177,6 +178,72 @@ function walkFiles(root) {
   return files;
 }
 
+function estimatePathBytes(target) {
+  let stat;
+  try {
+    stat = fs.lstatSync(target);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return 0;
+    }
+    throw error;
+  }
+  if (stat.isSymbolicLink()) {
+    return 0;
+  }
+  if (stat.isFile()) {
+    return stat.size;
+  }
+  if (!stat.isDirectory()) {
+    return 0;
+  }
+  return fs
+    .readdirSync(target)
+    .reduce((total, entry) => total + estimatePathBytes(path.join(target, entry)), 0);
+}
+
+function assertAvailableBytes(directory, payloadBytes, label) {
+  const stats = fs.statfsSync(directory);
+  const availableBytes = stats.bavail * stats.bsize;
+  const reserveBytes = Math.max(MINIMUM_FREE_SPACE_RESERVE_BYTES, payloadBytes * 0.1);
+  if (availableBytes < payloadBytes + reserveBytes) {
+    fail(`${label} does not have enough free space`);
+  }
+}
+
+function isPathWithin(childPath, parentPath) {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
+}
+
+function estimateExternalCanonicalSqliteBytes(assets, sourcePaths) {
+  const stateAsset = assets.find(
+    (asset) => isRecord(asset) && asset.kind === "state" && typeof asset.sourcePath === "string",
+  );
+  if (!stateAsset) {
+    return 0;
+  }
+  const canonicalPath = path.join(stateAsset.sourcePath, "state", "openclaw.sqlite");
+  let canonicalStat;
+  try {
+    canonicalStat = fs.lstatSync(canonicalPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return 0;
+    }
+    throw error;
+  }
+  if (!canonicalStat.isSymbolicLink()) {
+    return 0;
+  }
+  const targetPath = fs.realpathSync(canonicalPath);
+  return ["", "-wal", "-shm", "-journal"].reduce((total, suffix) => {
+    const sourcePath = `${targetPath}${suffix}`;
+    const alreadyCounted = sourcePaths.some((root) => isPathWithin(sourcePath, root));
+    return total + (alreadyCounted ? 0 : estimatePathBytes(sourcePath));
+  }, 0);
+}
+
 function validateArchiveEntries(entries) {
   for (const entry of entries) {
     const normalized = path.posix.normalize(entry.replaceAll("\\\\", "/"));
@@ -257,13 +324,7 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
   });
 }
 
-function createControlPlaneBundle({
-  runtimeHome,
-  pointerPath,
-  pointer,
-  externalDirectory,
-  homedir,
-}) {
+function resolveRequiredControlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
   const required = controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir);
   const requiredSources = new Set(required.map((entry) => entry.sourcePath));
   for (const requiredPath of [
@@ -291,7 +352,10 @@ function createControlPlaneBundle({
       fail(`${label} is unavailable`);
     }
   }
+  return required;
+}
 
+function createControlPlaneBundle({ required, pointer, externalDirectory }) {
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-control-plane-backup-"));
   try {
     const files = required.map((entry, index) => {
@@ -351,47 +415,81 @@ function createBackup({
     configuredExternalRoot(runtimeHome, externalRoot),
     allowTestDirectory,
   );
-  const localRoot = path.join(runtimeHome, "data-backups");
-  fs.mkdirSync(localRoot, { recursive: true, mode: 0o700 });
+  const stamp = new Date().toISOString().replaceAll(/[-:.]/gu, "");
+  const externalBackupRoot = path.join(verifiedExternalRoot, "OpenClaw", "verified-updates");
+  fs.mkdirSync(externalBackupRoot, { recursive: true, mode: 0o700 });
+  const externalDirectory = path.join(externalBackupRoot, stamp);
+  fs.mkdirSync(externalDirectory, { recursive: false, mode: 0o700 });
+  const dryRun = parseBackupOutput(
+    execFileSync(process.execPath, [entrypoint, "backup", "create", "--dry-run", "--json"], {
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    }),
+  );
+  const dryRunAssets = Array.isArray(dryRun.assets) ? dryRun.assets : [];
+  const sourcePaths = dryRunAssets.flatMap((asset) =>
+    isRecord(asset) && typeof asset.sourcePath === "string" ? [asset.sourcePath] : [],
+  );
+  if (sourcePaths.length === 0) {
+    fail("OpenClaw backup dry run did not report source paths");
+  }
+  const controlPlaneFiles = resolveRequiredControlPlaneEvidence(
+    pointerPath,
+    pointer,
+    runtimeHome,
+    homedir,
+  );
+  const estimatedInputBytes = sourcePaths.reduce(
+    (total, sourcePath) => total + estimatePathBytes(sourcePath),
+    0,
+  );
+  const externalCanonicalSqliteBytes = estimateExternalCanonicalSqliteBytes(
+    dryRunAssets,
+    sourcePaths,
+  );
+  const controlPlaneBytes = controlPlaneFiles.reduce(
+    (total, entry) => total + fs.statSync(entry.sourcePath).size,
+    0,
+  );
+  assertAvailableBytes(
+    externalDirectory,
+    estimatedInputBytes + externalCanonicalSqliteBytes + controlPlaneBytes,
+    "external backup volume",
+  );
   const stdout = execFileSync(
     process.execPath,
-    [entrypoint, "backup", "create", "--output", localRoot, "--verify", "--json"],
+    [entrypoint, "backup", "create", "--output", externalDirectory, "--verify", "--json"],
     {
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
     },
   );
   const backup = parseBackupOutput(stdout);
-  const archivePath = fs.realpathSync(path.resolve(String(backup.archivePath ?? "")));
-  regularFile(archivePath, "verified OpenClaw backup archive");
+  const externalArchivePath = fs.realpathSync(path.resolve(String(backup.archivePath ?? "")));
+  regularFile(externalArchivePath, "verified external OpenClaw backup archive");
+  if (!externalArchivePath.startsWith(`${fs.realpathSync(externalDirectory)}${path.sep}`)) {
+    fail("OpenClaw backup archive was written outside the verified external destination");
+  }
   if (backup.verified !== true) {
     fail("OpenClaw backup did not report successful verification");
   }
-  const archiveSha256 = sha256File(archivePath);
-  const restoreDrill = rehearseRestore(archivePath);
-  const stamp = new Date().toISOString().replaceAll(/[-:.]/gu, "");
-  const externalBackupRoot = path.join(verifiedExternalRoot, "OpenClaw", "verified-updates");
-  fs.mkdirSync(externalBackupRoot, { recursive: true, mode: 0o700 });
-  const externalDirectory = path.join(externalBackupRoot, stamp);
-  fs.mkdirSync(externalDirectory, { recursive: false, mode: 0o700 });
-  const externalStats = fs.statfsSync(externalDirectory);
-  const availableBytes = externalStats.bavail * externalStats.bsize;
-  const requiredBytes = fs.statSync(archivePath).size * 2 + 16 * 1024 * 1024;
-  if (availableBytes < requiredBytes) {
-    fail("external backup volume does not have enough free space for verified recovery copies");
-  }
-  const externalArchivePath = path.join(externalDirectory, path.basename(archivePath));
-  fs.copyFileSync(archivePath, externalArchivePath, fs.constants.COPYFILE_EXCL);
   syncFile(externalArchivePath);
-  if (sha256File(externalArchivePath) !== archiveSha256) {
-    fail("external backup copy hash does not match the verified local archive");
+  const archiveSha256 = sha256File(externalArchivePath);
+  const restoreDrill = rehearseRestore(externalArchivePath);
+  const localRoot = path.join(runtimeHome, "data-backups");
+  fs.mkdirSync(localRoot, { recursive: true, mode: 0o700 });
+  const archiveBytes = fs.statSync(externalArchivePath).size;
+  assertAvailableBytes(localRoot, archiveBytes, "local backup volume");
+  const localArchivePath = path.join(localRoot, path.basename(externalArchivePath));
+  fs.copyFileSync(externalArchivePath, localArchivePath, fs.constants.COPYFILE_EXCL);
+  syncFile(localArchivePath);
+  if (sha256File(localArchivePath) !== archiveSha256) {
+    fail("local backup copy hash does not match the verified external archive");
   }
   const controlPlane = createControlPlaneBundle({
-    runtimeHome,
-    pointerPath,
+    required: controlPlaneFiles,
     pointer,
     externalDirectory,
-    homedir,
   });
   const receiptPath = path.join(runtimeHome, "receipts", `update-backup-${stamp}.json`);
   const receipt = {
@@ -401,7 +499,7 @@ function createBackup({
     result: "passed",
     backupVerified: true,
     restoreDrill,
-    localArchive: { path: archivePath, sha256: archiveSha256 },
+    localArchive: { path: localArchivePath, sha256: archiveSha256 },
     externalArchive: { path: externalArchivePath, sha256: archiveSha256 },
     controlPlane,
   };

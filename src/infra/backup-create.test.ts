@@ -401,6 +401,53 @@ describe("createBackupVolatileStatCache", () => {
       },
     );
   });
+
+  it("lets tar filter a snapshotted SQLite sidecar that disappears before lstat", async () => {
+    await withOpenClawTestState(
+      {
+        layout: "state-only",
+        prefix: "openclaw-backup-sqlite-stat-cache-",
+        scenario: "minimal",
+      },
+      async (state) => {
+        const sidecarPath = await state.writeText("state/openclaw.sqlite-shm", "transient\n");
+        await state.writeText("settings.json", '{"keep":true}\n');
+        const archivePath = state.path("sqlite-stat-cache.tar.gz");
+        const excludedPaths = new Set([path.resolve(sidecarPath)]);
+        const statCache = backupCreateInternals.createBackupVolatileStatCache(
+          { stateDirs: [state.stateDir] },
+          excludedPaths,
+        );
+        const getCachedStat = statCache.get.bind(statCache);
+        let removedBeforeStat = false;
+
+        statCache.get = (key: string) => {
+          if (path.resolve(key) === path.resolve(sidecarPath)) {
+            rmSync(sidecarPath, { force: true });
+            removedBeforeStat = true;
+          }
+          return getCachedStat(key);
+        };
+
+        await tar.c(
+          {
+            file: archivePath,
+            gzip: true,
+            portable: true,
+            preservePaths: true,
+            statCache,
+            filter: (entryPath) => !excludedPaths.has(path.resolve(entryPath)),
+          },
+          [state.stateDir],
+        );
+
+        expect(removedBeforeStat).toBe(true);
+        expect(await listArchiveEntries(archivePath)).not.toContain(
+          expect.stringContaining("openclaw.sqlite-shm"),
+        );
+      },
+    );
+  });
 });
 
 describe("buildExtensionsNodeModulesFilter", () => {
@@ -565,12 +612,26 @@ describe("createBackupArchive", () => {
         await fs.mkdir(outputDir, { recursive: true });
         await fs.mkdir(extractDir, { recursive: true });
         const { db } = openOpenClawStateDatabase({ env: state.env });
+        db.exec(`
+          CREATE TABLE delivery_queue_quarantines (
+            queue_name TEXT NOT NULL,
+            id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            PRIMARY KEY (queue_name, id),
+            FOREIGN KEY (queue_name, id)
+              REFERENCES delivery_queue_entries(queue_name, id)
+          );
+        `);
         db.prepare(
           `
             INSERT INTO delivery_queue_entries (
               queue_name, id, status, retry_count, entry_json, enqueued_at, updated_at
             ) VALUES ('outbound', 'queued-1', 'pending', 0, '{"id":"queued-1"}', 10, 10)
           `,
+        ).run();
+        db.prepare(
+          `INSERT INTO delivery_queue_quarantines (queue_name, id, reason)
+           VALUES ('outbound', 'queued-1', 'test')`,
         ).run();
 
         try {
@@ -597,6 +658,9 @@ describe("createBackupArchive", () => {
             expect(
               archivedDb.prepare("SELECT COUNT(*) AS count FROM delivery_queue_entries").get(),
             ).toEqual({ count: 0 });
+            expect(
+              archivedDb.prepare("SELECT COUNT(*) AS count FROM delivery_queue_quarantines").get(),
+            ).toEqual({ count: 0 });
           } finally {
             archivedDb.close();
           }
@@ -604,6 +668,44 @@ describe("createBackupArchive", () => {
           expect(db.prepare("SELECT COUNT(*) AS count FROM delivery_queue_entries").get()).toEqual({
             count: 1,
           });
+          expect(
+            db.prepare("SELECT COUNT(*) AS count FROM delivery_queue_quarantines").get(),
+          ).toEqual({ count: 1 });
+        } finally {
+          closeOpenClawStateDatabase();
+        }
+      },
+    );
+  });
+
+  it("blocks an unregistered SQLite table that depends on transient delivery rows", async () => {
+    await withOpenClawTestState(
+      {
+        layout: "state-only",
+        prefix: "openclaw-backup-sqlite-queue-owner-",
+        scenario: "minimal",
+      },
+      async (state) => {
+        const { db } = openOpenClawStateDatabase({ env: state.env });
+        db.exec(`
+          CREATE TABLE durable_queue_audit (
+            queue_name TEXT NOT NULL,
+            id TEXT NOT NULL,
+            FOREIGN KEY (queue_name, id)
+              REFERENCES delivery_queue_entries(queue_name, id)
+          );
+        `);
+
+        try {
+          await expect(
+            createBackupArchive({
+              output: state.path("backups"),
+              includeWorkspace: false,
+              nowMs: Date.UTC(2026, 4, 9, 8, 31, 0),
+            }),
+          ).rejects.toThrow(
+            /Backup sanitizer found unregistered delivery queue dependents: durable_queue_audit/u,
+          );
         } finally {
           closeOpenClawStateDatabase();
         }

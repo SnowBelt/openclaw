@@ -27,6 +27,7 @@ function fixture(): {
   externalRoot: string;
   sourceSha: string;
   homedir: string;
+  payload: string;
   allowTestDirectory: true;
 } {
   const base = root("openclaw-update-backup-");
@@ -46,6 +47,10 @@ import fs from "node:fs";
 import path from "node:path";
 const outputIndex = process.argv.indexOf("--output") + 1;
 const output = process.argv[outputIndex];
+if (process.argv.includes("--dry-run")) {
+  process.stdout.write(JSON.stringify({ assets: [{ kind: "state", sourcePath: ${JSON.stringify(payload)} }] }) + "\\n");
+  process.exit(0);
+}
 fs.mkdirSync(output, { recursive: true });
 const archivePath = path.join(output, "fixture-openclaw-backup.tar.gz");
 execFileSync("tar", ["-czf", archivePath, "-C", ${JSON.stringify(payload)}, "."]);
@@ -86,7 +91,7 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
       sourceProvenance: { recordPath, bundlePath },
     })}\n`,
   );
-  return { runtimeHome, externalRoot, sourceSha, homedir, allowTestDirectory: true };
+  return { runtimeHome, externalRoot, sourceSha, homedir, payload, allowTestDirectory: true };
 }
 
 afterEach(() => {
@@ -125,6 +130,13 @@ describe("custom runtime update backup", () => {
       restoreDrill: { result: "passed" },
       controlPlane: { fileCount: 12 },
     });
+    expect(result.externalArchive.path).toContain(`${path.sep}external${path.sep}`);
+    expect(result.localArchive.path).toContain(
+      `${path.sep}runtime-home${path.sep}data-backups${path.sep}`,
+    );
+    expect(fs.readFileSync(result.externalArchive.path)).toEqual(
+      fs.readFileSync(result.localArchive.path),
+    );
     expect(() =>
       verifyReceipt({ receiptPath: result.receiptPath, expectedSha: value.sourceSha }),
     ).not.toThrow();
@@ -171,6 +183,18 @@ describe("custom runtime update backup", () => {
     expect(() => createBackup({ ...value, externalRoot: "" })).toThrow(
       /update safety configuration is missing or malformed/u,
     );
+  });
+
+  it("counts an external canonical SQLite symlink target before writing the archive", () => {
+    const value = fixture();
+    const externalDatabase = path.join(path.dirname(value.payload), "external-state.sqlite");
+    writeFile(externalDatabase, "");
+    fs.truncateSync(externalDatabase, 1024 ** 4);
+    const canonicalDatabase = path.join(value.payload, "state", "openclaw.sqlite");
+    fs.mkdirSync(path.dirname(canonicalDatabase), { recursive: true });
+    fs.symlinkSync(externalDatabase, canonicalDatabase);
+
+    expect(() => createBackup(value)).toThrow(/external backup volume.*enough free space/u);
   });
 
   it("rejects a receipt bound to another active source SHA", async () => {
