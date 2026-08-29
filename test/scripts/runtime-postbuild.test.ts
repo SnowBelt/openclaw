@@ -41,6 +41,8 @@ describe("runtime postbuild static assets", () => {
       "dist/extensions/acpx/mcp-proxy.mjs",
       "dist/extensions/diffs-language-pack/assets/viewer-runtime.js",
       "dist/extensions/diffs/assets/viewer-runtime.js",
+      "dist/extensions/ringer/assets/openclaw-local-worker.mjs",
+      "dist/extensions/ringer/assets/trusted-verifier.mjs",
     ]);
   });
 
@@ -61,9 +63,13 @@ describe("runtime postbuild static assets", () => {
       "dist/extensions/acpx/mcp-proxy.mjs",
       "dist/extensions/diffs-language-pack/assets/viewer-runtime.js",
       "dist/extensions/diffs/assets/viewer-runtime.js",
+      "dist/extensions/ringer/assets/openclaw-local-worker.mjs",
+      "dist/extensions/ringer/assets/trusted-verifier.mjs",
     ]);
     expect(payload.sources).toContain("extensions/diffs-language-pack/assets/viewer-runtime.js");
     expect(payload.sources).toContain("extensions/diffs/assets/viewer-runtime.js");
+    expect(payload.sources).toContain("extensions/ringer/assets/openclaw-local-worker.mjs");
+    expect(payload.sources).toContain("extensions/ringer/assets/trusted-verifier.mjs");
   });
 
   it("discovers static assets from plugin package metadata", async () => {

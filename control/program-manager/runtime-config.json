@@ -1,0 +1,74 @@
+{
+  "agents": {
+    "list": [
+      {
+        "id": "program-manager",
+        "skills": [],
+        "skillsLimits": {
+          "maxSkillsPromptChars": 0
+        },
+        "bootstrapMaxChars": 2200,
+        "bootstrapTotalMaxChars": 2200,
+        "contextInjection": "continuation-skip",
+        "contextLimits": {
+          "memoryGetMaxChars": 4000,
+          "postCompactionMaxChars": 1800
+        },
+        "thinkingDefault": "off",
+        "subagents": {
+          "allowAgents": [
+            "builder-agent",
+            "research-brief-agent"
+          ],
+          "delegationMode": "suggest",
+          "requireAgentId": true
+        },
+        "tools": {
+          "alsoAllow": [
+            "get_goal",
+            "update_goal",
+            "update_plan",
+            "memory_search",
+            "memory_get",
+            "sessions_spawn",
+            "sessions_yield",
+            "sessions_list"
+          ],
+          "deny": [
+            "apply_patch",
+            "agents_list",
+            "browser",
+            "code_execution",
+            "cron",
+            "edit",
+            "exec",
+            "message",
+            "process",
+            "read",
+            "session_status",
+            "sessions_history",
+            "sessions_send",
+            "subagents",
+            "web_fetch",
+            "web_search",
+            "write"
+          ],
+          "exec": {
+            "ask": "always",
+            "security": "deny"
+          },
+          "fs": {
+            "workspaceOnly": true
+          },
+          "profile": "minimal"
+        }
+      },
+      {
+        "id": "builder-agent"
+      },
+      {
+        "id": "research-brief-agent"
+      }
+    ]
+  }
+}

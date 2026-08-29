@@ -689,6 +689,8 @@ describe("collectMissingPackPaths", () => {
         "dist/extensions/acpx/error-format.mjs",
         "dist/extensions/acpx/mcp-command-line.mjs",
         "dist/extensions/acpx/mcp-proxy.mjs",
+        "dist/extensions/ringer/assets/openclaw-local-worker.mjs",
+        "dist/extensions/ringer/assets/trusted-verifier.mjs",
         ...requiredBundledPluginPackPaths,
         ...requiredPluginSdkPackPaths,
         ...WORKSPACE_TEMPLATE_PACK_PATHS,

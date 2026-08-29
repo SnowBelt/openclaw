@@ -2,6 +2,12 @@
 
 Docs: https://docs.openclaw.ai
 
+## Unreleased
+
+### Changes
+
+- Program Manager: add a bounded, canonical context contract and restore the disabled-by-default Ringer local-AI operator plugin with deterministic security and qualification gates.
+
 ## 2026.6.6
 
 ### Highlights
