@@ -1497,6 +1497,8 @@ describe("custom runtime lifecycle", () => {
       const release = path.join(releases, "candidate");
       const controlSource = path.join(release, "scripts", "custom-runtime");
       const fakeBin = path.join(root, "bin");
+      const stageMigrationMarker = path.join(root, "stage-migration.txt");
+      const promotionMigrationMarker = path.join(root, "promotion-migration.txt");
       const promoteArgsMarker = path.join(root, "promote-args.txt");
       const sourceSha = "e".repeat(64);
       const previousFiles = new Map<string, string>();
@@ -1512,9 +1514,9 @@ describe("custom runtime lifecycle", () => {
               : `#!/bin/sh\n# previous ${file}\n`;
         const candidateText =
           file === "custom-runtime-stage.sh"
-            ? '#!/bin/sh\n[ -n "${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-}" ]\n[ -f "${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\ngrep -q "# previous" "$OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER"\nexit 0\n'
+            ? `#!/bin/sh\nprintf '%s\\n' "\${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}" > ${JSON.stringify(stageMigrationMarker)}\n[ -n "\${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-}" ]\n[ -f "\${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\ngrep -q "# previous" "$OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER"\nexit 0\n`
             : file === "custom-runtime-promote.sh"
-              ? `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(promoteArgsMarker)}\n[ -f "\${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\nexit ${promoteExit}\n`
+              ? `#!/bin/sh\nprintf '%s\\n' "\${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}" > ${JSON.stringify(promotionMigrationMarker)}\nprintf '%s\\n' "$@" > ${JSON.stringify(promoteArgsMarker)}\n[ -f "\${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\nexit ${promoteExit}\n`
               : file.endsWith(".py")
                 ? "# candidate python\n"
                 : `#!/bin/sh\n# candidate ${file}\nexit 0\n`;
@@ -1549,6 +1551,9 @@ describe("custom runtime lifecycle", () => {
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
           OPENCLAW_GATEWAY_PLIST: path.join(root, "ai.openclaw.gateway.plist"),
+          OPENCLAW_RELEASE_GOVERNANCE_PROMOTION_POLICY_MIGRATION:
+            "/governance/promotion-migration.json",
+          OPENCLAW_RELEASE_GOVERNANCE_STAGE_POLICY_MIGRATION: "/governance/stage-migration.json",
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       });
@@ -1561,6 +1566,12 @@ describe("custom runtime lifecycle", () => {
       expect(fs.existsSync(path.join(runtimeHome, "locks", "activation.lock"))).toBe(false);
       expect(fs.readFileSync(promoteArgsMarker, "utf8").includes("--enable-sig-background")).toBe(
         promoteExit === 0,
+      );
+      expect(fs.readFileSync(stageMigrationMarker, "utf8").trim()).toBe(
+        "/governance/stage-migration.json",
+      );
+      expect(fs.readFileSync(promotionMigrationMarker, "utf8").trim()).toBe(
+        "/governance/promotion-migration.json",
       );
       const receipt = fs
         .readdirSync(path.join(runtimeHome, "receipts"))

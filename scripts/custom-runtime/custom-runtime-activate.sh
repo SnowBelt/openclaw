@@ -96,6 +96,8 @@ mkdir "$backup"
 control_installed=false
 committed=false
 rollback_attempted=false
+stage_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_STAGE_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
+promotion_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_PROMOTION_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
 
 restore_control_plane() {
   for file in $managed_files; do
@@ -161,6 +163,7 @@ stage_rollback_launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 [ -f "$stage_rollback_launcher" ] || stage_rollback_launcher="$control_source/custom-runtime-launcher.sh"
 OPENCLAW_CUSTOM_RUNTIME_LAUNCHER="$control_source/custom-runtime-launcher.sh" \
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$stage_rollback_launcher" \
+  OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$stage_policy_migration" \
   "$control_source/custom-runtime-stage.sh" \
   --release "$release" --source-sha "$source_sha" --port "$stage_port"
 
@@ -184,11 +187,13 @@ if [ -n "$provenance_migration" ]; then
 fi
 if [ "$enable_sig_background" = true ]; then
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$promotion_policy_migration" \
     "$runtime_home/bin/custom-runtime-promote.sh" \
     "$@" --port "$port" \
     --enable-sig-background || exit 1
 else
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$promotion_policy_migration" \
     "$runtime_home/bin/custom-runtime-promote.sh" \
     "$@" --port "$port" || exit 1
 fi
