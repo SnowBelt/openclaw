@@ -240,6 +240,95 @@ describe("custom runtime lifecycle", () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
+  it("runs provenance migration verification through Node without requiring executable source", () => {
+    const root = createRoot("openclaw-promote-provenance-node-");
+    const home = path.join(root, "home");
+    const runtimeHome = path.join(home, ".openclaw-custom-runtime");
+    const releases = path.join(home, ".openclaw-runtime-releases");
+    const release = path.join(releases, "candidate");
+    const activeSha = "a".repeat(40);
+    const candidateSha = "b".repeat(40);
+    const invocationMarker = path.join(root, "provenance-invocations.jsonl");
+    const provenanceRecord = path.join(runtimeHome, "provenance.json");
+    const provenanceMigration = path.join(runtimeHome, "migration.json");
+    const provenanceHelper = path.join(
+      release,
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-source-provenance.mjs",
+    );
+
+    writeCandidateContracts(release, candidateSha);
+    writeFile(path.join(release, "dist", "index.js"), "// candidate\n");
+    writeFile(provenanceRecord, "{}\n", 0o600);
+    writeFile(provenanceMigration, "{}\n", 0o600);
+    writeFile(
+      provenanceHelper,
+      [
+        'import fs from "node:fs";',
+        `const marker = ${JSON.stringify(invocationMarker)};`,
+        "fs.appendFileSync(marker, `${JSON.stringify(process.argv.slice(2))}\\n`);",
+        'const count = fs.readFileSync(marker, "utf8").trim().split("\\n").length;',
+        "process.exit(count >= 3 ? 1 : 0);",
+        "",
+      ].join("\n"),
+      0o600,
+    );
+    writeFile(
+      path.join(release, ".openclaw-runtime-provenance.json"),
+      `${JSON.stringify({
+        historicalSourceSha: activeSha,
+        migrationPath: provenanceMigration,
+        migrationSha256: sha256(provenanceMigration),
+        recordPath: provenanceRecord,
+        recordSha256: sha256(provenanceRecord),
+        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        sourceSha: candidateSha,
+      })}\n`,
+      0o600,
+    );
+    writeFile(
+      path.join(runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({
+        runtimeRoot: path.join(releases, "active"),
+        sourceSha: activeSha,
+      })}\n`,
+      0o600,
+    );
+
+    const result = spawnSync(
+      promoteScript,
+      [
+        "--release",
+        release,
+        "--source-sha",
+        candidateSha,
+        "--provenance-migration",
+        provenanceMigration,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+          OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        },
+      },
+    );
+
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("provenance migration identity is invalid");
+    expect(result.stderr).not.toContain("Permission denied");
+    expect(fs.readFileSync(invocationMarker, "utf8").trim().split("\n")).toHaveLength(3);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(runtimeHome, "active-runtime.json"), "utf8")),
+    ).toEqual({
+      runtimeRoot: path.join(releases, "active"),
+      sourceSha: activeSha,
+    });
+  });
+
   it("prefers the active immutable Release Governor over the candidate verifier", () => {
     const root = createRoot("openclaw-release-governor-active-");
     const runtimeHome = path.join(root, "runtime-home");

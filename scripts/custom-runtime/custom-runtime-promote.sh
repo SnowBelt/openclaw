@@ -317,7 +317,8 @@ PY
       printf '%s\n' 'promotion blocked: legacy source paths cannot accompany a provenance migration' >&2
       exit 64
     }
-    "$release/scripts/custom-runtime/custom-runtime-source-provenance.mjs" verify-migration \
+    "${OPENCLAW_NODE_BIN:-node}" \
+      "$release/scripts/custom-runtime/custom-runtime-source-provenance.mjs" verify-migration \
       --migration "$provenance_migration" --historical-source-sha "$active_source_sha" \
       --candidate-sha "$source_sha" >/dev/null || {
         printf '%s\n' 'promotion blocked: provenance migration identity is invalid' >&2
