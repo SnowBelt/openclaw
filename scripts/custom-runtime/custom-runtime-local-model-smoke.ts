@@ -414,6 +414,17 @@ export function parsePids(output: string, format: "plain" | "lsof" = "plain"): S
     if (!normalized) {
       continue;
     }
+    if (format === "lsof" && /^f[A-Za-z0-9]+$/u.test(normalized)) {
+      // macOS lsof emits a file-descriptor field even when invoked with -Fp.
+      // It is ancillary to the preceding process record, not another PID.
+      if (pids.size === 0) {
+        throw new CompatibilitySmokeError(
+          "probe_unavailable",
+          "probe_unavailable:lsof file-descriptor row preceded a process id",
+        );
+      }
+      continue;
+    }
     const value = format === "lsof" ? normalized.slice(1) : normalized;
     const valid = format === "lsof" ? /^p\d+$/u.test(normalized) : /^\d+$/u.test(value);
     if (!valid) {
