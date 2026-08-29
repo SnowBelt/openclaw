@@ -446,7 +446,7 @@ function makeLease(params: {
           renewalError = error;
         });
       },
-      Math.max(1_000, Math.floor(params.ttlMs / 3)),
+      Math.max(1, Math.floor(params.ttlMs / 3)),
     );
     timer.unref?.();
   }
@@ -568,6 +568,7 @@ export async function acquireLocalModelAdmission(
   }
 
   const samples: LocalModelResourceSnapshot[] = [];
+  const lease = makeLease({ stored, statePath, borrowed: false, samples, ttlMs });
   try {
     if (params.mode === "exclusive") {
       while (samples.length < 3) {
@@ -592,10 +593,14 @@ export async function acquireLocalModelAdmission(
         }
       }
     }
-    return makeLease({ stored, statePath, borrowed: false, samples, ttlMs });
+    // Sampling can legitimately wait much longer than the base lease TTL.
+    // Start renewal as soon as the exclusive lease is stored, then prove once
+    // more that the lease still exists before exposing it to the caller.
+    await lease.renew();
+    return lease;
   } catch (error) {
     try {
-      await releaseLease(statePath, token);
+      await lease.release();
     } catch {
       // The original admission failure is more actionable; the missing lease is fail-closed on the next attempt.
     }

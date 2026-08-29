@@ -84,6 +84,26 @@ describe("local model admission", () => {
     await lease.release();
   });
 
+  it("renews an exclusive lease while waiting longer than its base TTL for clean samples", async () => {
+    const pathName = statePath();
+    const lease = await acquireExclusiveLocalModelAdmission({
+      owner: "slow-quiescence",
+      statePath: pathName,
+      ttlMs: 60,
+      waitMs: 500,
+      sampleIntervalMs: 40,
+      probe: () => cleanSnapshot(new Date().toISOString()),
+    });
+    const state = JSON.parse(fs.readFileSync(pathName, "utf8")) as {
+      leases: Array<{ expiresAt: number; token: string }>;
+    };
+    expect(lease.samples).toHaveLength(3);
+    expect(state.leases).toHaveLength(1);
+    expect(state.leases[0]?.token).toBe(lease.token);
+    expect(state.leases[0]?.expiresAt).toBeGreaterThan(Date.now());
+    await lease.release();
+  });
+
   it("cleans up its exclusive lease when quiescence times out", async () => {
     const pathName = statePath();
     await expect(
