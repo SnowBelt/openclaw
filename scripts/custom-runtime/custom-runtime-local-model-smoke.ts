@@ -28,6 +28,25 @@ const ADMISSION_RELEASE_TIMEOUT_MS = 5_000;
 const EXECUTION_MONITOR_INTERVAL_MS = 1_000;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 
+type ReadOnlyExecutor = (
+  command: string,
+  args: string[],
+  options: {
+    encoding: "utf8";
+    timeout: number;
+    maxBuffer: number;
+    stdio: ["ignore", "pipe", "pipe"];
+  },
+) => string | Buffer;
+
+function executeReadOnly(
+  command: string,
+  args: string[],
+  options: Parameters<ReadOnlyExecutor>[2],
+): string | Buffer {
+  return execFileSync(command, args, options) as string | Buffer;
+}
+
 export type CompatibilitySmokeFailureCode =
   | "probe_unavailable"
   | "probe_overflow"
@@ -326,7 +345,7 @@ function readCandidateIdentity(params: CompatibilitySmokeParams): SmokeIdentity 
 export function runReadOnly(
   command: string,
   args: string[],
-  execute: typeof execFileSync = execFileSync,
+  execute: ReadOnlyExecutor = executeReadOnly,
 ): string {
   try {
     const output = execute(command, args, {
