@@ -7,6 +7,7 @@ import {
   LOCAL_MODEL_COMPATIBILITY_AGENT_ID,
   LOCAL_MODEL_COMPATIBILITY_MODEL,
   executeOwnedProcess,
+  isOwnedLocalModelProcess,
   runReadOnly,
   runLocalModelCompatibilitySmoke,
   type CompatibilitySmokeParams,
@@ -150,6 +151,7 @@ describe("custom runtime local-model compatibility smoke", () => {
         timedOut: false,
         ownedProcessCleanup: true,
         resourceContentionDuringExecution: false,
+        contentionSnapshot: null,
         monitorError: null,
       };
     });
@@ -213,6 +215,7 @@ describe("custom runtime local-model compatibility smoke", () => {
           timedOut: true,
           ownedProcessCleanup: true,
           resourceContentionDuringExecution: false,
+          contentionSnapshot: null,
           monitorError: null,
         })),
       },
@@ -296,5 +299,19 @@ describe("custom runtime local-model compatibility smoke", () => {
 
     expect(result.resourceContentionDuringExecution).toBe(true);
     expect(result.ownedProcessCleanup).toBe(true);
+    expect(result.contentionSnapshot).toMatchObject({ activeOpenClawWorkerCount: 1 });
+  });
+
+  it("accepts a smoke-owned descendant even when it creates a different process group", () => {
+    const identities = new Map([
+      [300, { pid: 300, parentPid: 200, processGroupId: 300 }],
+      [200, { pid: 200, parentPid: 100, processGroupId: 200 }],
+      [900, { pid: 900, parentPid: 1, processGroupId: 900 }],
+    ]);
+    const lookup = (pid: number) => identities.get(pid) ?? null;
+
+    expect(isOwnedLocalModelProcess(300, 100, 100, lookup)).toBe(true);
+    expect(isOwnedLocalModelProcess(900, 100, 100, lookup)).toBe(false);
+    expect(isOwnedLocalModelProcess(901, 100, 100, lookup)).toBe(true);
   });
 });

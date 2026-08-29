@@ -76,7 +76,14 @@ type OwnedProcessResult = {
   timedOut: boolean;
   ownedProcessCleanup: boolean;
   resourceContentionDuringExecution: boolean;
+  contentionSnapshot: LocalModelResourceSnapshot | null;
   monitorError: string | null;
+};
+
+type ProcessIdentity = {
+  pid: number;
+  parentPid: number;
+  processGroupId: number;
 };
 
 type OwnedReadableStream = NodeJS.ReadableStream & {
@@ -351,7 +358,7 @@ export function runReadOnly(
     // as a hard probe error so permission/tool failures cannot look quiescent.
     const stderr = probeError.stderr == null ? "" : String(probeError.stderr);
     if (
-      ["lsof", "pgrep"].includes(path.basename(command)) &&
+      ["lsof", "pgrep", "ps"].includes(path.basename(command)) &&
       probeError.status === 1 &&
       stderr.trim() === ""
     ) {
@@ -598,7 +605,67 @@ function processGroupId(pid: number): number {
   return value;
 }
 
-function hasUnrelatedActivity(snapshot: LocalModelResourceSnapshot, ownedGroupId: number): boolean {
+function readProcessIdentity(pid: number): ProcessIdentity | null {
+  const output = runReadOnly(systemTool("ps"), [
+    "-p",
+    String(pid),
+    "-o",
+    "pid=,ppid=,pgid=",
+  ]).trim();
+  if (!output) {
+    return null;
+  }
+  const fields = output.split(/\s+/u).map(Number);
+  if (
+    fields.length !== 3 ||
+    fields.some((value) => !Number.isInteger(value) || value < 0) ||
+    fields[0] !== pid ||
+    fields[1] === 0 ||
+    fields[2] === 0
+  ) {
+    throw new CompatibilitySmokeError(
+      "probe_unavailable",
+      "probe_unavailable:invalid process identity",
+    );
+  }
+  return { pid: fields[0], parentPid: fields[1], processGroupId: fields[2] };
+}
+
+export function isOwnedLocalModelProcess(
+  pid: number,
+  ownedRootPid: number,
+  ownedGroupId: number,
+  lookup: (candidatePid: number) => ProcessIdentity | null = readProcessIdentity,
+): boolean {
+  const visited = new Set<number>();
+  let currentPid = pid;
+  for (let depth = 0; depth < 64; depth += 1) {
+    if (currentPid === ownedRootPid) {
+      return true;
+    }
+    if (currentPid <= 1 || visited.has(currentPid)) {
+      return false;
+    }
+    visited.add(currentPid);
+    const identity = lookup(currentPid);
+    // The PID disappeared after lsof captured it, so it cannot represent
+    // continuing unrelated work and must not race a fail-closed smoke abort.
+    if (!identity) {
+      return true;
+    }
+    if (identity.processGroupId === ownedGroupId || identity.parentPid === ownedRootPid) {
+      return true;
+    }
+    currentPid = identity.parentPid;
+  }
+  return false;
+}
+
+function hasUnrelatedActivity(
+  snapshot: LocalModelResourceSnapshot,
+  ownedRootPid: number,
+  ownedGroupId: number,
+): boolean {
   const workerPids = snapshot.activeOpenClawWorkerPids ?? [];
   const clientPids = snapshot.activeOllamaClientPids ?? [];
   if (
@@ -608,14 +675,7 @@ function hasUnrelatedActivity(snapshot: LocalModelResourceSnapshot, ownedGroupId
     return true;
   }
   return [...workerPids, ...clientPids].some((pid) => {
-    try {
-      return processGroupId(pid) !== ownedGroupId;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
-        return false;
-      }
-      throw error;
-    }
+    return !isOwnedLocalModelProcess(pid, ownedRootPid, ownedGroupId);
   });
 }
 
@@ -633,6 +693,7 @@ export function executeOwnedProcess(params: {
     const stderr = emptyCapture();
     let timedOut = false;
     let resourceContentionDuringExecution = false;
+    let contentionSnapshot: LocalModelResourceSnapshot | null = null;
     let monitorError: string | null = null;
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
@@ -695,6 +756,7 @@ export function executeOwnedProcess(params: {
         timedOut,
         ownedProcessCleanup,
         resourceContentionDuringExecution,
+        contentionSnapshot,
         monitorError,
       });
     };
@@ -719,6 +781,7 @@ export function executeOwnedProcess(params: {
         timedOut: false,
         ownedProcessCleanup: true,
         resourceContentionDuringExecution: false,
+        contentionSnapshot: null,
         monitorError: null,
       });
       return;
@@ -737,6 +800,20 @@ export function executeOwnedProcess(params: {
       void complete(child.pid, status, signal, child);
     });
     if (params.probe) {
+      let ownedGroupId: number;
+      try {
+        ownedGroupId = processGroupId(child.pid!);
+        if (ownedGroupId !== child.pid) {
+          throw new CompatibilitySmokeError(
+            "probe_unavailable",
+            "probe_unavailable:detached child process group mismatch",
+          );
+        }
+      } catch (error) {
+        monitorError = redact(error instanceof Error ? error.message : String(error));
+        void complete(child.pid, null, "SIGTERM", child);
+        return;
+      }
       monitor = setInterval(() => {
         if (settled || monitorRunning) {
           return;
@@ -744,8 +821,9 @@ export function executeOwnedProcess(params: {
         monitorRunning = true;
         void Promise.resolve(params.probe!())
           .then((snapshot) => {
-            if (!settled && child.pid && hasUnrelatedActivity(snapshot, child.pid)) {
+            if (!settled && child.pid && hasUnrelatedActivity(snapshot, child.pid, ownedGroupId)) {
               resourceContentionDuringExecution = true;
+              contentionSnapshot = snapshot;
               void complete(child.pid, null, "SIGTERM", child);
             }
           })
@@ -897,6 +975,7 @@ export async function runLocalModelCompatibilitySmoke(
       signal: result.signal,
       timedOut: result.timedOut,
       ownedProcessCleanup: result.ownedProcessCleanup,
+      contentionSnapshot: result.contentionSnapshot,
     };
     report.stdoutTail = tail(result.stdoutTail || result.stdout);
     report.stderrTail = tail(result.stderrTail || result.stderr);
