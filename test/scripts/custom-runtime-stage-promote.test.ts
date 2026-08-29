@@ -1201,12 +1201,43 @@ describe("custom runtime canary and rollback", () => {
     expect(existsSync(path.join(input.runtimeHome, "certification-lease.json"))).toBe(true);
   });
 
+  it("never treats an unavailable port probe as an empty port", () => {
+    const input = fixture();
+    const failingLsof = path.join(input.home, "failing-lsof");
+    executable(
+      failingLsof,
+      "#!/bin/sh\nprintf '%s\\n' 'lsof: operation not permitted' >&2\nexit 1\n",
+    );
+    const authHelper = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-auth.sh",
+    );
+    const result = spawnSync(
+      "sh",
+      ["-c", `. ${JSON.stringify(authHelper)}; custom_runtime_port_listener_pids 18789`],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OPENCLAW_LSOF_BIN: failingLsof,
+          OPENCLAW_PS_BIN: process.execPath,
+          OPENCLAW_PGREP_BIN: process.execPath,
+        },
+      },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+  });
+
   it("stages a candidate against copied state without changing the active pointer", () => {
     const input = fixture();
     const configPath = path.join(input.home, "openclaw.director.json");
     const stateDir = path.join(input.home, "state");
     const provider = path.join(input.home, "secret-provider");
     const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    const launcher = path.join(input.runtimeHome, "bin", "custom-runtime-launcher.sh");
     mkdirSync(stateDir, { recursive: true });
     writeFileSync(
       configPath,
@@ -1223,6 +1254,48 @@ describe("custom runtime canary and rollback", () => {
     const originalPointer = `${JSON.stringify({ requiredSurfaces: ["pcc"] })}\n`;
     writeFileSync(activePointer, originalPointer);
     const port = 29_000 + Math.floor(Math.random() * 500);
+    const processMarker = path.join(input.home, "gateway-process.txt");
+    const realLauncher = `${launcher}.original`;
+    cpSync(launcher, realLauncher);
+    executable(
+      launcher,
+      [
+        "#!/bin/sh",
+        'if [ "${1:-}" != gateway ]; then exec ' + JSON.stringify(realLauncher) + ' "$@"; fi',
+        `printf '%s\\n' "$$" > ${JSON.stringify(processMarker)}`,
+        JSON.stringify(realLauncher) + ' "$@" &',
+        "child=$!",
+        `trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; rm -f ${JSON.stringify(processMarker)}; exit 0' TERM INT`,
+        'wait "$child"',
+        `rm -f ${JSON.stringify(processMarker)}`,
+        "",
+      ].join("\n"),
+    );
+    const lsofProbe = path.join(input.home, "lsof-probe");
+    const psProbe = path.join(input.home, "ps-probe");
+    executable(
+      lsofProbe,
+      [
+        "#!/bin/sh",
+        `if [ -s ${JSON.stringify(processMarker)} ]; then cat ${JSON.stringify(processMarker)}; exit 0; fi`,
+        "exit 1",
+        "",
+      ].join("\n"),
+    );
+    executable(
+      psProbe,
+      [
+        "#!/bin/sh",
+        "pid=",
+        "while [ $# -gt 0 ]; do",
+        '  if [ "$1" = -p ]; then pid=$2; shift 2; else shift; fi',
+        "done",
+        `[ -s ${JSON.stringify(processMarker)} ] || exit 1`,
+        'kill -0 "$pid" 2>/dev/null || exit 1',
+        `printf '%s\\n' ${JSON.stringify(`${process.execPath} ${input.release}/dist/index.js gateway --port ${port}`)}`,
+        "",
+      ].join("\n"),
+    );
 
     const result = spawnSync(
       "sh",
@@ -1244,10 +1317,15 @@ describe("custom runtime canary and rollback", () => {
           HOME: input.home,
           OPENCLAW_CONFIG_PATH: configPath,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+          OPENCLAW_CUSTOM_RUNTIME_LAUNCHER: launcher,
           OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
           OPENCLAW_NODE_BIN: process.execPath,
           OPENCLAW_SECRET_PROVIDER: provider,
           OPENCLAW_STATE_DIR: stateDir,
+          OPENCLAW_LSOF_BIN: lsofProbe,
+          OPENCLAW_PS_BIN: psProbe,
+          OPENCLAW_PGREP_BIN: "/usr/bin/pgrep",
+          NODE_PATH: "/Users/openclaw/OpenClaw/node_modules",
         },
       },
     );
@@ -1326,6 +1404,21 @@ esac
     // this test can accidentally pass against a developer's live Gateway while
     // timing out on an isolated CI runner.
     executable(path.join(fakeBin, "curl"), "#!/bin/sh\nprintf '%s\\n' '{\"ok\":true}'\n");
+    executable(
+      path.join(fakeBin, "lsof"),
+      `#!/bin/sh
+count=$(cat "$FAKE_LAUNCHCTL_STATE" 2>/dev/null || printf 0)
+if [ "$count" -ge 2 ]; then printf '99999\\n'; exit 0; fi
+exit 1
+`,
+    );
+    executable(
+      path.join(fakeBin, "ps"),
+      `#!/bin/sh
+printf '%s\\n' ${JSON.stringify(`${process.execPath} ${previousRuntimeRoot}/dist/index.js gateway --port 18789`)}
+`,
+    );
+    executable(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 1\n");
 
     const result = spawnSync(
       "sh",
@@ -1359,6 +1452,9 @@ esac
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plist,
           OPENCLAW_NODE_BIN: process.execPath,
+          OPENCLAW_LSOF_BIN: path.join(fakeBin, "lsof"),
+          OPENCLAW_PS_BIN: path.join(fakeBin, "ps"),
+          OPENCLAW_PGREP_BIN: path.join(fakeBin, "pgrep"),
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       },

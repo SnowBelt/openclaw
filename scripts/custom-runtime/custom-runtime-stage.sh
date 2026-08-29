@@ -12,17 +12,26 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'candidate Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 
-usage() { printf '%s\n' 'usage: custom-runtime-stage.sh --release PATH --source-sha SHA [--port 18790]' >&2; exit 64; }
-release= source_sha= port=18790
+usage() { printf '%s\n' 'usage: custom-runtime-stage.sh --release PATH --source-sha SHA [--port 18790] [--rollback-port PORT]' >&2; exit 64; }
+release= source_sha= port=18790 rollback_port=
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
+    --rollback-port) rollback_port=${2:-}; shift 2 ;;
     *) usage ;;
   esac
 done
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
+case "$port" in ''|*[!0-9]*) usage ;; esac
+[ "$port" -ge 1 ] && [ "$port" -le 65534 ] || usage
+if [ -z "$rollback_port" ]; then
+  rollback_port=$((port + 1))
+fi
+case "$rollback_port" in ''|*[!0-9]*) usage ;; esac
+[ "$rollback_port" -ge 1 ] && [ "$rollback_port" -le 65535 ] || usage
+[ "$rollback_port" -ne "$port" ] || usage
 [ -f "$release/dist/index.js" ] || usage
 [ -f "$release/dist/release-governor.js" ] || {
   printf '%s\n' 'candidate Release Governor entrypoint is missing' >&2
@@ -42,7 +51,15 @@ stamp_file="$release/.openclaw-production-sha"
   printf '%s\n' 'candidate stage blocked: release source stamp does not match requested source SHA' >&2
   exit 64
 }
+custom_runtime_ensure_node_bin "$runtime_home" || {
+  printf '%s\n' 'candidate stage blocked: verified Node executable is unavailable' >&2
+  exit 78
+}
 custom_runtime_require_release_governance stage "$source_sha" "$release"
+custom_runtime_init_process_probes || {
+  printf '%s\n' 'candidate stage blocked: process and port probes are unavailable' >&2
+  exit 78
+}
 mkdir -p "$runtime_home"
 
 # A missing Keychain value is a hard stop. It is never replaced by a file value.
@@ -51,13 +68,17 @@ printf '%s' '{"ids":["discord/bot-token"]}' | "$provider" | python3 -c 'import j
   exit 75
 }
 stage=$(mktemp -d "$runtime_home/stage.XXXXXX")
-pid=
+pid= pid_port=
 cleanup() {
   status=$?
   trap - EXIT INT TERM
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
+    if [ -n "$pid_port" ] && ! custom_runtime_wait_for_port_free "$pid_port" "$pid" 10; then
+      printf '%s\n' "candidate stage owned process cleanup failed for port $pid_port" >&2
+      [ "$status" -ne 0 ] || status=1
+    fi
   fi
   for _ in $(seq 1 10); do
     rm -rf "$stage" 2>/dev/null || true
@@ -81,7 +102,7 @@ python3 "$(dirname "$0")/copy_stage_state.py" "$state_source" "$stage/state" \
 # Keep staging local-only and side-effect-free while retaining dashboard plugins
 # declared by the candidate capability contract. The authored config is JSON5;
 # using the installed canonical parser here avoids the old strict-JSON bypass.
-OPENCLAW_STAGE_RELEASE="$release" node --input-type=module - "$stage/openclaw.director.json" "$capability_manifest" "$port" <<'NODE'
+OPENCLAW_STAGE_RELEASE="$release" "$OPENCLAW_NODE_BIN" --input-type=module - "$stage/openclaw.director.json" "$capability_manifest" "$port" <<'NODE'
 import fs from "node:fs";
 import { createRequire } from "node:module";
 
@@ -200,14 +221,35 @@ with open(target, "w", encoding="utf-8") as f:
     }, f, sort_keys=True)
 PY
 OPENCLAW_CUSTOM_RUNTIME_POINTER="$stage/pointer.json" "$launcher" --verify >/dev/null
+if ! custom_runtime_wait_for_port_free "$port" "" 1; then
+  printf '%s\n' 'candidate stage blocked: staging port is already owned' >&2
+  exit 75
+fi
 OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" OPENCLAW_STATE_DIR="$stage/state" \
   OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
   OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
   OPENCLAW_CUSTOM_RUNTIME_POINTER="$stage/pointer.json" \
   "$launcher" gateway --port "$port" >"$stage/gateway.log" 2>&1 &
 pid=$!
+pid_port=$port
+candidate_pid=
+if candidate_pid=$(custom_runtime_wait_for_port_owner "$port" "$release" 45); then
+  [ "$candidate_pid" = "$pid" ] || {
+    printf '%s\n' 'candidate stage process and port owner do not match' >&2
+    exit 1
+  }
+else
+  printf '%s\n' 'candidate stage did not establish an exact process-owned listener' >&2
+  sed -E 's/(token|password|secret|key)=[^[:space:]]+/\1=[REDACTED]/Ig' "$stage/gateway.log" >&2 2>/dev/null || true
+  exit 1
+fi
 for _ in $(seq 1 45); do
-  if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+  if ! custom_runtime_process_exists "$pid"; then
+    printf '%s\n' 'candidate stage Gateway child exited before readiness' >&2
+    exit 1
+  fi
+  if custom_runtime_port_owner_pid "$port" "$release" >/dev/null 2>&1 && \
+     curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
     routes=$(python3 - "$manifest" "$stage/pointer.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
@@ -279,16 +321,51 @@ PY
     if [ "$rollback_pointer_usable" = true ]; then
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
-      pid=
+      if ! custom_runtime_wait_for_port_free "$port" "$pid" 10; then
+        printf '%s\n' 'candidate stage Gateway cleanup failed before rollback canary' >&2
+        exit 1
+      fi
+      pid= pid_port=
+      rollback_root=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    value = json.load(f)
+root = value.get("runtimeRoot")
+if not isinstance(root, str) or not root:
+    raise SystemExit("active runtime root is missing")
+print(root)
+PY
+)
+      if ! custom_runtime_wait_for_port_free "$rollback_port" "" 1; then
+        printf '%s\n' 'candidate stage rollback canary port is already owned' >&2
+        exit 75
+      fi
       OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" OPENCLAW_STATE_DIR="$stage/state" \
         OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
         OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
         OPENCLAW_CUSTOM_RUNTIME_POINTER="$runtime_home/active-runtime.json" \
-        "$rollback_launcher" gateway --port "$port" >>"$stage/gateway.log" 2>&1 &
+        "$rollback_launcher" gateway --port "$rollback_port" >>"$stage/gateway.log" 2>&1 &
       pid=$!
+      pid_port=$rollback_port
+      rollback_pid=
+      if rollback_pid=$(custom_runtime_wait_for_port_owner "$rollback_port" "$rollback_root" 45); then
+        [ "$rollback_pid" = "$pid" ] || {
+          printf '%s\n' 'candidate stage rollback child and port owner do not match' >&2
+          exit 1
+        }
+      else
+        printf '%s\n' 'candidate stage rollback canary did not establish an exact process-owned listener' >&2
+        sed -E 's/(token|password|secret|key)=[^[:space:]]+/\1=[REDACTED]/Ig' "$stage/gateway.log" >&2 2>/dev/null || true
+        exit 1
+      fi
       rollback_ok=false
       for _ in $(seq 1 45); do
-        if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+        if ! custom_runtime_process_exists "$pid"; then
+          printf '%s\n' 'candidate stage rollback Gateway child exited before readiness' >&2
+          exit 1
+        fi
+        if custom_runtime_port_owner_pid "$rollback_port" "$rollback_root" >/dev/null 2>&1 && \
+           curl --silent --fail --max-time 3 "http://127.0.0.1:$rollback_port/health" | grep -q '"ok":true'; then
           rollback_ok=true
           break
         fi

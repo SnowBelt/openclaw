@@ -15,6 +15,18 @@ uid=$(id -u)
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
+if ! custom_runtime_ensure_node_bin "$runtime_home"; then
+  # The cheap identity path does not need Node, but any governed/full path must
+  # fail closed through the resolver rather than falling back to PATH.
+  OPENCLAW_NODE_BIN=
+  export OPENCLAW_NODE_BIN
+fi
+case "$port" in ''|*[!0-9]*) exit 64 ;; esac
+[ "$port" -ge 1 ] && [ "$port" -le 65535 ] || exit 64
+process_probes_available=false
+if custom_runtime_init_process_probes; then
+  process_probes_available=true
+fi
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
 if custom_runtime_lifecycle_begin "$runtime_home" guard "" ""; then
   :
@@ -176,7 +188,8 @@ cache_valid=false
 verification_receipt="$runtime_home/receipts/guard-verification-current.json"
 if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && [ -n "$runtime_source_sha" ] && \
   [ -n "$pointer_sha" ] && [ -n "$launcher_sha" ] && [ -n "$plist_sha" ] && \
-  pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1
+  [ "$process_probes_available" = true ] && \
+  custom_runtime_port_owner_pid "$port" "$runtime_root" >/dev/null 2>&1
 then
   if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" "$provenance_sha" "$provenance_record_sha" "$provenance_migration_sha" "$full_verification_ttl" <<'PY'
 import json
@@ -219,7 +232,8 @@ if [ "$cache_valid" = true ]; then
   complete_guard
 fi
 if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && \
-  pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1 && \
+  [ "$process_probes_available" = true ] && \
+  custom_runtime_port_owner_pid "$port" "$runtime_root" >/dev/null 2>&1 && \
   "$launcher" --verify >/dev/null 2>&1
 then
   if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" "$provenance_sha" "$provenance_record_sha" "$provenance_migration_sha" <<'PY'

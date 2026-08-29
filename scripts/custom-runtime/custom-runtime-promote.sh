@@ -234,6 +234,10 @@ PY
   fi
   return 0
 }
+custom_runtime_ensure_node_bin "$runtime_home" || {
+  printf '%s\n' 'promotion blocked: verified Node executable is unavailable' >&2
+  exit 78
+}
 verify_release_source_provenance || {
   printf '%s\n' 'promotion blocked: durable source provenance verification failed' >&2
   exit 64
@@ -354,30 +358,79 @@ fi
 
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 failure_receipt="$runtime_home/receipts/promotion-failure-$timestamp.json"
+promotion_stderr="$runtime_home/receipts/promotion-stderr-$timestamp.log"
+: > "$promotion_stderr"
+chmod 600 "$promotion_stderr"
+redact_promotion_stderr() {
+  [ -f "$promotion_stderr" ] || return 0
+  python3 - "$promotion_stderr" "$promotion_stderr.tmp-$$" <<'PY'
+import os
+import re
+import sys
+
+source, target = sys.argv[1:]
+with open(source, "rb") as handle:
+    raw = handle.read()[-32768:]
+text = raw.decode("utf-8", errors="replace")
+text = re.sub(
+    r'(?i)((?:"|\b)(?:token|password|secret|authorization|api[_-]?key)(?:"|\b)\s*[:=]\s*[" ]?)[^"\s,}]+',
+    r"\1[REDACTED]",
+    text,
+)
+text = re.sub(r"(?i)(Bearer\s+)[^\s]+", r"\1[REDACTED]", text)
+data = text.encode("utf-8", errors="replace")[-32768:]
+descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    os.write(descriptor, data)
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+os.replace(target, source)
+PY
+  chmod 600 "$promotion_stderr"
+}
 record_failure() {
   gate=$1
   detail=${2:-}
-  python3 - "$failure_receipt" "$timestamp" "$gate" "$detail" "$release" "$source_sha" <<'PY'
+  redact_promotion_stderr || return 1
+  stderr_sha=$(shasum -a 256 "$promotion_stderr" | awk '{print $1}')
+  stderr_bytes=$(wc -c < "$promotion_stderr" | tr -d '[:space:]')
+  python3 - "$failure_receipt" "$timestamp" "$gate" "$detail" "$release" "$source_sha" \
+    "$promotion_stderr" "$stderr_sha" "$stderr_bytes" <<'PY'
 import json
 import os
 import sys
+import tempfile
 
-target, at, gate, detail, release, source_sha = sys.argv[1:]
-with open(target, "w", encoding="utf-8") as f:
-    json.dump(
-        {
-            "at": at,
-            "detail": detail,
-            "gate": gate,
-            "release": os.path.basename(release),
-            "result": "promotion_gate_failed",
-            "sourceSha": source_sha,
-        },
-        f,
-        indent=2,
-        sort_keys=True,
-    )
-    f.write("\n")
+target, at, gate, detail, release, source_sha, stderr_path, stderr_sha, stderr_bytes = sys.argv[1:]
+directory = os.path.dirname(target)
+descriptor, temporary = tempfile.mkstemp(prefix=".promotion-failure-", dir=directory, text=True)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "at": at,
+                "detail": detail[:512],
+                "gate": gate,
+                "release": os.path.basename(release),
+                "result": "promotion_gate_failed",
+                "sourceSha": source_sha,
+                "stderrPath": os.path.basename(stderr_path),
+                "stderrSha256": stderr_sha,
+                "stderrBytes": int(stderr_bytes),
+            },
+            handle,
+            indent=2,
+            sort_keys=True,
+        )
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
 PY
 }
 previous_pointer="$runtime_home/active-runtime.json"
@@ -390,6 +443,48 @@ update_scheduler_was_loaded=false
 guard_plist_backup="$runtime_home/backups/ai.openclaw.custom-runtime.guard.$timestamp.plist"
 guard_plist_existed=false
 guard_scheduler_was_loaded=false
+previous_runtime_root=
+if [ -f "$previous_pointer" ]; then
+  previous_runtime_root=$(python3 - "$previous_pointer" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    value = json.load(f)
+root = value.get("runtimeRoot")
+if isinstance(root, str) and root:
+    print(root)
+PY
+  ) || {
+    record_failure preflight_runtime_identity
+    exit 64
+  }
+fi
+if ! custom_runtime_init_process_probes; then
+  record_failure probe_unavailable
+  exit 78
+fi
+previous_port_pids=
+if previous_port_pids=$(custom_runtime_port_listener_pids "$port"); then
+  :
+else
+  previous_port_status=$?
+  [ "$previous_port_status" -eq 1 ] || {
+    record_failure probe_unavailable "$previous_port_status"
+    exit 78
+  }
+fi
+if [ -n "$previous_port_pids" ]; then
+  [ -n "$previous_runtime_root" ] || {
+    record_failure baseline_runtime_identity
+    exit 78
+  }
+  if custom_runtime_port_owner_pid "$port" "$previous_runtime_root" >/dev/null; then
+    :
+  else
+    previous_owner_status=$?
+    record_failure baseline_port_owner "$previous_owner_status"
+    exit 78
+  fi
+fi
 [ -f "$previous_pointer" ] && cp -p "$previous_pointer" "$pointer_backup" || :
 cp -p "$plist" "$plist_backup"
 cp -p "$env_file" "$env_backup"
@@ -568,11 +663,19 @@ if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer_tmp" "$launcher" --verify >/dev/n
   exit 64
 fi
 
+atomic_restore() {
+  atomic_source=$1
+  atomic_target=$2
+  atomic_temporary="$atomic_target.restore-$$"
+  cp -p "$atomic_source" "$atomic_temporary"
+  mv -f "$atomic_temporary" "$atomic_target"
+}
+
 restore() {
-  [ -f "$pointer_backup" ] && cp -p "$pointer_backup" "$previous_pointer" || rm -f "$previous_pointer"
-  cp -p "$plist_backup" "$plist"
-  cp -p "$env_backup" "$env_file"
-  cp -p "$plist" "$desired_plist"
+  [ -f "$pointer_backup" ] && atomic_restore "$pointer_backup" "$previous_pointer" || rm -f "$previous_pointer"
+  atomic_restore "$plist_backup" "$plist"
+  atomic_restore "$env_backup" "$env_file"
+  atomic_restore "$plist" "$desired_plist"
   if [ -n "$rollback_launcher" ]; then
     if [ ! -f "$rollback_launcher" ]; then
       printf '{"at":"%s","result":"rollback_launcher_missing"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
@@ -586,13 +689,29 @@ restore() {
     launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
     sleep 1
   done
+  if ! custom_runtime_wait_for_port_free "$port" "" "${OPENCLAW_CUSTOM_RUNTIME_SERVICE_WAIT_SECONDS:-30}"; then
+    printf '{"at":"%s","result":"rollback_port_not_free"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+    return 1
+  fi
   if ! launchctl bootstrap "gui/$uid" "$plist"; then
     printf '{"at":"%s","result":"rollback_bootstrap_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
     return 1
   fi
+  rollback_pid=
+  if [ -n "$previous_runtime_root" ]; then
+    rollback_pid=$(custom_runtime_wait_for_port_owner "$port" "$previous_runtime_root" 45) || {
+      printf '{"at":"%s","result":"rollback_port_owner_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+      return 1
+    }
+  else
+    printf '{"at":"%s","result":"rollback_runtime_identity_missing"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+    return 1
+  fi
   rollback_ok=false
   for _ in $(seq 1 45); do
-    if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+    if custom_runtime_process_exists "$rollback_pid" && \
+       [ "$(custom_runtime_port_owner_pid "$port" "$previous_runtime_root" 2>/dev/null || true)" = "$rollback_pid" ] && \
+       curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
       rollback_ok=true
       break
     fi
@@ -707,8 +826,7 @@ PY
 }
 
 promotion_applied=true
-cp -p "$pointer_tmp" "$previous_pointer"
-rm -f "$pointer_tmp"
+mv -f "$pointer_tmp" "$previous_pointer"
 python3 - "$env_file" "$launcher" "$release" "$enable_sig_background" "$release_version" <<'PY'
 import os, shlex, stat, sys
 path, launcher, release, enable_sig_background, release_version = sys.argv[1:]
@@ -738,34 +856,55 @@ with open(path + ".tmp", "w", encoding="utf-8") as f:
 os.chmod(path + ".tmp", mode)
 PY
 mv "$env_file.tmp" "$env_file"
-python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" "$release_version" <<'PY'
+python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" "$release_version" "$promotion_stderr" <<'PY'
 import plistlib, sys
-path, wrapper, env_file, launcher, port, release_version = sys.argv[1:]
+path, wrapper, env_file, launcher, port, release_version, stderr_path = sys.argv[1:]
 with open(path, "rb") as f: data = plistlib.load(f)
 # Keep the generated environment wrapper as argv[0]. The launchd status audit
 # recognizes this canonical shape, unwraps the real launcher, and reads PATH
 # from the service environment file before checking runtime drift.
 data["ProgramArguments"] = [wrapper, env_file, launcher, "gateway", "--port", port]
 data["Comment"] = f"OpenClaw Gateway (v{release_version})"
+data["StandardErrorPath"] = stderr_path
 with open(path + ".tmp", "wb") as f: plistlib.dump(data, f, sort_keys=False)
 PY
 mv "$plist.tmp" "$plist"
 cp -p "$plist" "$desired_plist"
+python3 - "$promotion_stderr" <<'PY'
+import os, sys
+path = sys.argv[1]
+os.chmod(path, 0o600)
+PY
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
 for _ in $(seq 1 15); do
   launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
   sleep 1
 done
+if ! custom_runtime_wait_for_port_free "$port" "$previous_port_pids" "${OPENCLAW_CUSTOM_RUNTIME_SERVICE_WAIT_SECONDS:-30}"; then
+  fail_promotion port_release
+fi
 if ! launchctl bootstrap "gui/$uid" "$plist"; then
   fail_promotion bootstrap
 fi
 
+candidate_pid=
+if candidate_pid=$(custom_runtime_wait_for_port_owner "$port" "$release" 45); then
+  :
+else
+  candidate_owner_status=$?
+  fail_promotion port_owner "$candidate_owner_status"
+fi
 ok=false
 for _ in $(seq 1 45); do
-  if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then ok=true; break; fi
+  if custom_runtime_process_exists "$candidate_pid" && \
+     [ "$(custom_runtime_port_owner_pid "$port" "$release" 2>/dev/null || true)" = "$candidate_pid" ] && \
+     curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+    ok=true
+    break
+  fi
   sleep 2
 done
-if [ "$ok" != true ]; then fail_promotion health; fi
+if [ "$ok" != true ]; then fail_promotion health "candidate_pid=$candidate_pid"; fi
 plist_comment=$(python3 - "$plist" <<'PY'
 import plistlib, sys
 with open(sys.argv[1], "rb") as f:
@@ -773,7 +912,8 @@ with open(sys.argv[1], "rb") as f:
 PY
 ) || fail_promotion runtime_identity
 if ! "$launcher" --verify >/dev/null 2>&1 || \
-   ! pgrep -f "$release/dist/index.js gateway --port $port" >/dev/null 2>&1 || \
+   ! custom_runtime_process_exists "$candidate_pid" || \
+   [ "$(custom_runtime_port_owner_pid "$port" "$release" 2>/dev/null || true)" != "$candidate_pid" ] || \
    ! grep -Fqx "export OPENCLAW_WRAPPER=$launcher" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=$release" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_BUNDLED_PLUGINS_DIR=$release/dist-runtime/extensions" "$env_file" || \
@@ -877,7 +1017,7 @@ if ! install_runtime_guard; then
   fail_promotion runtime_guard
 fi
 if [ -n "$rollback_bundle" ]; then
-  cp -p "$pointer_backup" "$runtime_home/last-known-good.json"
+  atomic_restore "$pointer_backup" "$runtime_home/last-known-good.json"
   rollback_pointer_tmp="$runtime_home/active-rollback.$$.json"
   python3 - "$rollback_pointer_tmp" "$rollback_bundle" "$rollback_manifest_sha" <<'PY'
 import json
@@ -904,6 +1044,9 @@ with open(target, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
   mv "$rollback_pointer_tmp" "$runtime_home/active-rollback.json"
+fi
+if ! redact_promotion_stderr; then
+  fail_promotion observability
 fi
 custom_runtime_certification_lease record-promoted "$runtime_home" \
   "$active_source_sha" "$source_sha" "" "" "" "" "" "" "" >/dev/null

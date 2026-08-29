@@ -45,6 +45,228 @@ PY
   esac
 }
 
+# launchd does not inherit the interactive shell's Homebrew PATH. Resolve the
+# executable once, using only absolute candidates, and make every governed
+# caller use the same verified Node binary. A missing or non-executable binary
+# is an error; it must never degrade into a PATH-dependent `node` lookup.
+custom_runtime_ensure_node_bin() {
+  custom_runtime_node_home=${1:-${runtime_home:-}}
+  custom_runtime_node_candidates=
+  if [ -n "${OPENCLAW_NODE_BIN:-}" ]; then
+    custom_runtime_node_candidates=$OPENCLAW_NODE_BIN
+  else
+    if [ -n "$custom_runtime_node_home" ]; then
+      custom_runtime_node_candidates="$custom_runtime_node_home/toolchains/node-current/bin/node"
+    fi
+    custom_runtime_node_candidates="$custom_runtime_node_candidates /opt/homebrew/opt/node/bin/node /usr/local/bin/node /usr/bin/node"
+  fi
+  for custom_runtime_node_candidate in $custom_runtime_node_candidates; do
+    case "$custom_runtime_node_candidate" in
+      /*) ;;
+      *) continue ;;
+    esac
+    if [ -f "$custom_runtime_node_candidate" ] && [ -x "$custom_runtime_node_candidate" ]; then
+      OPENCLAW_NODE_BIN=$custom_runtime_node_candidate
+      export OPENCLAW_NODE_BIN
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Use stable system-tool paths under launchd. Test fixtures may provide an
+# absolute executable override; relative or missing overrides are rejected.
+custom_runtime_system_tool() {
+  custom_runtime_tool_name=${1:-}
+  case "$custom_runtime_tool_name" in
+    lsof)
+      custom_runtime_tool_override=${OPENCLAW_LSOF_BIN:-}
+      custom_runtime_tool_default=/usr/sbin/lsof
+      ;;
+    ps)
+      custom_runtime_tool_override=${OPENCLAW_PS_BIN:-}
+      custom_runtime_tool_default=/bin/ps
+      ;;
+    pgrep)
+      custom_runtime_tool_override=${OPENCLAW_PGREP_BIN:-}
+      custom_runtime_tool_default=/usr/bin/pgrep
+      ;;
+    *) return 1 ;;
+  esac
+  custom_runtime_tool_path=${custom_runtime_tool_override:-$custom_runtime_tool_default}
+  case "$custom_runtime_tool_path" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$custom_runtime_tool_path" ] && [ -x "$custom_runtime_tool_path" ] || return 1
+  printf '%s\n' "$custom_runtime_tool_path"
+}
+
+custom_runtime_init_process_probes() {
+  custom_runtime_lsof_bin=$(custom_runtime_system_tool lsof) || return 2
+  custom_runtime_ps_bin=$(custom_runtime_system_tool ps) || return 2
+  custom_runtime_pgrep_bin=$(custom_runtime_system_tool pgrep) || return 2
+  return 0
+}
+
+# Return one PID per line. Exit 0 means listeners were found, 1 means the
+# validated probe found no listener, and 2 means the probe was unavailable or
+# produced untrusted output. In particular, permission errors never become an
+# empty successful result.
+custom_runtime_port_listener_pids() {
+  custom_runtime_port=${1:-}
+  case "$custom_runtime_port" in ''|*[!0-9]*) return 2 ;; esac
+  custom_runtime_init_process_probes || return 2
+  if custom_runtime_lsof_output=$(
+    "$custom_runtime_lsof_bin" -nP -a -iTCP:"$custom_runtime_port" -sTCP:LISTEN -t 2>&1
+  ); then
+    custom_runtime_lsof_status=0
+  else
+    custom_runtime_lsof_status=$?
+  fi
+  custom_runtime_lsof_bytes=$(printf '%s' "$custom_runtime_lsof_output" | wc -c | tr -d '[:space:]')
+  case "$custom_runtime_lsof_bytes" in ''|*[!0-9]*) return 2 ;; esac
+  [ "$custom_runtime_lsof_bytes" -le 16384 ] || return 2
+  case "$custom_runtime_lsof_status" in
+    0) ;;
+    1)
+      [ -z "$custom_runtime_lsof_output" ] || return 2
+      return 1
+      ;;
+    *) return 2 ;;
+  esac
+  if ! custom_runtime_lsof_pids=$(printf '%s\n' "$custom_runtime_lsof_output" | awk '
+    /^[0-9]+$/ { print; next }
+    /^$/ { next }
+    { invalid = 1 }
+    END { if (invalid) exit 2 }
+  '); then
+    return 2
+  fi
+  [ -n "$custom_runtime_lsof_pids" ] || return 2
+  printf '%s\n' "$custom_runtime_lsof_pids"
+}
+
+custom_runtime_process_command() {
+  custom_runtime_pid=${1:-}
+  case "$custom_runtime_pid" in ''|*[!0-9]*) return 2 ;; esac
+  custom_runtime_init_process_probes || return 2
+  if custom_runtime_ps_output=$(
+    "$custom_runtime_ps_bin" -ww -p "$custom_runtime_pid" -o command= 2>&1
+  ); then
+    custom_runtime_ps_status=0
+  else
+    custom_runtime_ps_status=$?
+  fi
+  custom_runtime_ps_bytes=$(printf '%s' "$custom_runtime_ps_output" | wc -c | tr -d '[:space:]')
+  case "$custom_runtime_ps_bytes" in ''|*[!0-9]*) return 2 ;; esac
+  [ "$custom_runtime_ps_bytes" -le 16384 ] || return 2
+  if [ "$custom_runtime_ps_status" -ne 0 ]; then
+    [ -z "$custom_runtime_ps_output" ] && return 1
+    return 2
+  fi
+  [ -n "$custom_runtime_ps_output" ] || return 2
+  printf '%s\n' "$custom_runtime_ps_output" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+custom_runtime_process_exists() {
+  custom_runtime_process_command "$1" >/dev/null
+}
+
+# Verify that exactly one validated listener owns the requested port and that
+# its command line contains the exact immutable runtime entrypoint and port.
+# Exit 0 is an exact match, 1 is no listener, 2 is a probe failure, and 3 is a
+# listener owned by the wrong process or multiple listeners.
+custom_runtime_port_owner_pid() {
+  custom_runtime_port=${1:-}
+  custom_runtime_runtime_root=${2:-}
+  case "$custom_runtime_port" in ''|*[!0-9]*) return 2 ;; esac
+  [ -n "$custom_runtime_runtime_root" ] || return 2
+  if custom_runtime_owner_pids=$(custom_runtime_port_listener_pids "$custom_runtime_port"); then
+    :
+  else
+    custom_runtime_owner_status=$?
+    [ "$custom_runtime_owner_status" -eq 1 ] && return 1
+    return 2
+  fi
+  custom_runtime_owner_count=$(printf '%s\n' "$custom_runtime_owner_pids" | awk 'NF { count += 1 } END { print count + 0 }')
+  [ "$custom_runtime_owner_count" = 1 ] || return 3
+  custom_runtime_owner_pid=$(printf '%s\n' "$custom_runtime_owner_pids" | sed -n '1p')
+  if custom_runtime_owner_command=$(custom_runtime_process_command "$custom_runtime_owner_pid"); then
+    :
+  else
+    custom_runtime_owner_status=$?
+    [ "$custom_runtime_owner_status" -eq 1 ] && return 2
+    return 2
+  fi
+  case " $custom_runtime_owner_command " in
+    *" $custom_runtime_runtime_root/dist/index.js gateway --port $custom_runtime_port "*)
+      printf '%s\n' "$custom_runtime_owner_pid"
+      return 0
+      ;;
+    *) return 3 ;;
+  esac
+}
+
+custom_runtime_wait_for_port_free() {
+  custom_runtime_port=${1:-}
+  custom_runtime_previous_pids=${2:-}
+  custom_runtime_wait_seconds=${3:-30}
+  case "$custom_runtime_wait_seconds" in ''|*[!0-9]*) return 2 ;; esac
+  [ "$custom_runtime_wait_seconds" -ge 1 ] && [ "$custom_runtime_wait_seconds" -le 120 ] || return 2
+  custom_runtime_wait_attempt=0
+  while [ "$custom_runtime_wait_attempt" -lt "$custom_runtime_wait_seconds" ]; do
+    if custom_runtime_current_pids=$(custom_runtime_port_listener_pids "$custom_runtime_port"); then
+      :
+      sleep 1
+      custom_runtime_wait_attempt=$((custom_runtime_wait_attempt + 1))
+      continue
+    else
+      custom_runtime_current_status=$?
+      [ "$custom_runtime_current_status" -eq 1 ] || return 2
+    fi
+    custom_runtime_old_pid_alive=false
+    for custom_runtime_previous_pid in $custom_runtime_previous_pids; do
+      if custom_runtime_process_exists "$custom_runtime_previous_pid"; then
+        custom_runtime_old_pid_alive=true
+        break
+      else
+        custom_runtime_process_status=$?
+        [ "$custom_runtime_process_status" -eq 1 ] || return 2
+      fi
+    done
+    [ "$custom_runtime_old_pid_alive" = false ] && return 0
+    sleep 1
+    custom_runtime_wait_attempt=$((custom_runtime_wait_attempt + 1))
+  done
+  return 1
+}
+
+custom_runtime_wait_for_port_owner() {
+  custom_runtime_port=${1:-}
+  custom_runtime_runtime_root=${2:-}
+  custom_runtime_wait_seconds=${3:-45}
+  case "$custom_runtime_wait_seconds" in ''|*[!0-9]*) return 2 ;; esac
+  [ "$custom_runtime_wait_seconds" -ge 1 ] && [ "$custom_runtime_wait_seconds" -le 120 ] || return 2
+  custom_runtime_wait_attempt=0
+  while [ "$custom_runtime_wait_attempt" -lt "$custom_runtime_wait_seconds" ]; do
+    if custom_runtime_owner_pid=$(custom_runtime_port_owner_pid "$custom_runtime_port" "$custom_runtime_runtime_root"); then
+      printf '%s\n' "$custom_runtime_owner_pid"
+      return 0
+    else
+      custom_runtime_owner_status=$?
+      case "$custom_runtime_owner_status" in
+        1) ;;
+        2|3) return "$custom_runtime_owner_status" ;;
+        *) return 2 ;;
+      esac
+    fi
+    sleep 1
+    custom_runtime_wait_attempt=$((custom_runtime_wait_attempt + 1))
+  done
+  return 1
+}
+
 # Health can become ready before dashboard routes finish initializing. Verify the
 # complete route set repeatedly so promotion, restart, and rollback share the
 # same bounded readiness contract instead of failing on a transient response.
@@ -449,7 +671,11 @@ custom_runtime_require_release_governance() {
   custom_runtime_governor_migration_active_sha=$(
     printf '%s\n' "$custom_runtime_governor_resolution" | sed -n '3p'
   )
-  ${OPENCLAW_NODE_BIN:-node} "$custom_runtime_governor_cli" verify \
+  custom_runtime_ensure_node_bin "${runtime_home:-}" || {
+    printf '%s\n' 'release governance blocked: verified Node executable is unavailable' >&2
+    return 78
+  }
+  "$OPENCLAW_NODE_BIN" "$custom_runtime_governor_cli" verify \
     --bundle "$custom_runtime_governor_bundle" \
     --operation "$custom_runtime_governor_operation" \
     --candidate-sha "$custom_runtime_governor_candidate_sha" \

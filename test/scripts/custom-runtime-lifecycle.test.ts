@@ -667,6 +667,7 @@ describe("custom runtime lifecycle", () => {
     const gatewayMarker = path.join(root, "gateway-marker.json");
     const rpcArgsMarker = path.join(root, "rpc-args.txt");
     const rpcUrlMarker = path.join(root, "rpc-url.txt");
+    const processMarker = path.join(root, "gateway-processes.txt");
     const sourceSha = "9".repeat(64);
 
     writeFile(path.join(release, "dist", "index.js"), "// candidate\n");
@@ -707,7 +708,8 @@ describe("custom runtime lifecycle", () => {
         "data = {'port': gateway.get('port'), 'tailscaleMode': gateway.get('tailscale', {}).get('mode'), 'skipChannels': skip_channels, 'skipCron': skip_cron, 'background': background}",
         "with open(marker, 'w', encoding='utf-8') as f: json.dump(data, f, sort_keys=True)",
         "PY",
-        "  trap 'exit 0' TERM INT",
+        `  printf '%s|%s|%s\\n' "$$" "\${3:-}" "\${OPENCLAW_CUSTOM_RUNTIME_POINTER:-}" >> ${JSON.stringify(processMarker)}`,
+        `  trap 'rm -f ${JSON.stringify(processMarker)}; exit 0' TERM INT`,
         "  while :; do sleep 1; done",
         "fi",
         'if [ "${1:-}" = self-improvement ] && [ "${2:-}" = summary ]; then',
@@ -763,6 +765,37 @@ describe("custom runtime lifecycle", () => {
       ].join("\n"),
       0o700,
     );
+    writeFile(
+      path.join(fakeBin, "lsof"),
+      [
+        "#!/bin/sh",
+        `if [ -s ${JSON.stringify(processMarker)} ]; then cut -d'|' -f1 ${JSON.stringify(processMarker)} | head -n 1; exit 0; fi`,
+        "exit 1",
+        "",
+      ].join("\n"),
+      0o700,
+    );
+    writeFile(
+      path.join(fakeBin, "ps"),
+      [
+        "#!/bin/sh",
+        "pid=",
+        "while [ $# -gt 0 ]; do",
+        '  if [ "$1" = -p ]; then pid=$2; shift 2; else shift; fi',
+        "done",
+        `[ -s ${JSON.stringify(processMarker)} ] || exit 1`,
+        `record=$(awk -F'|' -v pid="$pid" '$1 == pid { print; exit }' ${JSON.stringify(processMarker)})`,
+        '[ -n "$record" ] || exit 1',
+        'kill -0 "$pid" 2>/dev/null || exit 1',
+        "pointer=$(printf '%s' \"$record\" | cut -d'|' -f3-)",
+        `if [ "$pointer" = ${JSON.stringify(path.join(runtimeHome, "active-runtime.json"))} ]; then root=${JSON.stringify(path.join(root, "releases", "previous"))}; else root=${JSON.stringify(release)}; fi`,
+        `port=$(printf '%s' \"$record\" | cut -d'|' -f2)`,
+        `printf '%s\\n' ${JSON.stringify(`${process.execPath} `)}"$root/dist/index.js gateway --port $port"`,
+        "",
+      ].join("\n"),
+      0o700,
+    );
+    writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 1\n", 0o700);
 
     const result = spawnSync(
       stageScript,
@@ -776,6 +809,9 @@ describe("custom runtime lifecycle", () => {
           OPENCLAW_CUSTOM_RUNTIME_LAUNCHER: launcher,
           OPENCLAW_SECRET_PROVIDER: provider,
           OPENCLAW_STATE_DIR: state,
+          OPENCLAW_LSOF_BIN: path.join(fakeBin, "lsof"),
+          OPENCLAW_PS_BIN: path.join(fakeBin, "ps"),
+          OPENCLAW_PGREP_BIN: path.join(fakeBin, "pgrep"),
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       },
@@ -936,6 +972,21 @@ describe("custom runtime lifecycle", () => {
     );
     writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o700);
     writeFile(
+      path.join(fakeBin, "lsof"),
+      [
+        "#!/bin/sh",
+        `if [ -f ${JSON.stringify(bootstrapMarker)} ]; then printf '99999\\n'; exit 0; fi`,
+        "exit 1",
+        "",
+      ].join("\n"),
+      0o700,
+    );
+    writeFile(
+      path.join(fakeBin, "ps"),
+      `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(`${process.execPath} ${release}/dist/index.js gateway --port 18789`)}\n`,
+      0o700,
+    );
+    writeFile(
       path.join(fakeBin, "curl"),
       [
         "#!/bin/sh",
@@ -985,6 +1036,9 @@ describe("custom runtime lifecycle", () => {
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plistPath,
+          OPENCLAW_LSOF_BIN: path.join(fakeBin, "lsof"),
+          OPENCLAW_PS_BIN: path.join(fakeBin, "ps"),
+          OPENCLAW_PGREP_BIN: path.join(fakeBin, "pgrep"),
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       },
@@ -1020,6 +1074,9 @@ describe("custom runtime lifecycle", () => {
       "--port",
       "18789",
     ]);
+    expect(fs.readFileSync(plistPath, "utf8")).toContain(
+      `${runtimeHome}/receipts/promotion-stderr-`,
+    );
     expect(
       readPlistArray(
         path.join(
@@ -1101,6 +1158,7 @@ describe("custom runtime lifecycle", () => {
     const plistPath = path.join(root, "ai.openclaw.gateway.plist");
     const fakeBin = path.join(root, "bin");
     const bootstrapCount = path.join(root, "bootstrap-count");
+    const gatewayState = path.join(root, "gateway-state");
     const bootstrapMarker = path.join(root, "bootstrap-args");
     const updatePlistPath = path.join(
       home,
@@ -1156,9 +1214,9 @@ describe("custom runtime lifecycle", () => {
       [
         "#!/bin/sh",
         'case "${1:-}" in',
-        "  bootout) exit 0;;",
+        `  bootout) case "$*" in *ai.openclaw.gateway*) printf '0\\n' > ${JSON.stringify(gatewayState)};; esac; exit 0;;`,
         "  print) exit 0;;",
-        `  bootstrap) count=$(cat ${JSON.stringify(bootstrapCount)} 2>/dev/null || printf 0); count=$((count + 1)); printf '%s\\n' "$count" > ${JSON.stringify(bootstrapCount)}; printf '%s\\n' "$*" >> ${JSON.stringify(bootstrapMarker)}; [ "$count" -ne 3 ] && exit 0 || exit 1;;`,
+        `  bootstrap) count=$(cat ${JSON.stringify(bootstrapCount)} 2>/dev/null || printf 0); count=$((count + 1)); printf '%s\\n' "$count" > ${JSON.stringify(bootstrapCount)}; printf '%s\\n' "$*" >> ${JSON.stringify(bootstrapMarker)}; case "$*" in *ai.openclaw.gateway.plist*) printf '1\\n' > ${JSON.stringify(gatewayState)};; esac; [ "$count" -ne 3 ] && exit 0 || exit 1;;`,
         "esac",
         "exit 1",
         "",
@@ -1184,6 +1242,27 @@ describe("custom runtime lifecycle", () => {
       0o700,
     );
     writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o700);
+    writeFile(
+      path.join(fakeBin, "lsof"),
+      [
+        "#!/bin/sh",
+        `state=$(cat ${JSON.stringify(gatewayState)} 2>/dev/null || printf 0)`,
+        `if [ "$state" = 1 ]; then printf '99999\\n'; exit 0; fi`,
+        "exit 1",
+        "",
+      ].join("\n"),
+      0o700,
+    );
+    writeFile(
+      path.join(fakeBin, "ps"),
+      [
+        "#!/bin/sh",
+        `count=$(cat ${JSON.stringify(bootstrapCount)} 2>/dev/null || printf 0)`,
+        `if [ "$count" -eq 1 ]; then printf '%s\\n' ${JSON.stringify(`${process.execPath} ${release}/dist/index.js gateway --port 18789`)}; else printf '%s\\n' ${JSON.stringify(`${process.execPath} ${previousPointer.runtimeRoot}/dist/index.js gateway --port 18789`)}; fi`,
+        "",
+      ].join("\n"),
+      0o700,
+    );
     writeFile(path.join(fakeBin, "sleep"), "#!/bin/sh\nexit 0\n", 0o700);
 
     const result = spawnSync(
@@ -1201,6 +1280,9 @@ describe("custom runtime lifecycle", () => {
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plistPath,
+          OPENCLAW_LSOF_BIN: path.join(fakeBin, "lsof"),
+          OPENCLAW_PS_BIN: path.join(fakeBin, "ps"),
+          OPENCLAW_PGREP_BIN: path.join(fakeBin, "pgrep"),
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       },

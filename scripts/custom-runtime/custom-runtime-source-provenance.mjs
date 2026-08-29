@@ -77,7 +77,9 @@ function lstatDirectory(directory, label) {
   if (!info.isDirectory() || info.isSymbolicLink()) {
     fail(`${label} is not a regular directory`);
   }
-  fs.chmodSync(directory, 0o700);
+  if ((info.mode & 0o077) !== 0) {
+    fail(`${label} is not private`);
+  }
   return info;
 }
 

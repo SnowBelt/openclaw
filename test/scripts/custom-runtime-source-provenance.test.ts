@@ -164,4 +164,36 @@ describe("custom runtime source provenance", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("bundle hash does not match");
   });
+
+  it("does not repair directory permissions while verifying provenance", () => {
+    const { root, sourceSha } = createRepository();
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
+    temporaryDirectories.push(runtimeHome);
+    fs.chmodSync(runtimeHome, 0o700);
+    const imported = runHelper([
+      "import",
+      "--source",
+      root,
+      "--source-sha",
+      sourceSha,
+      "--runtime-home",
+      runtimeHome,
+    ]);
+    expect(imported.status, imported.stderr).toBe(0);
+    const record = JSON.parse(imported.stdout) as { recordPath: string; storePath: string };
+    fs.chmodSync(record.storePath, 0o710);
+
+    const result = runHelper([
+      "verify",
+      "--record",
+      record.recordPath,
+      "--expected-sha",
+      sourceSha,
+      "--deep",
+      "true",
+    ]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("provenance Git store is not private");
+    expect(fs.statSync(record.storePath).mode & 0o777).toBe(0o710);
+  });
 });
