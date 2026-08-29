@@ -17,6 +17,10 @@ describe("custom runtime guard verification cache", () => {
     expect(guard).toContain("provenanceSha256");
     expect(guard).toContain("provenanceRecordSha256");
     expect(guard).toContain("provenanceMigrationSha256");
+    expect(guard).toContain("dashboardManifestSha256");
+    expect(guard).toContain("dashboard_runtime_ok");
+    expect(guard).toContain("served Dashboard build does not match the active manifest");
+    expect(guard).toContain("served service worker does not match the Dashboard build");
     expect(guard).toContain("provenance_invalid=false");
     expect(guard).toContain("custom_runtime_ensure_node_bin");
     expect(guard).toContain("custom_runtime_init_process_probes");

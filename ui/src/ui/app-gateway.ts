@@ -4,6 +4,7 @@ import {
   GATEWAY_EVENT_UPDATE_AVAILABLE,
   type GatewayUpdateAvailableEventPayload,
 } from "../../../src/gateway/events.js";
+import type { CustomRuntimeUpdatePolicy } from "../api/types.ts";
 import {
   normalizeGatewayComposerScope,
   normalizeGatewayCredentialScope,
@@ -151,6 +152,7 @@ type GatewayHost = {
   pendingUpdateExpectedVersion: string | null;
   pendingUpdateHandoff: boolean;
   updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
+  customRuntimeUpdatePolicy?: CustomRuntimeUpdatePolicy | null;
   sessionKey: string;
   sessionsShowArchived: boolean;
   chatRunId: string | null;
@@ -406,6 +408,7 @@ type UpdateRestartStatusResponse = {
       after?: { version?: string | null } | null;
     } | null;
   } | null;
+  updateSafety?: CustomRuntimeUpdatePolicy;
 };
 
 function resolveUpdateVerificationBanner(params: {
@@ -465,6 +468,14 @@ async function verifyPendingUpdateVersion(
   const expectedVersion = host.pendingUpdateExpectedVersion?.trim();
   const pendingHandoff = host.pendingUpdateHandoff;
   if (!expectedVersion && !pendingHandoff) {
+    try {
+      const response = await client.request<UpdateRestartStatusResponse>("update.status", {});
+      if (host.client === client && host.connected) {
+        host.customRuntimeUpdatePolicy = response.updateSafety ?? null;
+      }
+    } catch {
+      // Update safety is supplementary startup state; reconnect remains usable without it.
+    }
     return;
   }
   const deadline =
@@ -477,6 +488,9 @@ async function verifyPendingUpdateVersion(
       response = await client.request<UpdateRestartStatusResponse>("update.status", {});
     } catch {
       response = null;
+    }
+    if (response && host.client === client && host.connected) {
+      host.customRuntimeUpdatePolicy = response.updateSafety ?? null;
     }
     const sentinel = response?.sentinel;
     if (isPendingUpdateHandoffSentinel(sentinel)) {

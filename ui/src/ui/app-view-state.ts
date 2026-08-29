@@ -10,6 +10,7 @@ import type { PccPlanningPolicy } from "../../../src/pcc/planning.js";
 import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
+import type { CustomRuntimeUpdatePolicy } from "../api/types.ts";
 // Control UI module implements app view state behavior.
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import type { ChatAbortOptions, ChatDetachedSendRecovery, ChatSendOptions } from "./app-chat.ts";
@@ -264,6 +265,7 @@ export type AppViewState = {
   pccRecentProjectIds: string[];
   pccAttentionRecordId: string | null;
   pccRuntimeIdentity: PccRuntimeIdentity | null;
+  customRuntimeUpdatePolicy: CustomRuntimeUpdatePolicy | null;
   pccUpdateSafety: PccUpdateSafety | null;
   pccReleaseGovernance: ReleaseGovernanceStatus | null;
   pccExecutionCapacity: PccExecutionCapacitySnapshot | null;

@@ -2102,6 +2102,11 @@ export const ko: TranslationMap = {
     runningVersion: "실행 중 v{version}",
     updating: "업데이트 중…",
     updateNow: "지금 업데이트",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "업데이트 배너 닫기",
     switchedSession: "{session}(으)로 전환됨",
     splitView: {

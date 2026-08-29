@@ -1094,8 +1094,40 @@ describe("saveConfig", () => {
 });
 
 describe("runUpdate", () => {
-  it("fails closed when the verified PCC runtime is active", async () => {
-    const request = vi.fn();
+  it("routes a verified custom runtime through isolated preparation", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "c".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "update.run") {
+        return {
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-preparation-started" },
+          handoff: { status: "started" },
+        };
+      }
+      statusReads += 1;
+      return {
+        updateSafety: {
+          managedRuntime: true,
+          standardUpdateBlocked: true,
+          sourceDurable: true,
+          sourceDurabilityReason: "durable",
+          backupConfigured: true,
+          approvalPending: statusReads > 1,
+          pendingCandidateSha: statusReads > 1 ? candidateSha : null,
+          preparationRunning: false,
+          preparationStatus: statusReads > 1 ? "ready" : "idle",
+          preparationReason: statusReads > 1 ? "ready-for-approval" : null,
+          sourceSha: "a".repeat(40),
+          sourceRepo: "/source.git",
+          sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+          runtimeRoot: "/release",
+          pointerPath: "/runtime-home/active-runtime.json",
+          reason: "managed",
+        },
+      };
+    });
     const state = createState();
     state.connected = true;
     state.client = { request } as unknown as ConfigState["client"];
@@ -1106,12 +1138,65 @@ describe("runUpdate", () => {
       dashboardSurfaces: ["pcc"],
     };
 
+    try {
+      await runUpdate(state);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(request).toHaveBeenCalledWith("update.run", { sessionKey: "main" });
+      expect(state.updateStatusBanner).toEqual({
+        tone: "info",
+        text: "Verified update preparation started. The live runtime will remain unchanged.",
+      });
+      expect(state.customRuntimeUpdatePolicy?.approvalPending).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(state.customRuntimeUpdatePolicy).toMatchObject({
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+      });
+      expect(statusReads).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("binds a one-click managed installation to the prepared candidate SHA", async () => {
+    const candidateSha = "b".repeat(40);
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+      handoff: { status: "started" },
+    });
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      backupConfigured: true,
+      approvalPending: true,
+      pendingCandidateSha: candidateSha,
+      preparationRunning: false,
+      preparationStatus: "ready",
+      preparationReason: "ready-for-approval",
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source.git",
+      sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+      runtimeRoot: "/release",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "managed",
+    };
+
     await runUpdate(state);
 
-    expect(request).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith("update.run", {
+      sessionKey: "main",
+      approvalSha: candidateSha,
+    });
     expect(state.updateStatusBanner).toEqual({
-      tone: "warn",
-      text: "This dashboard includes PCC custom surfaces. Use the verified PCC runtime deployment flow so an update cannot replace them.",
+      tone: "info",
+      text: "Verified installation started. The Dashboard will reconnect after restart.",
     });
   });
 

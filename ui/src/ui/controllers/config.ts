@@ -1,6 +1,7 @@
 // Control UI controller manages config gateway state.
 import { applyMergePatch } from "../../../../src/config/merge-patch.ts";
 import type { ControlUiBootstrapConfig } from "../../../../src/gateway/control-ui-contract.ts";
+import type { CustomRuntimeUpdatePolicy } from "../../api/types.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { ConfigSchemaResponse, ConfigSnapshot, ConfigUiHints } from "../types.ts";
 import type { JsonSchema } from "../views/config-form.shared.ts";
@@ -41,13 +42,72 @@ export type ConfigState = {
   pendingUpdateExpectedVersion: string | null;
   pendingUpdateHandoff: boolean;
   updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
+  customRuntimeUpdatePolicy?: CustomRuntimeUpdatePolicy | null;
   lastError: string | null;
   chatError?: string | null;
   runtimeIdentity?: ControlUiBootstrapConfig["runtimeIdentity"];
 };
 
 const autoAllowlistedPluginIdsByState = new WeakMap<ConfigState, Set<string>>();
+const updateSafetyPollTimers = new WeakMap<ConfigState, ReturnType<typeof globalThis.setTimeout>>();
 const UPDATE_HANDOFF_STARTED_REASON = "managed-service-handoff-started";
+const UPDATE_SAFETY_POLL_MS = 5_000;
+const UPDATE_SAFETY_START_GRACE_MS = 30_000;
+
+function scheduleUpdateSafetyRefresh(state: ConfigState, startGraceDeadline: number): void {
+  const previous = updateSafetyPollTimers.get(state);
+  if (previous) {
+    globalThis.clearTimeout(previous);
+  }
+  const shouldPoll =
+    state.customRuntimeUpdatePolicy?.preparationRunning === true ||
+    state.customRuntimeUpdatePolicy?.preparationStatus === "preparing" ||
+    state.customRuntimeUpdatePolicy?.preparationStatus === "installing" ||
+    (state.customRuntimeUpdatePolicy?.approvalPending !== true && Date.now() < startGraceDeadline);
+  if (!shouldPoll || !state.client || !state.connected) {
+    updateSafetyPollTimers.delete(state);
+    return;
+  }
+  const timer = globalThis.setTimeout(() => {
+    updateSafetyPollTimers.delete(state);
+    void refreshUpdateSafety(state, startGraceDeadline);
+  }, UPDATE_SAFETY_POLL_MS);
+  updateSafetyPollTimers.set(state, timer);
+}
+
+async function refreshUpdateSafety(state: ConfigState, startGraceDeadline: number): Promise<void> {
+  const client = state.client;
+  if (!client || !state.connected) {
+    return;
+  }
+  try {
+    const response = await client.request<{ updateSafety?: CustomRuntimeUpdatePolicy }>(
+      "update.status",
+      {},
+    );
+    if (state.client !== client || !state.connected) {
+      return;
+    }
+    state.customRuntimeUpdatePolicy = response.updateSafety ?? null;
+    if (state.customRuntimeUpdatePolicy?.preparationStatus === "failed") {
+      state.updateStatusBanner = {
+        tone: "danger",
+        text: `Verified update preparation failed: ${state.customRuntimeUpdatePolicy.preparationReason ?? "unknown failure"}. The live runtime was not changed.`,
+      };
+    } else if (
+      state.customRuntimeUpdatePolicy?.preparationStatus === "ready" &&
+      state.customRuntimeUpdatePolicy.pendingCandidateSha
+    ) {
+      state.updateStatusBanner = {
+        tone: "info",
+        text: `Verified update ${state.customRuntimeUpdatePolicy.pendingCandidateSha.slice(0, 12)} is ready for explicit installation approval.`,
+      };
+    }
+  } catch {
+    // A transient status read must not hide a preparation that is still starting.
+  }
+  scheduleUpdateSafetyRefresh(state, startGraceDeadline);
+}
 
 export type LoadConfigOptions = {
   discardPendingChanges?: boolean;
@@ -214,6 +274,16 @@ function resolveUpdateStatusBanner(params: { status?: string; reason?: string })
       "restart-unhealthy":
         "The replacement process never became healthy. The previous process stayed up so you can recover.",
       "doctor-failed": "Doctor repair failed. Run `openclaw doctor --non-interactive` and retry.",
+      "custom-runtime-update-preparation-started":
+        "Verified preparation started in isolation. The live runtime will not change.",
+      "custom-runtime-update-approval-started":
+        "Verified installation started. The Dashboard will reconnect after the managed restart.",
+      "custom-runtime-update-preparation-running":
+        "Verified preparation is already running. Wait for its readiness result.",
+      "custom-runtime-update-exact-sha-approval-required":
+        "Preparation passed. Review and approve the exact candidate SHA before installation.",
+      "custom-runtime-update-safety-blocked":
+        "Update protection is incomplete. Resolve the reported source, backup, or broker issue first.",
     }[reason] ?? "See the gateway logs for the exact failure and retry once the cause is fixed.";
   return {
     tone,
@@ -279,13 +349,6 @@ export async function runUpdate(state: ConfigState) {
   if (!state.client || !state.connected) {
     return;
   }
-  if (state.runtimeIdentity?.dashboardSurfaces.includes("pcc")) {
-    state.updateStatusBanner = {
-      tone: "warn",
-      text: "This dashboard includes PCC custom surfaces. Use the verified PCC runtime deployment flow so an update cannot replace them.",
-    };
-    return;
-  }
   state.updateRunning = true;
   state.lastError = null;
   state.chatError = null;
@@ -297,6 +360,9 @@ export async function runUpdate(state: ConfigState) {
       handoff?: { status?: string };
     }>("update.run", {
       sessionKey: state.applySessionKey,
+      ...(state.customRuntimeUpdatePolicy?.pendingCandidateSha
+        ? { approvalSha: state.customRuntimeUpdatePolicy.pendingCandidateSha }
+        : {}),
     });
     const status = res.result?.status ?? (res.ok === true ? "ok" : "error");
     const handoffStarted =
@@ -307,6 +373,33 @@ export async function runUpdate(state: ConfigState) {
     if (handoffStarted) {
       state.pendingUpdateExpectedVersion = res.result?.after?.version ?? null;
       state.pendingUpdateHandoff = true;
+      return;
+    }
+    if (
+      res.ok === true &&
+      status === "skipped" &&
+      res.result?.reason === "custom-runtime-update-preparation-started"
+    ) {
+      state.pendingUpdateExpectedVersion = null;
+      state.pendingUpdateHandoff = false;
+      state.updateStatusBanner = {
+        tone: "info",
+        text: "Verified update preparation started. The live runtime will remain unchanged.",
+      };
+      void refreshUpdateSafety(state, Date.now() + UPDATE_SAFETY_START_GRACE_MS);
+      return;
+    }
+    if (
+      res.ok === true &&
+      status === "skipped" &&
+      res.result?.reason === "custom-runtime-update-approval-started"
+    ) {
+      state.pendingUpdateExpectedVersion = null;
+      state.pendingUpdateHandoff = true;
+      state.updateStatusBanner = {
+        tone: "info",
+        text: "Verified installation started. The Dashboard will reconnect after restart.",
+      };
       return;
     }
     if (status === "ok" && res.ok === true) {

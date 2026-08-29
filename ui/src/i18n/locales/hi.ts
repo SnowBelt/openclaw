@@ -2093,6 +2093,11 @@ export const hi: TranslationMap = {
     runningVersion: "v{version} चल रहा है",
     updating: "अपडेट हो रहा है…",
     updateNow: "अभी अपडेट करें",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "अपडेट बैनर हटाएँ",
     switchedSession: "{session} पर स्विच किया गया",
     splitView: {

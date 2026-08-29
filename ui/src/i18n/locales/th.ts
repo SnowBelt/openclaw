@@ -2069,6 +2069,11 @@ export const th: TranslationMap = {
     runningVersion: "กำลังใช้ v{version}",
     updating: "กำลังอัปเดต…",
     updateNow: "อัปเดตตอนนี้",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "ปิดแบนเนอร์อัปเดต",
     switchedSession: "สลับไปยัง {session} แล้ว",
     splitView: {

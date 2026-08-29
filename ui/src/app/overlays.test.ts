@@ -145,6 +145,67 @@ describe("application approval overlays", () => {
 });
 
 describe("application update overlays", () => {
+  it("polls isolated preparation until the exact candidate is ready", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "c".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn<RequestFn>((method) => {
+      if (method === "update.run") {
+        return Promise.resolve({
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-preparation-started" },
+          handoff: { status: "started" },
+        });
+      }
+      if (method === "update.status") {
+        statusReads += 1;
+        return Promise.resolve({
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            sourceDurabilityReason: "durable",
+            backupConfigured: true,
+            approvalPending: statusReads > 2,
+            pendingCandidateSha: statusReads > 2 ? candidateSha : null,
+            preparationRunning: statusReads === 2,
+            preparationStatus: statusReads === 2 ? "preparing" : statusReads > 2 ? "ready" : "idle",
+            preparationReason: statusReads > 2 ? "ready-for-approval" : null,
+            sourceSha: "a".repeat(40),
+            sourceRepo: "/source.git",
+            sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+            runtimeRoot: "/release",
+            pointerPath: "/runtime-home/active-runtime.json",
+            reason: "managed",
+          },
+        });
+      }
+      return Promise.resolve([]);
+    });
+    const harness = createGatewayHarness(client(request));
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    try {
+      await overlays.runUpdate();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(overlays.snapshot.updateSafety?.preparationRunning).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(overlays.snapshot.updateSafety?.preparationRunning).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(overlays.snapshot.updateSafety).toMatchObject({
+        preparationRunning: false,
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+      });
+      expect(statusReads).toBe(3);
+    } finally {
+      overlays.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("surfaces a coalesced restart while reconnect verification remains active", async () => {
     const request = vi.fn<RequestFn>().mockResolvedValue({
       ok: true,
@@ -162,6 +223,26 @@ describe("application update overlays", () => {
       text: "Update installed. A gateway restart is already in progress; status will refresh after it reconnects.",
     });
     expect(overlays.snapshot.updateRunning).toBe(false);
+    overlays.dispose();
+  });
+
+  it("passes the exact prepared SHA for one-click managed installation", async () => {
+    const candidateSha = "b".repeat(40);
+    const request = vi.fn<RequestFn>().mockResolvedValue({
+      ok: true,
+      result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+      handoff: { status: "started" },
+    });
+    const harness = createGatewayHarness(client(request));
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    await overlays.runUpdate(candidateSha);
+
+    expect(request).toHaveBeenCalledWith("update.run", { approvalSha: candidateSha });
+    expect(overlays.snapshot.updateStatusBanner).toEqual({
+      tone: "info",
+      text: "Verified installation started. The Dashboard will reconnect after the managed restart.",
+    });
     overlays.dispose();
   });
 });

@@ -2056,6 +2056,11 @@ export const zh_CN: TranslationMap = {
     runningVersion: "正在运行 v{version}",
     updating: "正在更新…",
     updateNow: "立即更新",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "关闭更新横幅",
     switchedSession: "已切换到 {session}",
     splitView: {

@@ -12,6 +12,8 @@ const canonicalVerificationCommands = [
   "pnpm check:custom-runtime-capabilities",
   "pnpm check:pcc-capabilities",
   "pnpm control-director:verify -- --expected-sha <candidate-sha>",
+  "pnpm protocol:check",
+  "pnpm ui:i18n:check",
   "pnpm check",
   "pnpm ui:build",
   "pnpm build",
@@ -78,6 +80,42 @@ function writePreservationProof(
   };
 }
 
+function writeVerifiedBackup(runtimeHome: string, sourceSha: string) {
+  const receiptPath = path.join(runtimeHome, "receipts", "update-backup-test.json");
+  writeJson(receiptPath, {
+    schema: "openclaw.custom-runtime-update-backup.v1",
+    sourceSha,
+    result: "passed",
+  });
+  const verifier = path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs");
+  fs.mkdirSync(path.dirname(verifier), { recursive: true });
+  fs.writeFileSync(verifier, "process.exit(0);\n", { mode: 0o700 });
+  return {
+    path: receiptPath,
+    sha256: createHash("sha256").update(fs.readFileSync(receiptPath)).digest("hex"),
+    schema: "openclaw.custom-runtime-update-backup.v1",
+    sourceSha,
+  };
+}
+
+function writeRepositoryProof(runtimeHome: string, sourceSha: string) {
+  const receiptPath = path.join(runtimeHome, "receipts", "update-github-proof-test.json");
+  writeJson(receiptPath, {
+    schema: "openclaw.custom-runtime-github-proof.v1",
+    sourceSha,
+    result: "passed",
+  });
+  const verifier = path.join(runtimeHome, "bin", "custom-runtime-update-github-proof.mjs");
+  fs.mkdirSync(path.dirname(verifier), { recursive: true });
+  fs.writeFileSync(verifier, "process.exit(0);\n", { mode: 0o700 });
+  return {
+    path: receiptPath,
+    sha256: createHash("sha256").update(fs.readFileSync(receiptPath)).digest("hex"),
+    schema: "openclaw.custom-runtime-github-proof.v1",
+    sourceSha,
+  };
+}
+
 function latestUpdateReceipt(runtimeHome: string): Record<string, unknown> {
   const receipt = fs
     .readdirSync(path.join(runtimeHome, "receipts"))
@@ -100,6 +138,61 @@ afterEach(() => {
 });
 
 describe("custom runtime update broker", () => {
+  it("does not start a second preparation while a fresh lock is present", () => {
+    const base = root("openclaw-update-broker-lock-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const lock = path.join(runtimeHome, "update-preparation.lock");
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, "owner.json"), "{}\n");
+
+    const result = spawnSync(updater, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES: path.join(base, "updates"),
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
+      result: "failed",
+      stage: "preparation_lock",
+    });
+    expect(fs.existsSync(path.join(lock, "owner.json"))).toBe(true);
+  });
+
+  it("preserves and recovers an orphaned preparation lock", () => {
+    const base = root("openclaw-update-broker-stale-lock-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const lock = path.join(runtimeHome, "update-preparation.lock");
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, "owner.json"), "{}\n");
+    const stale = new Date(Date.now() - 31 * 60 * 1000);
+    fs.utimesSync(lock, stale, stale);
+
+    const result = spawnSync(updater, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES: path.join(base, "updates"),
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
+      result: "failed",
+      stage: "active_pointer",
+    });
+    expect(
+      fs
+        .readdirSync(path.join(runtimeHome, "receipts"))
+        .some((name) => name.startsWith("stale-update-preparation-lock-")),
+    ).toBe(true);
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
   it("rejects an active source without durable provenance before network or build work", () => {
     const base = root("openclaw-update-broker-source-");
     const runtimeHome = path.join(base, "runtime-home");
@@ -210,6 +303,8 @@ describe("custom runtime update broker", () => {
     writeJson(path.join(runtimeHome, "active-runtime.json"), { sourceSha: "d".repeat(40) });
     const pending = path.join(runtimeHome, "pending-update.json");
     let preservationProof = writePreservationProof(runtimeHome, baseSha, sourceSha, release);
+    const verifiedBackup = writeVerifiedBackup(runtimeHome, baseSha);
+    let repositoryProof = writeRepositoryProof(runtimeHome, sourceSha);
     writeJson(pending, {
       schema: "openclaw.custom-runtime-update-candidate.v1",
       result: "ready_for_approval",
@@ -221,8 +316,10 @@ describe("custom runtime update broker", () => {
       preservationProof,
       verificationCommands: resolvedVerificationCommands(sourceSha),
       verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
     });
-    let result = spawnSync(approve, [], {
+    let result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -235,6 +332,18 @@ describe("custom runtime update broker", () => {
     expect(fs.existsSync(marker)).toBe(false);
 
     writeJson(path.join(runtimeHome, "active-runtime.json"), { sourceSha: baseSha });
+    result = spawnSync(approve, ["--sha", "f".repeat(40)], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("does not match the explicitly approved SHA");
+    expect(fs.existsSync(marker)).toBe(false);
+
     writeJson(pending, {
       schema: "openclaw.custom-runtime-update-candidate.v1",
       result: "ready_for_approval",
@@ -246,8 +355,10 @@ describe("custom runtime update broker", () => {
       preservationProof,
       verificationCommands: resolvedVerificationCommands(sourceSha),
       verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
     });
-    result = spawnSync(approve, [], {
+    result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -258,6 +369,34 @@ describe("custom runtime update broker", () => {
     expect(result.status).toBe(64);
     expect(result.stderr).toContain("source branch does not identify the candidate commit");
     expect(fs.existsSync(marker)).toBe(false);
+
+    fs.appendFileSync(repositoryProof.path, "tampered\n");
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
+    });
+    result = spawnSync(approve, ["--sha", sourceSha], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("repository proof digest changed");
+    expect(fs.existsSync(marker)).toBe(false);
+    repositoryProof = writeRepositoryProof(runtimeHome, sourceSha);
 
     writeJson(pending, {
       schema: "openclaw.custom-runtime-update-candidate.v1",
@@ -270,8 +409,10 @@ describe("custom runtime update broker", () => {
       preservationProof,
       verificationCommands: [],
       verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
     });
-    result = spawnSync(approve, [], {
+    result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -295,8 +436,10 @@ describe("custom runtime update broker", () => {
       preservationProof,
       verificationCommands: resolvedVerificationCommands(sourceSha),
       verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
     });
-    result = spawnSync(approve, [], {
+    result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -320,8 +463,10 @@ describe("custom runtime update broker", () => {
       preservationProof,
       verificationCommands: resolvedVerificationCommands(sourceSha),
       verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
     });
-    result = spawnSync(approve, [], {
+    result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -338,7 +483,7 @@ describe("custom runtime update broker", () => {
       path.join(release, "config", "custom-runtime-capabilities.json"),
       "tampered\n",
     );
-    result = spawnSync(approve, [], {
+    result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -362,8 +507,10 @@ describe("custom runtime update broker", () => {
       preservationProof,
       verificationCommands: resolvedVerificationCommands(sourceSha),
       verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
     });
-    result = spawnSync(approve, [], {
+    result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
       env: {
         ...process.env,
