@@ -7,6 +7,7 @@ import {
   assembleManagedRuntimePackage,
   assertCandidateLineage,
 } from "../../scripts/custom-runtime/custom-runtime-package.mjs";
+import { importSourceProvenance } from "../../scripts/custom-runtime/custom-runtime-source-provenance.mjs";
 import { hashBuildArtifactTree } from "../../scripts/custom-runtime/runtime-package-integrity.mjs";
 
 const roots: string[] = [];
@@ -186,6 +187,42 @@ describe("custom managed-runtime packaging", () => {
     expect(
       fs.readFileSync(path.join(result.releaseRoot, "src/runtime-dependency.ts"), "utf8"),
     ).toBe('export const runtimeDependency = "ok";\n');
+  });
+
+  it("reuses an existing deep-verified provenance record without re-importing it", () => {
+    const { root, activeSha, candidateSha } = createRepository();
+    writeBuildSnapshot(root, candidateSha);
+    const provenanceHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-runtime-package-provenance-"),
+    );
+    roots.push(provenanceHome);
+    const provenance = importSourceProvenance({
+      sourceRoot: root,
+      sourceSha: candidateSha,
+      runtimeHome: provenanceHome,
+    });
+    const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
+    roots.push(releasesDir);
+
+    const result = assembleManagedRuntimePackage({
+      sourceRoot: root,
+      releasesDir,
+      sourceSha: candidateSha,
+      activeSha,
+      releaseId: "existing-provenance-release",
+      provenanceRecordPath: provenance.recordPath,
+      seal: false,
+      deploy({ stagingRoot }) {
+        writeFile(stagingRoot, "package.json", '{"name":"openclaw"}\n');
+        writeFile(stagingRoot, "node_modules/pdfjs-dist/package.json", "{}\n");
+      },
+    });
+
+    const envelope = JSON.parse(
+      fs.readFileSync(path.join(result.releaseRoot, ".openclaw-runtime-provenance.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(envelope.recordPath).toBe(provenance.recordPath);
+    expect(envelope.recordSha256).toEqual(expect.any(String));
   });
 
   it("fails before deployment when a custom-runtime source import has no capability owner", () => {

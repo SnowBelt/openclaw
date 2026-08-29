@@ -8,6 +8,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
   importSourceProvenance,
+  verifySourceProvenance,
   verifyProvenanceMigration,
 } from "./custom-runtime-source-provenance.mjs";
 import {
@@ -380,6 +381,7 @@ export function assembleManagedRuntimePackage({
   seal = true,
   provenanceRuntimeHome,
   provenanceMigrationPath,
+  provenanceRecordPath,
 }) {
   const candidateSourceRoot = fs.realpathSync(sourceRoot);
   let managedReleasesDir = path.resolve(releasesDir);
@@ -387,7 +389,16 @@ export function assembleManagedRuntimePackage({
     throw new Error(`Invalid managed-runtime release ID: ${releaseId}`);
   }
   let sourceProvenance;
-  if (provenanceRuntimeHome) {
+  if (provenanceRecordPath && provenanceRuntimeHome) {
+    throw new Error("Use either an existing provenance record or a provenance runtime home.");
+  }
+  if (provenanceRecordPath) {
+    sourceProvenance = verifySourceProvenance({
+      recordPath: provenanceRecordPath,
+      expectedSha: sourceSha,
+      deep: true,
+    });
+  } else if (provenanceRuntimeHome) {
     sourceProvenance = importSourceProvenance({
       sourceRoot: candidateSourceRoot,
       sourceSha,
@@ -589,6 +600,9 @@ if (isMainModule()) {
       releaseId: values.get("release-id"),
       ...(values.get("provenance-runtime-home")
         ? { provenanceRuntimeHome: values.get("provenance-runtime-home") }
+        : {}),
+      ...(values.get("provenance-record")
+        ? { provenanceRecordPath: values.get("provenance-record") }
         : {}),
       ...(values.get("provenance-migration")
         ? { provenanceMigrationPath: values.get("provenance-migration") }
