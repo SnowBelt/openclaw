@@ -21,8 +21,8 @@ function runGit(cwd: string, args: string[]): string {
   }).trim();
 }
 
-function runHelper(args: string[]) {
-  const result = spawnSync(process.execPath, [helper, ...args], { encoding: "utf8" });
+function runHelper(args: string[], cwd = process.cwd()) {
+  const result = spawnSync(process.execPath, [helper, ...args], { cwd, encoding: "utf8" });
   return {
     status: result.status,
     stdout: result.stdout,
@@ -57,17 +57,17 @@ describe("custom runtime source provenance", () => {
     const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
     temporaryDirectories.push(runtimeHome);
     fs.chmodSync(runtimeHome, 0o700);
+    const nonRepositoryCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-source-provenance-cwd-"),
+    );
+    temporaryDirectories.push(nonRepositoryCwd);
+    fs.chmodSync(nonRepositoryCwd, 0o700);
     const historicalSha = "e8dc155fe2f16183373f8ce1bc8d28f5d48377cd";
 
-    const imported = runHelper([
-      "import",
-      "--source",
-      root,
-      "--source-sha",
-      sourceSha,
-      "--runtime-home",
-      runtimeHome,
-    ]);
+    const imported = runHelper(
+      ["import", "--source", root, "--source-sha", sourceSha, "--runtime-home", runtimeHome],
+      nonRepositoryCwd,
+    );
     expect(imported.status, imported.stderr).toBe(0);
     const record = JSON.parse(imported.stdout) as {
       bundlePath: string;
@@ -77,15 +77,10 @@ describe("custom runtime source provenance", () => {
     expect(record.sourceSha).toBe(sourceSha);
     expect(fs.statSync(record.bundlePath).mode & 0o077).toBe(0);
 
-    const verified = runHelper([
-      "verify",
-      "--record",
-      record.recordPath,
-      "--expected-sha",
-      sourceSha,
-      "--deep",
-      "true",
-    ]);
+    const verified = runHelper(
+      ["verify", "--record", record.recordPath, "--expected-sha", sourceSha, "--deep", "true"],
+      nonRepositoryCwd,
+    );
     expect(verified.status, verified.stderr).toBe(0);
 
     const migrationResult = runHelper([

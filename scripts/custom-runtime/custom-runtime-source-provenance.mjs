@@ -233,7 +233,10 @@ function importObjects(sourceRoot, sourceSha, storePath, inputBundlePath) {
   // the exact inspected commit here, and works for both attached and detached
   // source checkouts without mutating the source repository.
   runGit(["bundle", "create", inputBundlePath, "HEAD"], sourceRoot);
-  runGit(["bundle", "verify", inputBundlePath], undefined);
+  // Bundle verification needs an object database for prerequisite checks. Do
+  // not inherit the caller's cwd: launchd and other non-repository callers are
+  // intentionally allowed to invoke this helper from any directory.
+  runGitDir(storePath, ["bundle", "verify", inputBundlePath]);
   runGitDir(storePath, [
     "fetch",
     "--no-tags",
@@ -246,7 +249,7 @@ function bundleStore(storePath, ref, bundlePath) {
   runGitDir(storePath, ["bundle", "create", bundlePath, ref]);
   fs.chmodSync(bundlePath, 0o600);
   lstatRegular(bundlePath, "provenance bundle");
-  runGit(["bundle", "verify", bundlePath], undefined);
+  runGitDir(storePath, ["bundle", "verify", bundlePath]);
 }
 
 function independentBundleCheck(bundlePath, sourceSha, treeSha, objectFormat, temporaryRoot) {
@@ -378,7 +381,9 @@ export function verifySourceProvenance({ recordPath, expectedSha, deep = false }
     fail("provenance bundle hash does not match");
   }
   verifyGitStore(storePath, record.sourceSha, record.treeSha, record.objectFormat);
-  runGit(["bundle", "verify", bundlePath], undefined);
+  // The helper is called by launchd with no repository cwd. Verify against the
+  // already hash- and tree-verified private store instead of process cwd.
+  runGitDir(storePath, ["bundle", "verify", bundlePath]);
   if (deep) {
     const temporaryRoot = fs.mkdtempSync(path.join(directory, ".verify-"));
     fs.chmodSync(temporaryRoot, 0o700);
