@@ -1,4 +1,4 @@
-import type { ReleaseOperation, ReleaseProofProfile } from "./contracts.js";
+import type { ReleaseOperation, ReleaseProofProfile } from "./proof-types.js";
 
 export type ReleaseProofPhase = "candidate" | "post_deployment";
 

@@ -234,6 +234,9 @@ export async function runSelfImprovementAnalysis(params?: {
     groupsReviewedByLocalLlm,
     recommendationsUpdated: 0,
     proposalsCreated: proposalWrite.created,
+    newlyCreatedMemorySkillProposalIds: proposalWrite.createdProposalIds.filter((id) =>
+      proposals.some((proposal) => proposal.id === id && proposal.kind === "memory_skill"),
+    ),
     attempts: llmReview.status.attempts,
     schemaValidated: llmReview.status.schemaValidated,
     ...(preflight.preflightStatus ? { preflightStatus: preflight.preflightStatus } : {}),

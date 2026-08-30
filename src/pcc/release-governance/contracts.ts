@@ -4,8 +4,7 @@ export const RELEASE_GOVERNANCE_STATUS_SCHEMA = "openclaw.release-governance-sta
 export const RELEASE_LOCAL_PROOF_SCHEMA = "openclaw.release-local-proof.v2" as const;
 
 export type ReleaseRiskLevel = "P0" | "P1" | "P2" | "P3";
-export type ReleaseOperation = "stage" | "promotion" | "restart" | "rollback" | "finalize";
-export type ReleaseProofProfile = "default" | "mac_studio_control_director";
+export type { ReleaseOperation, ReleaseProofProfile } from "./proof-types.js";
 export type { ReleaseProofPhase } from "./browser-proof-contract.js";
 export type ReleaseDecision = "authorize" | "deny" | "escalate";
 export type ReleaseApprovalMode = "automatic" | "exact" | "bounded_grant" | "none";
@@ -366,3 +365,4 @@ export type ReleaseGovernanceStatus = {
   approvalWording: string | null;
   updatedAt: string;
 };
+import type { ReleaseOperation, ReleaseProofProfile } from "./proof-types.js";

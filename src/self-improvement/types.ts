@@ -1,5 +1,6 @@
 import type { ControlDirectorJourneyClosure } from "./control-director-closure.types.js";
 import type { ControlDirectorJourneySignalCode } from "./control-director-journeys.js";
+import type { CuratorDispatchStatus, CuratorWorkshopStatus } from "./curator/contract.js";
 
 export type SelfImprovementRecommendationStatus =
   | "open"
@@ -434,6 +435,24 @@ export type SelfImprovementCurationReview = {
   reviewedAt: number;
 };
 
+export type SelfImprovementCuratorDispatch = {
+  status: CuratorDispatchStatus;
+  attempts: number;
+  lastAttemptAt?: number;
+  nextAttemptAt?: number;
+  error?: string;
+};
+
+export type SelfImprovementCuratorWorkshopDraft = {
+  id: string;
+  status: CuratorWorkshopStatus;
+  title: string;
+  sourceProposalId: string;
+  agentId: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type SelfImprovementProposalKind =
   | "implementation"
   | "verification"
@@ -468,8 +487,10 @@ export type SelfImprovementProposal = {
   curatorReason?: string;
   curatorUpdatedAt?: number;
   curationReview?: SelfImprovementCurationReview;
+  curatorDispatch?: SelfImprovementCuratorDispatch;
   workshopProposalId?: string;
-  workshopProposalStatus?: "pending" | "quarantined" | "applied" | "rejected";
+  workshopProposalStatus?: CuratorWorkshopStatus;
+  workshopDraft?: SelfImprovementCuratorWorkshopDraft;
   promotionProof?: string;
 };
 
@@ -694,6 +715,7 @@ export type SelfImprovementAnalysisRunResult = {
   groupsReviewedByLocalLlm: number;
   recommendationsUpdated: number;
   proposalsCreated: number;
+  newlyCreatedMemorySkillProposalIds?: string[];
   attempts: SelfImprovementReviewAttempt[];
   schemaValidated: boolean;
   preflightStatus?: SelfImprovementReviewPreflightStatus;

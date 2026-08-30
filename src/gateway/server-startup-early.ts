@@ -1,9 +1,12 @@
 // Gateway early-startup runtime helpers.
 // Starts discovery, remote skills, task maintenance, and delayed maintenance setup.
+import { resolveStateDir } from "../config/paths.js";
 import type { GatewayTailscaleMode } from "../config/types.gateway.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveCronJobsStorePath } from "../cron/store.js";
 import type { PluginRegistry } from "../plugins/registry-types.js";
+import type { CuratorDispatch } from "../self-improvement/curator-dispatch.js";
+import { createLazySelfImprovementCuratorDispatch } from "../self-improvement/lazy-curator-dispatch.js";
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -178,6 +181,24 @@ export async function startGatewayEarlyRuntime(params: {
         });
       });
 
+  const curatorDispatch: CuratorDispatch | undefined = params.minimalTestGateway
+    ? undefined
+    : createLazySelfImprovementCuratorDispatch(async () => {
+        const { createSelfImprovementCuratorDispatch } =
+          await import("../self-improvement/curator-dispatch.js");
+        const { createRuntimeCuratorReviewRunner } =
+          await import("../self-improvement/curator/runtime.js");
+        const stateDir = resolveStateDir();
+        return createSelfImprovementCuratorDispatch({
+          stateDir,
+          runReview: createRuntimeCuratorReviewRunner({
+            stateDir,
+            getConfig: params.getRuntimeConfig,
+          }),
+          log: params.logHealth,
+        });
+      });
+
   const startMaintenance = async () => {
     // Defer periodic maintenance until the caller has finished ready-state
     // wiring, but keep the lazy import owned by this early-runtime bundle.
@@ -206,6 +227,7 @@ export async function startGatewayEarlyRuntime(params: {
         nodeSendToSession: params.nodeSendToSession,
         enableSkillCurator: true,
         getRuntimeConfig: params.getRuntimeConfig,
+        curatorDispatch,
         ...(params.cron ? { cron: params.cron } : {}),
         ...(params.getCron ? { getCron: params.getCron } : {}),
         ...(typeof params.mediaCleanupTtlMs === "number"

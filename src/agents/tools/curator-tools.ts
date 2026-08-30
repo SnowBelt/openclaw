@@ -1,8 +1,30 @@
 import { Type } from "typebox";
 import type { callGateway } from "../../gateway/call.js";
+import {
+  CURATOR_CONFIDENCE_VALUES,
+  CURATOR_DECISION_STATUS_VALUES,
+  CURATOR_FRESHNESS_VALUES,
+  CURATOR_MAX_EVIDENCE_REFERENCES,
+  CURATOR_PRIVACY_VALUES,
+  CURATOR_SOURCE_CLASS_VALUES,
+} from "../../self-improvement/curator/contract.js";
+import { stringEnum } from "../schema/string-enum.js";
 import { readStringParam, type AnyAgentTool, jsonResult, ToolInputError } from "./common.js";
 
 type GatewayCaller = typeof callGateway;
+
+function isLegacyCuratorReviewError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("selfImprovement.curator.update") &&
+    message.includes("curationReview") &&
+    (message.includes("unexpected property") || message.includes("additional properties"))
+  );
+}
+
+function encodeLegacyCuratorReview(review: Record<string, unknown>): string {
+  return `reviewer-only-curation-review:${JSON.stringify(review)}`;
+}
 
 const CuratorGetSchema = Type.Object(
   {
@@ -14,36 +36,23 @@ const CuratorGetSchema = Type.Object(
 const CuratorDecisionSchema = Type.Object(
   {
     proposalId: Type.String({ minLength: 1, maxLength: 160 }),
-    curatorStatus: Type.Union([
-      Type.Literal("accepted_for_workshop"),
-      Type.Literal("rejected"),
-      Type.Literal("needs_more_evidence"),
-      Type.Literal("superseded"),
-    ]),
+    curatorStatus: stringEnum(CURATOR_DECISION_STATUS_VALUES),
     curationReview: Type.Object(
       {
         evidence: Type.Array(
           Type.Object(
             {
-              sourceClass: Type.String({ minLength: 1, maxLength: 80 }),
+              sourceClass: stringEnum(CURATOR_SOURCE_CLASS_VALUES),
               sourceRef: Type.String({ minLength: 1, maxLength: 160 }),
               observedAt: Type.Optional(Type.Integer({ minimum: 0 })),
             },
             { additionalProperties: false },
           ),
-          { minItems: 1, maxItems: 8 },
+          { minItems: 1, maxItems: CURATOR_MAX_EVIDENCE_REFERENCES },
         ),
-        confidence: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]),
-        freshness: Type.Union([
-          Type.Literal("current"),
-          Type.Literal("stale_risk"),
-          Type.Literal("unknown"),
-        ]),
-        privacy: Type.Union([
-          Type.Literal("shared_safe"),
-          Type.Literal("private_reference_only"),
-          Type.Literal("blocked_sensitive"),
-        ]),
+        confidence: stringEnum(CURATOR_CONFIDENCE_VALUES),
+        freshness: stringEnum(CURATOR_FRESHNESS_VALUES),
+        privacy: stringEnum(CURATOR_PRIVACY_VALUES),
         contradiction: Type.Boolean(),
         reason: Type.String({ minLength: 1, maxLength: 360 }),
         nextAction: Type.String({ minLength: 1, maxLength: 240 }),
@@ -61,6 +70,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function createCuratorTools(params: { callGateway: GatewayCaller }): AnyAgentTool[] {
+  let phase: "needs_read" | "reading" | "ready" | "deciding" | "done" = "needs_read";
+  let readProposalId: string | undefined;
   return [
     {
       label: "Curator proposal",
@@ -72,12 +83,23 @@ export function createCuratorTools(params: { callGateway: GatewayCaller }): AnyA
         if (!isRecord(args)) {
           throw new ToolInputError("curator_get arguments required");
         }
+        if (phase !== "needs_read") {
+          throw new ToolInputError("curator_get may be called exactly once per review run");
+        }
         const proposalId = readStringParam(args, "proposalId", { required: true });
-        const result = await params.callGateway<{ proposal: unknown }>({
-          method: "selfImprovement.curator.get",
-          params: { id: proposalId },
-        });
-        return jsonResult(result);
+        phase = "reading";
+        try {
+          const result = await params.callGateway<{ proposal: unknown }>({
+            method: "selfImprovement.curator.get",
+            params: { id: proposalId },
+          });
+          readProposalId = proposalId;
+          phase = "ready";
+          return jsonResult(result);
+        } catch (error) {
+          phase = "needs_read";
+          throw error;
+        }
       },
     },
     {
@@ -91,6 +113,16 @@ export function createCuratorTools(params: { callGateway: GatewayCaller }): AnyA
           throw new ToolInputError("curator_decide arguments required");
         }
         const proposalId = readStringParam(args, "proposalId", { required: true });
+        if (phase !== "ready") {
+          throw new ToolInputError(
+            phase === "done" || phase === "deciding"
+              ? "curator_decide may be called exactly once per review run"
+              : "curator_get must complete before curator_decide",
+          );
+        }
+        if (readProposalId !== proposalId) {
+          throw new ToolInputError("curator_decide proposalId must match curator_get proposalId");
+        }
         const proof = readStringParam(args, "proof", { required: true });
         const review = args.curationReview;
         if (!isRecord(review)) {
@@ -113,11 +145,35 @@ export function createCuratorTools(params: { callGateway: GatewayCaller }): AnyA
           proof,
           reason: reviewReason,
         };
-        const result = await params.callGateway<{ proposal: unknown }>({
-          method: "selfImprovement.curator.update",
-          params: updateParams,
-        });
-        return jsonResult(result);
+        let result: { proposal: unknown };
+        phase = "deciding";
+        try {
+          try {
+            result = await params.callGateway<{ proposal: unknown }>({
+              method: "selfImprovement.curator.update",
+              params: updateParams,
+            });
+          } catch (error) {
+            if (!isLegacyCuratorReviewError(error)) {
+              throw error;
+            }
+            result = await params.callGateway<{ proposal: unknown }>({
+              method: "selfImprovement.curator.update",
+              params: {
+                id: proposalId,
+                curatorStatus,
+                proof,
+                reason: reviewReason,
+                note: encodeLegacyCuratorReview(review),
+              },
+            });
+          }
+          phase = "done";
+          return jsonResult(result);
+        } catch (error) {
+          phase = "ready";
+          throw error;
+        }
       },
     },
   ];

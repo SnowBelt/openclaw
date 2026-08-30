@@ -163,6 +163,9 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
   recordOperationalHealth?: boolean;
   runScan?: SelfImprovementBackgroundScan;
   runAnalysis?: SelfImprovementBackgroundAnalysis;
+  onAnalysisComplete?: (
+    result: Awaited<ReturnType<SelfImprovementBackgroundAnalysis>>,
+  ) => Promise<void> | void;
   env?: NodeJS.ProcessEnv;
   random?: () => number;
   stateDir?: string;
@@ -233,11 +236,12 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
           if (params.analyzeAfterScan === false) {
             return;
           }
-          await (params.runAnalysis ?? runSelfImprovementAnalysis)({
+          const analysis = await (params.runAnalysis ?? runSelfImprovementAnalysis)({
             cfg,
             limit: params.analysisLimit ?? DEFAULT_SELF_IMPROVEMENT_ANALYSIS_LIMIT,
             writeHealthSnapshot: false,
           });
+          await params.onAnalysisComplete?.(analysis);
           if (params.recordOperationalHealth !== false) {
             await recordBackgroundCycleHealth({
               success: true,

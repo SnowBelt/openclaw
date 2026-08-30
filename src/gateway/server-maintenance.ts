@@ -17,6 +17,7 @@ import {
   isSelfImprovementBackgroundEnabled,
   startSelfImprovementGovernorBackgroundTask,
 } from "../self-improvement/background.js";
+import type { CuratorDispatch } from "../self-improvement/curator-dispatch.js";
 import { startSkillCuratorMaintenance } from "../skills/workshop/curator.js";
 import {
   abortTrackedChatRunById,
@@ -103,6 +104,7 @@ export function startGatewayMaintenanceTimers(params: {
   registerSkillUsageTracking?: () => () => void;
   getRuntimeConfig?: () => OpenClawConfig;
   selfImprovementEnv?: NodeJS.ProcessEnv;
+  curatorDispatch?: CuratorDispatch;
   cron?: CronServiceContract;
   getCron?: () => CronServiceContract | undefined;
 }): {
@@ -169,14 +171,35 @@ export function startGatewayMaintenanceTimers(params: {
     });
   }
 
-  const selfImprovement =
+  const backgroundSelfImprovement =
     params.getRuntimeConfig && isSelfImprovementBackgroundEnabled(params.selfImprovementEnv)
       ? startSelfImprovementGovernorBackgroundTask({
           getRuntimeConfig: params.getRuntimeConfig,
           log: params.logHealth,
           env: params.selfImprovementEnv,
+          onAnalysisComplete: async (result) => {
+            await params.curatorDispatch?.enqueue(result.newlyCreatedMemorySkillProposalIds ?? []);
+          },
         })
       : null;
+  const selfImprovement = backgroundSelfImprovement
+    ? {
+        ...backgroundSelfImprovement,
+        stop: () => {
+          backgroundSelfImprovement.stop();
+          params.curatorDispatch?.dispose();
+        },
+      }
+    : null;
+  if (backgroundSelfImprovement) {
+    void params.curatorDispatch?.reconcile().catch((error) => {
+      params.logHealth.error(
+        `self-improvement curator reconciliation failed: ${formatError(error)}`,
+      );
+    });
+  } else {
+    params.curatorDispatch?.dispose();
+  }
   const operationsCleanup = startOperationsShadowMonitor({
     log: { warn: (message) => (params.logHealth.warn ?? params.logHealth.error)(message) },
     ...(params.cron ? { cron: params.cron } : {}),

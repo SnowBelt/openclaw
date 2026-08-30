@@ -228,6 +228,32 @@ describe("self-improvement background task", () => {
     expect(events).toEqual(["scan", "analysis"]);
   });
 
+  it("delivers the completed analysis to the curator callback exactly once", async () => {
+    const result = {
+      ...analysisResult(),
+      newlyCreatedMemorySkillProposalIds: ["sip_memory"],
+    };
+    const onAnalysisComplete = vi.fn(async () => undefined);
+    const task = startSelfImprovementGovernorBackgroundTask({
+      getRuntimeConfig: () => ({}),
+      intervalMs: 10_000,
+      initialDelayMs: 10_000,
+      recordOperationalHealth: false,
+      runScan: async () => scanResult(),
+      runAnalysis: async () => result,
+      onAnalysisComplete,
+    });
+
+    try {
+      await task.runNow();
+    } finally {
+      task.stop();
+    }
+
+    expect(onAnalysisComplete).toHaveBeenCalledTimes(1);
+    expect(onAnalysisComplete).toHaveBeenCalledWith(result);
+  });
+
   it("deduplicates concurrent background cycles", async () => {
     let releaseScan: (() => void) | null = null;
     const events: string[] = [];

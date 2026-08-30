@@ -1,0 +1,47 @@
+{
+  "agentId": "memory-knowledge-curator",
+  "mode": "reviewer_only",
+  "status": "candidate_verified_pending_activation",
+  "lastHealthCheck": null,
+  "knownWarnings": [
+    "The deterministic candidate is verified in disposable state but has not yet completed managed Gateway activation and stability proof."
+  ],
+  "incompleteMilestones": [
+    "Activate the sealed immutable candidate through the Release Governor.",
+    "Verify managed curator behavior, health, RPC, browser proof, and ten-minute stability."
+  ],
+  "contract": {
+    "deterministicController": true,
+    "modelNeutral": true,
+    "directMemoryWrites": false,
+    "directSkillWrites": false,
+    "promotionAuthority": false,
+    "privateMemoryDisclosure": false
+  },
+  "verification": {
+    "controllerExactOncePass": true,
+    "adversarialPass": true,
+    "targetedTestsPass": true,
+    "testTypecheckPass": true,
+    "productionTypecheckPass": true,
+    "formatPass": true,
+    "lintPass": true,
+    "architecturePass": true,
+    "buildPass": true,
+    "qualifiedSmallModels": [
+      "ollama/qwen3:0.6b",
+      "ollama/qwen3.5:4b"
+    ],
+    "qualificationScenarios": [
+      "bounded-review",
+      "insufficient-evidence",
+      "sensitive-evidence",
+      "replacement-model"
+    ],
+    "managedRuntimeExactShaPass": false,
+    "managedCuratorSmokePass": false,
+    "managedHealthRpcBrowserPass": false,
+    "managedStabilityPass": false
+  },
+  "programCompletion": 85
+}

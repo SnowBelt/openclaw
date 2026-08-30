@@ -173,6 +173,75 @@ function parseCurationReview(value: unknown): SelfImprovementCurationReview | un
   };
 }
 
+function parseCuratorDispatch(value: unknown): SelfImprovementProposal["curatorDispatch"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const status = value.status;
+  if (
+    status !== "pending" &&
+    status !== "running" &&
+    status !== "succeeded" &&
+    status !== "failed"
+  ) {
+    return undefined;
+  }
+  const attempts =
+    typeof value.attempts === "number" && Number.isFinite(value.attempts)
+      ? Math.max(0, Math.floor(value.attempts))
+      : 0;
+  const lastAttemptAt =
+    typeof value.lastAttemptAt === "number" && Number.isFinite(value.lastAttemptAt)
+      ? Math.max(0, Math.floor(value.lastAttemptAt))
+      : undefined;
+  const nextAttemptAt =
+    typeof value.nextAttemptAt === "number" && Number.isFinite(value.nextAttemptAt)
+      ? Math.max(0, Math.floor(value.nextAttemptAt))
+      : undefined;
+  const error = sanitizeRecommendationText(value.error, 240);
+  return {
+    status,
+    attempts,
+    ...(lastAttemptAt !== undefined ? { lastAttemptAt } : {}),
+    ...(nextAttemptAt !== undefined ? { nextAttemptAt } : {}),
+    ...(error ? { error } : {}),
+  };
+}
+
+function parseWorkshopDraft(value: unknown): SelfImprovementProposal["workshopDraft"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const id = sanitizeRecommendationText(value.id, 160);
+  const title = sanitizeRecommendationText(value.title, 220);
+  const sourceProposalId = sanitizeRecommendationText(value.sourceProposalId, 160);
+  const agentId = sanitizeRecommendationText(value.agentId, 120);
+  const status = value.status;
+  if (
+    !id ||
+    !title ||
+    !sourceProposalId ||
+    !agentId ||
+    (status !== "pending" &&
+      status !== "quarantined" &&
+      status !== "applied" &&
+      status !== "rejected") ||
+    typeof value.createdAt !== "number" ||
+    typeof value.updatedAt !== "number"
+  ) {
+    return undefined;
+  }
+  return {
+    id,
+    status,
+    title,
+    sourceProposalId,
+    agentId,
+    createdAt: Math.max(0, Math.floor(value.createdAt)),
+    updatedAt: Math.max(0, Math.floor(value.updatedAt)),
+  };
+}
+
 function parseProposal(value: unknown): SelfImprovementProposal | null {
   if (!isRecord(value) || typeof value.id !== "string" || !isProposalStatus(value.status)) {
     return null;
@@ -187,6 +256,8 @@ function parseProposal(value: unknown): SelfImprovementProposal | null {
   const groupKey = proposal.groupKey;
   const route = proposal.route as SelfImprovementProposal["route"];
   const curationReview = parseCurationReview(proposal.curationReview);
+  const curatorDispatch = parseCuratorDispatch(proposal.curatorDispatch);
+  const workshopDraft = parseWorkshopDraft(proposal.workshopDraft);
   return {
     ...(proposal as SelfImprovementProposal),
     id,
@@ -229,12 +300,14 @@ function parseProposal(value: unknown): SelfImprovementProposal | null {
       ? { curatorUpdatedAt: Math.max(0, Math.floor(proposal.curatorUpdatedAt)) }
       : {}),
     ...(curationReview ? { curationReview } : {}),
+    ...(curatorDispatch ? { curatorDispatch } : {}),
     ...(typeof proposal.workshopProposalId === "string"
       ? { workshopProposalId: sanitizeRecommendationText(proposal.workshopProposalId, 160) }
       : {}),
     ...(isWorkshopProposalStatus(proposal.workshopProposalStatus)
       ? { workshopProposalStatus: proposal.workshopProposalStatus }
       : {}),
+    ...(workshopDraft ? { workshopDraft } : {}),
     ...(typeof proposal.promotionProof === "string"
       ? { promotionProof: sanitizeRecommendationText(proposal.promotionProof, 640) }
       : {}),
@@ -457,6 +530,7 @@ export async function upsertSelfImprovementProposals(params: {
   proposals: SelfImprovementProposal[];
   created: number;
   updated: number;
+  createdProposalIds: string[];
 }> {
   const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
   const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(stateDir);
@@ -466,10 +540,12 @@ export async function upsertSelfImprovementProposals(params: {
     const byId = new Map(file.proposals.map((proposal) => [proposal.id, cloneProposal(proposal)]));
     let created = 0;
     let updated = 0;
+    const createdProposalIds: string[] = [];
     for (const proposal of incomingProposals) {
       const existing = byId.get(proposal.id);
       if (!existing) {
         created += 1;
+        createdProposalIds.push(proposal.id);
         byId.set(proposal.id, cloneProposal(proposal));
         continue;
       }
@@ -487,10 +563,12 @@ export async function upsertSelfImprovementProposals(params: {
         ...(existing.curatorReason ? { curatorReason: existing.curatorReason } : {}),
         ...(existing.curatorUpdatedAt ? { curatorUpdatedAt: existing.curatorUpdatedAt } : {}),
         ...(existing.curationReview ? { curationReview: existing.curationReview } : {}),
+        ...(existing.curatorDispatch ? { curatorDispatch: existing.curatorDispatch } : {}),
         ...(existing.workshopProposalId ? { workshopProposalId: existing.workshopProposalId } : {}),
         ...(existing.workshopProposalStatus
           ? { workshopProposalStatus: existing.workshopProposalStatus }
           : {}),
+        ...(existing.workshopDraft ? { workshopDraft: existing.workshopDraft } : {}),
         ...(existing.promotionProof ? { promotionProof: existing.promotionProof } : {}),
       });
     }
@@ -504,6 +582,7 @@ export async function upsertSelfImprovementProposals(params: {
       proposals: proposals.map(cloneProposal),
       created,
       updated,
+      createdProposalIds,
     };
   });
 }
@@ -556,6 +635,8 @@ export async function updateSelfImprovementProposalStatus(params: {
 export async function updateSelfImprovementCuratorStatus(params: {
   id: string;
   curatorStatus: SelfImprovementCuratorStatus;
+  expectedUpdatedAt?: number;
+  expectedCuratorStatus?: SelfImprovementCuratorStatus;
   proof?: string;
   reason?: string;
   workshopProposalId?: string;
@@ -576,8 +657,18 @@ export async function updateSelfImprovementCuratorStatus(params: {
       throw new Error("invalid curator curation review");
     }
     let updated: SelfImprovementProposal | null = null;
+    let conflict = false;
     const proposals = file.proposals.map((proposal) => {
       if (proposal.id !== params.id.trim()) {
+        return proposal;
+      }
+      if (
+        (params.expectedUpdatedAt !== undefined &&
+          proposal.updatedAt !== params.expectedUpdatedAt) ||
+        (params.expectedCuratorStatus !== undefined &&
+          (proposal.curatorStatus ?? "pending_review") !== params.expectedCuratorStatus)
+      ) {
+        conflict = true;
         return proposal;
       }
       if (proposal.kind !== "memory_skill") {
@@ -587,6 +678,22 @@ export async function updateSelfImprovementCuratorStatus(params: {
       const reason = sanitizeRecommendationText(params.reason, 360);
       const workshopProposalId = sanitizeRecommendationText(params.workshopProposalId, 160);
       const note = sanitizeRecommendationText(params.note, 220);
+      const workshopId =
+        workshopProposalId ||
+        proposal.workshopProposalId ||
+        `swp_${crypto.createHash("sha256").update(proposal.id).digest("hex").slice(0, 16)}`;
+      const workshopDraft =
+        params.curatorStatus === "accepted_for_workshop"
+          ? (proposal.workshopDraft ?? {
+              id: workshopId,
+              status: "pending" as const,
+              title: `Curator workshop: ${proposal.title}`,
+              sourceProposalId: proposal.id,
+              agentId: proposal.route.targetAgentId,
+              createdAt: now,
+              updatedAt: now,
+            })
+          : proposal.workshopDraft;
       updated = {
         ...proposal,
         updatedAt: now,
@@ -595,12 +702,64 @@ export async function updateSelfImprovementCuratorStatus(params: {
         ...(proof && params.curatorStatus === "promoted" ? { promotionProof: proof } : {}),
         ...(proof && params.curatorStatus !== "promoted" ? { curatorProof: proof } : {}),
         ...(reason ? { curatorReason: reason } : {}),
-        ...(workshopProposalId ? { workshopProposalId } : {}),
+        ...(params.curatorStatus === "accepted_for_workshop"
+          ? { workshopProposalId: workshopId, workshopProposalStatus: "pending" as const }
+          : workshopProposalId
+            ? { workshopProposalId }
+            : {}),
         ...(params.workshopProposalStatus
           ? { workshopProposalStatus: params.workshopProposalStatus }
           : {}),
         ...(review ? { curationReview: review } : {}),
+        ...(workshopDraft ? { workshopDraft } : {}),
         ...(note ? { safetyNotes: [...proposal.safetyNotes, note] } : {}),
+      };
+      return updated;
+    });
+    if (!updated || conflict) {
+      return null;
+    }
+    await writeStore(storePath, { version: STORE_VERSION, proposals }, stateDir);
+    return cloneProposal(updated);
+  });
+}
+
+export async function updateSelfImprovementCuratorDispatch(params: {
+  id: string;
+  status: NonNullable<SelfImprovementProposal["curatorDispatch"]>["status"];
+  attempts?: number;
+  lastAttemptAt?: number;
+  nextAttemptAt?: number;
+  error?: string;
+  stateDir?: string;
+  storePath?: string;
+  now?: number;
+}): Promise<SelfImprovementProposal | null> {
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStore(storePath, stateDir);
+    const now = params.now ?? Date.now();
+    let updated: SelfImprovementProposal | null = null;
+    const proposals = file.proposals.map((proposal) => {
+      if (proposal.id !== params.id.trim() || proposal.kind !== "memory_skill") {
+        return proposal;
+      }
+      const attempts = Math.max(
+        0,
+        Math.floor(params.attempts ?? proposal.curatorDispatch?.attempts ?? 0),
+      );
+      const error = sanitizeRecommendationText(params.error, 240);
+      updated = {
+        ...proposal,
+        updatedAt: now,
+        curatorDispatch: {
+          status: params.status,
+          attempts,
+          ...(params.lastAttemptAt !== undefined ? { lastAttemptAt: params.lastAttemptAt } : {}),
+          ...(params.nextAttemptAt !== undefined ? { nextAttemptAt: params.nextAttemptAt } : {}),
+          ...(error ? { error } : {}),
+        },
       };
       return updated;
     });
