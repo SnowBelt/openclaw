@@ -759,6 +759,7 @@ export async function resolveCustomRuntimeUpdatePolicy(
     launchAgentPath: guardLaunchAgentPath,
     label: guardLabel,
     programArguments: [
+      "/bin/sh",
       nonEmptyString(env.OPENCLAW_GATEWAY_ENV_WRAPPER) ??
         path.join(
           homedir,

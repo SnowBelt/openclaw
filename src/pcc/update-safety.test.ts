@@ -97,7 +97,7 @@ describe("PCC update safety", () => {
 <plist version="1.0"><dict>
 <key>Label</key><string>ai.openclaw.custom-runtime.guard</string>
 <key>ProgramArguments</key><array>
-<string>${gatewayEnvWrapperPath}</string><string>${gatewayEnvFilePath}</string><string>${guardExecutablePath}</string>
+<string>/bin/sh</string><string>${gatewayEnvWrapperPath}</string><string>${gatewayEnvFilePath}</string><string>${guardExecutablePath}</string>
 </array></dict></plist>\n`,
     );
     const sourceRoot = path.join(homedir, "source");
