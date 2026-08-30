@@ -359,7 +359,7 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     writePlist(gatewayPlist, [launcher, "gateway"]);
     writePlist(
       guardPlist,
-      [gatewayEnvWrapper, gatewayEnvFile, guardExecutable],
+      ["/bin/sh", gatewayEnvWrapper, gatewayEnvFile, guardExecutable],
       "ai.openclaw.custom-runtime.guard",
     );
     const env = {
