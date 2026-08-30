@@ -67,6 +67,17 @@ function readRuntimeSha(runtimeRoot: string): string | null {
   }
 }
 
+function resolveArtifactDirectory(defaultRoot: string): string {
+  const explicit = process.env.OPENCLAW_PCC_PROOF_OUTPUT_DIR?.trim();
+  const artifactDir = path.resolve(explicit || path.join(defaultRoot, "candidate-browser-proof"));
+  fs.mkdirSync(artifactDir, { recursive: true, mode: 0o700 });
+  const stat = fs.lstatSync(artifactDir);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
+    throw new Error("candidate browser proof output directory must be a private regular directory");
+  }
+  return artifactDir;
+}
+
 function resolveRuntimeRoot(expectedSha: string): string {
   const explicit = process.env.OPENCLAW_PCC_PROOF_RUNTIME_ROOT?.trim();
   if (explicit) {
@@ -196,8 +207,7 @@ async function main(): Promise<void> {
     env: { OPENCLAW_PCC_LIVE_E2E_PLAN_FIXTURE: "1" },
     config: { gateway: { controlUi: { enabled: true } } },
   });
-  const artifactDir = path.join(instance.state.root, "candidate-browser-proof");
-  fs.mkdirSync(artifactDir, { recursive: true, mode: 0o700 });
+  const artifactDir = resolveArtifactDirectory(instance.state.root);
   const dashboardUrl = `http://127.0.0.1:${instance.port}/pcc#token=${encodeURIComponent(instance.gatewayToken)}`;
   try {
     await instance.startGateway();
@@ -234,6 +244,16 @@ async function main(): Promise<void> {
 
 function runSelfTest(): void {
   assertNoTokenLeak(redact("http://127.0.0.1:18789/pcc#token=secret-token-123456"));
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".pcc-proof-self-test-"));
+  try {
+    fs.chmodSync(root, 0o700);
+    const artifactDir = resolveArtifactDirectory(root);
+    if (artifactDir !== path.resolve(root, "candidate-browser-proof")) {
+      throw new Error("candidate browser proof output directory self-test failed");
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
   console.log("PCC isolated candidate browser proof self-test passed");
 }
 

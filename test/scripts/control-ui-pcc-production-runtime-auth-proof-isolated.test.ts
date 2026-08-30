@@ -16,5 +16,7 @@ describe("isolated PCC candidate browser proof", () => {
     expect(source).toContain(
       'scriptPath: path.join(\n        repoRoot,\n        "scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts",',
     );
+    expect(source).toContain("OPENCLAW_PCC_PROOF_OUTPUT_DIR");
+    expect(source).toContain("resolveArtifactDirectory(instance.state.root)");
   });
 });
