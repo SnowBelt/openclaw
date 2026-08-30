@@ -71,6 +71,25 @@ function formatStatus(status: PatternLabDashboardSnapshot["status"] | undefined)
   return status === "private-upload-ready" ? "Private Upload Ready" : "Owner Review Required";
 }
 
+function formatSystemState(
+  state: PatternLabDashboardSnapshot["systemCertification"]["state"],
+): string {
+  switch (state) {
+    case "certified":
+      return "System Ready";
+    case "stale":
+      return "Certification Stale";
+    case "missing":
+      return "Certification Missing";
+    default:
+      return "Certification Blocked";
+  }
+}
+
+function shortIdentity(value: string | null): string {
+  return value ? value.slice(0, 12) : "not certified";
+}
+
 function renderMetric(label: string, value: string, detail: string) {
   return html`
     <div class="pattern-lab-metric">
@@ -171,6 +190,10 @@ export function renderPatternLabDashboard(props: PatternLabDashboardProps) {
   const loaded = props.lastFetchAt
     ? new Date(props.lastFetchAt).toLocaleTimeString()
     : "not loaded";
+  const certification = snapshot?.systemCertification;
+  const certifiedAt = certification?.generatedAt
+    ? new Date(certification.generatedAt).toLocaleString()
+    : "not certified";
   return html`
     <style>
       .pattern-lab-dashboard {
@@ -522,8 +545,10 @@ export function renderPatternLabDashboard(props: PatternLabDashboardProps) {
           </p>
         </div>
         <aside class="pattern-lab-status-card">
-          <span>Current state</span>
-          <b>${formatStatus(snapshot?.status)}</b>
+          <span>System certification</span>
+          <b>${certification ? formatSystemState(certification.state) : "Loading"}</b>
+          <span>Operational: ${certification?.operationalStatus ?? "blocked"}</span>
+          <span>Package review: ${formatStatus(snapshot?.status)}</span>
           <span>Generated: ${generated}</span>
           <span>Loaded: ${loaded}</span>
           <span>Public publish: blocked until explicit owner approval</span>
@@ -535,6 +560,56 @@ export function renderPatternLabDashboard(props: PatternLabDashboardProps) {
         ? renderSkeleton(props)
         : html`
             <div class="pattern-lab-grid">
+              <section class="pattern-lab-panel pattern-lab-panel--wide">
+                <div class="pattern-lab-topline">
+                  <div>
+                    <h2>System Certification</h2>
+                    <p class="pattern-lab-path">${snapshot.systemCertification.receiptPath}</p>
+                  </div>
+                  <b>${formatSystemState(snapshot.systemCertification.state)}</b>
+                </div>
+                <div class="pattern-lab-metrics">
+                  ${renderMetric(
+                    "System ready",
+                    snapshot.systemCertification.systemReady ? "Yes" : "No",
+                    "current canonical proof",
+                  )}
+                  ${renderMetric(
+                    "Operational",
+                    snapshot.systemCertification.operationalStatus === "awaiting_owner"
+                      ? "Awaiting Owner"
+                      : "Blocked",
+                    "safe city-neutral state",
+                  )}
+                  ${renderMetric(
+                    "Draw Things",
+                    snapshot.systemCertification.drawThingsCertified ? "Certified" : "Unproven",
+                    "candidate-bound canary v2",
+                  )}
+                  ${renderMetric(
+                    "Preservation",
+                    snapshot.systemCertification.preservationCertified ? "Verified" : "Unproven",
+                    "unrelated dirty state",
+                  )}
+                </div>
+                <p>
+                  <b>Runtime:</b> ${snapshot.systemCertification.activeReleaseId ?? "not certified"}
+                  · <b>Source:</b> ${shortIdentity(snapshot.systemCertification.activeSourceSha)} ·
+                  <b>Closure:</b>
+                  ${shortIdentity(snapshot.systemCertification.runtimeClosureSha256)}
+                </p>
+                <p><b>Certified:</b> ${certifiedAt}</p>
+                ${snapshot.systemCertification.blockers.length > 0
+                  ? html`
+                      <ul class="pattern-lab-blockers">
+                        ${snapshot.systemCertification.blockers.map(
+                          (blocker) => html`<li>${blocker}</li>`,
+                        )}
+                      </ul>
+                    `
+                  : html`<p>Current runtime, Draw Things, and preservation proofs all match.</p>`}
+              </section>
+
               <section class="pattern-lab-panel pattern-lab-panel--two-thirds">
                 <div class="pattern-lab-topline">
                   <div>

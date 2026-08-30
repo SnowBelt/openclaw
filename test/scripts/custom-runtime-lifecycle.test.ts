@@ -210,6 +210,76 @@ afterEach(() => {
 });
 
 describe("custom runtime lifecycle", () => {
+  it("requires explicit approval identity before activation lock acquisition", () => {
+    const root = createRoot("openclaw-lifecycle-approval-required-");
+    const runtimeHome = path.join(root, "runtime-home");
+    const sourceSha = "a".repeat(40);
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. ${JSON.stringify(path.resolve("scripts/custom-runtime/custom-runtime-auth.sh"))}; custom_runtime_lifecycle_begin ${JSON.stringify(runtimeHome)} activation ${sourceSha} ${sourceSha}`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_ACTOR: "test-operator",
+          OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID: "test:activation",
+          OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "",
+        },
+      },
+    );
+
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain(
+      "approval identity is required before lifecycle lock acquisition",
+    );
+    expect(fs.existsSync(path.join(runtimeHome, "locks", "lifecycle.lock"))).toBe(false);
+  });
+
+  it("carries an explicit approval identity through provenance and finish", () => {
+    const root = createRoot("openclaw-lifecycle-explicit-approval-");
+    const runtimeHome = path.join(root, "runtime-home");
+    const sourceSha = "b".repeat(40);
+    const approvalId = "c".repeat(64);
+    const authScript = path.resolve("scripts/custom-runtime/custom-runtime-auth.sh");
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        [
+          `OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_ACTOR=test-operator`,
+          `OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID=test:activation`,
+          `OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID=${approvalId}`,
+          "export OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_ACTOR OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID",
+          `. ${JSON.stringify(authScript)}`,
+          `custom_runtime_lifecycle_begin ${JSON.stringify(runtimeHome)} activation ${sourceSha} ${sourceSha}`,
+          `custom_runtime_lifecycle_refresh_provenance ${JSON.stringify(runtimeHome)} ${sourceSha} ${sourceSha}`,
+          `custom_runtime_lifecycle_finish ${JSON.stringify(runtimeHome)} activated 0`,
+        ].join("; "),
+      ],
+      { encoding: "utf8", env: { ...process.env } },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(fs.existsSync(path.join(runtimeHome, "locks", "lifecycle.lock"))).toBe(false);
+    const receipts = fs.readdirSync(path.join(runtimeHome, "receipts"));
+    expect(receipts).toHaveLength(1);
+    const receipt = JSON.parse(
+      fs.readFileSync(path.join(runtimeHome, "receipts", receipts[0] ?? ""), "utf8"),
+    ) as Record<string, unknown>;
+    expect(receipt).toMatchObject({
+      approvalId,
+      result: "activated",
+      exitCode: 0,
+      activeSha: sourceSha,
+      candidateSha: sourceSha,
+      operationId: "test:activation",
+    });
+  });
+
   it("blocks lifecycle mutation when exact-SHA governance evidence is missing", () => {
     const root = createRoot("openclaw-release-governor-deny-");
     const release = path.join(root, "release");
@@ -1630,6 +1700,7 @@ describe("custom runtime lifecycle", () => {
       const previousFiles = new Map<string, string>();
       const candidateFiles = new Map<string, string>();
 
+      writeCandidateContracts(release, sourceSha);
       writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
       for (const file of controlPlaneFiles) {
         const oldText =

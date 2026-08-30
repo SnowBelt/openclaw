@@ -47,7 +47,6 @@ else
 fi
 
 mkdir -p "$runtime_home/backups" "$runtime_home/locks" "$runtime_home/receipts"
-custom_runtime_lifecycle_begin "$runtime_home" rollback "" ""
 lifecycle_result=rollback-failed
 cleanup_rollback() {
   status=$?
@@ -55,10 +54,6 @@ cleanup_rollback() {
   custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
   exit "$status"
 }
-trap cleanup_rollback EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 receipt="$runtime_home/receipts/custom-runtime-rollback-$timestamp.json"
 write_receipt() {
@@ -151,6 +146,11 @@ bundle=$(printf '%s\n' "$rollback_identity" | sed -n '1p')
 candidate_source_sha=$(printf '%s\n' "$rollback_identity" | sed -n '2p')
 candidate_runtime_root=$(printf '%s\n' "$rollback_identity" | sed -n '3p')
 custom_runtime_require_release_governance rollback "$candidate_source_sha" "$candidate_runtime_root"
+custom_runtime_lifecycle_begin "$runtime_home" rollback \
+  "$candidate_source_sha" "$candidate_source_sha"
+trap cleanup_rollback EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 custom_runtime_lifecycle_refresh_provenance "$runtime_home" \
   "$candidate_source_sha" "$candidate_source_sha"
 if [ "$verify_only" = false ]; then

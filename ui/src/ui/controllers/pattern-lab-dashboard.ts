@@ -31,6 +31,22 @@ export type PatternLabPerformanceCard = {
   why: string;
 };
 
+export type PatternLabSystemCertification = {
+  state: "certified" | "blocked" | "stale" | "missing";
+  systemReady: boolean;
+  operationalStatus: "awaiting_owner" | "blocked";
+  generatedAt: string | null;
+  receiptPath: string;
+  receiptSha256: string | null;
+  activeReleaseId: string | null;
+  activeSourceSha: string | null;
+  runtimeClosureSha256: string | null;
+  drawThingsCertified: boolean;
+  preservationCertified: boolean;
+  failedChecks: string[];
+  blockers: string[];
+};
+
 export type PatternLabDashboardSnapshot = {
   generatedAt: string;
   videoId: string;
@@ -64,6 +80,7 @@ export type PatternLabDashboardSnapshot = {
     requiredExports: string[];
     decisionLabels: string[];
   };
+  systemCertification: PatternLabSystemCertification;
   nextActions: string[];
 };
 

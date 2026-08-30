@@ -10,6 +10,10 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_VIDEO_ID = "01";
 export const PATTERN_LAB_MEDIA_ROUTE_PREFIX = "/__openclaw__/pattern-lab-media";
 const PATTERN_LAB_YOUTUBE_ROOT_ENV = "OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT";
+const PATTERN_LAB_SYSTEM_CERTIFICATION_RELATIVE_PATH =
+  "local-output/operations/system-certification-current.json";
+const CUSTOM_RUNTIME_POINTER_ENV = "OPENCLAW_CUSTOM_RUNTIME_POINTER";
+const MAX_SYSTEM_CERTIFICATION_BYTES = 16 * 1024 * 1024;
 const FFMPEG_DURATION_EXTENSIONS = new Set([".mp3", ".mp4", ".mov", ".m4a"]);
 const PUBLIC_MEDIA_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".mp3", ".mp4"]);
 const FFPROBE_CANDIDATES = ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "ffprobe"];
@@ -58,6 +62,22 @@ export type PatternLabPerformanceState = {
   commentsSignalSummary: string;
   requiredExports: string[];
   decisionLabels: string[];
+};
+
+export type PatternLabSystemCertification = {
+  state: "certified" | "blocked" | "stale" | "missing";
+  systemReady: boolean;
+  operationalStatus: "awaiting_owner" | "blocked";
+  generatedAt: string | null;
+  receiptPath: string;
+  receiptSha256: string | null;
+  activeReleaseId: string | null;
+  activeSourceSha: string | null;
+  runtimeClosureSha256: string | null;
+  drawThingsCertified: boolean;
+  preservationCertified: boolean;
+  failedChecks: string[];
+  blockers: string[];
 };
 
 export type PatternLabReadinessStep = {
@@ -117,6 +137,7 @@ export type PatternLabDashboardSnapshot = {
     readinessReport: PatternLabFileInfo;
   };
   performance: PatternLabPerformanceState;
+  systemCertification: PatternLabSystemCertification;
   nextActions: string[];
 };
 
@@ -134,6 +155,158 @@ const ffprobeDurationCache = new Map<
 
 function utcNow(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function sha256File(filePath: string): string {
+  const digest = crypto.createHash("sha256");
+  const descriptor = fs.openSync(filePath, fs.constants.O_RDONLY);
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let bytesRead = 0;
+    while ((bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null)) > 0) {
+      digest.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  return digest.digest("hex");
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? [...value] : [];
+}
+
+function defaultSystemCertification(
+  receiptPath: string,
+  state: PatternLabSystemCertification["state"],
+  blocker: string,
+): PatternLabSystemCertification {
+  return {
+    state,
+    systemReady: false,
+    operationalStatus: "blocked",
+    generatedAt: null,
+    receiptPath,
+    receiptSha256: null,
+    activeReleaseId: null,
+    activeSourceSha: null,
+    runtimeClosureSha256: null,
+    drawThingsCertified: false,
+    preservationCertified: false,
+    failedChecks: [],
+    blockers: [blocker],
+  };
+}
+
+function readPatternLabSystemCertification(youtubeRoot: string): PatternLabSystemCertification {
+  const receiptPath = path.join(youtubeRoot, PATTERN_LAB_SYSTEM_CERTIFICATION_RELATIVE_PATH);
+  if (!fs.existsSync(receiptPath)) {
+    return defaultSystemCertification(
+      receiptPath,
+      "missing",
+      "Current system certification is missing.",
+    );
+  }
+  try {
+    const receiptInfo = fs.lstatSync(receiptPath);
+    if (
+      !receiptInfo.isFile() ||
+      receiptInfo.isSymbolicLink() ||
+      receiptInfo.size <= 0 ||
+      receiptInfo.size > MAX_SYSTEM_CERTIFICATION_BYTES
+    ) {
+      return defaultSystemCertification(
+        receiptPath,
+        "blocked",
+        "Current system certification receipt is unsafe.",
+      );
+    }
+    const receipt = jsonRecord(JSON.parse(fs.readFileSync(receiptPath, "utf8")));
+    if (!receipt || receipt.schema !== "patternlab.system-certification.v1") {
+      return defaultSystemCertification(
+        receiptPath,
+        "blocked",
+        "Current system certification schema is invalid.",
+      );
+    }
+    const identity = jsonRecord(receipt.active_runtime) ?? {};
+    const checks = Array.isArray(receipt.checks)
+      ? receipt.checks.map(jsonRecord).filter((row): row is Record<string, unknown> => row !== null)
+      : [];
+    const checkPassed = (name: string) =>
+      checks.some((row) => row.name === name && row.status === "pass");
+    const pointerPath = path.resolve(
+      process.env[CUSTOM_RUNTIME_POINTER_ENV]?.trim() ||
+        path.join(process.env.HOME || "", ".openclaw-custom-runtime", "active-runtime.json"),
+    );
+    const pointerInfo = fs.lstatSync(pointerPath);
+    if (!pointerInfo.isFile() || pointerInfo.isSymbolicLink()) {
+      return defaultSystemCertification(
+        receiptPath,
+        "stale",
+        "Active runtime pointer is unavailable for certification verification.",
+      );
+    }
+    const pointer = jsonRecord(JSON.parse(fs.readFileSync(pointerPath, "utf8")));
+    const activeReleaseId = typeof identity.release_id === "string" ? identity.release_id : null;
+    const activeSourceSha = typeof identity.source_sha === "string" ? identity.source_sha : null;
+    const runtimeClosureSha256 =
+      typeof identity.runtime_closure_sha256 === "string" ? identity.runtime_closure_sha256 : null;
+    const currentIdentity =
+      pointer?.releaseId === activeReleaseId && pointer?.sourceSha === activeSourceSha;
+    const failedChecks = stringArray(receipt.failed_checks);
+    const contractPassed =
+      receipt.status === "pass" &&
+      receipt.system_ready === true &&
+      receipt.operational_status === "awaiting_owner" &&
+      failedChecks.length === 0 &&
+      checks.length > 0 &&
+      checks.every((row) => row.status === "pass");
+    const drawThingsCertified = checkPassed("draw_things_generation_certification");
+    const preservationCertified = checkPassed("unrelated_dirty_state_exact_preservation");
+    const blockers: string[] = [];
+    if (!currentIdentity) {
+      blockers.push("System certification does not match the active runtime.");
+    }
+    if (!contractPassed) {
+      blockers.push("System certification has one or more failed checks.");
+    }
+    if (!drawThingsCertified) {
+      blockers.push("Draw Things candidate certification is not current.");
+    }
+    if (!preservationCertified) {
+      blockers.push("Unrelated-state preservation proof is not current.");
+    }
+    const certified =
+      currentIdentity && contractPassed && drawThingsCertified && preservationCertified;
+    return {
+      state: certified ? "certified" : currentIdentity ? "blocked" : "stale",
+      systemReady: certified,
+      operationalStatus: certified ? "awaiting_owner" : "blocked",
+      generatedAt: typeof receipt.generated_at === "string" ? receipt.generated_at : null,
+      receiptPath,
+      receiptSha256: sha256File(receiptPath),
+      activeReleaseId,
+      activeSourceSha,
+      runtimeClosureSha256,
+      drawThingsCertified,
+      preservationCertified,
+      failedChecks,
+      blockers,
+    };
+  } catch {
+    return defaultSystemCertification(
+      receiptPath,
+      "blocked",
+      "Current system certification could not be verified.",
+    );
+  }
 }
 
 function pushUniquePath(candidates: string[], candidate: string) {
@@ -704,6 +877,7 @@ export async function loadPatternLabDashboardSnapshot(params?: {
     readinessSteps: steps,
     media,
     performance: buildPerformanceState(youtubeRoot, outputRoot, videoId),
+    systemCertification: readPatternLabSystemCertification(youtubeRoot),
     nextActions: [
       "Review long-form draft on phone speaker.",
       "Review all three Shorts for hook strength and crop quality.",
@@ -875,6 +1049,7 @@ export const patternLabDashboardDataTesting = {
   reviewStatusForAction,
   normalizeMediaPath,
   collectPatternLabYoutubeRootCandidates,
+  readPatternLabSystemCertification,
   patternLabYoutubeRootMissingMessage,
   resetPatternLabYoutubeRootCacheForTests,
 };

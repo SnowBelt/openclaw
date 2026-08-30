@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -40,6 +40,107 @@ describe("Pattern Lab dashboard data helpers", () => {
     expect(message).toContain("OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT");
     expect(message).toContain("OpenClaw repo root");
     expect(message).not.toContain("/Users/");
+  });
+
+  it("accepts only a passing system certification bound to the active runtime", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "openclaw-pattern-lab-cert-"));
+    const youtubeRoot = path.join(root, "youtube-v1");
+    const operations = path.join(youtubeRoot, "local-output", "operations");
+    const pointer = path.join(root, "active-runtime.json");
+    const previousPointer = process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER;
+    mkdirSync(operations, { recursive: true });
+    writeFileSync(
+      pointer,
+      `${JSON.stringify({ releaseId: "release-r2", sourceSha: "a".repeat(40) })}\n`,
+    );
+    writeFileSync(
+      path.join(operations, "system-certification-current.json"),
+      `${JSON.stringify({
+        schema: "patternlab.system-certification.v1",
+        generated_at: "2026-08-30T18:00:00Z",
+        status: "pass",
+        system_ready: true,
+        operational_status: "awaiting_owner",
+        active_runtime: {
+          release_id: "release-r2",
+          source_sha: "a".repeat(40),
+          runtime_closure_sha256: "b".repeat(64),
+        },
+        checks: [
+          { name: "draw_things_generation_certification", status: "pass" },
+          { name: "unrelated_dirty_state_exact_preservation", status: "pass" },
+        ],
+        failed_checks: [],
+      })}\n`,
+    );
+    process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER = pointer;
+    try {
+      expect(
+        patternLabDashboardDataTesting.readPatternLabSystemCertification(youtubeRoot),
+      ).toMatchObject({
+        state: "certified",
+        systemReady: true,
+        operationalStatus: "awaiting_owner",
+        activeReleaseId: "release-r2",
+        drawThingsCertified: true,
+        preservationCertified: true,
+        blockers: [],
+      });
+    } finally {
+      if (previousPointer === undefined) {
+        delete process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER;
+      } else {
+        process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER = previousPointer;
+      }
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  it("marks a passing receipt stale after active runtime drift", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "openclaw-pattern-lab-stale-cert-"));
+    const youtubeRoot = path.join(root, "youtube-v1");
+    const operations = path.join(youtubeRoot, "local-output", "operations");
+    const pointer = path.join(root, "active-runtime.json");
+    const previousPointer = process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER;
+    mkdirSync(operations, { recursive: true });
+    writeFileSync(
+      pointer,
+      `${JSON.stringify({ releaseId: "release-r3", sourceSha: "c".repeat(40) })}\n`,
+    );
+    writeFileSync(
+      path.join(operations, "system-certification-current.json"),
+      `${JSON.stringify({
+        schema: "patternlab.system-certification.v1",
+        generated_at: "2026-08-30T18:00:00Z",
+        status: "pass",
+        system_ready: true,
+        operational_status: "awaiting_owner",
+        active_runtime: {
+          release_id: "release-r2",
+          source_sha: "a".repeat(40),
+          runtime_closure_sha256: "b".repeat(64),
+        },
+        checks: [
+          { name: "draw_things_generation_certification", status: "pass" },
+          { name: "unrelated_dirty_state_exact_preservation", status: "pass" },
+        ],
+        failed_checks: [],
+      })}\n`,
+    );
+    process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER = pointer;
+    try {
+      const result = patternLabDashboardDataTesting.readPatternLabSystemCertification(youtubeRoot);
+      expect(result.state).toBe("stale");
+      expect(result.systemReady).toBe(false);
+      expect(result.blockers).toContain("System certification does not match the active runtime.");
+    } finally {
+      if (previousPointer === undefined) {
+        delete process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER;
+      } else {
+        process.env.OPENCLAW_CUSTOM_RUNTIME_POINTER = previousPointer;
+      }
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 
   it("parses quoted CSV rows for rights-ledger values", () => {

@@ -28,7 +28,6 @@ done
 case "$port" in ''|*[!0-9]*) usage ;; esac
 
 mkdir -p "$runtime_home/locks" "$runtime_home/receipts"
-custom_runtime_lifecycle_begin "$runtime_home" restart "" ""
 lifecycle_result=restart-failed
 summary=
 cleanup_restart() {
@@ -38,10 +37,6 @@ cleanup_restart() {
   custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
   exit "$status"
 }
-trap cleanup_restart EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 receipt="$runtime_home/receipts/restart-$timestamp.json"
 write_receipt() {
@@ -81,6 +76,10 @@ runtime_release_id=$(printf '%s\n' "$identity" | sed -n '2p')
 runtime_source_sha=$(printf '%s\n' "$identity" | sed -n '3p')
 
 custom_runtime_require_release_governance restart "$runtime_source_sha" "$runtime_root"
+custom_runtime_lifecycle_begin "$runtime_home" restart "$runtime_source_sha" "$runtime_source_sha"
+trap cleanup_restart EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 custom_runtime_lifecycle_refresh_provenance "$runtime_home" \
   "$runtime_source_sha" "$runtime_source_sha"
 custom_runtime_certification_lease verify-restart "$runtime_home" \

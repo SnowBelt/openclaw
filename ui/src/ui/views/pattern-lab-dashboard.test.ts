@@ -68,6 +68,21 @@ function snapshot(): PatternLabDashboardSnapshot {
       requiredExports: [],
       decisionLabels: ["double_down"],
     },
+    systemCertification: {
+      state: "certified",
+      systemReady: true,
+      operationalStatus: "awaiting_owner",
+      generatedAt: "2026-08-30T18:00:00Z",
+      receiptPath: "youtube-v1/local-output/operations/system-certification-current.json",
+      receiptSha256: "a".repeat(64),
+      activeReleaseId: "20260830T-patternlab-cert-aaed1e-r2",
+      activeSourceSha: "a".repeat(40),
+      runtimeClosureSha256: "b".repeat(64),
+      drawThingsCertified: true,
+      preservationCertified: true,
+      failedChecks: [],
+      blockers: [],
+    },
     nextActions: ["Review long-form draft on phone speaker."],
   };
 }
@@ -95,6 +110,9 @@ describe("renderPatternLabDashboard", () => {
 
     expect(container.textContent).toContain("Pattern Lab");
     expect(container.textContent).toContain("Patterns. Criteria. Proof.");
+    expect(container.textContent).toContain("System Ready");
+    expect(container.textContent).toContain("Awaiting Owner");
+    expect(container.textContent).toContain("Draw Things");
     expect(container.textContent).toContain("Public publish: blocked");
     expect(container.querySelector("iframe")).toBeNull();
 

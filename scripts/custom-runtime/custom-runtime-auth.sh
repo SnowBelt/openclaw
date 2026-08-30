@@ -835,11 +835,10 @@ os.chmod(receipts_dir, 0o700)
 resolved_active_sha = resolve_sha(active_sha, pointer_path, "active runtime pointer")
 resolved_candidate_sha = resolve_sha(candidate_sha, lease_path, "certification lease")
 actor = actor or getpass.getuser()
-approval_id = approval_id or (
-    "not-required:guard-health"
-    if operation == "guard"
-    else "pending:release-governor-verification"
-)
+if not approval_id and operation == "guard":
+    approval_id = "not-required:guard-health"
+if not approval_id:
+    fail("approval identity is required before lifecycle lock acquisition", 78)
 operation_id = operation_id or f"custom-runtime:{operation}"
 invocation_id = invocation_id or f"{operation}-{secrets.token_hex(16)}"
 try:

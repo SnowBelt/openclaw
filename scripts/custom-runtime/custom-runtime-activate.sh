@@ -71,6 +71,8 @@ stamp_file="$release/.openclaw-production-sha"
 }
 
 mkdir -p "$runtime_home/backups" "$runtime_home/bin" "$runtime_home/locks" "$runtime_home/receipts"
+stage_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_STAGE_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
+promotion_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_PROMOTION_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
 active_source_sha=
 if [ -f "$runtime_home/active-runtime.json" ]; then
   active_source_sha=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
@@ -86,6 +88,13 @@ print(source_sha)
 PY
   ) || exit 64
 fi
+if [ -n "$active_source_sha" ]; then
+  OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$promotion_policy_migration" \
+    custom_runtime_require_release_governance promotion "$source_sha" "$release"
+else
+  OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION= \
+    custom_runtime_require_release_governance promotion "$source_sha" "$release"
+fi
 custom_runtime_lifecycle_begin "$runtime_home" activation "$active_source_sha" "$source_sha"
 custom_runtime_certification_lease verify-activation "$runtime_home" \
   "$active_source_sha" "$source_sha" "" "" "" "" "" "" ""
@@ -96,9 +105,6 @@ mkdir "$backup"
 control_installed=false
 committed=false
 rollback_attempted=false
-stage_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_STAGE_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
-promotion_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_PROMOTION_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
-
 restore_control_plane() {
   for file in $managed_files; do
     if [ -f "$backup/$file" ]; then
