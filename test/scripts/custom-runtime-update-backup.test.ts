@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -43,6 +44,7 @@ function writeGatewayPlist(
 
 function fixture(): {
   runtimeHome: string;
+  runtimeRoot: string;
   externalRoot: string;
   sourceSha: string;
   homedir: string;
@@ -125,7 +127,15 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
       sourceProvenance: { recordPath, bundlePath },
     })}\n`,
   );
-  return { runtimeHome, externalRoot, sourceSha, homedir, payload, allowTestDirectory: true };
+  return {
+    runtimeHome,
+    runtimeRoot,
+    externalRoot,
+    sourceSha,
+    homedir,
+    payload,
+    allowTestDirectory: true,
+  };
 }
 
 afterEach(() => {
@@ -135,6 +145,83 @@ afterEach(() => {
 });
 
 describe("custom runtime update backup", () => {
+  it("starts from the installed control-plane directory without colocated dependencies", () => {
+    const base = root("openclaw-update-backup-installed-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const installed = path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs");
+    fs.mkdirSync(path.dirname(installed), { recursive: true });
+    fs.copyFileSync(
+      path.resolve("scripts/custom-runtime/custom-runtime-update-backup.mjs"),
+      installed,
+    );
+
+    const result = spawnSync(process.execPath, [installed], {
+      cwd: base,
+      encoding: "utf8",
+      env: { ...process.env, NODE_PATH: "" },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("command must be configure, create, or verify");
+    expect(result.stderr).not.toContain("ERR_MODULE_NOT_FOUND");
+  });
+
+  it("loads tar from the active immutable runtime when installed", () => {
+    const value = fixture();
+    const installed = path.join(value.runtimeHome, "bin", "custom-runtime-update-backup.mjs");
+    fs.copyFileSync(
+      path.resolve("scripts/custom-runtime/custom-runtime-update-backup.mjs"),
+      installed,
+    );
+    writeFile(path.join(value.runtimeRoot, "package.json"), '{"type":"module"}\n');
+    writeFile(
+      path.join(value.runtimeRoot, "node_modules", "tar", "package.json"),
+      '{"main":"index.cjs"}\n',
+    );
+    writeFile(
+      path.join(value.runtimeRoot, "node_modules", "tar", "index.cjs"),
+      [
+        'const { execFileSync } = require("node:child_process");',
+        "exports.t = ({ file, onReadEntry }) => {",
+        '  const output = execFileSync("tar", ["-tzf", file], { encoding: "utf8" });',
+        '  for (const entry of output.split("\\n").filter(Boolean)) onReadEntry({ path: entry });',
+        "};",
+        "exports.x = ({ file, cwd }) => {",
+        '  execFileSync("tar", ["-xzf", file, "-C", cwd]);',
+        "};",
+        "",
+      ].join("\n"),
+    );
+    const options = JSON.stringify({
+      runtimeHome: value.runtimeHome,
+      externalRoot: value.externalRoot,
+      homedir: value.homedir,
+      allowTestDirectory: true,
+    });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        "const module = await import(process.argv[1]); const value = await module.createBackup(JSON.parse(process.argv[2])); process.stdout.write(JSON.stringify(value));",
+        `file://${installed}`,
+        options,
+      ],
+      {
+        cwd: path.dirname(value.runtimeHome),
+        encoding: "utf8",
+        env: { ...process.env, NODE_PATH: "" },
+      },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      result: "passed",
+      backupVerified: true,
+      restoreDrill: { result: "passed" },
+    });
+  });
+
   it("persists a verified one-time external backup destination", () => {
     const value = fixture();
     fs.rmSync(path.join(value.runtimeHome, "update-safety.json"));

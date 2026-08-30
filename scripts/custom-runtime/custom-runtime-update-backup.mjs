@@ -4,11 +4,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { pathToFileURL } from "node:url";
-import * as tar from "tar";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v2";
 const CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v1";
@@ -286,6 +286,28 @@ function isPathWithin(childPath, parentPath) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
 }
 
+function loadTar(runtimeHome, runtimeRoot) {
+  const modulePath = fs.realpathSync(fileURLToPath(import.meta.url));
+  const installedBin = path.join(fs.realpathSync(runtimeHome), "bin");
+  if (!isPathWithin(modulePath, installedBin)) {
+    return createRequire(import.meta.url)("tar");
+  }
+
+  const packagePath = path.join(runtimeRoot, "package.json");
+  regularFile(packagePath, "active runtime package manifest");
+  const runtimeRequire = createRequire(packagePath);
+  let entrypoint;
+  try {
+    entrypoint = fs.realpathSync(runtimeRequire.resolve("tar"));
+  } catch {
+    return fail("active runtime tar dependency is unavailable");
+  }
+  if (!isPathWithin(entrypoint, runtimeRoot)) {
+    fail("active runtime tar dependency escaped the immutable release");
+  }
+  return runtimeRequire("tar");
+}
+
 function estimateExternalCanonicalSqliteBytes(assets, sourcePaths) {
   const stateAsset = assets.find(
     (asset) => isRecord(asset) && asset.kind === "state" && typeof asset.sourcePath === "string",
@@ -323,7 +345,7 @@ function validateArchiveEntries(entries) {
   }
 }
 
-function rehearseRestore(archivePath) {
+function rehearseRestore(archivePath, tar) {
   const restoreRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-update-restore-drill-"));
   try {
     const entries = [];
@@ -474,7 +496,7 @@ function resolveRequiredControlPlaneEvidence(
   return required;
 }
 
-function createControlPlaneBundle({ required, pointer, externalDirectory }) {
+function createControlPlaneBundle({ required, pointer, externalDirectory, tar }) {
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-control-plane-backup-"));
   try {
     const files = required.map((entry, index) => {
@@ -506,7 +528,7 @@ function createControlPlaneBundle({ required, pointer, externalDirectory }) {
       fail(`control-plane archive failed: ${archived.stderr || archived.error}`);
     }
     syncFile(bundlePath);
-    const rehearsal = rehearseRestore(bundlePath);
+    const rehearsal = rehearseRestore(bundlePath, tar);
     if (rehearsal.extractedFileCount !== files.length + 1) {
       fail("control-plane recovery bundle file count is incomplete");
     }
@@ -535,8 +557,14 @@ function createBackup({
   if (!SHA_PATTERN.test(sourceSha)) {
     fail("active runtime source SHA is invalid");
   }
+  const runtimeRoot = path.resolve(String(pointer.runtimeRoot ?? ""));
+  regularDirectory(runtimeRoot, "active runtime root");
   const entrypoint = path.resolve(String(pointer.entrypoint ?? ""));
+  if (entrypoint !== path.join(runtimeRoot, "dist", "index.js")) {
+    fail("active runtime entrypoint is outside the immutable release");
+  }
   regularFile(entrypoint, "active runtime entrypoint");
+  const tar = loadTar(runtimeHome, runtimeRoot);
   const resolvedConfigFile = path.resolve(configFile);
   const resolvedStateDir = path.resolve(stateDir);
   const resolvedGatewayPlist = path.resolve(gatewayPlist);
@@ -630,7 +658,7 @@ function createBackup({
   }
   syncFile(externalArchivePath);
   const archiveSha256 = sha256File(externalArchivePath);
-  const restoreDrill = rehearseRestore(externalArchivePath);
+  const restoreDrill = rehearseRestore(externalArchivePath, tar);
   const localRoot = path.join(runtimeHome, "data-backups");
   fs.mkdirSync(localRoot, { recursive: true, mode: 0o700 });
   const archiveBytes = fs.statSync(externalArchivePath).size;
@@ -648,6 +676,7 @@ function createBackup({
     required: controlPlaneFiles,
     pointer,
     externalDirectory,
+    tar,
   });
   const receiptPath = path.join(runtimeHome, "receipts", `update-backup-${backupId}.json`);
   const receipt = {
