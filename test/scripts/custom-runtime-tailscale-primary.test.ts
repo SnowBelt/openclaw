@@ -281,6 +281,14 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     writeFile(launcher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n', 0o755);
     writeFile(primaryGuard, "#!/bin/sh\nexit 1\n", 0o755);
     writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o755);
+    const lsofProbe = path.join(fakeBin, "lsof");
+    const psProbe = path.join(fakeBin, "ps");
+    writeFile(lsofProbe, "#!/bin/sh\nprintf '%s\\n' 4242\n", 0o755);
+    writeFile(
+      psProbe,
+      `#!/bin/sh\nprintf '%s\\n' '${runtimeRoot}/dist/index.js gateway --port 18789'\n`,
+      0o755,
+    );
     writeFile(dashboardManifest, '{"buildId":"test-build","surfaces":[]}\n');
     writeFile(
       path.join(fakeBin, "curl"),
@@ -305,6 +313,8 @@ describe("custom runtime primary Tailscale continuity guard", () => {
       HOME: fixture.home,
       OPENCLAW_CUSTOM_RUNTIME_HOME: fixture.runtimeHome,
       OPENCLAW_GATEWAY_PLIST: gatewayPlist,
+      OPENCLAW_LSOF_BIN: lsofProbe,
+      OPENCLAW_PS_BIN: psProbe,
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
     };
 

@@ -14,8 +14,8 @@ export const SOURCE_PROVENANCE_MIGRATION_SCHEMA =
   "openclaw.custom-runtime-source-provenance-migration.v1";
 
 const SHA_PATTERN = /^[a-f0-9]{40,64}$/u;
-const RELEASE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/u;
 
+/** @returns {never} */
 function fail(message) {
   throw new Error(`source provenance blocked: ${message}`);
 }
@@ -46,7 +46,7 @@ function runGit(args, cwd) {
     }).trim();
   } catch (error) {
     const detail = error?.stderr?.toString("utf8") || error?.message || String(error);
-    fail(`git ${args.join(" ")} failed: ${detail.trim()}`);
+    return fail(`git ${args.join(" ")} failed: ${detail.trim()}`);
   }
 }
 
@@ -143,7 +143,7 @@ function readPrivateJson(filePath, label) {
     if (error?.message?.startsWith("source provenance blocked:")) {
       throw error;
     }
-    fail(`${label} is malformed`);
+    return fail(`${label} is malformed`);
   }
 }
 
