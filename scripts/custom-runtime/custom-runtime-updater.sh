@@ -469,7 +469,7 @@ with open(target, "w", encoding="utf-8") as f:
 PY
 "$(dirname "$0")/custom-runtime-seal.sh" --seal --release "$release" || fail release_seal
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
-  "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" "$survival_receipt" \
+  "$official_ref" "$active_sha" "$sha" "$repo" "$branch" "$survival_receipt" \
   "$survival_receipt_sha" "$verification_commands" "$backup_receipt" \
   "$backup_receipt_sha" "$github_proof_receipt" "$github_proof_receipt_sha" \
   "$gateway_plist" "$gateway_plist_sha" "$gateway_env_wrapper" \

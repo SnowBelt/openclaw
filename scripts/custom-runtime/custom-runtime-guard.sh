@@ -217,7 +217,12 @@ try:
 except (OSError, plistlib.InvalidFileException):
     raise SystemExit(1)
 arguments = value.get("ProgramArguments")
-expected = [os.path.realpath(wrapper), os.path.realpath(env_file), os.path.realpath(guard)]
+expected = [
+    os.path.realpath("/bin/sh"),
+    os.path.realpath(wrapper),
+    os.path.realpath(env_file),
+    os.path.realpath(guard),
+]
 actual = [os.path.realpath(item) for item in arguments] if isinstance(arguments, list) and all(isinstance(item, str) and item for item in arguments) else []
 raise SystemExit(0 if value.get("Label") == expected_label and actual == expected else 1)
 PY
@@ -449,6 +454,7 @@ try:
         and value.get("gatewayEnvFilePath") == os.path.realpath(gateway_env_file)
         and value.get("gatewayEnvFileSha256") == gateway_env_file_sha
         and value.get("guardProgramArguments") == [
+            os.path.realpath("/bin/sh"),
             os.path.realpath(gateway_env_wrapper),
             os.path.realpath(gateway_env_file),
             os.path.realpath(guard_executable),
@@ -520,6 +526,7 @@ try:
                 "gatewayEnvFilePath": os.path.realpath(gateway_env_file),
                 "gatewayEnvFileSha256": gateway_env_file_sha,
                 "guardProgramArguments": [
+                    os.path.realpath("/bin/sh"),
                     os.path.realpath(gateway_env_wrapper),
                     os.path.realpath(gateway_env_file),
                     os.path.realpath(guard_executable),

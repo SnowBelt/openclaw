@@ -383,6 +383,7 @@ async function readRuntimeGuardHealth(
         path.join(homedir, ".openclaw-director-state", "service-env", "ai.openclaw.gateway.env"),
     );
     const guardProgramArguments = [
+      fs.realpathSync("/bin/sh"),
       fs.realpathSync(gatewayEnvWrapperPath),
       fs.realpathSync(gatewayEnvFilePath),
       fs.realpathSync(guardExecutablePath),

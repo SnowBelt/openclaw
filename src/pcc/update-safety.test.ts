@@ -212,9 +212,12 @@ describe("PCC update safety", () => {
         gatewayEnvWrapperSha256: sha256(gatewayEnvWrapperPath),
         gatewayEnvFilePath: fs.realpathSync(gatewayEnvFilePath),
         gatewayEnvFileSha256: sha256(gatewayEnvFilePath),
-        guardProgramArguments: [gatewayEnvWrapperPath, gatewayEnvFilePath, guardExecutablePath].map(
-          (filePath) => fs.realpathSync(filePath),
-        ),
+        guardProgramArguments: [
+          "/bin/sh",
+          gatewayEnvWrapperPath,
+          gatewayEnvFilePath,
+          guardExecutablePath,
+        ].map((filePath) => fs.realpathSync(filePath)),
         provenanceSha256: sha256(provenancePath),
         provenanceRecordSha256: sha256(recordPath),
         provenanceMigrationSha256: "",

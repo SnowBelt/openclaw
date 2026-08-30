@@ -158,6 +158,7 @@ describe("custom runtime update broker", () => {
     expect(source).toContain('os.path.basename(arguments[2]) == "custom-runtime-launcher.sh"');
     expect(source).toContain("print(actual_wrapper)");
     expect(source).toContain("print(actual_file)");
+    expect(source).toContain('"$official_ref" "$active_sha" "$sha" "$repo" "$branch"');
     expect(source).toContain('"gatewayLaunchAgent": {');
     expect(source).toContain('"gatewayEnvironment": {');
   });
