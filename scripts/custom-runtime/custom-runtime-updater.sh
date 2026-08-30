@@ -66,9 +66,12 @@ if (
     and re.fullmatch(r"[0-9a-f]{40}", str(value.get("sourceSha", "")))
 ):
     verified_backup = value.get("verifiedBackup")
+    repository_proof = value.get("repositoryProof")
     if (
-        isinstance(verified_backup, dict)
-        and verified_backup.get("schema") == "openclaw.custom-runtime-update-backup.v1"
+        not isinstance(verified_backup, dict)
+        or verified_backup.get("schema") != "openclaw.custom-runtime-update-backup.v2"
+        or not isinstance(repository_proof, dict)
+        or repository_proof.get("schema") != "openclaw.custom-runtime-github-proof.v1"
     ):
         print("reprepare")
         raise SystemExit(0)

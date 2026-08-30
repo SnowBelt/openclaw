@@ -226,8 +226,15 @@ function readPreparationState(pointerPath: string): {
         verifiedBackup && typeof verifiedBackup === "object" && !Array.isArray(verifiedBackup)
           ? nonEmptyString((verifiedBackup as Record<string, unknown>).schema)
           : null;
+      const repositoryProof = pendingRecord.repositoryProof;
+      const repositoryProofSchema =
+        repositoryProof && typeof repositoryProof === "object" && !Array.isArray(repositoryProof)
+          ? nonEmptyString((repositoryProof as Record<string, unknown>).schema)
+          : null;
       pendingCandidateNeedsRepreparation =
-        readyForApproval && backupSchema === "openclaw.custom-runtime-update-backup.v1";
+        readyForApproval &&
+        (backupSchema !== "openclaw.custom-runtime-update-backup.v2" ||
+          repositoryProofSchema !== "openclaw.custom-runtime-github-proof.v1");
       approvalPending = readyForApproval && !pendingCandidateNeedsRepreparation;
       const candidateSha = nonEmptyString(pendingRecord.sourceSha);
       pendingCandidateSha =
@@ -309,7 +316,7 @@ function readPreparationState(pointerPath: string): {
             ? "failed"
             : "idle";
   if (pendingCandidateNeedsRepreparation) {
-    preparationReason = "legacy-backup-repreparation-required";
+    preparationReason = "pending-update-proof-repreparation-required";
   }
   return {
     approvalPending,

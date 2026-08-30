@@ -542,7 +542,7 @@ describe("custom runtime update policy", () => {
     expect(result.runtimeGuardHealthy).toBe(false);
   });
 
-  it("routes a legacy backup candidate back through verified preparation", async () => {
+  it("routes a candidate with legacy proof back through verified preparation", async () => {
     const value = fixture();
     fs.writeFileSync(
       path.join(path.dirname(value.pointerPath), "pending-update.json"),
@@ -566,7 +566,35 @@ describe("custom runtime update policy", () => {
       approvalPending: false,
       pendingCandidateSha: null,
       preparationStatus: "idle",
-      preparationReason: "legacy-backup-repreparation-required",
+      preparationReason: "pending-update-proof-repreparation-required",
+    });
+  });
+
+  it("routes a candidate missing repository proof back through verified preparation", async () => {
+    const value = fixture();
+    fs.writeFileSync(
+      path.join(path.dirname(value.pointerPath), "pending-update.json"),
+      `${JSON.stringify({
+        schema: "openclaw.custom-runtime-update-candidate.v1",
+        result: "ready_for_approval",
+        sourceSha: "b".repeat(40),
+        verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v2" },
+      })}\n`,
+    );
+
+    const result = await resolveCustomRuntimeUpdatePolicy({
+      homedir: value.homedir,
+      runtimeGuardLoaded: true,
+      argv: ["node", path.join(value.runtimeRoot, "dist", "index.js")],
+      env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: value.runtimeRoot },
+    });
+
+    expect(result).toMatchObject({
+      managedRuntime: true,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationStatus: "idle",
+      preparationReason: "pending-update-proof-repreparation-required",
     });
   });
 
@@ -679,7 +707,12 @@ describe("custom runtime update policy", () => {
     const candidateSha = "c".repeat(40);
     fs.writeFileSync(
       path.join(path.dirname(value.pointerPath), "pending-update.json"),
-      `${JSON.stringify({ result: "ready_for_approval", sourceSha: candidateSha })}\n`,
+      `${JSON.stringify({
+        result: "ready_for_approval",
+        sourceSha: candidateSha,
+        verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v2" },
+        repositoryProof: { schema: "openclaw.custom-runtime-github-proof.v1" },
+      })}\n`,
     );
 
     const result = await resolveCustomRuntimeUpdatePolicy({
@@ -747,7 +780,12 @@ describe("custom runtime update policy", () => {
     const candidateSha = "d".repeat(40);
     fs.writeFileSync(
       path.join(path.dirname(value.pointerPath), "pending-update.json"),
-      `${JSON.stringify({ result: "ready_for_approval", sourceSha: candidateSha })}\n`,
+      `${JSON.stringify({
+        result: "ready_for_approval",
+        sourceSha: candidateSha,
+        verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v2" },
+        repositoryProof: { schema: "openclaw.custom-runtime-github-proof.v1" },
+      })}\n`,
     );
     const lockPath = path.join(path.dirname(value.pointerPath), "update-installation.lock");
     fs.mkdirSync(lockPath);

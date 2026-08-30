@@ -231,7 +231,12 @@ describe("PCC update safety", () => {
     );
     fs.writeFileSync(
       path.join(runtimeHome, "pending-update.json"),
-      `${JSON.stringify({ result: "ready_for_approval", sourceSha: "c".repeat(40) })}\n`,
+      `${JSON.stringify({
+        result: "ready_for_approval",
+        sourceSha: "c".repeat(40),
+        verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v2" },
+        repositoryProof: { schema: "openclaw.custom-runtime-github-proof.v1" },
+      })}\n`,
     );
     fs.writeFileSync(
       path.join(runtimeHome, "receipts", "update-20260715T000000Z.json"),
@@ -299,7 +304,7 @@ describe("PCC update safety", () => {
       approvalPending: false,
       pendingCandidateSha: null,
       preparationStatus: "idle",
-      preparationReason: "legacy-backup-repreparation-required",
+      preparationReason: "pending-update-proof-repreparation-required",
     });
 
     fs.rmSync(path.join(runtimeHome, "pending-update.json"));

@@ -208,7 +208,7 @@ describe("custom runtime update broker", () => {
     expect(fs.existsSync(path.join(lock, "owner.json"))).toBe(true);
   });
 
-  it("does not overwrite a candidate that is waiting for approval", () => {
+  it("does not overwrite a fully proven candidate that is waiting for approval", () => {
     const base = root("openclaw-update-broker-pending-");
     const runtimeHome = path.join(base, "runtime-home");
     const pendingPath = path.join(runtimeHome, "pending-update.json");
@@ -216,6 +216,8 @@ describe("custom runtime update broker", () => {
       schema: "openclaw.custom-runtime-update-candidate.v1",
       result: "ready_for_approval",
       sourceSha: "a".repeat(40),
+      verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v2" },
+      repositoryProof: { schema: "openclaw.custom-runtime-github-proof.v1" },
     };
     writeJson(pendingPath, pending);
 
@@ -270,6 +272,35 @@ describe("custom runtime update broker", () => {
     expect(
       JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", archived ?? ""), "utf8")),
     ).toEqual(pending);
+  });
+
+  it("archives a ready candidate that is missing repository proof", () => {
+    const base = root("openclaw-update-broker-missing-proof-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const pendingPath = path.join(runtimeHome, "pending-update.json");
+    const pending = {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      sourceSha: "a".repeat(40),
+      verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v2" },
+    };
+    writeJson(pendingPath, pending);
+
+    const result = spawnSync(updater, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES: path.join(base, "updates"),
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
+      result: "failed",
+      stage: "active_pointer",
+    });
+    expect(fs.existsSync(pendingPath)).toBe(false);
   });
 
   it("does not approve while candidate preparation is active", () => {
