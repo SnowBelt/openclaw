@@ -70,6 +70,46 @@ function candidate(): CompatibilitySmokeParams {
   };
 }
 
+function localAiCandidate(): CompatibilitySmokeParams {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-local-ai-release-smoke-test-"));
+  roots.push(root);
+  fs.writeFileSync(path.join(root, "openclaw.mjs"), "#!/usr/bin/env node\n");
+  fs.writeFileSync(path.join(root, "local-ai-assist-package.tgz"), "package\n");
+  const packageTarballSha256 = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(path.join(root, "local-ai-assist-package.tgz")))
+    .digest("hex");
+  const manifestPath = path.join(root, "local-ai-assist-release.json");
+  fs.writeFileSync(
+    manifestPath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      sourceSha: SOURCE_COMMIT,
+      buildInfoSha256: SOURCE_SHA,
+      packageTarballSha256,
+    })}\n`,
+  );
+  const manifestSha256 = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(manifestPath))
+    .digest("hex");
+  return {
+    runtimeRoot: root,
+    candidateLayout: "local-ai-assist",
+    candidateReleaseId: path.basename(root),
+    sourceCommit: SOURCE_COMMIT,
+    sourceSha256: SOURCE_SHA,
+    artifactSha256: packageTarballSha256,
+    runtimeClosureSha256: manifestSha256,
+    manifestSha256,
+    activeRuntimeBaselineSha256: ACTIVE_BASELINE_SHA,
+    configuredModel: LOCAL_MODEL_COMPATIBILITY_MODEL,
+    verifierSha256: VERIFIER_SHA,
+    reportPath: path.join(root, "report.json"),
+    receiptPath: path.join(root, "receipt.json"),
+  };
+}
+
 function lease(release = vi.fn(async () => undefined)) {
   return {
     schema: "openclaw.local-model-admission.v1" as const,
@@ -103,6 +143,62 @@ function lease(release = vi.fn(async () => undefined)) {
 }
 
 describe("custom runtime local-model compatibility smoke", () => {
+  it("binds an immutable Local AI Assist release without a synthetic runtime snapshot", async () => {
+    const params = localAiCandidate();
+    const report = await runLocalModelCompatibilitySmoke({
+      ...params,
+      runtime: {
+        acquire: vi.fn(async () => lease()),
+        execute: vi.fn(async () => ({
+          status: 0,
+          signal: null,
+          stdout: "PATTERNLAB_RUNTIME_COMPAT_OK",
+          stderr: "",
+          stdoutTail: "PATTERNLAB_RUNTIME_COMPAT_OK",
+          stderrTail: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          timedOut: false,
+          ownedProcessCleanup: true,
+          resourceContentionDuringExecution: false,
+          contentionSnapshot: null,
+          monitorError: null,
+        })),
+        now: () => new Date("2026-08-28T00:00:15.000Z"),
+      },
+    });
+
+    expect(report).toMatchObject({
+      status: "pass",
+      candidateLayout: "local-ai-assist",
+      candidateReleaseId: path.basename(params.runtimeRoot),
+    });
+    expect(JSON.parse(fs.readFileSync(params.receiptPath, "utf8"))).toMatchObject({
+      checkId: "isolated_local_model_compatibility",
+      localModelCompatibility: {
+        sourceSha256: SOURCE_SHA,
+        artifactSha256: params.artifactSha256,
+        runtimeClosureSha256: params.runtimeClosureSha256,
+        manifestSha256: params.manifestSha256,
+      },
+    });
+  });
+
+  it("rejects Local AI Assist release identity drift before admission", async () => {
+    const params = localAiCandidate();
+    fs.appendFileSync(path.join(params.runtimeRoot, "local-ai-assist-package.tgz"), "drift");
+    const acquire = vi.fn(async () => lease());
+
+    const report = await runLocalModelCompatibilitySmoke({
+      ...params,
+      runtime: { acquire },
+    });
+
+    expect(report).toMatchObject({ status: "blocked", consumed: false });
+    expect(report.blockers).toEqual([expect.stringContaining("candidate artifact hash mismatch")]);
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
   it("runs only the isolated installed-model command and writes a bound receipt", async () => {
     const params = candidate();
     const admitted = lease();

@@ -130,6 +130,7 @@ type CompatibilitySmokeRuntime = {
 
 export type CompatibilitySmokeParams = {
   runtimeRoot: string;
+  candidateLayout?: "custom-runtime" | "local-ai-assist";
   candidateReleaseId: string;
   sourceCommit: string;
   sourceSha256: string;
@@ -248,6 +249,78 @@ function regularFile(filePath: string): void {
 
 function readCandidateIdentity(params: CompatibilitySmokeParams): SmokeIdentity {
   const runtimeRoot = fs.realpathSync(path.resolve(params.runtimeRoot));
+  if (params.candidateLayout === "local-ai-assist") {
+    const manifestPath = path.join(runtimeRoot, "local-ai-assist-release.json");
+    const executable = path.join(runtimeRoot, "openclaw.mjs");
+    const packageTarballPath = path.join(runtimeRoot, "local-ai-assist-package.tgz");
+    regularFile(manifestPath);
+    regularFile(executable);
+    regularFile(packageTarballPath);
+    const manifest = readJsonObject(manifestPath);
+    const configuredModel = params.configuredModel ?? LOCAL_MODEL_COMPATIBILITY_MODEL;
+    const configuredModelSha256 = params.configuredModelSha256 ?? sha256(configuredModel);
+    const actualManifestSha256 = sha256File(manifestPath);
+    const errors: string[] = [];
+    if (path.basename(runtimeRoot) !== params.candidateReleaseId) {
+      errors.push("candidate release identity mismatch");
+    }
+    if (manifest.sourceSha !== params.sourceCommit) {
+      errors.push("candidate source commit mismatch");
+    }
+    if (manifest.buildInfoSha256 !== params.sourceSha256) {
+      errors.push("candidate source hash mismatch");
+    }
+    if (
+      manifest.packageTarballSha256 !== params.artifactSha256 ||
+      sha256File(packageTarballPath) !== params.artifactSha256
+    ) {
+      errors.push("candidate artifact hash mismatch");
+    }
+    // The Local AI Assist release manifest is its immutable runtime closure:
+    // it binds the CLI, plugin, build identity, package, and dependency locks.
+    if (params.runtimeClosureSha256 !== actualManifestSha256) {
+      errors.push("candidate runtime closure hash mismatch");
+    }
+    if (params.manifestSha256 !== actualManifestSha256) {
+      errors.push("candidate manifest hash mismatch");
+    }
+    for (const [value, label] of [
+      [params.sourceSha256, "source"],
+      [params.artifactSha256, "artifact"],
+      [params.runtimeClosureSha256, "runtime closure"],
+      [params.manifestSha256, "manifest"],
+      [params.activeRuntimeBaselineSha256, "active baseline"],
+      [configuredModelSha256, "configured model"],
+      [params.verifierSha256, "verifier"],
+    ] as const) {
+      if (!isSha256(value)) {
+        errors.push(`${label} hash is invalid`);
+      }
+    }
+    if (!isSourceCommit(params.sourceCommit)) {
+      errors.push("source commit is invalid");
+    }
+    if (!configuredModel.trim()) {
+      errors.push("configured model is empty");
+    }
+    if (errors.length > 0) {
+      throw new Error(`candidate_identity_mismatch:${errors.join(",")}`);
+    }
+    return {
+      runtimeRoot,
+      releaseId: params.candidateReleaseId,
+      sourceCommit: params.sourceCommit,
+      sourceSha256: params.sourceSha256,
+      artifactSha256: params.artifactSha256,
+      runtimeClosureSha256: params.runtimeClosureSha256,
+      manifestSha256: params.manifestSha256,
+      activeRuntimeBaselineSha256: params.activeRuntimeBaselineSha256,
+      configuredModel,
+      configuredModelSha256,
+      manifestPath,
+      executable,
+    };
+  }
   const snapshotPath = path.join(runtimeRoot, "snapshot.json");
   regularFile(snapshotPath);
   const snapshot = readJsonObject(snapshotPath);
@@ -927,6 +1000,7 @@ function baseReport(params: CompatibilitySmokeParams): Record<string, unknown> {
     consumed: false,
     operation: "isolated_local_model_compatibility",
     candidateReleaseId: params.candidateReleaseId,
+    candidateLayout: params.candidateLayout ?? "custom-runtime",
     sourceCommit: params.sourceCommit,
     configuredModel: params.configuredModel ?? LOCAL_MODEL_COMPATIBILITY_MODEL,
     timeoutMs: params.timeoutMs ?? LOCAL_MODEL_COMPATIBILITY_TIMEOUT_MS,
@@ -1160,7 +1234,7 @@ function parseArgs(args: string[]): CompatibilitySmokeParams {
     const arg = args[index];
     if (arg === "--help") {
       throw new Error(
-        "usage: custom-runtime-local-model-smoke --runtime-root <path> --candidate-release-id <id> --source-commit <sha> --source-sha256 <sha256> --artifact-sha256 <sha256> --runtime-closure-sha256 <sha256> --manifest-sha256 <sha256> --active-runtime-baseline-sha256 <sha256> --verifier-sha256 <sha256> --report <path> --receipt <path> [--model <id>]",
+        "usage: custom-runtime-local-model-smoke --runtime-root <path> --candidate-release-id <id> --source-commit <sha> --source-sha256 <sha256> --artifact-sha256 <sha256> --runtime-closure-sha256 <sha256> --manifest-sha256 <sha256> --active-runtime-baseline-sha256 <sha256> --verifier-sha256 <sha256> --report <path> --receipt <path> [--candidate-layout <custom-runtime|local-ai-assist>] [--model <id>]",
       );
     }
     if (!arg.startsWith("--")) {
@@ -1188,8 +1262,13 @@ function parseArgs(args: string[]): CompatibilitySmokeParams {
       throw new Error(`missing required argument: --${key}`);
     }
   }
+  const candidateLayout = values.get("candidate-layout") ?? "custom-runtime";
+  if (candidateLayout !== "custom-runtime" && candidateLayout !== "local-ai-assist") {
+    throw new Error(`invalid value for --candidate-layout: ${candidateLayout}`);
+  }
   return {
     runtimeRoot: values.get("runtime-root")!,
+    candidateLayout,
     candidateReleaseId: values.get("candidate-release-id")!,
     sourceCommit: values.get("source-commit")!,
     sourceSha256: values.get("source-sha256")!,
