@@ -2066,6 +2066,91 @@ describe("resolvePluginTools optional tools", () => {
     expect(factory).toHaveBeenCalledTimes(2);
   });
 
+  it("retries cached plugin tool runtime resolution after a transient failure", async () => {
+    const factory = vi
+      .fn()
+      .mockImplementationOnce(() => makeTool("retry_cached_tool"))
+      .mockImplementationOnce(() => {
+        throw new Error("transient runtime failure");
+      })
+      .mockImplementation(() => makeTool("retry_cached_tool"));
+    setRegistry([
+      {
+        pluginId: "cache-retry-test",
+        optional: false,
+        source: "/tmp/cache-retry-test.js",
+        names: ["retry_cached_tool"],
+        factory,
+      },
+    ]);
+
+    const first = resolvePluginTools(createResolveToolsParams());
+    const [tool] = resolvePluginTools(createResolveToolsParams());
+
+    expectResolvedToolNames(first, ["retry_cached_tool"]);
+    expect(tool?.name).toBe("retry_cached_tool");
+    expect(factory).toHaveBeenCalledTimes(1);
+    await expect(tool?.execute("call-1", {}, undefined)).rejects.toThrow(
+      "plugin tool runtime missing (cache-retry-test): retry_cached_tool",
+    );
+    expect(factory).toHaveBeenCalledTimes(2);
+
+    await expect(tool?.execute("call-2", {}, undefined)).resolves.toEqual({
+      content: [{ type: "text", text: "ok" }],
+    });
+    expect(factory).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves cached tool parameter-boundary callbacks", async () => {
+    const rawSecret = "cached-boundary-secret-123456";
+    const factory = vi.fn(() => ({
+      ...makeTool("cached_boundary_tool"),
+      prepareBeforeToolCallParams: vi.fn((params: unknown) => ({
+        ...(params as Record<string, unknown>),
+        prepared: true,
+      })),
+      finalizeBeforeToolCallParams: vi.fn((params: unknown, preparedParams: unknown) => ({
+        ...(params as Record<string, unknown>),
+        finalizedFrom: preparedParams,
+      })),
+      redactBeforeToolCallDiagnosticParams: vi.fn(() => ({ redacted: true })),
+      redactBeforeToolCallDiagnosticResult: vi.fn(() => ({ redacted: true })),
+    }));
+    setRegistry([
+      {
+        pluginId: "cache-boundary-test",
+        optional: false,
+        source: "/tmp/cache-boundary-test.js",
+        names: ["cached_boundary_tool"],
+        factory,
+      },
+    ]);
+
+    resolvePluginTools(createResolveToolsParams());
+    const [tool] = resolvePluginTools(createResolveToolsParams());
+
+    expect(tool?.prepareBeforeToolCallParams).toBeDefined();
+    expect(tool?.finalizeBeforeToolCallParams).toBeDefined();
+    expect(tool?.redactBeforeToolCallDiagnosticParams).toBeDefined();
+    expect(tool?.redactBeforeToolCallDiagnosticResult).toBeDefined();
+    expect(factory).toHaveBeenCalledTimes(1);
+
+    const prepared = await tool?.prepareBeforeToolCallParams?.({ value: rawSecret }, {});
+    expect(prepared).toEqual({ value: rawSecret, prepared: true });
+    expect(tool?.redactBeforeToolCallDiagnosticParams?.({ value: rawSecret })).toEqual({
+      redacted: true,
+    });
+    expect(tool?.redactBeforeToolCallDiagnosticResult?.({ value: rawSecret })).toEqual({
+      redacted: true,
+    });
+    expect(tool?.finalizeBeforeToolCallParams?.(prepared, prepared)).toEqual({
+      value: rawSecret,
+      prepared: true,
+      finalizedFrom: prepared,
+    });
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
   it("executes cached healthy tools when a runtime sibling is malformed", async () => {
     const factory = vi.fn(() => [
       createMalformedTool("fuzz_move_angles"),

@@ -543,6 +543,30 @@ describe("before_tool_call loop detection behavior", () => {
     });
   });
 
+  it("redacts Browser session keys in loop diagnostics", async () => {
+    await withToolLoopEvents(async (emitted) => {
+      const execute = vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: "same output" }],
+        details: { ok: true },
+      });
+      const tool = wrapToolWithBeforeToolCallHook({ name: "browser", execute } as any, {
+        agentId: "main",
+        sessionKey: "agent:main:direct:person-123",
+        loopDetection: { enabled: true },
+      });
+      const params = { action: "status" };
+
+      for (let i = 0; i < CRITICAL_THRESHOLD; i += 1) {
+        await tool.execute(`browser-loop-${i}`, params, undefined, undefined);
+      }
+      await tool.execute(`browser-loop-${CRITICAL_THRESHOLD}`, params, undefined, undefined);
+
+      const loopEvent = emitted.at(-1);
+      expect(loopEvent?.sessionKey).toBe("agent:main:REDACTED");
+      expect(JSON.stringify(loopEvent)).not.toContain("person-123");
+    });
+  });
+
   it("emits diagnostic tool execution events without parameter values", async () => {
     const trace = {
       traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
@@ -1887,6 +1911,30 @@ describe("before_tool_call requireApproval handling", () => {
     expect(waitCall[0]).toBe("plugin.approval.waitDecision");
     requireRecord(waitCall[1], "approval wait gateway client");
     expect(waitCall[2]).toEqual({ id: "server-id-1" });
+  });
+
+  it("redacts Browser session keys in approval requests", async () => {
+    hookRunner.runBeforeToolCall.mockResolvedValue({
+      requireApproval: {
+        title: "Browser mutation",
+        description: "Approve Browser mutation",
+        pluginId: "browser",
+      },
+    });
+    mockCallGateway
+      .mockResolvedValueOnce({ id: "browser-approval-1", status: "accepted" })
+      .mockResolvedValueOnce({ id: "browser-approval-1", decision: "allow-once" });
+
+    const result = await runBeforeToolCallHook({
+      toolName: "browser",
+      params: { action: "navigate", url: "https://example.test" },
+      ctx: { agentId: "main", sessionKey: "agent:main:direct:person-123" },
+    });
+
+    expect(result.blocked).toBe(false);
+    const request = requireRecord(requireGatewayCall(0)[2], "Browser approval request");
+    expect(request.sessionKey).toBe("agent:main:REDACTED");
+    expect(JSON.stringify(request)).not.toContain("person-123");
   });
 
   it("caps oversized plugin approval timeouts before calling gateway", async () => {

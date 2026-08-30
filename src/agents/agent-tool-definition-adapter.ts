@@ -4,6 +4,7 @@
  * logging for failed tool calls.
  */
 import { createHash } from "node:crypto";
+import { cloneDiagnosticContentValue } from "../infra/diagnostic-llm-content.js";
 import { logDebug, logError } from "../logger.js";
 import { redactToolDetail } from "../logging/redact.js";
 import { isPlainObject } from "../utils.js";
@@ -23,18 +24,24 @@ import {
 } from "./code-mode-control-tools.js";
 import { sanitizeForConsole } from "./console-sanitize.js";
 import type { ClientToolDefinition } from "./embedded-agent-runner/run/params.js";
-import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "./runtime/index.js";
+import type { AgentToolResult, AgentToolUpdateCallback } from "./runtime/index.js";
 import type { ToolDefinition } from "./sessions/index.js";
 import { normalizeToolName } from "./tool-policy.js";
-import { jsonResult, payloadTextResult } from "./tools/common.js";
+import {
+  jsonResult,
+  payloadTextResult,
+  type AnyAgentTool as CoreAnyAgentTool,
+} from "./tools/common.js";
 
-type AnyAgentTool = AgentTool;
+type AnyAgentTool = CoreAnyAgentTool;
 type BeforeToolCallPreparingTool = AnyAgentTool & {
   prepareBeforeToolCallParams?: (
     params: unknown,
     ctx: { toolCallId?: string; hookContext?: HookContext; signal?: AbortSignal },
   ) => unknown;
   finalizeBeforeToolCallParams?: (params: unknown, preparedParams: unknown) => unknown;
+  redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
+  redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
 };
 
 type ToolExecuteArgsCurrent = [
@@ -208,17 +215,49 @@ function sanitizeExecFailureParamsForLog(value: unknown): unknown {
   return sanitized;
 }
 
-function sanitizeToolFailureParamsForLog(toolName: string, value: unknown): unknown {
+function sanitizeToolFailureParamsForLog(
+  toolName: string,
+  value: unknown,
+  redactParams?: (value: unknown) => unknown,
+): unknown {
+  if (redactParams) {
+    try {
+      return redactParams(cloneDiagnosticContentValue(value));
+    } catch {
+      return { redacted: true };
+    }
+  }
   return toolName === "exec" ? sanitizeExecFailureParamsForLog(value) : value;
+}
+
+function redactToolParamsForBookkeeping(tool: AnyAgentTool, value: unknown): unknown {
+  const redact = tool.redactBeforeToolCallDiagnosticParams;
+  if (!redact) {
+    return value;
+  }
+  try {
+    return redact(cloneDiagnosticContentValue(value));
+  } catch {
+    return { redacted: true };
+  }
 }
 
 function describeToolFailureInputs(params: {
   toolName: string;
   rawParams: unknown;
   effectiveParams: unknown;
+  redactParams?: (value: unknown) => unknown;
 }): string {
-  const rawParams = sanitizeToolFailureParamsForLog(params.toolName, params.rawParams);
-  const effectiveParams = sanitizeToolFailureParamsForLog(params.toolName, params.effectiveParams);
+  const rawParams = sanitizeToolFailureParamsForLog(
+    params.toolName,
+    params.rawParams,
+    params.redactParams,
+  );
+  const effectiveParams = sanitizeToolFailureParamsForLog(
+    params.toolName,
+    params.effectiveParams,
+    params.redactParams,
+  );
   const parts = [formatToolParamPreview("raw_params", rawParams)];
   const rawSerialized = serializeToolParams(rawParams);
   const effectiveSerialized = serializeToolParams(effectiveParams);
@@ -371,6 +410,8 @@ export function toToolDefinitions(
       description: tool.description ?? "",
       parameters: tool.parameters,
       prepareArguments: tool.prepareArguments,
+      redactBeforeToolCallDiagnosticParams: tool.redactBeforeToolCallDiagnosticParams,
+      redactBeforeToolCallDiagnosticResult: tool.redactBeforeToolCallDiagnosticResult,
       executionMode: tool.executionMode,
       execute: async (...args: ToolExecuteArgs): Promise<AgentToolResult<unknown>> => {
         const { toolCallId, params, onUpdate, signal } = splitToolExecuteArgs(args);
@@ -422,7 +463,12 @@ export function toToolDefinitions(
               executeParams,
               preparedParams,
             });
-            recordAdjustedParamsForToolCall(toolCallId, executeParams, hookContext?.runId);
+            recordAdjustedParamsForToolCall(
+              toolCallId,
+              executeParams,
+              hookContext?.runId,
+              redactToolParamsForBookkeeping(tool, executeParams),
+            );
           }
           const rawResult = await tool.execute(toolCallId, executeParams, signal, onUpdate);
           const result = normalizeToolExecutionResult({
@@ -450,6 +496,7 @@ export function toToolDefinitions(
             toolName: normalizedName,
             rawParams: params,
             effectiveParams: executeParams,
+            redactParams: tool.redactBeforeToolCallDiagnosticParams,
           });
           logError(`[tools] ${normalizedName} failed: ${described.message} ${inputPreview}`);
 

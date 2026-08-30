@@ -41,7 +41,10 @@ import {
   emitTrustedDiagnosticEvent,
   emitTrustedDiagnosticEventWithPrivateData,
 } from "../../../infra/diagnostic-events.js";
-import { resolveDiagnosticModelContentCapturePolicy } from "../../../infra/diagnostic-llm-content.js";
+import {
+  cloneDiagnosticContentValue,
+  resolveDiagnosticModelContentCapturePolicy,
+} from "../../../infra/diagnostic-llm-content.js";
 import {
   createChildDiagnosticTraceContext,
   createDiagnosticTraceContext,
@@ -566,6 +569,24 @@ export {
 
 const MAX_BTW_SNAPSHOT_MESSAGES = 100;
 const aggregateToolResultPressureWarnings = new Set<string>();
+
+// Keep model tool inputs redacted before lifecycle/transcript projections; the
+// execution closure still receives the original input through the private path.
+function redactToolLifecycleArgs(tool: unknown, input: unknown): unknown {
+  if (!tool || typeof tool !== "object") {
+    return input;
+  }
+  const redactor = (tool as { redactBeforeToolCallDiagnosticParams?: unknown })
+    .redactBeforeToolCallDiagnosticParams;
+  if (typeof redactor !== "function") {
+    return input;
+  }
+  try {
+    return redactor(cloneDiagnosticContentValue(input));
+  } catch {
+    return { redacted: true };
+  }
+}
 
 function pluginMetadataSnapshotCoversProvider(
   snapshot: PluginMetadataSnapshot | undefined,
@@ -3823,6 +3844,7 @@ export async function runEmbeddedAttempt(
       isCompactionPendingForExternalSignal = subscription.isCompacting;
       isCompactionInFlightForExternalSignal = () => activeSession.isCompacting;
       toolSearchCatalogExecutor = async (toolParams) => {
+        const diagnosticInput = redactToolLifecycleArgs(toolParams.tool, toolParams.input);
         try {
           if (toolParams.source === "openclaw" && toolParams.sourceName === "core") {
             recordStructuredReplayTrustForToolCall(
@@ -3834,7 +3856,7 @@ export async function runEmbeddedAttempt(
           const result = await runToolLifecycle({
             toolName: toolParams.toolName,
             toolCallId: toolParams.toolCallId,
-            args: toolParams.input,
+            args: diagnosticInput,
             replaySafe: replaySafeTools.has(toolParams.tool as never),
             hideFromChannelProgress:
               "hideFromChannelProgress" in toolParams.tool &&
@@ -3852,7 +3874,7 @@ export async function runEmbeddedAttempt(
             parentToolCallId: toolParams.parentToolCallId,
             toolCallId: toolParams.toolCallId,
             toolName: toolParams.toolName,
-            input: toolParams.input,
+            input: diagnosticInput,
             result,
             timestamp: Date.now(),
           });
@@ -3863,7 +3885,7 @@ export async function runEmbeddedAttempt(
             parentToolCallId: toolParams.parentToolCallId,
             toolCallId: toolParams.toolCallId,
             toolName: toolParams.toolName,
-            input: toolParams.input,
+            input: diagnosticInput,
             result: {
               content: [{ type: "text", text: message }],
               details: { status: "error", error: message },

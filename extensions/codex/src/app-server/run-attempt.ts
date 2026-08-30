@@ -252,7 +252,6 @@ import {
 import {
   inferCodexDynamicToolMeta,
   resolveCodexToolProgressDetailMode,
-  sanitizeCodexToolArguments,
   sanitizeCodexToolResponse,
 } from "./tool-progress-normalization.js";
 import {
@@ -401,6 +400,16 @@ function toTranscriptToolResultContentItem(item: unknown): Record<string, unknow
       : { type: "text", text: formatUnsupportedCodexDynamicToolOutput(record.type) };
   }
   return { type: "text", text: formatUnsupportedCodexDynamicToolOutput(record.type) };
+}
+
+function toDiagnosticTrajectoryContentItems(value: unknown): unknown[] {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const contentItems = (value as { contentItems?: unknown }).contentItems;
+    if (Array.isArray(contentItems)) {
+      return contentItems;
+    }
+  }
+  return [{ type: "inputText", text: "[redacted]" }];
 }
 
 function formatUnsupportedCodexDynamicToolOutput(type: unknown): string {
@@ -2401,17 +2410,19 @@ export async function runCodexAppServerAttempt(
       markCurrentTurnRequestProgress();
       turnCrossedToolHandoff = true;
       pendingOpenClawDynamicToolCompletionIds.add(call.callId);
+      const diagnosticToolArguments = toolBridge.redactToolCallArguments(call.tool, call.arguments);
+      const diagnosticSessionKey = toolBridge.redactToolSessionKey(call.tool, params.sessionKey);
       trajectoryRecorder?.recordEvent("tool.call", {
         threadId: call.threadId,
         turnId: call.turnId,
         toolCallId: call.callId,
         name: call.tool,
-        arguments: call.arguments,
+        arguments: diagnosticToolArguments,
       });
       projector?.recordDynamicToolCall({
         callId: call.callId,
         tool: call.tool,
-        arguments: call.arguments,
+        arguments: diagnosticToolArguments,
       });
       emitExecutionPhaseOnce(`tool:${call.callId}`, {
         phase: "tool_execution_started",
@@ -2424,10 +2435,11 @@ export async function runCodexAppServerAttempt(
         runId: params.runId,
         sessionId: params.sessionId,
         sessionKey: params.sessionKey,
+        diagnosticSessionKey,
       });
       const toolProgressDetailMode = resolveCodexToolProgressDetailMode(params.toolProgressDetail);
       const toolMeta = inferCodexDynamicToolMeta(call, toolProgressDetailMode);
-      const toolArgs = sanitizeCodexToolArguments(call.arguments);
+      const toolArgs = isJsonObject(diagnosticToolArguments) ? diagnosticToolArguments : undefined;
       const shouldEmitDynamicToolProgress = shouldEmitTranscriptToolProgress(call.tool, toolArgs);
       if (shouldEmitDynamicToolProgress) {
         void emitCodexAppServerEvent(params, {
@@ -2455,7 +2467,7 @@ export async function runCodexAppServerAttempt(
               call,
               runId: params.runId,
               sessionId: params.sessionId,
-              sessionKey: params.sessionKey,
+              sessionKey: diagnosticSessionKey,
             })
           ) {
             terminalDiagnosticObserved = true;
@@ -2500,13 +2512,14 @@ export async function runCodexAppServerAttempt(
           });
         }
         const toolDurationMs = Math.max(0, Date.now() - toolStartedAt);
+        const diagnosticToolResult = toolBridge.redactToolCallResult(call.tool, protocolResponse);
         trajectoryRecorder?.recordEvent("tool.result", {
           threadId: call.threadId,
           turnId: call.turnId,
           toolCallId: call.callId,
           name: call.tool,
           success: protocolResponse.success,
-          contentItems: protocolResponse.contentItems,
+          contentItems: toDiagnosticTrajectoryContentItems(diagnosticToolResult),
         });
         projector?.recordDynamicToolResult({
           callId: call.callId,
@@ -2538,7 +2551,7 @@ export async function runCodexAppServerAttempt(
             call,
             runId: params.runId,
             sessionId: params.sessionId,
-            sessionKey: params.sessionKey,
+            sessionKey: diagnosticSessionKey,
           })
         ) {
           emitDynamicToolTerminalDiagnostic({
@@ -2548,6 +2561,7 @@ export async function runCodexAppServerAttempt(
             runId: params.runId,
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,
+            diagnosticSessionKey,
             durationMs: toolDurationMs,
           });
         }
@@ -2573,7 +2587,7 @@ export async function runCodexAppServerAttempt(
             call,
             runId: params.runId,
             sessionId: params.sessionId,
-            sessionKey: params.sessionKey,
+            sessionKey: diagnosticSessionKey,
           })
         ) {
           emitDynamicToolErrorDiagnostic({
@@ -2582,6 +2596,7 @@ export async function runCodexAppServerAttempt(
             runId: params.runId,
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,
+            diagnosticSessionKey,
             durationMs: Math.max(0, Date.now() - toolStartedAt),
           });
         }
@@ -3919,6 +3934,7 @@ export const testing = {
   resolveCodexDynamicToolDirectNames,
   hasPendingDynamicToolTerminalDiagnostic,
   toTranscriptToolResultForTests: toTranscriptToolResult,
+  toDiagnosticTrajectoryContentItems,
   withCodexStartupTimeout,
   setOpenClawCodingToolsFactoryForTests,
   resetOpenClawCodingToolsFactoryForTests,

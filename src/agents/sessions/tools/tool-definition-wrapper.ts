@@ -5,6 +5,7 @@
  */
 import type { TSchema } from "typebox";
 import type { AgentTool } from "../../runtime/index.js";
+import type { AgentToolWithMeta } from "../../tools/common.js";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.js";
 
 /** Wrap a ToolDefinition into an AgentTool for the core runtime. */
@@ -15,7 +16,7 @@ export function wrapToolDefinition<
 >(
   definition: ToolDefinition<TParams, TDetails, TState>,
   ctxFactory?: () => ExtensionContext,
-): AgentTool<TParams, TDetails> {
+): AgentToolWithMeta<TParams, TDetails> {
   return {
     name: definition.name,
     label: definition.label,
@@ -23,6 +24,8 @@ export function wrapToolDefinition<
     description: definition.description,
     parameters: definition.parameters,
     prepareArguments: definition.prepareArguments,
+    redactBeforeToolCallDiagnosticParams: definition.redactBeforeToolCallDiagnosticParams,
+    redactBeforeToolCallDiagnosticResult: definition.redactBeforeToolCallDiagnosticResult,
     executionMode: definition.executionMode,
     execute: (toolCallId, params, signal, onUpdate) =>
       definition.execute(toolCallId, params, signal, onUpdate, ctxFactory?.() as ExtensionContext),
@@ -44,6 +47,10 @@ export function wrapToolDefinitions(
  * provides plain AgentTool overrides that do not include prompt metadata or renderers.
  */
 export function createToolDefinitionFromAgentTool(tool: AgentTool): ToolDefinition {
+  const diagnosticTool = tool as AgentTool & {
+    redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
+    redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
+  };
   return {
     name: tool.name,
     label: tool.label,
@@ -51,6 +58,8 @@ export function createToolDefinitionFromAgentTool(tool: AgentTool): ToolDefiniti
     description: tool.description,
     parameters: tool.parameters,
     prepareArguments: tool.prepareArguments,
+    redactBeforeToolCallDiagnosticParams: diagnosticTool.redactBeforeToolCallDiagnosticParams,
+    redactBeforeToolCallDiagnosticResult: diagnosticTool.redactBeforeToolCallDiagnosticResult,
     executionMode: tool.executionMode,
     execute: async (toolCallId, params, signal, onUpdate) =>
       tool.execute(toolCallId, params, signal, onUpdate),

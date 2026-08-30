@@ -30,6 +30,7 @@ import {
   emitAgentPatchSummaryEvent,
 } from "../infra/agent-events.js";
 import { consumeRootOptionToken } from "../infra/cli-root-options.js";
+import { redactBrowserDiagnosticSessionKey } from "../infra/diagnostic-session-key.js";
 import type { ExecApprovalDecision } from "../infra/exec-approvals.js";
 import {
   parseInteractiveParam,
@@ -43,6 +44,7 @@ import { hasTopLevelShellControlOperator, splitShellArgs } from "../utils/shell-
 import { normalizeAcceptedSessionSpawnResult } from "./accepted-session-spawn.js";
 import {
   consumeAdjustedParamsForToolCall,
+  consumeDiagnosticAdjustedParamsForToolCall,
   consumePreExecutionBlockedToolCall,
   consumeStructuredReplaySafeToolCall,
 } from "./agent-tools.before-tool-call.state.js";
@@ -175,6 +177,10 @@ function buildToolExecutionStartTraceMeta(params: {
       ? Object.keys(args as Record<string, unknown>).toSorted()
       : undefined;
   const requiredParamsMissing = collectMissingRequiredParamLabels(params.toolName, args);
+  const diagnosticSessionKey =
+    params.toolName === "browser"
+      ? redactBrowserDiagnosticSessionKey(params.ctx.params.sessionKey)
+      : params.ctx.params.sessionKey;
   return {
     event: "embedded_tool_execution_start",
     tags: ["tool_start", "embedded", "trace"],
@@ -183,7 +189,7 @@ function buildToolExecutionStartTraceMeta(params: {
     toolCallId: params.toolCallId,
     argsType,
     ...(argsKeys?.length ? { argsKeys } : {}),
-    ...(params.ctx.params.sessionKey ? { sessionKey: params.ctx.params.sessionKey } : {}),
+    ...(diagnosticSessionKey ? { sessionKey: diagnosticSessionKey } : {}),
     ...(params.ctx.params.sessionId ? { sessionId: params.ctx.params.sessionId } : {}),
     ...(params.ctx.params.agentId ? { agentId: params.ctx.params.agentId } : {}),
     ...(requiredParamsMissing.length ? { requiredParamsMissing } : {}),
@@ -306,9 +312,13 @@ function emitTrackedItemEvent(ctx: ToolHandlerContext, itemData: AgentItemEventD
     ctx.state.itemActiveIds.delete(itemData.itemId);
     ctx.state.itemCompletedCount += 1;
   }
+  const diagnosticSessionKey =
+    itemData.name === "browser"
+      ? redactBrowserDiagnosticSessionKey(ctx.params.sessionKey)
+      : ctx.params.sessionKey;
   emitAgentItemEvent({
     runId: ctx.params.runId,
-    ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
+    ...(diagnosticSessionKey ? { sessionKey: diagnosticSessionKey } : {}),
     data: itemData,
   });
   emitAgentEventCallbackBestEffort(ctx, {
@@ -986,7 +996,7 @@ export function handleToolExecutionStart(
           TOOL_START_WARNING_PREVIEW_MAX_CHARS,
         );
         const safeRunId = sanitizeForConsole(runId) ?? "-";
-        const safeSessionKey = sanitizeForConsole(ctx.params.sessionKey);
+        const safeSessionKey = redactBrowserDiagnosticSessionKey(ctx.params.sessionKey);
         const safeSessionId = sanitizeForConsole(ctx.params.sessionId);
         const safeAgentId = sanitizeForConsole(ctx.params.agentId);
         const consoleMessageParts = [
@@ -1017,7 +1027,7 @@ export function handleToolExecutionStart(
           runId: ctx.params.runId,
           toolCallId,
           argsType,
-          ...(safeSessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
+          ...(safeSessionKey ? { sessionKey: safeSessionKey } : {}),
           ...(safeSessionId ? { sessionId: ctx.params.sessionId } : {}),
           ...(safeAgentId ? { agentId: ctx.params.agentId } : {}),
           ...(argsPreview ? { argsPreview } : {}),
@@ -1302,7 +1312,10 @@ export async function handleToolExecutionEnd(
     startData?.args && typeof startData.args === "object"
       ? (startData.args as Record<string, unknown>)
       : {};
-  const adjustedArgs = consumeAdjustedParamsForToolCall(toolCallId, runId);
+  const adjustedArgs = consumeDiagnosticAdjustedParamsForToolCall(toolCallId, runId);
+  // Diagnostic/replay consumers and after-tool hooks use the redacted snapshot;
+  // raw execution arguments never leave the execution path.
+  consumeAdjustedParamsForToolCall(toolCallId, runId);
   const executionPrevented = consumePreExecutionBlockedToolCall(toolCallId, runId);
   const structuredReplaySafe = consumeStructuredReplaySafeToolCall(toolCallId, runId);
   const startArgs =
@@ -1734,9 +1747,10 @@ export async function handleToolExecutionEnd(
   const hookRunnerAfter = ctx.hookRunner ?? (await loadHookRunnerGlobal()).getGlobalHookRunner();
   if (hookRunnerAfter?.hasHooks("after_tool_call")) {
     const durationMs = startData?.startTime != null ? Date.now() - startData.startTime : undefined;
+    const afterHookArgs = startArgs;
     const hookEvent: PluginHookAfterToolCallEvent = {
       toolName,
-      params: startArgs,
+      params: afterHookArgs,
       runId,
       toolCallId,
       result: sanitizedResult,

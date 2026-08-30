@@ -55,6 +55,7 @@ import {
   trackSessionBrowserTab,
   untrackSessionBrowserTab,
 } from "./browser-tool.runtime.js";
+import { resolveBrowserStewardRuntimeApprovedParams } from "./browser/browser-steward-approval.js";
 import { DEFAULT_BROWSER_SCREENSHOT_TIMEOUT_MS } from "./browser/constants.js";
 import { normalizeBrowserScreenshot } from "./browser/screenshot.js";
 import { describeBrowserScreenshot, neutralizeMediaDirectives } from "./browser/vision.js";
@@ -495,6 +496,7 @@ function readToolTimeoutMs(params: Record<string, unknown>) {
 export function createBrowserTool(opts?: {
   sandboxBridgeUrl?: string;
   allowHostControl?: boolean;
+  modelMediated?: boolean;
   agentSessionKey?: string;
   agentDir?: string;
   workspaceDir?: string;
@@ -530,7 +532,7 @@ export function createBrowserTool(opts?: {
     ].join(" "),
     parameters: BrowserToolSchema,
     execute: async (_toolCallId, args) => {
-      const params = args as Record<string, unknown>;
+      const params = resolveBrowserStewardRuntimeApprovedParams(args as Record<string, unknown>);
       const action = readStringParam(params, "action", { required: true });
       const profile = readStringParam(params, "profile");
       const requestedNode = readStringParam(params, "node");
@@ -546,6 +548,11 @@ export function createBrowserTool(opts?: {
       // existing-session profiles can attach through the selected host or browser node,
       // but they must never fall back into the sandbox browser.
       const isUserBrowserProfile = shouldPreferHostForProfile(profile);
+      if (opts?.modelMediated && !target && !requestedNode) {
+        // Resolve omitted model targets after profile capabilities are known; existing-session
+        // profiles must stay on the host while sandboxed agents keep their bridge isolation.
+        target = isUserBrowserProfile ? "host" : opts.sandboxBridgeUrl ? "sandbox" : "host";
+      }
       if (isUserBrowserProfile) {
         if (target === "sandbox") {
           throw new Error(

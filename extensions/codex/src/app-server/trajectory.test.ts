@@ -87,6 +87,39 @@ describe("Codex trajectory recorder", () => {
     expect(fs.existsSync(path.join(tmpDir, "session.trajectory-path.json"))).toBe(true);
   });
 
+  it("redacts session identity from trajectory envelopes", async () => {
+    const tmpDir = makeTempDir();
+    const sessionKey = "agent:main:trajectory-private-tail";
+    const recorder = createCodexTrajectoryRecorder({
+      cwd: tmpDir,
+      attempt: {
+        sessionFile: path.join(tmpDir, "session.jsonl"),
+        sessionId: "session-trajectory-redaction",
+        sessionKey,
+        runId: "run-trajectory-redaction",
+        provider: "codex",
+        modelId: "gpt-5.4",
+        model: { api: "responses" },
+      } as never,
+      env: {},
+    });
+
+    const trajectoryRecorder = expectTrajectoryRecorder(recorder);
+    trajectoryRecorder.recordEvent("tool.call", {
+      name: "browser",
+      arguments: {
+        sessionKey,
+        password: "trajectory-private-secret",
+      },
+    });
+    await trajectoryRecorder.flush();
+
+    const content = fs.readFileSync(path.join(tmpDir, "session.trajectory.jsonl"), "utf8");
+    expect(content).toContain('"sessionKey":"<redacted>"');
+    expect(content).not.toContain(sessionKey);
+    expect(content).not.toContain("trajectory-private-secret");
+  });
+
   it("records canonical OpenAI Codex app-server turns with Codex local attribution", async () => {
     const tmpDir = makeTempDir();
     const sessionFile = path.join(tmpDir, "session.jsonl");

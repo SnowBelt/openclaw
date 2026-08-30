@@ -562,6 +562,160 @@ describe("createAgentSession tool defaults", () => {
   });
 });
 
+describe("AgentSession observer tool diagnostics", () => {
+  it("redacts tool arguments and results before observers without changing execution data", async () => {
+    const extensionEvents: unknown[] = [];
+    const handlers = new Map<string, Array<(...args: unknown[]) => Promise<unknown>>>([
+      [
+        "tool_execution_start",
+        [
+          async (...args) => {
+            extensionEvents.push(args[0]);
+          },
+        ],
+      ],
+      [
+        "tool_execution_update",
+        [
+          async (...args) => {
+            extensionEvents.push(args[0]);
+          },
+        ],
+      ],
+      [
+        "tool_execution_end",
+        [
+          async (...args) => {
+            extensionEvents.push(args[0]);
+          },
+        ],
+      ],
+    ]);
+    const rawArgs = {
+      sessionKey: "agent:main:direct:person-123",
+      token: "secret-token",
+    };
+    const rawResult = {
+      content: "private page",
+    };
+    const browserTool: ToolDefinition = {
+      name: "browser",
+      label: "Browser",
+      description: "Browser test tool",
+      parameters: Type.Object({}),
+      redactBeforeToolCallDiagnosticParams: (value) => {
+        if (value && typeof value === "object") {
+          (value as Record<string, unknown>).token = "mutated-by-redactor";
+        }
+        return { redacted: "params" };
+      },
+      redactBeforeToolCallDiagnosticResult: (value) => {
+        if (value && typeof value === "object") {
+          (value as Record<string, unknown>).content = "mutated-by-redactor";
+        }
+        return { redacted: "result" };
+      },
+      execute: async () => ({
+        content: [{ type: "text", text: "ok" }],
+        details: {},
+      }),
+    };
+    const { session } = await createAgentSession({
+      model: testModel,
+      noTools: "builtin",
+      customTools: [browserTool],
+      resourceLoader: createResourceLoaderWithHandlers(handlers),
+      sessionManager: SessionManager.inMemory(),
+      settingsManager: SettingsManager.inMemory(),
+      modelRegistry: ModelRegistry.inMemory(AuthStorage.inMemory()),
+    });
+    const observedEvents: unknown[] = [];
+    session.subscribe((event) => {
+      if (
+        event.type === "tool_execution_start" ||
+        event.type === "tool_execution_update" ||
+        event.type === "tool_execution_end"
+      ) {
+        observedEvents.push(event);
+      }
+    });
+    const handleAgentEvent = (
+      session as unknown as { handleAgentEvent(event: unknown): Promise<void> }
+    )["handleAgentEvent"];
+
+    const startEvent = {
+      type: "tool_execution_start",
+      toolCallId: "call-1",
+      toolName: "browser",
+      args: rawArgs,
+    };
+    const updateEvent = {
+      type: "tool_execution_update",
+      toolCallId: "call-1",
+      toolName: "browser",
+      args: rawArgs,
+      partialResult: rawResult,
+    };
+    const endEvent = {
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: "browser",
+      result: rawResult,
+      isError: false,
+    };
+    await handleAgentEvent(startEvent);
+    await handleAgentEvent(updateEvent);
+    await handleAgentEvent(endEvent);
+
+    expect(observedEvents).toEqual([
+      { ...startEvent, args: { redacted: "params" } },
+      {
+        ...updateEvent,
+        args: { redacted: "params" },
+        partialResult: { redacted: "result" },
+      },
+      { ...endEvent, result: { redacted: "result" } },
+    ]);
+    expect(extensionEvents).toEqual([
+      {
+        type: "tool_execution_start",
+        toolCallId: "call-1",
+        toolName: "browser",
+        args: { redacted: "params" },
+      },
+      {
+        type: "tool_execution_update",
+        toolCallId: "call-1",
+        toolName: "browser",
+        args: { redacted: "params" },
+        partialResult: { redacted: "result" },
+      },
+      {
+        type: "tool_execution_end",
+        toolCallId: "call-1",
+        toolName: "browser",
+        result: { redacted: "result" },
+        isError: false,
+      },
+    ]);
+    expect(startEvent.args).toBe(rawArgs);
+    expect(updateEvent.args).toBe(rawArgs);
+    expect(updateEvent.partialResult).toBe(rawResult);
+    expect(endEvent.result).toBe(rawResult);
+    expect(rawArgs).toEqual({
+      sessionKey: "agent:main:direct:person-123",
+      token: "secret-token",
+    });
+    expect(rawResult).toEqual({ content: "private page" });
+    expect(
+      JSON.stringify([...observedEvents.slice(0, 2), ...extensionEvents.slice(0, 2)]),
+    ).not.toContain("person-123");
+    expect(
+      JSON.stringify([...observedEvents.slice(0, 2), ...extensionEvents.slice(0, 2)]),
+    ).not.toContain("secret-token");
+  });
+});
+
 describe("createAgentSession thinking level defaults", () => {
   beforeEach(() => {
     thinkingMocks.resolveThinkingDefaultForModel.mockReset();

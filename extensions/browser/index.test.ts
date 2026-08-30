@@ -1,7 +1,14 @@
 // Browser tests cover index plugin behavior.
 import fs from "node:fs";
 import path from "node:path";
+import { wrapToolWithBeforeToolCallHook } from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  initializeGlobalHookRunner,
+  resetGlobalHookRunner,
+} from "openclaw/plugin-sdk/hook-runtime";
+import type { PluginTrustedToolPolicyRegistration } from "openclaw/plugin-sdk/plugin-entry";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import { createEmptyPluginRegistry } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   browserPluginNodeHostCommands,
@@ -11,6 +18,7 @@ import {
 } from "./plugin-registration.js";
 import type { OpenClawPluginApi } from "./runtime-api.js";
 import setupPlugin from "./setup-api.js";
+import { approveBrowserStewardRuntimeParams } from "./src/browser/browser-steward-approval.js";
 
 type BrowserAutoEnableProbe = Parameters<OpenClawPluginApi["registerAutoEnableProbe"]>[0];
 
@@ -67,6 +75,7 @@ function createApi() {
   const registerGatewayMethod = vi.fn();
   const registerService = vi.fn();
   const registerTool = vi.fn();
+  const registerTrustedToolPolicy = vi.fn();
   const api = createTestPluginApi({
     id: "browser",
     name: "Browser",
@@ -78,8 +87,16 @@ function createApi() {
     registerGatewayMethod,
     registerService,
     registerTool,
+    registerTrustedToolPolicy,
   });
-  return { api, registerCli, registerGatewayMethod, registerService, registerTool };
+  return {
+    api,
+    registerCli,
+    registerGatewayMethod,
+    registerService,
+    registerTool,
+    registerTrustedToolPolicy,
+  };
 }
 
 function mockCallArg(mock: { mock: { calls: unknown[][] } }, index = 0, argIndex = 0): unknown {
@@ -107,6 +124,211 @@ function registerBrowserAutoEnableProbe(): BrowserAutoEnableProbe {
 }
 
 describe("browser plugin", () => {
+  it("registers the trusted model-call boundary policy", () => {
+    const { api, registerTrustedToolPolicy } = createApi();
+    registerBrowserPlugin(api);
+
+    expect(registerTrustedToolPolicy).toHaveBeenCalledTimes(1);
+    expect(registerTrustedToolPolicy.mock.calls[0]?.[0]).toMatchObject({
+      id: "browser-steward-runtime",
+    });
+  });
+
+  it("keeps Browser approval bound to redacted parameters", async () => {
+    const { api, registerTool, registerTrustedToolPolicy } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool) as Parameters<
+      NonNullable<OpenClawPluginApi["registerTool"]>
+    >[0];
+    const tool =
+      typeof factory === "function"
+        ? factory({
+            agentId: "main",
+            sessionKey: "agent:main:direct:person-123",
+            browser: { allowHostControl: true },
+          })
+        : undefined;
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected browser plugin to return one tool");
+    }
+    const prepared = await tool.prepareBeforeToolCallParams?.(
+      { action: "act", request: { kind: "type", text: "synthetic-secret-123456" } },
+      { toolCallId: "call-browser-approval" },
+    );
+    if (!prepared || typeof prepared !== "object" || Array.isArray(prepared)) {
+      throw new Error("expected prepared Browser parameters");
+    }
+    expect(JSON.stringify(prepared)).not.toContain("synthetic-secret-123456");
+    const policy = mockCallArg(registerTrustedToolPolicy) as PluginTrustedToolPolicyRegistration;
+    const decision = await policy.evaluate(
+      {
+        toolName: "browser",
+        params: prepared as Record<string, unknown>,
+        toolCallId: "call-browser-approval",
+      },
+      { toolName: "browser", agentId: "main", sessionKey: "agent:main:direct:person-123" },
+    );
+    expect(decision).toMatchObject({
+      params: { action: "act", request: { text: "REDACTED" } },
+      requireApproval: { allowedDecisions: ["allow-once", "deny"], timeoutMs: 45_000 },
+    });
+    expect(JSON.stringify(decision)).not.toContain("person-123");
+    expect(JSON.stringify(decision)).not.toContain("synthetic-secret-123456");
+    const approval =
+      decision && "requireApproval" in decision ? decision.requireApproval : undefined;
+    await approval?.onResolution?.("allow-once");
+    const restored = tool.finalizeBeforeToolCallParams?.(prepared, prepared);
+    expect(restored).toEqual({
+      action: "act",
+      request: { kind: "type", text: "synthetic-secret-123456" },
+    });
+  });
+
+  it("does not trust model approval flags or raw browser node proxy calls", async () => {
+    const { api, registerTool, registerTrustedToolPolicy } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool) as Parameters<
+      NonNullable<OpenClawPluginApi["registerTool"]>
+    >[0];
+    const tool =
+      typeof factory === "function"
+        ? factory({
+            agentId: "main",
+            sessionKey: "agent:main:direct:person-123",
+            browser: { allowHostControl: true },
+          })
+        : undefined;
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected browser plugin to return one tool");
+    }
+    const prepared = await tool.prepareBeforeToolCallParams?.(
+      { action: "navigate", approved: true, target: "host", url: "https://example.test" },
+      { toolCallId: "call-browser-self-approval" },
+    );
+    if (!prepared || typeof prepared !== "object" || Array.isArray(prepared)) {
+      throw new Error("expected prepared Browser parameters");
+    }
+    const policy = mockCallArg(registerTrustedToolPolicy) as PluginTrustedToolPolicyRegistration;
+    const decision = await policy.evaluate(
+      {
+        toolName: "browser",
+        params: prepared as Record<string, unknown>,
+        toolCallId: "call-browser-self-approval",
+      },
+      { toolName: "browser", agentId: "main", sessionKey: "agent:main:direct:person-123" },
+    );
+    expect(decision).toMatchObject({
+      requireApproval: { allowedDecisions: ["allow-once", "deny"] },
+    });
+
+    const preparedNodeTarget = await tool.prepareBeforeToolCallParams?.(
+      { action: "status", target: "node" },
+      { toolCallId: "call-browser-node-target" },
+    );
+    const nodeTargetDecision = await policy.evaluate(
+      {
+        toolName: "browser",
+        params: preparedNodeTarget as Record<string, unknown>,
+        toolCallId: "call-browser-node-target",
+      },
+      { toolName: "browser", agentId: "main", sessionKey: "agent:main:direct:person-123" },
+    );
+    expect(nodeTargetDecision).toEqual({
+      block: true,
+      blockReason: "Browser Steward blocked an unsupported Browser target",
+    });
+
+    const nodeParameterDecision = await policy.evaluate(
+      {
+        toolName: "browser",
+        params: (await tool.prepareBeforeToolCallParams?.(
+          { action: "status", node: "node-123" },
+          { toolCallId: "call-browser-node-parameter" },
+        )) as Record<string, unknown>,
+        toolCallId: "call-browser-node-parameter",
+      },
+      { toolName: "browser", agentId: "main", sessionKey: "agent:main:direct:person-123" },
+    );
+    expect(nodeParameterDecision).toEqual({
+      block: true,
+      blockReason: "Browser Steward blocked model Browser node routing",
+    });
+    expect(JSON.stringify(nodeParameterDecision)).not.toContain("node-123");
+
+    const preparedDifferentSession = await tool.prepareBeforeToolCallParams?.(
+      { action: "status" },
+      { toolCallId: "call-browser-different-session" },
+    );
+    const differentSessionDecision = await policy.evaluate(
+      {
+        toolName: "browser",
+        params: preparedDifferentSession as Record<string, unknown>,
+        toolCallId: "call-browser-different-session",
+      },
+      { toolName: "browser", agentId: "main", sessionKey: "agent:main:direct:person-456" },
+    );
+    expect(differentSessionDecision).toEqual({
+      block: true,
+      blockReason: "Browser Steward blocked a changed Browser approval boundary",
+    });
+    expect(JSON.stringify(differentSessionDecision)).not.toContain("person-456");
+
+    const rawNodeDecision = await policy.evaluate(
+      {
+        toolName: "nodes",
+        params: { action: "invoke", invokeCommand: "browser.proxy" },
+        toolCallId: "call-raw-node-proxy",
+      },
+      { toolName: "nodes", agentId: "main", sessionKey: "agent:main:direct:person-123" },
+    );
+    expect(rawNodeDecision).toEqual({
+      block: true,
+      blockReason: "Browser Steward blocked raw browser node proxy invocation",
+    });
+  });
+
+  it("preserves the private approval marker through the generic tool wrapper", async () => {
+    const { api, registerTool, registerTrustedToolPolicy } = createApi();
+    registerBrowserPlugin(api);
+    const factory = mockCallArg(registerTool) as Parameters<
+      NonNullable<OpenClawPluginApi["registerTool"]>
+    >[0];
+    const tool =
+      typeof factory === "function"
+        ? factory({
+            agentId: "main",
+            sessionKey: "agent:main:direct:person-123",
+            browser: { allowHostControl: true },
+          })
+        : undefined;
+    if (!tool || Array.isArray(tool)) {
+      throw new Error("expected browser plugin to return one tool");
+    }
+    const originalPrepare = tool.prepareBeforeToolCallParams;
+    let preparedParams: unknown;
+    tool.prepareBeforeToolCallParams = async (params, context) => {
+      const prepared = await originalPrepare?.(params, context);
+      preparedParams = prepared;
+      return prepared;
+    };
+    const policy = mockCallArg(registerTrustedToolPolicy) as PluginTrustedToolPolicyRegistration;
+    const registry = createEmptyPluginRegistry();
+    registry.trustedToolPolicies = [{ pluginId: "browser", source: "test", policy }];
+    initializeGlobalHookRunner(registry);
+    try {
+      const wrapped = wrapToolWithBeforeToolCallHook(tool, {
+        agentId: "main",
+        sessionKey: "agent:main:direct:person-123",
+        runId: "run-browser-wrapper",
+      });
+      await wrapped.execute("call-browser-wrapper", { action: "status" }, undefined);
+    } finally {
+      resetGlobalHookRunner();
+    }
+    expect(preparedParams).toBeDefined();
+    expect(approveBrowserStewardRuntimeParams(preparedParams)).toBe(false);
+  });
+
   it("exposes static browser metadata on the plugin definition", () => {
     expect(browserPluginReload).toEqual({
       restartPrefixes: ["browser"],
@@ -155,6 +377,7 @@ describe("browser plugin", () => {
     expect(runtimeApiMocks.createBrowserTool).toHaveBeenCalledWith({
       sandboxBridgeUrl: "http://127.0.0.1:9999",
       allowHostControl: true,
+      modelMediated: true,
       agentSessionKey: "agent:main:webchat:direct:123",
       mediaScope: {
         sessionKey: "agent:main:webchat:direct:123",
@@ -185,6 +408,7 @@ describe("browser plugin", () => {
 
     await tool.execute("call-1", { action: "status" });
     expect(runtimeApiMocks.createBrowserTool).toHaveBeenCalledWith({
+      modelMediated: true,
       agentSessionKey: "agent:main:webchat:direct:123",
       agentDir: "/tmp/agent",
       workspaceDir: "/tmp/workspace",
@@ -216,6 +440,7 @@ describe("browser plugin", () => {
 
     await tool.execute("call-1", { action: "status" });
     expect(runtimeApiMocks.createBrowserTool).toHaveBeenCalledWith({
+      modelMediated: true,
       agentSessionKey: "agent:main:telegram:group:chat-123",
       mediaScope: {
         sessionKey: "agent:main:telegram:group:chat-123",

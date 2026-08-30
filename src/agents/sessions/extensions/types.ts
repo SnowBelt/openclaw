@@ -516,6 +516,11 @@ export interface ToolDefinition<
   /** Optional compatibility shim to prepare raw tool call arguments before schema validation. Must return an object conforming to TParams. */
   prepareArguments?: (args: unknown) => Static<TParams>;
 
+  /** Redact tool arguments before lifecycle events are exposed to observers. */
+  redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
+  /** Redact tool results before lifecycle events are exposed to observers. */
+  redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
+
   /**
    * Per-tool execution mode override.
    * - "sequential": this tool must execute one at a time with other tool calls.

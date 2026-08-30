@@ -242,6 +242,80 @@ describe("handleToolExecutionStart read path checks", () => {
     expect(trace).not.toHaveBeenCalled();
   });
 
+  it("redacts Browser session keys in trace-only tool start diagnostics", async () => {
+    const { ctx, trace, isEnabled } = createTestContext();
+    isEnabled.mockImplementation((level: string) => level === "trace");
+    ctx.params.sessionKey = "agent:unit-session:direct:person-123";
+
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "browser",
+      toolCallId: "tool-browser-trace",
+      args: { action: "status" },
+    });
+
+    expect(trace.mock.calls[0]?.[1]).toMatchObject({
+      toolName: "browser",
+      sessionKey: "agent:unit-session:REDACTED",
+    });
+    expect(JSON.stringify(trace.mock.calls[0]?.[1])).not.toContain("agent:unit-session:direct");
+  });
+
+  it("redacts Browser session keys from tracked item events", async () => {
+    const events: Array<{ stream?: string; sessionKey?: string }> = [];
+    registerAgentEventListener((event) => {
+      events.push(event as never);
+    });
+    const { ctx } = createTestContext();
+    ctx.params.sessionKey = "agent:unit-session:direct:person-123";
+    try {
+      await handleToolExecutionStart(ctx, {
+        type: "tool_execution_start",
+        toolName: "browser",
+        toolCallId: "tool-browser-item",
+        args: { action: "status" },
+      });
+
+      const itemEvent = events.find((event) => event.stream === "item");
+      expect(itemEvent?.sessionKey).toBe("agent:unit-session:REDACTED");
+      expect(JSON.stringify(itemEvent)).not.toContain("person-123");
+    } finally {
+      resetAgentEventsForTest();
+    }
+  });
+
+  it("keeps adjusted params redacted for embedded after-tool hooks", async () => {
+    const { ctx } = createTestContext();
+    const afterToolCall = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    ctx.hookRunner = {
+      hasHooks: (hookName: string) => hookName === "after_tool_call",
+      runAfterToolCall: afterToolCall,
+    } as never;
+    recordAdjustedParamsForToolCall(
+      "tool-browser-after-hook",
+      { action: "act", request: { text: "synthetic-private-value" } },
+      ctx.params.runId,
+      { action: "act", request: { text: "REDACTED" } },
+    );
+
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "browser",
+      toolCallId: "tool-browser-after-hook",
+      isError: false,
+      result: { ok: true },
+    });
+    await Promise.resolve();
+
+    expect(afterToolCall).toHaveBeenCalledTimes(1);
+    expect(afterToolCall.mock.calls[0]?.[0]).toMatchObject({
+      params: { action: "act", request: { text: "REDACTED" } },
+    });
+    expect(JSON.stringify(afterToolCall.mock.calls[0]?.[0])).not.toContain(
+      "synthetic-private-value",
+    );
+  });
+
   it("does not warn when read tool uses file_path alias", async () => {
     const { ctx, warn, trace, isEnabled, onBlockReplyFlush, onExecutionPhase } =
       createTestContext();
@@ -292,19 +366,35 @@ describe("handleToolExecutionStart read path checks", () => {
     expect(warnMeta?.event).toBe("embedded_read_tool_start_warning");
     expect(warnMeta?.tags).toEqual(["tool_start", "read", "embedded", "validation"]);
     expect(warnMeta?.runId).toBe("run-test");
-    expect(warnMeta?.sessionKey).toBe("agent:unit-session");
+    expect(warnMeta?.sessionKey).toBe("agent:unit-session:REDACTED");
     expect(warnMeta?.sessionId).toBe("session-test-id");
     expect(warnMeta?.agentId).toBe("agent-test-id");
     expect(warnMeta?.toolCallId).toBe("tool-2");
     expect(warnMeta?.argsType).toBe("object");
     expect(warnMeta?.consoleMessage).toContain("runId=run-test");
-    expect(warnMeta?.consoleMessage).toContain("sessionKey=agent:unit-session");
+    expect(warnMeta?.consoleMessage).toContain("sessionKey=agent:unit-session:REDACTED");
     expect(warnMeta?.consoleMessage).toContain("sessionId=session-test-id");
     expect(warnMeta?.consoleMessage).toContain("agentId=agent-test-id");
     expect(warnMeta?.consoleMessage).toContain("toolCallId=tool-2");
     expect(warnMeta?.consoleMessage).toContain("argsType=object");
     expect(warnMeta?.consoleMessage).toContain("read tool called without path");
     expect(warnMeta).not.toHaveProperty("argsPreview");
+  });
+
+  it("does not expose a read warning session-key tail", async () => {
+    const { ctx, warn } = createTestContext();
+    ctx.params.sessionKey = "agent:unit-session:direct:person-123";
+
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "read",
+      toolCallId: "tool-redacted-session",
+      args: {},
+    });
+
+    const warnMeta = warn.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(warnMeta?.sessionKey).toBe("agent:unit-session:REDACTED");
+    expect(JSON.stringify(warnMeta)).not.toContain("person-123");
   });
 
   it("bounds string args before adding read warning preview", async () => {

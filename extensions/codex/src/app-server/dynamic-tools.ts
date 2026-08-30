@@ -5,6 +5,7 @@
 import type { AgentToolResult } from "openclaw/plugin-sdk/agent-core";
 import {
   consumeAdjustedParamsForToolCall,
+  consumeDiagnosticAdjustedParamsForToolCall,
   consumePreExecutionBlockedToolCall,
   createAgentToolResultMiddlewareRunner,
   createCodexAppServerToolResultExtensionRunner,
@@ -28,6 +29,7 @@ import {
   isMessagingTool,
   isMessagingToolSendAction,
   normalizeHeartbeatToolResponse,
+  peekAdjustedParamsForToolCall,
   projectRuntimeToolInputSchema,
   resolveToolExecutionErrorKind,
   resolveToolResultFailureKind,
@@ -60,6 +62,7 @@ import type {
   JsonValue,
 } from "./protocol.js";
 import { resolveCodexToolAbortTerminalReason } from "./tool-abort-terminal-reason.js";
+import { sanitizeCodexToolArguments } from "./tool-progress-normalization.js";
 
 type CodexDynamicToolHookContext = {
   agentId?: string;
@@ -334,6 +337,9 @@ function hasExplicitNonSourceMessageRoute(
 export type CodexDynamicToolBridge = {
   availableSpecs: CodexDynamicToolSpec[];
   specs: CodexDynamicToolSpec[];
+  redactToolCallArguments: (toolName: string, arguments_?: JsonValue) => JsonValue | undefined;
+  redactToolCallResult: (toolName: string, result: unknown) => unknown;
+  redactToolSessionKey: (toolName: string, sessionKey?: string) => string | undefined;
   handleToolCall: (
     params: CodexDynamicToolCallParams,
     options?: {
@@ -406,6 +412,45 @@ export function createCodexDynamicToolBridge(params: {
     params.registeredTools ? registeredProjection.tools : availableTools
   ).filter((entry) => !quarantinedAvailableToolNames.has(entry.name));
   const toolMap = new Map(availableTools.map((entry) => [entry.name, entry]));
+  const redactToolCallArguments = (
+    toolName: string,
+    arguments_: JsonValue | undefined,
+  ): JsonValue | undefined => {
+    const redactor = toolMap.get(toolName)?.tool.redactBeforeToolCallDiagnosticParams;
+    if (!redactor) {
+      return toJsonValue(sanitizeCodexToolArguments(arguments_));
+    }
+    try {
+      return toJsonValue(redactor(structuredClone(arguments_)));
+    } catch {
+      return { redacted: true };
+    }
+  };
+  const redactToolCallResult = (toolName: string, result: unknown): unknown => {
+    const redactor = toolMap.get(toolName)?.tool.redactBeforeToolCallDiagnosticResult;
+    if (!redactor) {
+      return result;
+    }
+    try {
+      return redactor(structuredClone(result));
+    } catch {
+      return { redacted: true };
+    }
+  };
+  const redactToolSessionKey = (toolName: string, sessionKey: string | undefined) => {
+    const redactor = toolMap.get(toolName)?.tool.redactBeforeToolCallDiagnosticParams;
+    if (!sessionKey || !redactor) {
+      return sessionKey;
+    }
+    try {
+      const redacted = redactor({ sessionKey });
+      return isRecord(redacted) && typeof redacted.sessionKey === "string"
+        ? redacted.sessionKey
+        : "REDACTED";
+    } catch {
+      return "REDACTED";
+    }
+  };
   const registeredToolNames = new Set(registeredSpecTools.map((entry) => entry.name));
   const quarantinedTools = dedupeQuarantinedDynamicTools([
     ...availableProjection.quarantinedTools,
@@ -453,6 +498,9 @@ export function createCodexDynamicToolBridge(params: {
       loading: params.loading ?? "searchable",
       directToolNames,
     }),
+    redactToolCallArguments,
+    redactToolCallResult,
+    redactToolSessionKey,
     telemetry,
     handleToolCall: async (call, options) => {
       const toolEntry = toolMap.get(call.tool);
@@ -492,6 +540,7 @@ export function createCodexDynamicToolBridge(params: {
         };
       }
       const { tool, name: toolName } = toolEntry;
+      const diagnosticSessionKey = redactToolSessionKey(toolName, toolResultHookContext.sessionKey);
       const args = jsonObjectToRecord(call.arguments);
       const startedAt = Date.now();
       const signal = composeAbortSignals(params.signal, options?.signal);
@@ -516,13 +565,23 @@ export function createCodexDynamicToolBridge(params: {
         };
         didStartExecution = true;
         const rawResult = await tool.execute(call.callId, preparedArgs, signal);
-        const adjustedExecutedArgs = consumeAdjustedParamsForToolCall(
+        const rawAdjustedExecutedArgs = peekAdjustedParamsForToolCall(
           call.callId,
           toolResultHookContext.runId,
         );
+        const adjustedExecutedArgs = consumeDiagnosticAdjustedParamsForToolCall(
+          call.callId,
+          toolResultHookContext.runId,
+        );
+        consumeAdjustedParamsForToolCall(call.callId, toolResultHookContext.runId);
         if (isRecord(adjustedExecutedArgs)) {
           executedArgs = structuredClone(adjustedExecutedArgs);
         }
+        const afterHookArgsValue = redactToolCallArguments(
+          toolName,
+          toJsonValue(isRecord(rawAdjustedExecutedArgs) ? rawAdjustedExecutedArgs : executedArgs),
+        );
+        const afterHookArgs = isRecord(afterHookArgsValue) ? afterHookArgsValue : {};
         executionPrevented = consumePreExecutionBlockedToolCall(
           call.callId,
           toolResultHookContext.runId,
@@ -567,10 +626,10 @@ export function createCodexDynamicToolBridge(params: {
           runId: toolResultHookContext.runId,
           agentId: toolResultHookContext.agentId,
           sessionId: toolResultHookContext.sessionId,
-          sessionKey: toolResultHookContext.sessionKey,
+          sessionKey: diagnosticSessionKey,
           channelId: toolResultHookContext.channelId,
-          startArgs: executedArgs,
-          result,
+          startArgs: afterHookArgs,
+          result: redactToolCallResult(toolName, result),
           startedAt,
         });
         finalizeToolTerminalPresentation({
@@ -682,13 +741,26 @@ export function createCodexDynamicToolBridge(params: {
           error,
           "OpenClaw dynamic tool call failed.",
         );
-        const adjustedExecutedArgs = consumeAdjustedParamsForToolCall(
+        const rawAdjustedExecutedArgs = peekAdjustedParamsForToolCall(
           call.callId,
           toolResultHookContext.runId,
         );
+        const adjustedExecutedArgs = consumeDiagnosticAdjustedParamsForToolCall(
+          call.callId,
+          toolResultHookContext.runId,
+        );
+        consumeAdjustedParamsForToolCall(call.callId, toolResultHookContext.runId);
         if (isRecord(adjustedExecutedArgs)) {
           executedArgs = structuredClone(adjustedExecutedArgs);
         }
+        const afterHookArgsValue = redactToolCallArguments(
+          toolName,
+          toJsonValue(isRecord(rawAdjustedExecutedArgs) ? rawAdjustedExecutedArgs : executedArgs),
+        );
+        const afterHookArgs = isRecord(afterHookArgsValue) ? afterHookArgsValue : {};
+        const diagnosticToolError = tool.redactBeforeToolCallDiagnosticResult
+          ? "redacted"
+          : errorMessage;
         executionPrevented =
           executionPrevented ||
           consumePreExecutionBlockedToolCall(call.callId, toolResultHookContext.runId);
@@ -716,10 +788,10 @@ export function createCodexDynamicToolBridge(params: {
           runId: toolResultHookContext.runId,
           agentId: toolResultHookContext.agentId,
           sessionId: toolResultHookContext.sessionId,
-          sessionKey: toolResultHookContext.sessionKey,
+          sessionKey: diagnosticSessionKey,
           channelId: toolResultHookContext.channelId,
-          startArgs: executedArgs,
-          error: errorMessage,
+          startArgs: afterHookArgs,
+          error: diagnosticToolError,
           startedAt,
         });
         const replaySafe =
@@ -1398,6 +1470,35 @@ function convertToolContent(
       imageUrl,
     },
   ];
+}
+
+function toJsonValue(value: unknown): JsonValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value === "boolean" || typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      const normalized = toJsonValue(entry);
+      return normalized === undefined ? [] : [normalized];
+    });
+  }
+  if (isRecord(value)) {
+    const normalized: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const normalizedEntry = toJsonValue(entry);
+      if (normalizedEntry !== undefined) {
+        normalized[key] = normalizedEntry;
+      }
+    }
+    return normalized;
+  }
+  return "<redacted>";
 }
 
 function jsonObjectToRecord(value: JsonValue | undefined): Record<string, unknown> {

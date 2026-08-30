@@ -53,6 +53,18 @@ function activeDiagnosticToolKeys(events: DiagnosticEventPayload[]): Set<string>
 setupRunAttemptTestHooks();
 
 describe("runCodexAppServerAttempt dynamic tools", () => {
+  it("keeps redacted trajectory tool results in the protocol content shape", () => {
+    expect(
+      testing.toDiagnosticTrajectoryContentItems({
+        contentItems: [{ type: "inputText", text: "safe result" }],
+      }),
+    ).toEqual([{ type: "inputText", text: "safe result" }]);
+
+    const redacted = testing.toDiagnosticTrajectoryContentItems({ redacted: true });
+    expect(redacted).toEqual([{ type: "inputText", text: "[redacted]" }]);
+    expect(JSON.stringify(redacted)).not.toContain("secret");
+  });
+
   it.each(["cancelled", "timed_out"] as const)(
     "preserves the %s terminal reason in trusted tool diagnostics",
     async (terminalReason) => {
@@ -95,6 +107,52 @@ describe("runCodexAppServerAttempt dynamic tools", () => {
       );
     },
   );
+
+  it("uses the redacted session key for dynamic tool diagnostics", async () => {
+    const diagnosticEvents: DiagnosticEventPayload[] = [];
+    const unsubscribeDiagnostics = onInternalDiagnosticEvent((event) =>
+      diagnosticEvents.push(event),
+    );
+    const rawSessionKey = "agent:main:diagnostic-private-tail";
+    const call = {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      callId: "call-browser-diagnostic-redaction",
+      namespace: null,
+      tool: "browser",
+      arguments: {},
+    } satisfies CodexDynamicToolCallParams;
+    try {
+      emitDynamicToolStartedDiagnostic({
+        call,
+        runId: "run-browser-diagnostic-redaction",
+        sessionKey: rawSessionKey,
+        diagnosticSessionKey: "agent:main:REDACTED",
+      });
+      emitDynamicToolTerminalDiagnostic({
+        call,
+        runId: "run-browser-diagnostic-redaction",
+        sessionKey: rawSessionKey,
+        diagnosticSessionKey: "agent:main:REDACTED",
+        durationMs: 1,
+        response: {
+          success: true,
+          contentItems: [{ type: "inputText", text: "ok" }],
+        },
+      });
+      await flushDiagnosticEvents();
+    } finally {
+      unsubscribeDiagnostics();
+    }
+
+    expect(diagnosticEvents).toHaveLength(2);
+    expect(
+      diagnosticEvents.every(
+        (event) => "sessionKey" in event && event.sessionKey === "agent:main:REDACTED",
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(diagnosticEvents)).not.toContain(rawSessionKey);
+  });
 
   it("passes the live run session key to Codex dynamic tools when sandbox policy uses another key", () => {
     const workspaceDir = path.join(tempDir, "workspace");

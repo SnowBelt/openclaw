@@ -227,7 +227,7 @@ export function createCodexTrajectoryRecorder(
         seq: (seq += 1),
         sourceSeq: seq,
         sessionId: params.attempt.sessionId,
-        sessionKey: params.attempt.sessionKey,
+        sessionKey: redactTrajectorySessionKey(params.attempt.sessionKey),
         runId: params.attempt.runId,
         workspaceDir: params.cwd,
         provider: attribution.provider,
@@ -248,6 +248,10 @@ export function createCodexTrajectoryRecorder(
       await queue;
     },
   };
+}
+
+function redactTrajectorySessionKey(sessionKey: string | undefined): string | undefined {
+  return sessionKey?.trim() ? "<redacted>" : undefined;
 }
 
 /** Records compiled prompt/tool context at the start of a Codex runtime attempt. */

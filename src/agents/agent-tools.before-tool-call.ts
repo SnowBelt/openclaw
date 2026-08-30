@@ -28,6 +28,7 @@ import {
   resolveDiagnosticModelContentCapturePolicy,
   type DiagnosticModelContentCapturePolicy,
 } from "../infra/diagnostic-llm-content.js";
+import { redactBrowserDiagnosticSessionKey } from "../infra/diagnostic-session-key.js";
 import {
   createChildDiagnosticTraceContext,
   freezeDiagnosticTraceContext,
@@ -75,6 +76,7 @@ import {
   adjustedParamsByToolCallId,
   buildAdjustedParamsKey,
   preExecutionBlockedToolCallIds,
+  recordAdjustedParamsWithDiagnosticSnapshot,
   recordStructuredReplaySafeToolCall,
   structuredReplaySafeToolCallIds,
 } from "./agent-tools.before-tool-call.state.js";
@@ -82,7 +84,9 @@ import { normalizeFileToolPathParam } from "./agent-tools.params.js";
 import { resolveAgentRunAbortLifecycleFields } from "./run-termination.js";
 export {
   consumeAdjustedParamsForToolCall,
+  consumeDiagnosticAdjustedParamsForToolCall,
   consumePreExecutionBlockedToolCall,
+  peekDiagnosticAdjustedParamsForToolCall,
   peekAdjustedParamsForToolCall,
 } from "./agent-tools.before-tool-call.state.js";
 import {
@@ -224,6 +228,8 @@ type BeforeToolCallPreparingTool = AnyAgentTool & {
     ctx: { toolCallId?: string; hookContext?: HookContext; signal?: AbortSignal },
   ) => unknown;
   finalizeBeforeToolCallParams?: (params: unknown, preparedParams: unknown) => unknown;
+  redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
+  redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
 };
 
 export type BeforeToolCallPolicyDiagnosticState = {
@@ -410,36 +416,32 @@ export function getBeforeToolCallFailureDisposition(
   }
 }
 
-/** Remember hook-adjusted params for later adapter-side execution. */
+/** Remember raw and diagnostic-safe hook-adjusted params for later consumers. */
 export function recordAdjustedParamsForToolCall(
   toolCallId: string | undefined,
   params: unknown,
   runId?: string,
+  diagnosticParams: unknown = params,
 ): void {
-  if (!toolCallId) {
-    return;
-  }
-  const cloneResult = cloneParamsForAdjustedReplay(params);
-  if (!cloneResult.ok) {
-    return;
-  }
-  const adjustedParamsKey = buildAdjustedParamsKey({ runId, toolCallId });
-  adjustedParamsByToolCallId.set(adjustedParamsKey, cloneResult.value);
-  if (adjustedParamsByToolCallId.size > MAX_TRACKED_ADJUSTED_PARAMS) {
+  recordAdjustedParamsWithDiagnosticSnapshot(toolCallId, params, diagnosticParams, runId);
+  while (adjustedParamsByToolCallId.size > MAX_TRACKED_ADJUSTED_PARAMS) {
     const oldest = adjustedParamsByToolCallId.keys().next().value;
-    if (oldest) {
-      adjustedParamsByToolCallId.delete(oldest);
+    if (oldest === undefined) {
+      break;
     }
+    adjustedParamsByToolCallId.delete(oldest);
   }
 }
 
-function cloneParamsForAdjustedReplay(
-  params: unknown,
-): { ok: true; value: unknown } | { ok: false } {
+function redactToolParamsForBookkeeping(tool: AnyAgentTool, params: unknown): unknown {
+  const redact = tool.redactBeforeToolCallDiagnosticParams;
+  if (!redact) {
+    return params;
+  }
   try {
-    return { ok: true, value: structuredClone(params) };
+    return redact(cloneDiagnosticContentValue(params));
   } catch {
-    return { ok: false };
+    return { redacted: true };
   }
 }
 
@@ -479,6 +481,9 @@ function mergeParamsWithApprovalOverrides(
   approvalParams?: unknown,
 ): unknown {
   if (approvalParams && isPlainObject(approvalParams)) {
+    if (approvalParams === originalParams) {
+      return originalParams;
+    }
     if (isPlainObject(originalParams)) {
       return { ...originalParams, ...approvalParams };
     }
@@ -887,6 +892,10 @@ async function requestPluginToolApproval(params: {
   const approval = params.approval;
   const timeoutMs = resolvePluginToolApprovalTimeoutMs(approval);
   const gatewayTimeoutMs = resolvePluginToolApprovalGatewayTimeoutMs(timeoutMs);
+  const approvalSessionKey =
+    normalizeToolName(params.toolName) === "browser"
+      ? redactBrowserDiagnosticSessionKey(params.ctx?.sessionKey)
+      : params.ctx?.sessionKey;
   let gatewayApprovalPhase: "none" | "request" | "wait" = "none";
   try {
     const embeddedApprovalBroker = isEmbeddedMode() ? getEmbeddedPluginApprovalBroker() : null;
@@ -901,7 +910,7 @@ async function requestPluginToolApproval(params: {
           toolName: params.toolName,
           toolCallId: params.toolCallId,
           agentId: params.ctx?.agentId,
-          sessionKey: params.ctx?.sessionKey,
+          sessionKey: approvalSessionKey,
           turnSourceChannel: params.ctx?.turnSourceChannel,
           turnSourceTo: params.ctx?.turnSourceTo,
           turnSourceAccountId: params.ctx?.turnSourceAccountId,
@@ -985,7 +994,7 @@ async function requestPluginToolApproval(params: {
         toolName: params.toolName,
         toolCallId: params.toolCallId,
         agentId: params.ctx?.agentId,
-        sessionKey: params.ctx?.sessionKey,
+        sessionKey: approvalSessionKey,
         ...(params.ctx?.approvalReviewerDeviceId
           ? { approvalReviewerDeviceIds: [params.ctx.approvalReviewerDeviceId] }
           : {}),
@@ -1278,17 +1287,33 @@ export function buildBlockedToolResult(params: {
 // consumers (e.g. diagnostics-otel) bound and redact before export.
 function buildToolContentPrivateData(
   policy: DiagnosticModelContentCapturePolicy,
-  args: { input: unknown; output?: unknown; includeOutput: boolean },
+  args: {
+    input: unknown;
+    output?: unknown;
+    includeOutput: boolean;
+    redactInput?: (input: unknown) => unknown;
+    redactOutput?: (output: unknown) => unknown;
+  },
 ): DiagnosticEventPrivateData | undefined {
   if (!policy.toolInputs && !policy.toolOutputs) {
     return undefined;
   }
   const toolContent: { toolInput?: unknown; toolOutput?: unknown } = {};
   if (policy.toolInputs) {
-    toolContent.toolInput = cloneDiagnosticContentValue(args.input);
+    const input = cloneDiagnosticContentValue(args.input);
+    try {
+      toolContent.toolInput = args.redactInput ? args.redactInput(input) : input;
+    } catch {
+      toolContent.toolInput = { redacted: true };
+    }
   }
   if (args.includeOutput && policy.toolOutputs) {
-    toolContent.toolOutput = cloneDiagnosticContentValue(args.output);
+    const output = cloneDiagnosticContentValue(args.output);
+    try {
+      toolContent.toolOutput = args.redactOutput ? args.redactOutput(output) : output;
+    } catch {
+      toolContent.toolOutput = { redacted: true };
+    }
   }
   return Object.keys(toolContent).length > 0 ? { toolContent } : undefined;
 }
@@ -1396,6 +1421,10 @@ export async function runBeforeToolCallHook(args: {
 }): Promise<HookOutcome> {
   const toolName = normalizeToolName(args.toolName || "tool");
   const params = args.params;
+  const diagnosticSessionKey =
+    toolName === "browser"
+      ? redactBrowserDiagnosticSessionKey(args.ctx?.sessionKey)
+      : args.ctx?.sessionKey;
 
   try {
     if (args.ctx?.sessionKey) {
@@ -1419,7 +1448,7 @@ export async function runBeforeToolCallHook(args: {
         if (loopResult.level === "critical") {
           log.error(`Blocking ${toolName} due to critical loop: ${loopResult.message}`);
           logToolLoopAction({
-            sessionKey: args.ctx.sessionKey,
+            sessionKey: diagnosticSessionKey,
             sessionId: args.ctx.sessionId,
             toolName,
             level: "critical",
@@ -1442,7 +1471,7 @@ export async function runBeforeToolCallHook(args: {
         if (shouldEmitLoopWarning(sessionState, warningKey, loopResult.count)) {
           log.warn(`Loop warning for ${toolName}: ${loopResult.message}`);
           logToolLoopAction({
-            sessionKey: args.ctx.sessionKey,
+            sessionKey: diagnosticSessionKey,
             sessionId: args.ctx.sessionId,
             toolName,
             level: "warning",
@@ -1735,7 +1764,12 @@ export function wrapToolWithBeforeToolCallHook(
           : undefined;
       const buildEventBase = (toolParams: unknown) => ({
         ...(ctx?.runId && { runId: ctx.runId }),
-        ...(ctx?.sessionKey && { sessionKey: ctx.sessionKey }),
+        ...(ctx?.sessionKey && {
+          sessionKey:
+            normalizedToolName === "browser"
+              ? redactBrowserDiagnosticSessionKey(ctx.sessionKey)
+              : ctx.sessionKey,
+        }),
         ...(ctx?.sessionId && { sessionId: ctx.sessionId }),
         ...(ctx?.agentId && { agentId: ctx.agentId }),
         ...(trace && { trace }),
@@ -1880,8 +1914,9 @@ export function wrapToolWithBeforeToolCallHook(
         recordPreExecutionError(error, outcome.params ?? hookParams, "tool_preparation");
         throw tagBeforeToolCallFailure(error, signal);
       }
-      recordAdjustedParamsForToolCall(toolCallId, executeParams, ctx?.runId);
-      const eventBase = buildEventBase(executeParams);
+      const bookkeepingParams = redactToolParamsForBookkeeping(tool, executeParams);
+      recordAdjustedParamsForToolCall(toolCallId, executeParams, ctx?.runId, bookkeepingParams);
+      const eventBase = buildEventBase(bookkeepingParams);
       if (hookOptions.emitDiagnostics) {
         emitTrustedDiagnosticEvent({
           type: "tool.execution.started",
@@ -1894,13 +1929,13 @@ export function wrapToolWithBeforeToolCallHook(
         const durationMs = Date.now() - startedAt;
         const terminalPresentation = resolveToolTerminalPresentation({
           tool,
-          toolParams: executeParams,
+          toolParams: bookkeepingParams,
           result,
         });
         await recordLoopOutcome({
           ctx,
           toolName: normalizedToolName,
-          toolParams: executeParams,
+          toolParams: bookkeepingParams,
           toolCallId,
           result,
           toolCallOrdinal,
@@ -1909,13 +1944,13 @@ export function wrapToolWithBeforeToolCallHook(
         rememberPendingTerminalPresentation({
           ctx,
           tool,
-          toolParams: executeParams,
+          toolParams: bookkeepingParams,
           toolCallId,
           toolCallOrdinal,
         });
         const skillMatch = findSkillUsageMatch({
           toolName: normalizedToolName,
-          toolParams: executeParams,
+          toolParams: bookkeepingParams,
           ctx,
         });
         if (hookOptions.emitDiagnostics) {
@@ -1937,6 +1972,10 @@ export function wrapToolWithBeforeToolCallHook(
               input: executeParams,
               output: result,
               includeOutput: true,
+              redactInput: (tool as BeforeToolCallPreparingTool)
+                .redactBeforeToolCallDiagnosticParams,
+              redactOutput: (tool as BeforeToolCallPreparingTool)
+                .redactBeforeToolCallDiagnosticResult,
             }),
           );
         }
@@ -1953,13 +1992,15 @@ export function wrapToolWithBeforeToolCallHook(
             buildToolContentPrivateData(toolContentPolicy, {
               input: executeParams,
               includeOutput: false,
+              redactInput: (tool as BeforeToolCallPreparingTool)
+                .redactBeforeToolCallDiagnosticParams,
             }),
           );
         }
         await recordLoopOutcome({
           ctx,
           toolName: normalizedToolName,
-          toolParams: executeParams,
+          toolParams: bookkeepingParams,
           toolCallId,
           error: err,
           toolCallOrdinal,

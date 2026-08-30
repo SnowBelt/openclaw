@@ -14,7 +14,7 @@ import { makeToolPrunablePredicate } from "../agent-hooks/context-pruning/tools.
 import { resolveEffectiveCompactionMode } from "../agent-settings.js";
 import {
   finalizeToolTerminalPresentation,
-  peekAdjustedParamsForToolCall,
+  peekDiagnosticAdjustedParamsForToolCall,
 } from "../agent-tools.before-tool-call.js";
 import { resolveContextWindowInfo } from "../context-window-guard.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
@@ -78,7 +78,7 @@ function buildAgentToolResultMiddlewareFactory(
       }
       const inputHadErrorStatus = isToolResultError(current);
       const adjustedInput = eventToolCallId
-        ? peekAdjustedParamsForToolCall(eventToolCallId, runId)
+        ? peekDiagnosticAdjustedParamsForToolCall(eventToolCallId, runId)
         : undefined;
       const result = await runner.applyToolResultMiddleware({
         threadId: event.threadId,

@@ -14,6 +14,10 @@ export type CachedPluginToolDescriptor = {
   descriptor: ToolDescriptor;
   displaySummary?: string;
   optional: boolean;
+  hasBeforeToolCallParamsPreparer?: boolean;
+  hasBeforeToolCallParamsFinalizer?: boolean;
+  hasBeforeToolCallDiagnosticParamsRedactor?: boolean;
+  hasBeforeToolCallDiagnosticResultRedactor?: boolean;
 };
 
 const descriptorCache = new Map<string, CachedPluginToolDescriptor[]>();
@@ -155,6 +159,14 @@ export function capturePluginToolDescriptor(params: {
   return {
     ...(params.tool.displaySummary ? { displaySummary: params.tool.displaySummary } : {}),
     optional: params.optional,
+    ...(params.tool.prepareBeforeToolCallParams ? { hasBeforeToolCallParamsPreparer: true } : {}),
+    ...(params.tool.finalizeBeforeToolCallParams ? { hasBeforeToolCallParamsFinalizer: true } : {}),
+    ...(params.tool.redactBeforeToolCallDiagnosticParams
+      ? { hasBeforeToolCallDiagnosticParamsRedactor: true }
+      : {}),
+    ...(params.tool.redactBeforeToolCallDiagnosticResult
+      ? { hasBeforeToolCallDiagnosticResultRedactor: true }
+      : {}),
     descriptor: {
       name: params.tool.name,
       ...(title ? { title } : {}),

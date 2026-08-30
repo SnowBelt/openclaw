@@ -10,7 +10,12 @@ type DynamicToolDiagnosticContext = {
   runId?: string | undefined;
   sessionId?: string | undefined;
   sessionKey?: string | undefined;
+  diagnosticSessionKey?: string | undefined;
 };
+
+function resolveDiagnosticSessionKey(params: DynamicToolDiagnosticContext): string | undefined {
+  return params.diagnosticSessionKey ?? params.sessionKey;
+}
 
 /** Emits a start event for one Codex dynamic tool call. */
 export function emitDynamicToolStartedDiagnostic(params: DynamicToolDiagnosticContext): void {
@@ -19,7 +24,7 @@ export function emitDynamicToolStartedDiagnostic(params: DynamicToolDiagnosticCo
     agentId: params.agentId,
     runId: params.runId,
     sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
+    sessionKey: resolveDiagnosticSessionKey(params),
     toolName: params.call.tool,
     toolCallId: params.call.callId,
   });
@@ -37,7 +42,7 @@ export function emitDynamicToolErrorDiagnostic(
     agentId: params.agentId,
     runId: params.runId,
     sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
+    sessionKey: resolveDiagnosticSessionKey(params),
     toolName: params.call.tool,
     toolCallId: params.call.callId,
     durationMs: params.durationMs,
@@ -61,7 +66,7 @@ export function emitDynamicToolTerminalDiagnostic(
       agentId: params.agentId,
       runId: params.runId,
       sessionId: params.sessionId,
-      sessionKey: params.sessionKey,
+      sessionKey: resolveDiagnosticSessionKey(params),
       toolName: params.call.tool,
       toolCallId: params.call.callId,
       durationMs: params.durationMs,
@@ -74,7 +79,7 @@ export function emitDynamicToolTerminalDiagnostic(
       agentId: params.agentId,
       runId: params.runId,
       sessionId: params.sessionId,
-      sessionKey: params.sessionKey,
+      sessionKey: resolveDiagnosticSessionKey(params),
       toolName: params.call.tool,
       toolCallId: params.call.callId,
       deniedReason: "plugin-before-tool-call",

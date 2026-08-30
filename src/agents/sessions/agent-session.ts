@@ -25,6 +25,7 @@ import {
 } from "@openclaw/ai/internal/runtime";
 import { resetApiProviders } from "@openclaw/ai/providers";
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
+import { cloneDiagnosticContentValue } from "../../infra/diagnostic-llm-content.js";
 import { streamSimple } from "../../llm/stream.js";
 import type {
   AssistantMessage,
@@ -616,15 +617,20 @@ export class AgentSession {
       }
     }
 
-    // Emit to extensions first
-    const messageChangedByExtension = await this.emitExtensionEvent(event);
+    // Emit a redacted observer copy; internal persistence and tool hooks still
+    // receive the original event and execution data.
+    const observerEvent = this.redactToolEventForObservers(event);
+    const messageChangedByExtension = await this.emitExtensionEvent(observerEvent);
 
     // Notify all listeners
-    this.emit(
+    const observerSessionEvent: AgentSessionEvent =
       event.type === "agent_end"
-        ? { ...event, willRetry: this.willRetryAfterAgentEnd(event) }
-        : event,
-    );
+        ? {
+            ...(observerEvent as Extract<AgentEvent, { type: "agent_end" }>),
+            willRetry: this.willRetryAfterAgentEnd(event),
+          }
+        : (observerEvent as Exclude<AgentEvent, { type: "agent_end" }>);
+    this.emit(observerSessionEvent);
 
     // Handle session persistence
     if (event.type === "message_end") {
@@ -673,6 +679,60 @@ export class AgentSession {
           this.retryCount = 0;
         }
       }
+    }
+  }
+
+  private redactToolEventForObservers(event: AgentEvent): AgentEvent {
+    if (
+      event.type !== "tool_execution_start" &&
+      event.type !== "tool_execution_update" &&
+      event.type !== "tool_execution_end"
+    ) {
+      return event;
+    }
+
+    const definition = this.toolDefinitions.get(event.toolName)?.definition;
+    if (!definition) {
+      return event;
+    }
+
+    if (event.type === "tool_execution_start") {
+      return {
+        ...event,
+        args: this.redactObserverValue(definition.redactBeforeToolCallDiagnosticParams, event.args),
+      };
+    }
+
+    if (event.type === "tool_execution_update") {
+      return {
+        ...event,
+        args: this.redactObserverValue(definition.redactBeforeToolCallDiagnosticParams, event.args),
+        partialResult: this.redactObserverValue(
+          definition.redactBeforeToolCallDiagnosticResult,
+          event.partialResult,
+        ),
+      };
+    }
+    return {
+      ...event,
+      result: this.redactObserverValue(
+        definition.redactBeforeToolCallDiagnosticResult,
+        event.result,
+      ),
+    };
+  }
+
+  private redactObserverValue(
+    redactor: ((value: unknown) => unknown) | undefined,
+    value: unknown,
+  ): unknown {
+    if (!redactor) {
+      return value;
+    }
+    try {
+      return redactor(cloneDiagnosticContentValue(value));
+    } catch {
+      return { redacted: true };
     }
   }
 

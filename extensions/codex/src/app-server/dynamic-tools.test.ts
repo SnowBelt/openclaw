@@ -2390,6 +2390,78 @@ describe("createCodexDynamicToolBridge", () => {
     expect(bridge.telemetry.successfulCronAdds).toBe(1);
   });
 
+  it("redacts Browser dynamic after-tool hook data and session identity", async () => {
+    const afterToolCall = vi.fn();
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([{ hookName: "after_tool_call", handler: afterToolCall }]),
+    );
+    const execute = vi.fn(async () =>
+      textToolResult("private-page-content", { password: "do-not-leak" }),
+    );
+    const redactParams = (value: unknown) => {
+      const record = requireRecord(value, "diagnostic params");
+      return Object.hasOwn(record, "sessionKey")
+        ? { sessionKey: "agent:main:REDACTED" }
+        : { redacted: true };
+    };
+    const bridge = createCodexDynamicToolBridge({
+      tools: [
+        createTool({
+          name: "browser",
+          execute,
+          redactBeforeToolCallDiagnosticParams: redactParams,
+          redactBeforeToolCallDiagnosticResult: () => ({ redacted: true }),
+        }),
+      ],
+      signal: new AbortController().signal,
+      hookContext: {
+        runId: "run-browser-redaction",
+        sessionKey: "agent:main:dynamic-secret-tail",
+      },
+    });
+
+    const result = await bridge.handleToolCall({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      callId: "call-browser-redaction",
+      namespace: null,
+      tool: "browser",
+      arguments: {
+        action: "navigate",
+        url: "https://example.test",
+        password: "do-not-leak",
+      },
+    });
+
+    expect(result).toEqual(expectInputText("private-page-content"));
+    expect(execute).toHaveBeenCalledWith(
+      "call-browser-redaction",
+      {
+        action: "navigate",
+        url: "https://example.test",
+        password: "do-not-leak",
+      },
+      expect.any(AbortSignal),
+      undefined,
+    );
+    await vi.waitFor(() => {
+      expect(afterToolCall).toHaveBeenCalledTimes(1);
+    });
+    const afterEvent = requireRecord(
+      callArg(afterToolCall, 0, 0, "Browser after_tool_call event"),
+      "Browser after event",
+    );
+    expect(afterEvent.params).toEqual({ redacted: true });
+    expect(afterEvent.result).toEqual({ redacted: true });
+    expectContextFields(callArg(afterToolCall, 0, 1, "Browser after_tool_call context"), {
+      sessionKey: "agent:main:REDACTED",
+    });
+    const serialized = JSON.stringify(afterToolCall.mock.calls[0]);
+    expect(serialized).not.toContain("dynamic-secret-tail");
+    expect(serialized).not.toContain("do-not-leak");
+    expect(serialized).not.toContain("private-page-content");
+  });
+
   it("does not mark pre-execution argument failures as side-effect evidence", async () => {
     const execute = vi.fn(async () => textToolResult("should not run"));
     const onToolOutcome = vi.fn();

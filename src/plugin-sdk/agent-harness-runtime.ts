@@ -311,12 +311,15 @@ export { appendSessionTranscriptMessage } from "../config/sessions/transcript-ap
 export { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 export {
   consumeAdjustedParamsForToolCall,
+  consumeDiagnosticAdjustedParamsForToolCall,
   consumePreExecutionBlockedToolCall,
   finalizeToolTerminalPresentation,
   getBeforeToolCallFailureDisposition,
   getBeforeToolCallPolicyDiagnosticState,
   hasBeforeToolCallPolicy,
   isToolWrappedWithBeforeToolCallHook,
+  peekAdjustedParamsForToolCall,
+  peekDiagnosticAdjustedParamsForToolCall,
   requestDeferredPluginToolApproval,
   runBeforeToolCallHook,
   setBeforeToolCallDiagnosticsEnabled,

@@ -976,6 +976,39 @@ describe("browser tool snapshot maxChars", () => {
     expect(opts.profile).toBe("chrome-live");
   });
 
+  it("keeps omitted model targets on the sandbox bridge when available", async () => {
+    const tool = createBrowserTool({
+      sandboxBridgeUrl: "http://127.0.0.1:9999",
+      allowHostControl: false,
+      modelMediated: true,
+    });
+
+    await tool.execute?.("call-1", { action: "status" });
+
+    expect(browserClientMocks.browserStatus).toHaveBeenCalledWith("http://127.0.0.1:9999", {
+      profile: undefined,
+      timeoutMs: undefined,
+    });
+  });
+
+  it("keeps omitted model targets on the host for existing-session profiles", async () => {
+    setResolvedBrowserProfiles({
+      user: { driver: "existing-session", attachOnly: true, color: "#00AA00" },
+    });
+    const tool = createBrowserTool({
+      sandboxBridgeUrl: "http://127.0.0.1:9999",
+      allowHostControl: true,
+      modelMediated: true,
+    });
+
+    await tool.execute?.("call-1", { action: "status", profile: "user" });
+
+    expect(browserClientMocks.browserStatus).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ profile: "user" }),
+    );
+  });
+
   it('rejects profile="user" with target="sandbox"', async () => {
     setResolvedBrowserProfiles({
       user: { driver: "existing-session", attachOnly: true, color: "#00AA00" },

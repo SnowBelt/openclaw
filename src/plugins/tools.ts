@@ -682,12 +682,13 @@ function createCachedDescriptorPluginTool(params: {
   const { descriptor } = params.descriptor;
   const pluginId = descriptor.owner.kind === "plugin" ? descriptor.owner.pluginId : "";
   const toolName = descriptor.name;
-  const tool: AnyAgentTool = {
-    name: descriptor.name,
-    label: descriptor.title ?? descriptor.name,
-    description: descriptor.description,
-    parameters: descriptor.inputSchema as never,
-    async execute(toolCallId, executeParams, signal, onUpdate) {
+  let runtimeToolPromise: Promise<AnyAgentTool> | undefined;
+  let resolvedRuntimeTool: AnyAgentTool | undefined;
+  const resolveRuntimeTool = async (): Promise<AnyAgentTool> => {
+    if (runtimeToolPromise) {
+      return runtimeToolPromise;
+    }
+    runtimeToolPromise = (async () => {
       const loadOptions = buildPluginRuntimeLoadOptions(params.loadContext, {
         activate: false,
         toolDiscovery: true,
@@ -707,48 +708,94 @@ function createCachedDescriptorPluginTool(params: {
         throw new Error(`plugin tool runtime unavailable (${pluginId}): ${toolName}`);
       }
       const requestedToolName = normalizeToolName(toolName);
-      const matchingNamedCandidates: PluginToolRegistration[] = [];
-      const unnamedCandidates: PluginToolRegistration[] = [];
-      for (const candidate of candidates) {
-        if (candidate.names.length === 0) {
-          unnamedCandidates.push(candidate);
-          continue;
-        }
-        if (candidate.names.some((name) => normalizeToolName(name) === requestedToolName)) {
-          matchingNamedCandidates.push(candidate);
-        }
-      }
-      const resolveCandidateTool = (
-        candidate: PluginToolRegistration,
-      ): AnyAgentTool | undefined => {
-        const resolved = resolvePluginToolFactory(candidate, params.ctx);
-        const listRaw: unknown[] = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
-        for (const toolRaw of listRaw) {
-          const malformedReason = describeMalformedPluginTool(toolRaw);
-          if (malformedReason) {
-            continue;
-          }
-          const runtimeTool = toolRaw as AnyAgentTool;
-          if (normalizeToolName(readPluginToolName(runtimeTool)) === requestedToolName) {
-            return runtimeTool;
-          }
-        }
-        return undefined;
-      };
+      const matchingNamedCandidates = candidates.filter(
+        (candidate) =>
+          candidate.names.length > 0 &&
+          candidate.names.some((name) => normalizeToolName(name) === requestedToolName),
+      );
+      const unnamedCandidates = candidates.filter((candidate) => candidate.names.length === 0);
       for (const candidate of [...matchingNamedCandidates, ...unnamedCandidates]) {
-        let matchedTool: AnyAgentTool | undefined;
         try {
-          matchedTool = resolveCandidateTool(candidate);
+          const resolved = resolvePluginToolFactory(candidate, params.ctx);
+          const listRaw: unknown[] = Array.isArray(resolved)
+            ? resolved
+            : resolved
+              ? [resolved]
+              : [];
+          for (const toolRaw of listRaw) {
+            if (describeMalformedPluginTool(toolRaw)) {
+              continue;
+            }
+            const runtimeTool = toolRaw as AnyAgentTool;
+            if (normalizeToolName(readPluginToolName(runtimeTool)) === requestedToolName) {
+              resolvedRuntimeTool = runtimeTool;
+              return runtimeTool;
+            }
+          }
         } catch {
-          continue;
-        }
-        if (matchedTool) {
-          return matchedTool.execute(toolCallId, executeParams, signal, onUpdate);
+          // Try the next matching registration; the final error is bounded and generic.
         }
       }
       throw new Error(`plugin tool runtime missing (${pluginId}): ${toolName}`);
+    })().catch((error: unknown) => {
+      // A transient runtime lookup must not permanently disable a cached descriptor.
+      runtimeToolPromise = undefined;
+      throw error;
+    });
+    return runtimeToolPromise;
+  };
+  const tool: AnyAgentTool = {
+    name: descriptor.name,
+    label: descriptor.title ?? descriptor.name,
+    description: descriptor.description,
+    parameters: descriptor.inputSchema as never,
+    async execute(toolCallId, executeParams, signal, onUpdate) {
+      const runtimeTool = await resolveRuntimeTool();
+      return runtimeTool.execute(toolCallId, executeParams, signal, onUpdate);
     },
   };
+  if (params.descriptor.hasBeforeToolCallParamsPreparer) {
+    tool.prepareBeforeToolCallParams = async (value, context) => {
+      const runtimeTool = await resolveRuntimeTool();
+      return runtimeTool.prepareBeforeToolCallParams
+        ? runtimeTool.prepareBeforeToolCallParams(value, context)
+        : value;
+    };
+  }
+  if (params.descriptor.hasBeforeToolCallParamsFinalizer) {
+    tool.finalizeBeforeToolCallParams = (value, prepared) => {
+      if (!resolvedRuntimeTool) {
+        throw new Error(`plugin tool runtime unavailable before finalization (${pluginId})`);
+      }
+      return resolvedRuntimeTool.finalizeBeforeToolCallParams
+        ? resolvedRuntimeTool.finalizeBeforeToolCallParams(value, prepared)
+        : value;
+    };
+  }
+  if (params.descriptor.hasBeforeToolCallDiagnosticParamsRedactor) {
+    tool.redactBeforeToolCallDiagnosticParams = (value) => {
+      const runtimeTool = resolvedRuntimeTool;
+      if (!runtimeTool) {
+        throw new Error(`plugin tool runtime unavailable for redaction (${pluginId}): ${toolName}`);
+      }
+      if (!runtimeTool.redactBeforeToolCallDiagnosticParams) {
+        throw new Error(`plugin tool input redactor unavailable (${pluginId}): ${toolName}`);
+      }
+      return runtimeTool.redactBeforeToolCallDiagnosticParams(value);
+    };
+  }
+  if (params.descriptor.hasBeforeToolCallDiagnosticResultRedactor) {
+    tool.redactBeforeToolCallDiagnosticResult = (value) => {
+      const runtimeTool = resolvedRuntimeTool;
+      if (!runtimeTool) {
+        throw new Error(`plugin tool runtime unavailable for redaction (${pluginId}): ${toolName}`);
+      }
+      if (!runtimeTool.redactBeforeToolCallDiagnosticResult) {
+        throw new Error(`plugin tool output redactor unavailable (${pluginId}): ${toolName}`);
+      }
+      return runtimeTool.redactBeforeToolCallDiagnosticResult(value);
+    };
+  }
   if (params.descriptor.displaySummary) {
     tool.displaySummary = params.descriptor.displaySummary;
   }

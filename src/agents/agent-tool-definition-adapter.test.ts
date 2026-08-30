@@ -54,22 +54,31 @@ async function executeTool(tool: AgentTool, callId: string) {
 describe("agent tool definition adapter", () => {
   it("preserves argument preparation and execution mode contracts", () => {
     const prepareArguments = vi.fn((args: unknown) => args as Record<string, never>);
+    const redactParams = vi.fn((args: unknown) => ({ redacted: args }));
+    const redactResult = vi.fn((result: unknown) => ({ redacted: result }));
     const tool = {
       name: "serial_tool",
       label: "Serial Tool",
       description: "runs sequentially",
       parameters: Type.Object({}),
       prepareArguments,
+      redactBeforeToolCallDiagnosticParams: redactParams,
+      redactBeforeToolCallDiagnosticResult: redactResult,
       executionMode: "sequential",
       execute: async () => ({
         content: [{ type: "text", text: "done" }],
         details: {},
       }),
-    } satisfies AgentTool;
+    } as AgentTool & {
+      redactBeforeToolCallDiagnosticParams: typeof redactParams;
+      redactBeforeToolCallDiagnosticResult: typeof redactResult;
+    };
 
     const [definition] = toToolDefinitions([tool]);
 
     expect(definition?.prepareArguments).toBe(prepareArguments);
+    expect(definition?.redactBeforeToolCallDiagnosticParams).toBe(redactParams);
+    expect(definition?.redactBeforeToolCallDiagnosticResult).toBe(redactResult);
     expect(definition?.executionMode).toBe("sequential");
   });
 
