@@ -29,24 +29,28 @@ const isRestartEnabledMock = vi.fn(() => true);
 const readPackageVersionMock = vi.fn(async () => "1.0.0");
 const detectRespawnSupervisorMock = vi.fn<() => RespawnSupervisor | null>(() => null);
 const normalizeUpdateChannelMock = vi.fn((): UpdateChannel | null => null);
-const resolveCustomRuntimeUpdatePolicyMock = vi.fn<() => CustomRuntimeUpdatePolicy>(() => ({
-  managedRuntime: false,
-  standardUpdateBlocked: false,
-  sourceDurable: false,
-  sourceDurabilityReason: "not durable",
-  backupConfigured: false,
-  approvalPending: false,
-  pendingCandidateSha: null,
-  preparationRunning: false,
-  preparationStatus: "blocked",
-  preparationReason: "invalid-active-runtime-pointer",
-  sourceSha: null,
-  sourceRepo: null,
-  sourceBranch: null,
-  runtimeRoot: null,
-  pointerPath: "/tmp/active-runtime.json",
-  reason: "not managed",
-}));
+const resolveCustomRuntimeUpdatePolicyMock = vi.fn<() => Promise<CustomRuntimeUpdatePolicy>>(
+  async () => ({
+    managedRuntime: false,
+    standardUpdateBlocked: false,
+    sourceDurable: false,
+    sourceDurabilityReason: "not durable",
+    runtimeGuardHealthy: false,
+    runtimeGuardReason: "not healthy",
+    backupConfigured: false,
+    approvalPending: false,
+    pendingCandidateSha: null,
+    preparationRunning: false,
+    preparationStatus: "blocked",
+    preparationReason: "invalid-active-runtime-pointer",
+    sourceSha: null,
+    sourceRepo: null,
+    sourceBranch: null,
+    runtimeRoot: null,
+    pointerPath: "/tmp/active-runtime.json",
+    reason: "not managed",
+  }),
+);
 const startCustomRuntimeUpdateBrokerMock = vi.fn(() => ({
   action: "prepare" as const,
   pid: 23456,
@@ -258,11 +262,13 @@ beforeEach(() => {
   detectRespawnSupervisorMock.mockReset();
   detectRespawnSupervisorMock.mockReturnValue(null);
   resolveCustomRuntimeUpdatePolicyMock.mockReset();
-  resolveCustomRuntimeUpdatePolicyMock.mockReturnValue({
+  resolveCustomRuntimeUpdatePolicyMock.mockResolvedValue({
     managedRuntime: false,
     standardUpdateBlocked: false,
     sourceDurable: false,
     sourceDurabilityReason: "not durable",
+    runtimeGuardHealthy: false,
+    runtimeGuardReason: "not healthy",
     backupConfigured: false,
     approvalPending: false,
     pendingCandidateSha: null,
@@ -381,11 +387,13 @@ function mockGitInstallSurface(root: string) {
 
 describe("custom runtime update safety", () => {
   it("starts only isolated preparation before any generic update is run", async () => {
-    resolveCustomRuntimeUpdatePolicyMock.mockReturnValueOnce({
+    resolveCustomRuntimeUpdatePolicyMock.mockResolvedValueOnce({
       managedRuntime: true,
       standardUpdateBlocked: true,
       sourceDurable: true,
       sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
       backupConfigured: true,
       approvalPending: false,
       pendingCandidateSha: null,
@@ -420,11 +428,13 @@ describe("custom runtime update safety", () => {
 
   it("starts exact-SHA installation only for the prepared candidate", async () => {
     const candidateSha = "b".repeat(40);
-    resolveCustomRuntimeUpdatePolicyMock.mockReturnValueOnce({
+    resolveCustomRuntimeUpdatePolicyMock.mockResolvedValueOnce({
       managedRuntime: true,
       standardUpdateBlocked: true,
       sourceDurable: true,
       sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
       backupConfigured: true,
       approvalPending: true,
       pendingCandidateSha: candidateSha,

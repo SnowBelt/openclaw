@@ -15,6 +15,9 @@ worktrees=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES:-"$HOME/OpenClaw-runtime-up
 receipts=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}/receipts
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime update helper is missing' >&2; exit 64; }
+. "$auth_helper"
 mkdir -p "$worktrees" "$receipts"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 candidate="$worktrees/$stamp"
@@ -25,38 +28,8 @@ fail() {
   exit 1
 }
 preparation_lock="$runtime_home/update-preparation.lock"
-acquire_result=$(python3 - "$preparation_lock" "$receipts" "$stamp" <<'PY'
-import datetime, json, os, stat, sys
-
-lock, receipts, stamp = sys.argv[1:]
-try:
-    os.mkdir(lock, 0o700)
-except FileExistsError:
-    info = os.lstat(lock)
-    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
-        raise SystemExit("unsafe")
-    age = max(0, datetime.datetime.now().timestamp() - info.st_mtime)
-    owner_alive = False
-    try:
-        with open(os.path.join(lock, "owner.json"), encoding="utf-8") as f:
-            owner = json.load(f)
-        pid = owner.get("pid") if isinstance(owner, dict) else None
-        if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
-            os.kill(pid, 0)
-            owner_alive = True
-    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
-        owner_alive = False
-    if owner_alive or age < 30 * 60:
-        raise SystemExit("running")
-    recovered = os.path.join(receipts, f"stale-update-preparation-lock-{stamp}")
-    os.replace(lock, recovered)
-    os.mkdir(lock, 0o700)
-with open(os.path.join(lock, "owner.json"), "x", encoding="utf-8") as f:
-    json.dump({"pid": os.getppid(), "startedAt": stamp}, f, sort_keys=True)
-    f.write("\n")
-print("acquired")
-PY
-) || fail preparation_lock
+acquire_result=$(custom_runtime_update_lock_transition \
+  acquire "$preparation_lock" "$receipts" "$stamp" preparation "$$") || fail preparation_lock
 [ "$acquire_result" = acquired ] || fail preparation_lock
 release_preparation_lock() {
   rm -f "$preparation_lock/owner.json"
@@ -67,7 +40,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-[ ! -e "$runtime_home/update-installation.lock" ] || fail installation_running
+custom_runtime_update_lock_transition check "$runtime_home/update-installation.lock" \
+  "$receipts" "$stamp" installation >/dev/null || fail installation_running
 pending_update="$runtime_home/pending-update.json"
 pending_state=$(python3 - "$pending_update" <<'PY'
 import json
@@ -91,12 +65,23 @@ if (
     and value.get("result") == "ready_for_approval"
     and re.fullmatch(r"[0-9a-f]{40}", str(value.get("sourceSha", "")))
 ):
+    verified_backup = value.get("verifiedBackup")
+    if (
+        isinstance(verified_backup, dict)
+        and verified_backup.get("schema") == "openclaw.custom-runtime-update-backup.v1"
+    ):
+        print("reprepare")
+        raise SystemExit(0)
     print("ready")
     raise SystemExit(0)
 raise SystemExit("invalid pending update state")
 PY
 ) || fail pending_update_state
 [ "$pending_state" != ready ] || fail approval_pending
+if [ "$pending_state" = reprepare ]; then
+  mv "$pending_update" "$receipts/superseded-pending-update-$stamp.json" \
+    || fail pending_update_reprepare
+fi
 
 usage() {
   printf '%s\n' 'usage: custom-runtime-updater.sh [--prepare]' >&2
@@ -168,8 +153,66 @@ mv "$active_source_manifest_tmp" "$active_source_manifest"
 active_capability_manifest=$active_source_manifest
 backup_helper="$runtime_home/bin/custom-runtime-update-backup.mjs"
 [ -f "$backup_helper" ] && [ ! -L "$backup_helper" ] || fail verified_backup_tool
+gateway_env_wrapper=${OPENCLAW_GATEWAY_ENV_WRAPPER:-}
+gateway_env_file=${OPENCLAW_GATEWAY_ENV_FILE:-}
+if [ -n "$gateway_env_wrapper" ] || [ -n "$gateway_env_file" ]; then
+  [ -n "$gateway_env_wrapper" ] && [ -n "$gateway_env_file" ] || \
+    fail gateway_environment_incomplete
+fi
+gateway_plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
+gateway_environment=$(python3 - \
+  "$gateway_plist" "$gateway_env_wrapper" "$gateway_env_file" <<'PY'
+import os
+import plistlib
+import stat
+import sys
+
+path = sys.argv[1]
+provided_wrapper = sys.argv[2]
+provided_file = sys.argv[3]
+try:
+    info = os.lstat(path)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise SystemExit(0)
+    with open(path, "rb") as handle:
+        value = plistlib.load(handle)
+except (FileNotFoundError, OSError, plistlib.InvalidFileException):
+    raise SystemExit(0)
+arguments = value.get("ProgramArguments")
+if (
+    isinstance(arguments, list)
+    and len(arguments) >= 3
+    and all(isinstance(item, str) and item for item in arguments[:3])
+    and os.path.basename(arguments[2]) == "custom-runtime-launcher.sh"
+    and os.path.isabs(arguments[0])
+    and os.path.isabs(arguments[1])
+):
+    actual_wrapper = os.path.realpath(arguments[0])
+    actual_file = os.path.realpath(arguments[1])
+    if provided_wrapper and os.path.realpath(provided_wrapper) != actual_wrapper:
+        raise SystemExit(0)
+    if provided_file and os.path.realpath(provided_file) != actual_file:
+        raise SystemExit(0)
+    print(os.path.realpath(path))
+    print(actual_wrapper)
+    print(actual_file)
+PY
+) || fail gateway_environment_contract
+gateway_plist=$(printf '%s\n' "$gateway_environment" | sed -n '1p')
+gateway_env_wrapper=$(printf '%s\n' "$gateway_environment" | sed -n '2p')
+gateway_env_file=$(printf '%s\n' "$gateway_environment" | sed -n '3p')
+[ -n "$gateway_plist" ] && [ -n "$gateway_env_wrapper" ] && [ -n "$gateway_env_file" ] || \
+  fail gateway_environment_contract
+[ -f "$gateway_plist" ] && [ ! -L "$gateway_plist" ] || fail gateway_launch_agent
+[ -f "$gateway_env_wrapper" ] && [ ! -L "$gateway_env_wrapper" ] && \
+  [ -x "$gateway_env_wrapper" ] || fail gateway_env_wrapper
+[ -f "$gateway_env_file" ] && [ ! -L "$gateway_env_file" ] || fail gateway_env_file
+gateway_plist_sha=$(shasum -a 256 "$gateway_plist" | awk '{print $1}')
+gateway_env_wrapper_sha=$(shasum -a 256 "$gateway_env_wrapper" | awk '{print $1}')
+gateway_env_file_sha=$(shasum -a 256 "$gateway_env_file" | awk '{print $1}')
 backup_result=$("${OPENCLAW_NODE_BIN:-node}" "$backup_helper" create \
-  --runtime-home "$runtime_home") || fail verified_backup
+  --runtime-home "$runtime_home" \
+  --gateway-env-wrapper "$gateway_env_wrapper") || fail verified_backup
 backup_fields=$(printf '%s' "$backup_result" | python3 -c '
 import json, sys
 value = json.load(sys.stdin)
@@ -428,9 +471,11 @@ PY
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
   "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" "$survival_receipt" \
   "$survival_receipt_sha" "$verification_commands" "$backup_receipt" \
-  "$backup_receipt_sha" "$github_proof_receipt" "$github_proof_receipt_sha" <<'PY'
+  "$backup_receipt_sha" "$github_proof_receipt" "$github_proof_receipt_sha" \
+  "$gateway_plist" "$gateway_plist_sha" "$gateway_env_wrapper" \
+  "$gateway_env_wrapper_sha" "$gateway_env_file" "$gateway_env_file_sha" <<'PY'
 import json, os, sys
-receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, proof_path, proof_sha, commands_path, backup_path, backup_sha, github_path, github_sha = sys.argv[1:]
+receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, proof_path, proof_sha, commands_path, backup_path, backup_sha, github_path, github_sha, gateway_plist, gateway_plist_sha, gateway_wrapper, gateway_wrapper_sha, gateway_env_file, gateway_env_file_sha = sys.argv[1:]
 with open(commands_path, encoding="utf-8") as f:
     verification_commands = [line.rstrip("\n") for line in f if line.strip()]
 data = {
@@ -454,7 +499,7 @@ data = {
     "verifiedBackup": {
         "path": os.path.realpath(backup_path),
         "sha256": backup_sha,
-        "schema": "openclaw.custom-runtime-update-backup.v1",
+        "schema": "openclaw.custom-runtime-update-backup.v2",
         "sourceSha": base_sha,
     },
     "repositoryProof": {
@@ -462,6 +507,14 @@ data = {
         "sha256": github_sha,
         "schema": "openclaw.custom-runtime-github-proof.v1",
         "sourceSha": source_sha,
+    },
+    "gatewayLaunchAgent": {
+        "path": os.path.realpath(gateway_plist),
+        "sha256": gateway_plist_sha,
+    },
+    "gatewayEnvironment": {
+        "wrapper": {"path": os.path.realpath(gateway_wrapper), "sha256": gateway_wrapper_sha},
+        "file": {"path": os.path.realpath(gateway_env_file), "sha256": gateway_env_file_sha},
     },
 }
 for target in (receipt, pending):

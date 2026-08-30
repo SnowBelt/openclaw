@@ -476,6 +476,8 @@ export type AppViewState = {
   configActiveSubsection: string | null;
   pendingUpdateExpectedVersion: string | null;
   pendingUpdateHandoff: boolean;
+  pendingManagedInstallSha: string | null;
+  pendingManagedInstallDeadline: number | null;
   updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
   communicationsFormMode: "form" | "raw";
   communicationsSearchQuery: string;

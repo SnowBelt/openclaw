@@ -120,14 +120,38 @@ function isLaunchAgentLoaded(label: string): boolean {
   return result.status === 0;
 }
 
-export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUpdateSafety {
+function isRegularFile(filePath: string): boolean {
+  try {
+    const stat = fs.lstatSync(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+export async function readPccUpdateSafety(
+  options: PccUpdateSafetyOptions = {},
+): Promise<PccUpdateSafety> {
   const homedir = options.homedir ?? os.homedir();
   const runtimeHome = options.runtimeHome ?? path.join(homedir, ".openclaw-custom-runtime");
-  const policy = resolveCustomRuntimeUpdatePolicy({
+  const guardLaunchAgentPath =
+    options.guardLaunchAgentPath ??
+    options.runtimeGuardLaunchAgentPath ??
+    text(options.env?.OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST) ??
+    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist");
+  const guardLabel =
+    options.runtimeGuardLabel ??
+    text(options.env?.OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL) ??
+    RUNTIME_GUARD_LABEL;
+  const guardLoaded = options.guardLoaded ?? isLaunchAgentLoaded(guardLabel);
+  const policy = await resolveCustomRuntimeUpdatePolicy({
     ...(options.env ? { env: options.env } : {}),
     homedir,
     ...(options.argv ? { argv: options.argv } : {}),
     ...(options.pointerPath ? { pointerPath: options.pointerPath } : {}),
+    runtimeGuardLaunchAgentPath: guardLaunchAgentPath,
+    runtimeGuardLabel: guardLabel,
+    runtimeGuardLoaded: guardLoaded,
   });
   const pointer = readJson(policy.pointerPath);
   const launchAgentPath =
@@ -141,23 +165,23 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     fs.existsSync(launchAgentPath);
   const schedulerLoaded = options.schedulerLoaded ?? isLaunchAgentLoaded(UPDATE_SCHEDULER_LABEL);
   const brokerConfigured = brokerInstalled && schedulerLoaded;
-  const guardLaunchAgentPath =
-    options.guardLaunchAgentPath ??
-    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist");
   const runtimeGuardInstalled =
-    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-guard.sh")) &&
-    fs.existsSync(guardLaunchAgentPath);
-  const guardLoaded = options.guardLoaded ?? isLaunchAgentLoaded(RUNTIME_GUARD_LABEL);
+    isRegularFile(path.join(runtimeHome, "bin", "custom-runtime-guard.sh")) &&
+    isRegularFile(guardLaunchAgentPath);
   const runtimeGuardConfigured = runtimeGuardInstalled && guardLoaded;
   const backupConfigured = policy.backupConfigured;
-  const pending = readJson(path.join(runtimeHome, "pending-update.json"));
-  const approvalPending = pending?.result === "ready_for_approval";
   const issues: string[] = [];
   if (policy.managedRuntime && !policy.standardUpdateBlocked) {
     issues.push("Generic update paths are not blocked for the active custom runtime.");
   }
   if (policy.managedRuntime && !policy.sourceDurable) {
     issues.push(policy.sourceDurabilityReason);
+  }
+  const runtimeGuardAgentIssue = policy.runtimeGuardReason.startsWith(
+    "The recovery guard LaunchAgent",
+  );
+  if (policy.managedRuntime && !policy.runtimeGuardHealthy && !runtimeGuardAgentIssue) {
+    issues.push(policy.runtimeGuardReason);
   }
   if (policy.managedRuntime && !backupConfigured) {
     issues.push("The encrypted external update-backup destination is unavailable.");
@@ -172,6 +196,11 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
   } else if (policy.managedRuntime && !guardLoaded) {
     issues.push("The verified custom-runtime recovery guard is installed but not scheduled.");
   }
+  if (policy.managedRuntime && policy.preparationStatus === "failed") {
+    issues.push(
+      `Verified update preparation failed: ${policy.preparationReason ?? "unknown failure"}.`,
+    );
+  }
   const status = !policy.managedRuntime
     ? "unmanaged"
     : issues.length === 0
@@ -184,7 +213,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     backupConfigured,
     brokerConfigured,
     runtimeGuardConfigured,
-    approvalPending,
+    approvalPending: policy.approvalPending,
     pendingCandidateSha: policy.pendingCandidateSha,
     preparationRunning: policy.preparationRunning,
     preparationStatus: policy.preparationStatus,

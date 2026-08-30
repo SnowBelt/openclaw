@@ -5,6 +5,9 @@ set -eu
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
 pending=${OPENCLAW_CUSTOM_RUNTIME_PENDING_UPDATE:-"$runtime_home/pending-update.json"}
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime update helper is missing' >&2; exit 64; }
+. "$auth_helper"
 mkdir -p "$runtime_home/receipts"
 
 usage() {
@@ -25,10 +28,12 @@ case "$expected_sha" in
   *[!0-9a-f]*|'') usage ;;
 esac
 [ "${#expected_sha}" -eq 40 ] || usage
-[ ! -e "$runtime_home/update-preparation.lock" ] || {
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+if ! custom_runtime_update_lock_transition check "$runtime_home/update-preparation.lock" \
+  "$runtime_home/receipts" "$stamp" preparation >/dev/null; then
   printf '%s\n' 'verified update preparation is active' >&2
   exit 75
-}
+fi
 [ -f "$receipt" ] || { printf '%s\n' 'prepared update receipt is missing' >&2; exit 64; }
 [ -f "$runtime_home/active-runtime.json" ] || { printf '%s\n' 'active runtime pointer is missing' >&2; exit 64; }
 
@@ -119,7 +124,7 @@ official_sha = str(proof.get("officialSha", ""))
 if not re.fullmatch(r"[0-9a-f]{40}", official_sha) or proof.get("mergeParents") != [base_sha, official_sha]:
     raise SystemExit("prepared update preservation proof parents are invalid")
 backup_binding = receipt.get("verifiedBackup")
-if not isinstance(backup_binding, dict) or backup_binding.get("schema") != "openclaw.custom-runtime-update-backup.v1" or backup_binding.get("sourceSha") != base_sha:
+if not isinstance(backup_binding, dict) or backup_binding.get("schema") != "openclaw.custom-runtime-update-backup.v2" or backup_binding.get("sourceSha") != base_sha:
     raise SystemExit("prepared update verified backup binding is invalid")
 backup_path = os.path.realpath(str(backup_binding.get("path", "")))
 if not backup_path.startswith(proof_root + os.sep) or not os.path.isfile(backup_path):
@@ -142,7 +147,62 @@ if not re.fullmatch(r"[0-9a-f]{64}", github_sha):
 with open(github_path, "rb") as f:
     if hashlib.sha256(f.read()).hexdigest() != github_sha:
         raise SystemExit("prepared update repository proof digest changed after preparation")
-for value in (release, source_sha, str(receipt.get("sourceRepo", "")), str(receipt.get("sourceBranch", "")), proof_path, proof_sha, backup_path, backup_sha, github_path, github_sha):
+gateway_environment = receipt.get("gatewayEnvironment")
+if not isinstance(gateway_environment, dict):
+    raise SystemExit("prepared update Gateway environment binding is missing")
+gateway_paths = []
+for key in ("wrapper", "file"):
+    binding = gateway_environment.get(key)
+    if not isinstance(binding, dict):
+        raise SystemExit(f"prepared update Gateway environment {key} binding is missing")
+    file_path = str(binding.get("path", ""))
+    expected_digest = str(binding.get("sha256", "")).lower()
+    if not os.path.isabs(file_path) or not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+        raise SystemExit(f"prepared update Gateway environment {key} binding is invalid")
+    try:
+        info = os.lstat(file_path)
+    except OSError:
+        raise SystemExit(f"prepared update Gateway environment {key} is unavailable") from None
+    if not os.path.isfile(file_path) or os.path.islink(file_path):
+        raise SystemExit(f"prepared update Gateway environment {key} is not a regular file")
+    with open(file_path, "rb") as f:
+        if hashlib.sha256(f.read()).hexdigest() != expected_digest:
+            raise SystemExit(f"prepared update Gateway environment {key} changed after preparation")
+    gateway_paths.append(file_path)
+gateway_launch_agent = receipt.get("gatewayLaunchAgent")
+if not isinstance(gateway_launch_agent, dict):
+    raise SystemExit("prepared update Gateway LaunchAgent binding is missing")
+gateway_plist = str(gateway_launch_agent.get("path", ""))
+gateway_plist_sha = str(gateway_launch_agent.get("sha256", "")).lower()
+if not os.path.isabs(gateway_plist) or not re.fullmatch(r"[0-9a-f]{64}", gateway_plist_sha):
+    raise SystemExit("prepared update Gateway LaunchAgent binding is invalid")
+try:
+    gateway_plist_info = os.lstat(gateway_plist)
+except OSError:
+    raise SystemExit("prepared update Gateway LaunchAgent is unavailable") from None
+if not os.path.isfile(gateway_plist) or os.path.islink(gateway_plist):
+    raise SystemExit("prepared update Gateway LaunchAgent is not a regular file")
+with open(gateway_plist, "rb") as f:
+    if hashlib.sha256(f.read()).hexdigest() != gateway_plist_sha:
+        raise SystemExit("prepared update Gateway LaunchAgent changed after preparation")
+try:
+    import plistlib
+    with open(gateway_plist, "rb") as f:
+        launch_agent = plistlib.load(f)
+except (OSError, plistlib.InvalidFileException):
+    raise SystemExit("prepared update Gateway LaunchAgent is invalid") from None
+arguments = launch_agent.get("ProgramArguments")
+expected_arguments = [os.path.realpath(item) for item in gateway_paths]
+actual_arguments = (
+    [os.path.realpath(item) for item in arguments[:2]]
+    if isinstance(arguments, list)
+    and len(arguments) >= 3
+    and all(isinstance(item, str) and item for item in arguments[:3])
+    else []
+)
+if actual_arguments != expected_arguments or os.path.basename(arguments[2]) != "custom-runtime-launcher.sh":
+    raise SystemExit("prepared update Gateway LaunchAgent environment contract changed")
+for value in (release, source_sha, str(receipt.get("sourceRepo", "")), str(receipt.get("sourceBranch", "")), proof_path, proof_sha, backup_path, backup_sha, github_path, github_sha, *gateway_paths, gateway_plist):
     print(value)
 PY
 ) || exit 64
@@ -156,6 +216,9 @@ backup_receipt=$(printf '%s\n' "$fields" | sed -n '7p')
 backup_receipt_sha=$(printf '%s\n' "$fields" | sed -n '8p')
 github_proof_receipt=$(printf '%s\n' "$fields" | sed -n '9p')
 github_proof_receipt_sha=$(printf '%s\n' "$fields" | sed -n '10p')
+gateway_env_wrapper=$(printf '%s\n' "$fields" | sed -n '11p')
+gateway_env_file=$(printf '%s\n' "$fields" | sed -n '12p')
+gateway_plist=$(printf '%s\n' "$fields" | sed -n '13p')
 backup_verifier="$runtime_home/bin/custom-runtime-update-backup.mjs"
 [ -f "$backup_verifier" ] && [ ! -L "$backup_verifier" ] || {
   printf '%s\n' 'verified backup tool is unavailable' >&2
@@ -234,41 +297,13 @@ seal_verifier="$runtime_home/bin/custom-runtime-seal.sh"
   exit 64
 }
 
-stamp=$(date -u +%Y%m%dT%H%M%SZ)
 approval_receipt="$runtime_home/receipts/update-approval-$stamp.json"
 installation_lock="$runtime_home/update-installation.lock"
-acquire_result=$(python3 - "$installation_lock" "$runtime_home/receipts" "$stamp" <<'PY'
-import datetime, json, os, stat, sys
-
-lock, receipts, stamp = sys.argv[1:]
-try:
-    os.mkdir(lock, 0o700)
-except FileExistsError:
-    info = os.lstat(lock)
-    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
-        raise SystemExit("unsafe")
-    age = max(0, datetime.datetime.now().timestamp() - info.st_mtime)
-    owner_alive = False
-    try:
-        with open(os.path.join(lock, "owner.json"), encoding="utf-8") as f:
-            owner = json.load(f)
-        pid = owner.get("pid") if isinstance(owner, dict) else None
-        if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
-            os.kill(pid, 0)
-            owner_alive = True
-    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
-        owner_alive = False
-    if owner_alive or age < 30 * 60:
-        raise SystemExit("running")
-    recovered = os.path.join(receipts, f"stale-update-installation-lock-{stamp}")
-    os.replace(lock, recovered)
-    os.mkdir(lock, 0o700)
-with open(os.path.join(lock, "owner.json"), "x", encoding="utf-8") as f:
-    json.dump({"pid": os.getppid(), "startedAt": stamp}, f, sort_keys=True)
-    f.write("\n")
-print("acquired")
-PY
-) || { printf '%s\n' 'verified update installation is already running or locked' >&2; exit 64; }
+acquire_result=$(custom_runtime_update_lock_transition \
+  acquire "$installation_lock" "$runtime_home/receipts" "$stamp" installation "$$") || {
+  printf '%s\n' 'verified update installation is already running or locked' >&2
+  exit 64
+}
 [ "$acquire_result" = acquired ] || exit 64
 approval_completed=false
 activation_completed=false
@@ -303,12 +338,27 @@ PY
   exit "$code"
 }
 trap finish_installation EXIT
-[ ! -e "$runtime_home/update-preparation.lock" ] || {
+if ! custom_runtime_update_lock_transition check "$runtime_home/update-preparation.lock" \
+  "$runtime_home/receipts" "$stamp" preparation >/dev/null; then
   printf '%s\n' 'verified update preparation started during approval' >&2
   exit 75
+fi
+
+runtime_guard="$runtime_home/bin/custom-runtime-guard.sh"
+[ -x "$runtime_guard" ] && [ ! -L "$runtime_guard" ] || {
+  printf '%s\n' 'active runtime guard is unavailable' >&2
+  exit 64
+}
+OPENCLAW_GATEWAY_PLIST="$gateway_plist" \
+  "$gateway_env_wrapper" "$gateway_env_file" "$runtime_guard" --verify-only >/dev/null || {
+  printf '%s\n' 'active runtime guard verification failed before activation' >&2
+  exit 64
 }
 
-"$release/scripts/custom-runtime/custom-runtime-activate.sh" \
+OPENCLAW_GATEWAY_ENV_WRAPPER="$gateway_env_wrapper" \
+OPENCLAW_GATEWAY_ENV_FILE="$gateway_env_file" \
+OPENCLAW_GATEWAY_PLIST="$gateway_plist" \
+  "$release/scripts/custom-runtime/custom-runtime-activate.sh" \
   --release "$release" --source-sha "$source_sha" --source-repo "$source_repo" \
   --source-branch "$source_branch" --stage-port 18790 --port 18789
 activation_completed=true
@@ -334,7 +384,7 @@ with open(target + ".tmp", "w", encoding="utf-8") as f:
         "verifiedBackup": {
             "path": backup_path,
             "sha256": backup_sha,
-            "schema": "openclaw.custom-runtime-update-backup.v1",
+            "schema": "openclaw.custom-runtime-update-backup.v2",
         },
         "repositoryProof": {
             "path": github_path,

@@ -937,6 +937,12 @@ describe("custom runtime lifecycle", () => {
     const envWrapper = path.join(root, "service-env-wrapper.sh");
     const envFile = path.join(root, "gateway.env");
     const plistPath = path.join(root, "ai.openclaw.gateway.plist");
+    const guardPlist = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.custom-runtime.guard.plist",
+    );
     const fakeBin = path.join(root, "bin");
     const sigRpcMarker = path.join(root, "sig-rpc-called");
     const sigRpcArgsMarker = path.join(root, "sig-rpc-args");
@@ -1113,6 +1119,12 @@ describe("custom runtime lifecycle", () => {
       `export OPENCLAW_BUNDLED_PLUGINS_DIR=${release}/dist-runtime/extensions`,
     );
     expect(serviceEnv).toContain(`export OPENCLAW_GATEWAY_PLIST=${plistPath}`);
+    expect(serviceEnv).toContain(`export OPENCLAW_GATEWAY_ENV_WRAPPER=${envWrapper}`);
+    expect(serviceEnv).toContain(`export OPENCLAW_GATEWAY_ENV_FILE=${envFile}`);
+    expect(serviceEnv).toContain(`export OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST=${guardPlist}`);
+    expect(serviceEnv).toContain(
+      "export OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL=ai.openclaw.custom-runtime.guard",
+    );
     expect(readPlistArray(plistPath, "ProgramArguments")).toEqual([
       envWrapper,
       envFile,
@@ -1142,6 +1154,8 @@ describe("custom runtime lifecycle", () => {
       "ai.openclaw.custom-runtime.guard.plist",
     );
     expect(readPlistArray(guardPlistPath, "ProgramArguments")).toEqual([
+      envWrapper,
+      envFile,
       path.join(runtimeHome, "bin", "custom-runtime-guard.sh"),
     ]);
     expect(readPlistArray(guardPlistPath, "WatchPaths")).toEqual([plistPath]);

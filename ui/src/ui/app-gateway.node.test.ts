@@ -205,6 +205,8 @@ function createHost(): TestGatewayHost {
     serverVersion: null,
     pendingUpdateExpectedVersion: null,
     pendingUpdateHandoff: false,
+    pendingManagedInstallSha: null,
+    pendingManagedInstallDeadline: null,
     updateStatusBanner: null,
     sessionKey: "main",
     chatMessages: [],
@@ -902,6 +904,8 @@ describe("connectGateway", () => {
             standardUpdateBlocked: true,
             sourceDurable: true,
             sourceDurabilityReason: "durable",
+            runtimeGuardHealthy: true,
+            runtimeGuardReason: "healthy",
             backupConfigured: true,
             approvalPending: false,
             pendingCandidateSha: null,
@@ -964,6 +968,86 @@ describe("connectGateway", () => {
     });
     expect(host.pendingUpdateHandoff).toBe(false);
     expect(host.updateStatusBanner).toBeNull();
+  });
+
+  it("retries initial update-safety hydration after a transient status failure", async () => {
+    vi.useFakeTimers();
+    const sourceSha = "6".repeat(40);
+    let statusReads = 0;
+    const host = createHost();
+
+    try {
+      connectGateway(host);
+      const client = requireGatewayClient();
+      client.request.mockImplementation(async (method: string) => {
+        if (method === "update.status") {
+          statusReads += 1;
+          if (statusReads === 1) {
+            throw new Error("temporary status failure");
+          }
+          return {
+            updateSafety: {
+              managedRuntime: true,
+              sourceSha,
+            },
+          };
+        }
+        return {};
+      });
+
+      client.emitHello();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(statusReads).toBe(1);
+      expect(host.customRuntimeUpdatePolicy).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(statusReads).toBe(2);
+      expect(host.customRuntimeUpdatePolicy).toMatchObject({ managedRuntime: true, sourceSha });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes managed installation verification when the Gateway reconnects", async () => {
+    const sourceSha = "7".repeat(40);
+    const host = createHost();
+    host.pendingManagedInstallSha = sourceSha;
+    host.pendingManagedInstallDeadline = Date.now() + 60_000;
+    host.updateStatusBanner = {
+      tone: "info",
+      text: "Verified installation started. The Dashboard will reconnect after restart.",
+    };
+
+    connectGateway(host);
+    const client = requireGatewayClient();
+    client.request.mockImplementation(async (method: string) => {
+      if (method === "update.status") {
+        return {
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            runtimeGuardHealthy: true,
+            backupConfigured: true,
+            approvalPending: false,
+            pendingCandidateSha: null,
+            preparationRunning: false,
+            preparationStatus: "idle",
+            sourceSha,
+          },
+        };
+      }
+      return {};
+    });
+
+    client.emitHello();
+
+    await vi.waitFor(() => expect(host.pendingManagedInstallSha).toBeNull());
+    expect(host.pendingManagedInstallDeadline).toBeNull();
+    expect(host.updateStatusBanner).toEqual({
+      tone: "info",
+      text: "Verified update installed. Runtime identity and browser health checks are complete.",
+    });
   });
 
   it("clears managed-service handoff verification when update status completes", async () => {

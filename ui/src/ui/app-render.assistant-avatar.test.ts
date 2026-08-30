@@ -292,6 +292,65 @@ describe("renderApp assistant avatar routing", () => {
     expect(banner?.textContent).toContain("2026.6.11");
   });
 
+  it("fails closed when update safety status is unavailable", () => {
+    const container = document.createElement("div");
+
+    render(
+      renderApp(
+        createState({
+          customRuntimeUpdatePolicy: null,
+          updateAvailable: {
+            currentVersion: "2026.6.8",
+            latestVersion: "2026.6.11",
+            channel: "latest",
+          },
+        }),
+      ),
+      container,
+    );
+
+    const button = container.querySelector<HTMLButtonElement>("[data-update-banner] button");
+    expect(button?.disabled).toBe(true);
+    expect(button?.textContent).toContain("Update protection needs attention");
+  });
+
+  it("fails closed when the active custom-runtime pointer is invalid", () => {
+    const container = document.createElement("div");
+    const state = createState({
+      updateAvailable: {
+        currentVersion: "2026.6.8",
+        latestVersion: "2026.6.11",
+        channel: "latest",
+      },
+    });
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: false,
+      sourceDurabilityReason: "missing",
+      runtimeGuardHealthy: false,
+      runtimeGuardReason: "missing",
+      backupConfigured: false,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "blocked",
+      preparationReason: "invalid-active-runtime-pointer",
+      sourceSha: null,
+      sourceRepo: null,
+      sourceBranch: null,
+      runtimeRoot: null,
+      pointerPath: "/missing/active-runtime.json",
+      reason: "missing pointer",
+    };
+
+    render(renderApp(state), container);
+
+    const button = container.querySelector<HTMLButtonElement>("[data-update-banner] button");
+    expect(button?.disabled).toBe(true);
+    expect(button?.textContent).toContain("Update protection needs attention");
+  });
+
   it("passes the browser-local assistant override to Quick Settings ahead of stale identity metadata", () => {
     const dataUrl = "data:image/png;base64,bG9jYWwtYXNzaXN0YW50";
     saveLocalAssistantIdentity({ avatar: dataUrl, agentId: "main" });

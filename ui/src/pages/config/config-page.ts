@@ -672,6 +672,7 @@ export class ConfigPage extends LitElement {
       saving: configState.configSaving,
       applying: configState.configApplying,
       updating: this.context.overlays.snapshot.updateRunning,
+      updateSafety: this.context.overlays.snapshot.updateSafety,
       connected: configState.connected,
       schema: configState.configSchema,
       schemaLoading: configState.configSchemaLoading,
@@ -698,7 +699,7 @@ export class ConfigPage extends LitElement {
       onReset: () => runtimeConfig.resetDraft(),
       onSave: () => void runtimeConfig.save(),
       onApply: () => void runtimeConfig.apply(),
-      onUpdate: () => void this.context.overlays.runUpdate(),
+      onUpdate: (approvalSha) => void this.context.overlays.runUpdate(approvalSha),
       onOpenFile: () => void runtimeConfig.openFile(),
       version:
         this.context.config.current.serverVersion ??

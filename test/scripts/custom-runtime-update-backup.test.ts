@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configureBackup,
   createBackup,
@@ -20,6 +20,25 @@ function root(prefix: string): string {
 function writeFile(filePath: string, contents: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, contents);
+}
+
+function writeGatewayPlist(
+  filePath: string,
+  wrapper: string,
+  environmentFile: string,
+  launcher: string,
+): void {
+  writeFile(
+    filePath,
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<plist version="1.0"><dict>',
+      "<key>Label</key><string>ai.openclaw.gateway</string>",
+      `<key>ProgramArguments</key><array><string>${wrapper}</string><string>${environmentFile}</string><string>${launcher}</string><string>gateway</string></array>`,
+      "</dict></plist>",
+      "",
+    ].join("\n"),
+  );
 }
 
 function fixture(): {
@@ -76,10 +95,18 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
   writeFile(path.join(runtimeHome, "active-rollback.json"), '{"rollbackReleaseId":"old"}\n');
   writeFile(path.join(runtimeHome, "last-known-good.json"), '{"releaseId":"old"}\n');
   writeFile(path.join(runtimeHome, "ai.openclaw.gateway.desired.plist"), "fixture plist\n");
-  writeFile(
-    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
-    "active fixture plist\n",
+  const launcher = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
+  const gatewayEnvWrapper = path.join(
+    stateDir,
+    "service-env",
+    "ai.openclaw.gateway-env-wrapper.sh",
   );
+  const gatewayEnvFile = path.join(stateDir, "service-env", "ai.openclaw.gateway.env");
+  const gatewayPlist = path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist");
+  writeFile(launcher, "#!/bin/sh\n");
+  writeFile(gatewayEnvWrapper, "#!/bin/sh\n");
+  writeFile(gatewayEnvFile, "export OPENCLAW_STATE_DIR=/fixture\n");
+  writeGatewayPlist(gatewayPlist, gatewayEnvWrapper, gatewayEnvFile, launcher);
   writeFile(
     path.join(runtimeHome, "update-safety.json"),
     `${JSON.stringify({
@@ -130,12 +157,12 @@ describe("custom runtime update backup", () => {
     const result = await createBackup({ ...value, externalRoot: "" });
 
     expect(result).toMatchObject({
-      schema: "openclaw.custom-runtime-update-backup.v1",
+      schema: "openclaw.custom-runtime-update-backup.v2",
       result: "passed",
       sourceSha: value.sourceSha,
       backupVerified: true,
       restoreDrill: { result: "passed" },
-      controlPlane: { fileCount: 12 },
+      controlPlane: { fileCount: 15 },
     });
     expect(result.externalArchive.path).toContain(`${path.sep}external${path.sep}`);
     expect(result.localArchive.path).toContain(
@@ -145,8 +172,40 @@ describe("custom runtime update backup", () => {
       fs.readFileSync(result.localArchive.path),
     );
     expect(() =>
-      verifyReceipt({ receiptPath: result.receiptPath, expectedSha: value.sourceSha }),
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
     ).not.toThrow();
+  });
+
+  it("allocates exclusive recovery points when timestamps collide", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-30T12:00:00.000Z"));
+    const value = fixture();
+
+    try {
+      const first = await createBackup(value);
+      const second = await createBackup(value);
+
+      expect(second.receiptPath).not.toBe(first.receiptPath);
+      expect(second.externalArchive.path).not.toBe(first.externalArchive.path);
+      expect(second.localArchive.path).not.toBe(first.localArchive.path);
+      expect(fs.existsSync(first.externalArchive.path)).toBe(true);
+      expect(fs.existsSync(first.localArchive.path)).toBe(true);
+      expect(() =>
+        verifyReceipt({
+          receiptPath: first.receiptPath,
+          expectedSha: value.sourceSha,
+          runtimeHome: value.runtimeHome,
+          allowTestDirectory: true,
+        }),
+      ).not.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a changed external recovery copy", async () => {
@@ -158,8 +217,43 @@ describe("custom runtime update backup", () => {
     fs.appendFileSync(receipt.externalArchive.path, "tampered\n");
 
     expect(() =>
-      verifyReceipt({ receiptPath: result.receiptPath, expectedSha: value.sourceSha }),
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
     ).toThrow(/externalArchive hash changed/u);
+  });
+
+  it("rejects a replacement volume mounted at the configured path", async () => {
+    const value = fixture();
+    const result = await createBackup(value);
+    const originalRoot = `${value.externalRoot}-original`;
+    fs.renameSync(value.externalRoot, originalRoot);
+    fs.mkdirSync(value.externalRoot);
+    fs.cpSync(originalRoot, value.externalRoot, { recursive: true });
+
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/external backup volume identity changed/u);
+  });
+
+  it("rejects symlinked external backup destination components", () => {
+    const value = fixture();
+    const escaped = path.join(path.dirname(value.externalRoot), "escaped-backups");
+    fs.mkdirSync(escaped);
+    fs.symlinkSync(escaped, path.join(value.externalRoot, "OpenClaw"));
+
+    expect(() => createBackup(value)).toThrow(
+      /backup destination component is not a regular directory: OpenClaw/u,
+    );
+    expect(fs.readdirSync(escaped)).toEqual([]);
   });
 
   it("preserves a configured non-default Gateway LaunchAgent", async () => {
@@ -176,7 +270,62 @@ describe("custom runtime update backup", () => {
 
     const result = await createBackup({ ...value, gatewayPlist });
 
-    expect(result.controlPlane.fileCount).toBe(12);
+    expect(result.controlPlane.fileCount).toBe(15);
+  });
+
+  it("preserves a configured non-default Gateway environment wrapper", async () => {
+    const value = fixture();
+    const defaultWrapper = path.join(
+      value.homedir,
+      ".openclaw-director-state",
+      "service-env",
+      "ai.openclaw.gateway-env-wrapper.sh",
+    );
+    const gatewayEnvWrapper = path.join(value.homedir, "custom", "gateway-env-wrapper.sh");
+    fs.mkdirSync(path.dirname(gatewayEnvWrapper), { recursive: true });
+    fs.renameSync(defaultWrapper, gatewayEnvWrapper);
+    writeGatewayPlist(
+      path.join(value.homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
+      gatewayEnvWrapper,
+      path.join(
+        value.homedir,
+        ".openclaw-director-state",
+        "service-env",
+        "ai.openclaw.gateway.env",
+      ),
+      path.join(value.runtimeHome, "bin", "custom-runtime-launcher.sh"),
+    );
+
+    const result = await createBackup({ ...value, gatewayEnvWrapper });
+
+    expect(result.controlPlane.fileCount).toBe(15);
+  });
+
+  it("requires the Gateway LaunchAgent to execute the active runtime launcher", () => {
+    const value = fixture();
+    const alternateLauncher = path.join(value.homedir, "custom", "custom-runtime-launcher.sh");
+    fs.mkdirSync(path.dirname(alternateLauncher), { recursive: true });
+    writeFile(alternateLauncher, "#!/bin/sh\n");
+    writeGatewayPlist(
+      path.join(value.homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
+      path.join(
+        value.homedir,
+        ".openclaw-director-state",
+        "service-env",
+        "ai.openclaw.gateway-env-wrapper.sh",
+      ),
+      path.join(
+        value.homedir,
+        ".openclaw-director-state",
+        "service-env",
+        "ai.openclaw.gateway.env",
+      ),
+      alternateLauncher,
+    );
+
+    expect(() => createBackup(value)).toThrow(
+      /managed Gateway LaunchAgent environment contract is invalid/u,
+    );
   });
 
   it("rejects an incomplete control-plane recovery bundle", async () => {
@@ -189,6 +338,13 @@ describe("custom runtime update backup", () => {
     expect(() => createBackup(value)).toThrow(
       /required control-plane recovery file is unavailable: snapshot\.json/u,
     );
+  });
+
+  it("requires the active launcher and Gateway environment wrapper", () => {
+    const value = fixture();
+    fs.rmSync(path.join(value.runtimeHome, "bin", "custom-runtime-launcher.sh"));
+
+    expect(() => createBackup(value)).toThrow(/active custom runtime launcher is missing/u);
   });
 
   it("rejects archive entries that could escape the isolated restore root", () => {
@@ -209,6 +365,22 @@ describe("custom runtime update backup", () => {
     );
   });
 
+  it("reuses an explicitly configured backup root during receipt verification", async () => {
+    const value = fixture();
+    const result = await createBackup({ ...value, externalRoot: value.externalRoot });
+    fs.rmSync(path.join(value.runtimeHome, "update-safety.json"));
+
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        externalRoot: value.externalRoot,
+        allowTestDirectory: true,
+      }),
+    ).not.toThrow();
+  });
+
   it("counts an external canonical SQLite symlink target before writing the archive", () => {
     const value = fixture();
     const externalDatabase = path.join(path.dirname(value.payload), "external-state.sqlite");
@@ -226,7 +398,12 @@ describe("custom runtime update backup", () => {
     const result = await createBackup(value);
 
     expect(() =>
-      verifyReceipt({ receiptPath: result.receiptPath, expectedSha: "b".repeat(40) }),
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: "b".repeat(40),
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
     ).toThrow(/did not pass for the expected active SHA/u);
   });
 });

@@ -781,6 +781,8 @@ export class OpenClawApp extends LitElement {
   @state() configActiveSubsection: string | null = null;
   @state() pendingUpdateExpectedVersion: string | null = null;
   @state() pendingUpdateHandoff = false;
+  @state() pendingManagedInstallSha: string | null = null;
+  @state() pendingManagedInstallDeadline: number | null = null;
   @state() updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null = null;
   @state() runtimeIdentity: ControlUiBootstrapConfig["runtimeIdentity"] | undefined;
   @state() communicationsFormMode: "form" | "raw" = "form";

@@ -38,6 +38,7 @@ const REQUIRED_UPDATE_SAFE_PATHS = Object.freeze([
   "src/infra/custom-runtime-update-broker.ts",
   "src/gateway/server-methods/update.ts",
   "packages/gateway-protocol/src/schema/config.ts",
+  "packages/gateway-protocol/src/schema/pcc.ts",
   "packages/gateway-protocol/src/index.test.ts",
   "apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift",
   "src/pcc/capability-addition-registry.ts",

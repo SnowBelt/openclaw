@@ -37,6 +37,13 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(value)}\n`);
 }
 
+function fileBinding(filePath: string): { path: string; sha256: string } {
+  return {
+    path: filePath,
+    sha256: createHash("sha256").update(fs.readFileSync(filePath)).digest("hex"),
+  };
+}
+
 function writePreservationProof(
   runtimeHome: string,
   baseSha: string,
@@ -83,7 +90,7 @@ function writePreservationProof(
 function writeVerifiedBackup(runtimeHome: string, sourceSha: string) {
   const receiptPath = path.join(runtimeHome, "receipts", "update-backup-test.json");
   writeJson(receiptPath, {
-    schema: "openclaw.custom-runtime-update-backup.v1",
+    schema: "openclaw.custom-runtime-update-backup.v2",
     sourceSha,
     result: "passed",
   });
@@ -93,7 +100,7 @@ function writeVerifiedBackup(runtimeHome: string, sourceSha: string) {
   return {
     path: receiptPath,
     sha256: createHash("sha256").update(fs.readFileSync(receiptPath)).digest("hex"),
-    schema: "openclaw.custom-runtime-update-backup.v1",
+    schema: "openclaw.custom-runtime-update-backup.v2",
     sourceSha,
   };
 }
@@ -138,6 +145,44 @@ afterEach(() => {
 });
 
 describe("custom runtime update broker", () => {
+  it("passes the exact Gateway environment wrapper into verified backup creation", () => {
+    const source = fs.readFileSync(updater, "utf8");
+
+    expect(source).toContain('--gateway-env-wrapper "$gateway_env_wrapper"');
+    expect(source).toContain(
+      'gateway_plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}',
+    );
+    expect(source).toContain('"$gateway_plist" "$gateway_env_wrapper" "$gateway_env_file"');
+    expect(source).toContain("os.path.realpath(provided_wrapper) != actual_wrapper");
+    expect(source).toContain("os.path.realpath(provided_file) != actual_file");
+    expect(source).toContain('os.path.basename(arguments[2]) == "custom-runtime-launcher.sh"');
+    expect(source).toContain("print(actual_wrapper)");
+    expect(source).toContain("print(actual_file)");
+    expect(source).toContain('"gatewayLaunchAgent": {');
+    expect(source).toContain('"gatewayEnvironment": {');
+  });
+
+  it("records the long-lived owning shell in an acquired lock", () => {
+    const base = root("openclaw-update-lock-owner-");
+    const lock = path.join(base, "preparation.lock");
+    const receipts = path.join(base, "receipts");
+    fs.mkdirSync(receipts);
+    const authHelper = path.resolve("scripts/custom-runtime/custom-runtime-auth.sh");
+    const result = spawnSync(
+      "/bin/sh",
+      [
+        "-c",
+        '. "$AUTH_HELPER"; custom_runtime_update_lock_transition acquire "$LOCK" "$RECEIPTS" stamp preparation "$$" >/dev/null; python3 - "$LOCK/owner.json" "$$" <<\'PY\'\nimport json, sys\nwith open(sys.argv[1], encoding="utf-8") as f:\n    owner = json.load(f)\nraise SystemExit(0 if owner.get("pid") == int(sys.argv[2]) else 1)\nPY',
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, AUTH_HELPER: authHelper, LOCK: lock, RECEIPTS: receipts },
+      },
+    );
+
+    expect(result.status).toBe(0);
+  });
+
   it("does not start a second preparation while a fresh lock is present", () => {
     const base = root("openclaw-update-broker-lock-");
     const runtimeHome = path.join(base, "runtime-home");
@@ -190,6 +235,42 @@ describe("custom runtime update broker", () => {
     expect(JSON.parse(fs.readFileSync(pendingPath, "utf8"))).toEqual(pending);
   });
 
+  it("archives a legacy ready candidate so stronger backup proof can be prepared", () => {
+    const base = root("openclaw-update-broker-legacy-pending-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const pendingPath = path.join(runtimeHome, "pending-update.json");
+    const pending = {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      sourceSha: "a".repeat(40),
+      verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v1" },
+    };
+    writeJson(pendingPath, pending);
+
+    const result = spawnSync(updater, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES: path.join(base, "updates"),
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
+      result: "failed",
+      stage: "active_pointer",
+    });
+    expect(fs.existsSync(pendingPath)).toBe(false);
+    const archived = fs
+      .readdirSync(path.join(runtimeHome, "receipts"))
+      .find((name) => name.startsWith("superseded-pending-update-"));
+    expect(archived).toBeDefined();
+    expect(
+      JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", archived ?? ""), "utf8")),
+    ).toEqual(pending);
+  });
+
   it("does not approve while candidate preparation is active", () => {
     const base = root("openclaw-update-broker-approval-race-");
     const runtimeHome = path.join(base, "runtime-home");
@@ -205,6 +286,33 @@ describe("custom runtime update broker", () => {
 
     expect(result.status).toBe(75);
     expect(result.stderr).toContain("verified update preparation is active");
+  });
+
+  it("recovers a stale preparation lock before validating approval", () => {
+    const base = root("openclaw-update-approval-stale-preparation-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const lock = path.join(runtimeHome, "update-preparation.lock");
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, "owner.json"), "{}\n");
+    const stale = new Date(Date.now() - 31 * 60 * 1000);
+    fs.utimesSync(lock, stale, stale);
+
+    const result = spawnSync(approve, ["--sha", "a".repeat(40)], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+      },
+    });
+
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("prepared update receipt is missing");
+    expect(
+      fs
+        .readdirSync(path.join(runtimeHome, "receipts"))
+        .some((name) => name.startsWith("stale-update-preparation-lock-")),
+    ).toBe(true);
+    expect(fs.existsSync(lock)).toBe(false);
   });
 
   it("preserves and recovers an orphaned preparation lock", () => {
@@ -234,6 +342,37 @@ describe("custom runtime update broker", () => {
       fs
         .readdirSync(path.join(runtimeHome, "receipts"))
         .some((name) => name.startsWith("stale-update-preparation-lock-")),
+    ).toBe(true);
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it("preserves and recovers an orphaned installation lock before preparation", () => {
+    const base = root("openclaw-update-broker-stale-installation-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const lock = path.join(runtimeHome, "update-installation.lock");
+    fs.mkdirSync(lock, { recursive: true });
+    fs.writeFileSync(path.join(lock, "owner.json"), "{}\n");
+    const stale = new Date(Date.now() - 31 * 60 * 1000);
+    fs.utimesSync(lock, stale, stale);
+
+    const result = spawnSync(updater, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES: path.join(base, "updates"),
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
+      result: "failed",
+      stage: "active_pointer",
+    });
+    expect(
+      fs
+        .readdirSync(path.join(runtimeHome, "receipts"))
+        .some((name) => name.startsWith("stale-update-installation-lock-")),
     ).toBe(true);
     expect(fs.existsSync(lock)).toBe(false);
   });
@@ -310,6 +449,14 @@ describe("custom runtime update broker", () => {
     const release = path.join(releases, "candidate");
     const marker = path.join(base, "activated.txt");
     const sealMarker = path.join(base, "seal-verified.txt");
+    const guardMarker = path.join(base, "guard-verified.txt");
+    const guardEnvironmentMarker = path.join(base, "guard-environment.txt");
+    const gatewayEnvironmentMarker = path.join(base, "gateway-environment.txt");
+    const gatewayEnvWrapper = path.join(base, "custom-service", "gateway-wrapper.sh");
+    const gatewayEnvFile = path.join(base, "custom-service", "gateway.env");
+    const gatewayPlist = path.join(base, "custom-service", "gateway.plist");
+    const customGuardPlist = path.join(base, "custom-service", "guard.plist");
+    const customGuardLabel = "com.example.openclaw.guard";
     const sourceRepo = path.join(base, "source");
     const sourceBranch = "codex/runtime-update-test";
     fs.mkdirSync(sourceRepo, { recursive: true });
@@ -336,13 +483,48 @@ describe("custom runtime update broker", () => {
     fs.writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
     fs.writeFileSync(
       path.join(release, "scripts", "custom-runtime", "custom-runtime-activate.sh"),
-      `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(marker)}\n`,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(marker)}\nprintf '%s\\n' "$OPENCLAW_GATEWAY_ENV_WRAPPER" "$OPENCLAW_GATEWAY_ENV_FILE" "$OPENCLAW_GATEWAY_PLIST" > ${JSON.stringify(gatewayEnvironmentMarker)}\n`,
       { mode: 0o700 },
     );
+    fs.mkdirSync(path.dirname(gatewayEnvWrapper), { recursive: true });
+    fs.writeFileSync(
+      gatewayEnvWrapper,
+      '#!/bin/sh\nenv_file=$1\nshift\n. "$env_file"\nexec "$@"\n',
+      { mode: 0o700 },
+    );
+    fs.writeFileSync(
+      gatewayEnvFile,
+      [
+        "export OPENCLAW_STATE_DIR=/custom",
+        `export OPENCLAW_GATEWAY_ENV_WRAPPER=${JSON.stringify(gatewayEnvWrapper)}`,
+        `export OPENCLAW_GATEWAY_ENV_FILE=${JSON.stringify(gatewayEnvFile)}`,
+        `export OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST=${JSON.stringify(customGuardPlist)}`,
+        `export OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL=${customGuardLabel}`,
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+    fs.writeFileSync(
+      gatewayPlist,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>ProgramArguments</key><array>
+<string>${gatewayEnvWrapper}</string><string>${gatewayEnvFile}</string><string>${path.join(runtimeHome, "bin", "custom-runtime-launcher.sh")}</string>
+</array></dict></plist>\n`,
+    );
+    let gatewayLaunchAgent = fileBinding(gatewayPlist);
+    let gatewayEnvironment = {
+      wrapper: fileBinding(gatewayEnvWrapper),
+      file: fileBinding(gatewayEnvFile),
+    };
     fs.mkdirSync(path.join(runtimeHome, "bin"), { recursive: true });
     fs.writeFileSync(
       path.join(runtimeHome, "bin", "custom-runtime-seal.sh"),
       `#!/bin/sh\n[ "\${OPENCLAW_TEST_SEAL_FAIL:-0}" = 0 ] || exit 1\nprintf '%s\\n' "$@" > ${JSON.stringify(sealMarker)}\n`,
+      { mode: 0o700 },
+    );
+    fs.writeFileSync(
+      path.join(runtimeHome, "bin", "custom-runtime-guard.sh"),
+      `#!/bin/sh\n[ "\${OPENCLAW_TEST_GUARD_FAIL:-0}" = 0 ] || exit 1\nprintf '%s\\n' "$@" > ${JSON.stringify(guardMarker)}\nprintf '%s\\n' "$OPENCLAW_GATEWAY_ENV_WRAPPER" "$OPENCLAW_GATEWAY_ENV_FILE" "$OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST" "$OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL" > ${JSON.stringify(guardEnvironmentMarker)}\n`,
       { mode: 0o700 },
     );
     writeJson(path.join(runtimeHome, "active-runtime.json"), { sourceSha: "d".repeat(40) });
@@ -363,6 +545,8 @@ describe("custom runtime update broker", () => {
       verificationResult: "passed",
       verifiedBackup,
       repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
     });
     let result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
@@ -402,6 +586,8 @@ describe("custom runtime update broker", () => {
       verificationResult: "passed",
       verifiedBackup,
       repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
     });
     result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
@@ -429,6 +615,8 @@ describe("custom runtime update broker", () => {
       verificationResult: "passed",
       verifiedBackup,
       repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
     });
     result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
@@ -456,6 +644,8 @@ describe("custom runtime update broker", () => {
       verificationResult: "passed",
       verifiedBackup,
       repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
     });
     result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
@@ -483,6 +673,8 @@ describe("custom runtime update broker", () => {
       verificationResult: "passed",
       verifiedBackup,
       repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
     });
     result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
@@ -510,6 +702,8 @@ describe("custom runtime update broker", () => {
       verificationResult: "passed",
       verifiedBackup,
       repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
     });
     result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
@@ -523,6 +717,82 @@ describe("custom runtime update broker", () => {
     expect(result.status).toBe(64);
     expect(result.stderr).toContain("immutable release seal verification failed");
     expect(fs.existsSync(marker)).toBe(false);
+
+    result = spawnSync(approve, ["--sha", sourceSha], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_TEST_GUARD_FAIL: "1",
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("runtime guard verification failed before activation");
+    expect(fs.existsSync(marker)).toBe(false);
+
+    fs.appendFileSync(gatewayEnvWrapper, "# changed\n");
+    result = spawnSync(approve, ["--sha", sourceSha], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("Gateway environment wrapper changed after preparation");
+    expect(fs.existsSync(marker)).toBe(false);
+    gatewayEnvironment = {
+      wrapper: fileBinding(gatewayEnvWrapper),
+      file: fileBinding(gatewayEnvFile),
+    };
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
+    });
+
+    fs.appendFileSync(gatewayPlist, "<!-- changed -->\n");
+    result = spawnSync(approve, ["--sha", sourceSha], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("Gateway LaunchAgent changed after preparation");
+    expect(fs.existsSync(marker)).toBe(false);
+    gatewayLaunchAgent = fileBinding(gatewayPlist);
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
+      verifiedBackup,
+      repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
+    });
 
     fs.appendFileSync(
       path.join(release, "config", "custom-runtime-capabilities.json"),
@@ -554,6 +824,8 @@ describe("custom runtime update broker", () => {
       verificationResult: "passed",
       verifiedBackup,
       repositoryProof,
+      gatewayLaunchAgent,
+      gatewayEnvironment,
     });
     result = spawnSync(approve, ["--sha", sourceSha], {
       encoding: "utf8",
@@ -567,16 +839,30 @@ describe("custom runtime update broker", () => {
     expect(fs.readFileSync(marker, "utf8")).toContain("--source-sha");
     expect(fs.readFileSync(marker, "utf8")).toContain(sourceBranch);
     expect(fs.readFileSync(sealMarker, "utf8")).toContain("--verify");
+    expect(fs.readFileSync(guardMarker, "utf8")).toContain("--verify-only");
+    expect(fs.readFileSync(guardEnvironmentMarker, "utf8").trim().split("\n")).toEqual([
+      gatewayEnvWrapper,
+      gatewayEnvFile,
+      customGuardPlist,
+      customGuardLabel,
+    ]);
+    expect(fs.readFileSync(gatewayEnvironmentMarker, "utf8").trim().split("\n")).toEqual([
+      gatewayEnvWrapper,
+      gatewayEnvFile,
+      gatewayPlist,
+    ]);
     expect(fs.existsSync(pending)).toBe(false);
     const approval = fs
       .readdirSync(path.join(runtimeHome, "receipts"))
-      .find((name) => name.startsWith("update-approval-"));
-    expect(approval).toBeTruthy();
-    expect(
-      JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", approval!), "utf8")) as Record<
-        string,
-        unknown
-      >,
-    ).toMatchObject({ preservationProof });
+      .filter((name) => name.startsWith("update-approval-"))
+      .map(
+        (name) =>
+          JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", name), "utf8")) as Record<
+            string,
+            unknown
+          >,
+      )
+      .find((value) => value.result === "promoted");
+    expect(approval).toMatchObject({ preservationProof });
   });
 });

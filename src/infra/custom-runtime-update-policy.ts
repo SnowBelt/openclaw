@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createConfigIO } from "../config/io.js";
 
 export const CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON = "custom-runtime-update-broker-required";
 
@@ -12,6 +13,8 @@ export type CustomRuntimeUpdatePolicy = {
   standardUpdateBlocked: boolean;
   sourceDurable: boolean;
   sourceDurabilityReason: string;
+  runtimeGuardHealthy: boolean;
+  runtimeGuardReason: string;
   backupConfigured: boolean;
   approvalPending: boolean;
   pendingCandidateSha: string | null;
@@ -31,6 +34,9 @@ export type CustomRuntimeUpdatePolicyOptions = {
   homedir?: string;
   argv?: readonly string[];
   pointerPath?: string;
+  runtimeGuardLaunchAgentPath?: string;
+  runtimeGuardLabel?: string;
+  runtimeGuardLoaded?: boolean;
 };
 
 type RuntimePointer = {
@@ -60,9 +66,68 @@ type SourceDurability = { durable: boolean; reason: string };
 let sourceDurabilityCache: { key: string; value: SourceDurability } | undefined;
 
 const UPDATE_SAFETY_CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v1";
+const RUNTIME_GUARD_RECEIPT_SCHEMA = "openclaw.custom-runtime-guard-verification.v1";
+const RUNTIME_GUARD_RECEIPT_TTL_MS = 15 * 60 * 1000;
+const RUNTIME_GUARD_LABEL = "ai.openclaw.custom-runtime.guard";
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isLaunchAgentLoaded(label: string): boolean {
+  if (process.platform !== "darwin" || typeof process.getuid !== "function") {
+    return false;
+  }
+  try {
+    execFileSync("/bin/launchctl", ["print", `gui/${process.getuid()}/${label}`], {
+      stdio: "ignore",
+      timeout: 1_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readRuntimeGuardAgentHealth(options: {
+  homedir: string;
+  launchAgentPath?: string;
+  label?: string;
+  programArguments?: string[];
+  loaded?: boolean;
+}): { healthy: boolean; reason: string } {
+  const launchAgentPath =
+    options.launchAgentPath ??
+    path.join(options.homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist");
+  try {
+    const stat = fs.lstatSync(launchAgentPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      return { healthy: false, reason: "The recovery guard LaunchAgent is invalid." };
+    }
+  } catch {
+    return { healthy: false, reason: "The recovery guard LaunchAgent is missing." };
+  }
+  if (options.programArguments) {
+    try {
+      execFileSync(
+        "python3",
+        [
+          "-c",
+          "import json, os, plistlib, sys\nwith open(sys.argv[1], 'rb') as f: value = plistlib.load(f)\nargs = value.get('ProgramArguments')\nactual = [os.path.realpath(item) for item in args] if isinstance(args, list) and all(isinstance(item, str) and item for item in args) else []\nexpected = [os.path.realpath(item) for item in json.loads(sys.argv[3])]\nraise SystemExit(0 if value.get('Label') == sys.argv[2] and actual == expected else 1)",
+          launchAgentPath,
+          options.label ?? RUNTIME_GUARD_LABEL,
+          JSON.stringify(options.programArguments),
+        ],
+        { stdio: "ignore" },
+      );
+    } catch {
+      return { healthy: false, reason: "The recovery guard LaunchAgent contract is invalid." };
+    }
+  }
+  if (!(options.loaded ?? isLaunchAgentLoaded(options.label ?? RUNTIME_GUARD_LABEL))) {
+    return { healthy: false, reason: "The recovery guard LaunchAgent is not loaded." };
+  }
+  return { healthy: true, reason: "The recovery guard LaunchAgent is loaded." };
 }
 
 function runtimeSourceProvenance(value: unknown): RuntimeSourceProvenance | null {
@@ -148,13 +213,22 @@ function readPreparationState(pointerPath: string): {
   const runtimeHome = path.dirname(path.resolve(pointerPath));
   let approvalPending = false;
   let pendingCandidateSha: string | null = null;
+  let pendingCandidateNeedsRepreparation = false;
   try {
     const pending: unknown = JSON.parse(
       fs.readFileSync(path.join(runtimeHome, "pending-update.json"), "utf8"),
     );
     if (pending && typeof pending === "object" && !Array.isArray(pending)) {
       const pendingRecord = pending as Record<string, unknown>;
-      approvalPending = pendingRecord.result === "ready_for_approval";
+      const readyForApproval = pendingRecord.result === "ready_for_approval";
+      const verifiedBackup = pendingRecord.verifiedBackup;
+      const backupSchema =
+        verifiedBackup && typeof verifiedBackup === "object" && !Array.isArray(verifiedBackup)
+          ? nonEmptyString((verifiedBackup as Record<string, unknown>).schema)
+          : null;
+      pendingCandidateNeedsRepreparation =
+        readyForApproval && backupSchema === "openclaw.custom-runtime-update-backup.v1";
+      approvalPending = readyForApproval && !pendingCandidateNeedsRepreparation;
       const candidateSha = nonEmptyString(pendingRecord.sourceSha);
       pendingCandidateSha =
         approvalPending && candidateSha && /^[0-9a-f]{40}$/u.test(candidateSha)
@@ -229,9 +303,14 @@ function readPreparationState(pointerPath: string): {
       ? "installing"
       : approvalPending
         ? "ready"
-        : lastResult === "failed"
-          ? "failed"
-          : "idle";
+        : pendingCandidateNeedsRepreparation
+          ? "idle"
+          : lastResult === "failed"
+            ? "failed"
+            : "idle";
+  if (pendingCandidateNeedsRepreparation) {
+    preparationReason = "legacy-backup-repreparation-required";
+  }
   return {
     approvalPending,
     pendingCandidateSha,
@@ -261,6 +340,144 @@ function readBackupConfigured(pointerPath: string, env: NodeJS.ProcessEnv): bool
     }
   }
   return backupRoot ? isRegularPath(path.resolve(backupRoot), "directory") : false;
+}
+
+async function readRuntimeGuardHealth(
+  pointerPath: string,
+  pointer: RuntimePointer,
+  env: NodeJS.ProcessEnv,
+  homedir: string,
+  guardLaunchAgentPath: string,
+  guardLabel: string,
+): Promise<{ healthy: boolean; reason: string }> {
+  const receiptPath = path.join(
+    path.dirname(path.resolve(pointerPath)),
+    "receipts",
+    "guard-verification-current.json",
+  );
+  try {
+    const stat = fs.lstatSync(receiptPath);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
+      throw new Error("unsafe guard receipt");
+    }
+    const raw: unknown = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("invalid guard receipt");
+    }
+    const receipt = raw as Record<string, unknown>;
+    const verifiedAt = receipt.verifiedAt;
+    const runtimeHome = path.dirname(path.resolve(pointerPath));
+    const launcherPath = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
+    const guardExecutablePath = path.join(runtimeHome, "bin", "custom-runtime-guard.sh");
+    const gatewayEnvWrapperPath = path.resolve(
+      nonEmptyString(env.OPENCLAW_GATEWAY_ENV_WRAPPER) ??
+        path.join(
+          homedir,
+          ".openclaw-director-state",
+          "service-env",
+          "ai.openclaw.gateway-env-wrapper.sh",
+        ),
+    );
+    const gatewayEnvFilePath = path.resolve(
+      nonEmptyString(env.OPENCLAW_GATEWAY_ENV_FILE) ??
+        path.join(homedir, ".openclaw-director-state", "service-env", "ai.openclaw.gateway.env"),
+    );
+    const guardProgramArguments = [
+      fs.realpathSync(gatewayEnvWrapperPath),
+      fs.realpathSync(gatewayEnvFilePath),
+      fs.realpathSync(guardExecutablePath),
+    ];
+    const plistPath = path.resolve(
+      nonEmptyString(env.OPENCLAW_GATEWAY_PLIST) ??
+        path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
+    );
+    const configPath = path.resolve(
+      nonEmptyString(env.OPENCLAW_CONFIG_PATH) ??
+        path.join(homedir, ".openclaw", "openclaw.director.json"),
+    );
+    const provenancePath = path.join(pointer.runtimeRoot, ".openclaw-runtime-provenance.json");
+    const dashboardManifestPath = path.join(
+      pointer.runtimeRoot,
+      "dist",
+      "control-ui",
+      "dashboard-surfaces.json",
+    );
+    const provenance = JSON.parse(fs.readFileSync(provenancePath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    const provenanceRecord = nonEmptyString(provenance.recordPath);
+    if (!provenanceRecord) {
+      throw new Error("source provenance record path is missing");
+    }
+    const provenanceRecordPath = path.resolve(provenanceRecord);
+    const provenanceMigrationPath = nonEmptyString(provenance.migrationPath);
+    const sha256 = (filePath: string): string => {
+      const info = fs.lstatSync(filePath);
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new Error("unsafe guard input");
+      }
+      return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+    };
+    const configSnapshot = await createConfigIO({
+      env: { ...env, OPENCLAW_CONFIG_PATH: configPath },
+      homedir: () => homedir,
+      observe: false,
+      pluginValidation: "skip",
+      shellEnvFallback: "defer",
+    }).readConfigFileSnapshot();
+    if (!configSnapshot.valid) {
+      throw new Error("managed OpenClaw config is invalid");
+    }
+    const config = configSnapshot.config;
+    const gatewayAuth = config.gateway?.auth ?? null;
+    const gatewayControlUi = config.gateway?.controlUi ?? {};
+    const gatewayConfigSha256 = crypto
+      .createHash("sha256")
+      .update(`${JSON.stringify(gatewayAuth)}\n${JSON.stringify(gatewayControlUi)}\n`)
+      .digest("hex");
+    if (
+      receipt.schema !== RUNTIME_GUARD_RECEIPT_SCHEMA ||
+      receipt.result !== "passed" ||
+      receipt.runtimeRoot !== pointer.runtimeRoot ||
+      receipt.sourceSha !== pointer.sourceSha ||
+      receipt.pointerSha256 !== sha256(pointerPath) ||
+      receipt.launcherSha256 !== sha256(launcherPath) ||
+      receipt.plistSha256 !== sha256(plistPath) ||
+      receipt.guardPlistPath !== fs.realpathSync(guardLaunchAgentPath) ||
+      receipt.guardPlistSha256 !== sha256(guardLaunchAgentPath) ||
+      receipt.guardExecutablePath !== fs.realpathSync(guardExecutablePath) ||
+      receipt.guardExecutableSha256 !== sha256(guardExecutablePath) ||
+      receipt.guardLabel !== guardLabel ||
+      receipt.gatewayEnvWrapperPath !== fs.realpathSync(gatewayEnvWrapperPath) ||
+      receipt.gatewayEnvWrapperSha256 !== sha256(gatewayEnvWrapperPath) ||
+      receipt.gatewayEnvFilePath !== fs.realpathSync(gatewayEnvFilePath) ||
+      receipt.gatewayEnvFileSha256 !== sha256(gatewayEnvFilePath) ||
+      JSON.stringify(receipt.guardProgramArguments) !== JSON.stringify(guardProgramArguments) ||
+      receipt.provenanceSha256 !== sha256(provenancePath) ||
+      receipt.provenanceRecordSha256 !== sha256(provenanceRecordPath) ||
+      receipt.provenanceMigrationSha256 !==
+        (provenanceMigrationPath ? sha256(path.resolve(provenanceMigrationPath)) : "") ||
+      receipt.dashboardManifestSha256 !== sha256(dashboardManifestPath) ||
+      receipt.gatewayConfigSha256 !== gatewayConfigSha256 ||
+      typeof verifiedAt !== "number" ||
+      !Number.isInteger(verifiedAt) ||
+      verifiedAt < 0 ||
+      Date.now() - verifiedAt * 1000 > RUNTIME_GUARD_RECEIPT_TTL_MS ||
+      verifiedAt * 1000 > Date.now() + 60_000
+    ) {
+      throw new Error("stale or mismatched guard receipt");
+    }
+    return {
+      healthy: true,
+      reason: "The active runtime guard has current identity and route proof.",
+    };
+  } catch {
+    return {
+      healthy: false,
+      reason: "The active runtime guard has no current identity and route verification.",
+    };
+  }
 }
 
 function isRegularPath(target: string, kind: "file" | "directory"): boolean {
@@ -471,54 +688,101 @@ function isSameOrChild(candidate: string, parent: string): boolean {
   );
 }
 
-export function resolveCustomRuntimeUpdatePolicy(
+export async function resolveCustomRuntimeUpdatePolicy(
   options: CustomRuntimeUpdatePolicyOptions = {},
-): CustomRuntimeUpdatePolicy {
+): Promise<CustomRuntimeUpdatePolicy> {
   const env = options.env ?? process.env;
   const homedir = options.homedir ?? os.homedir();
   const argv = options.argv ?? process.argv;
+  const explicitPointerPath = nonEmptyString(env.OPENCLAW_CUSTOM_RUNTIME_POINTER);
   const pointerPath =
     options.pointerPath ??
-    nonEmptyString(env.OPENCLAW_CUSTOM_RUNTIME_POINTER) ??
+    explicitPointerPath ??
     path.join(homedir, ".openclaw-custom-runtime", "active-runtime.json");
+  const snapshotRoot = nonEmptyString(env.OPENCLAW_RUNTIME_SNAPSHOT_ROOT);
+  const wrapper = nonEmptyString(env.OPENCLAW_WRAPPER);
+  const managedRuntimeMarker =
+    explicitPointerPath !== null ||
+    (wrapper !== null && path.basename(wrapper) === "custom-runtime-launcher.sh");
   const pointer = readRuntimePointer(pointerPath);
   if (!pointer) {
     return {
-      managedRuntime: false,
-      standardUpdateBlocked: false,
+      managedRuntime: managedRuntimeMarker,
+      standardUpdateBlocked: managedRuntimeMarker,
       sourceDurable: false,
       sourceDurabilityReason: "The immutable custom-runtime pointer is missing or invalid.",
+      runtimeGuardHealthy: false,
+      runtimeGuardReason: "The active runtime guard cannot verify an invalid runtime pointer.",
       backupConfigured: false,
       approvalPending: false,
       pendingCandidateSha: null,
       preparationRunning: false,
-      preparationStatus: "blocked",
-      preparationReason: "invalid-active-runtime-pointer",
+      preparationStatus: managedRuntimeMarker ? "blocked" : "idle",
+      preparationReason: managedRuntimeMarker ? "invalid-active-runtime-pointer" : null,
       sourceSha: null,
       sourceRepo: null,
       sourceBranch: null,
       runtimeRoot: null,
       pointerPath,
-      reason: "No valid immutable custom-runtime pointer is active.",
+      reason: managedRuntimeMarker
+        ? "No valid immutable custom-runtime pointer is active."
+        : "No managed custom runtime is active.",
     };
   }
 
-  const snapshotRoot = nonEmptyString(env.OPENCLAW_RUNTIME_SNAPSHOT_ROOT);
-  const wrapper = nonEmptyString(env.OPENCLAW_WRAPPER);
   const entrypoint = nonEmptyString(argv[1]);
   const managedRuntime =
     (snapshotRoot !== null && path.resolve(snapshotRoot) === pointer.runtimeRoot) ||
     (entrypoint !== null && isSameOrChild(entrypoint, pointer.runtimeRoot)) ||
     (wrapper !== null && path.basename(wrapper) === "custom-runtime-launcher.sh");
   const sourceDurability = resolveSourceDurability(pointer, pointerPath);
+  const guardLaunchAgentPath = path.resolve(
+    options.runtimeGuardLaunchAgentPath ??
+      nonEmptyString(env.OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST) ??
+      path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist"),
+  );
+  const guardLabel =
+    options.runtimeGuardLabel ??
+    nonEmptyString(env.OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL) ??
+    RUNTIME_GUARD_LABEL;
+  const runtimeGuardReceipt = await readRuntimeGuardHealth(
+    pointerPath,
+    pointer,
+    env,
+    homedir,
+    guardLaunchAgentPath,
+    guardLabel,
+  );
+  const runtimeGuardAgent = readRuntimeGuardAgentHealth({
+    homedir,
+    launchAgentPath: guardLaunchAgentPath,
+    label: guardLabel,
+    programArguments: [
+      nonEmptyString(env.OPENCLAW_GATEWAY_ENV_WRAPPER) ??
+        path.join(
+          homedir,
+          ".openclaw-director-state",
+          "service-env",
+          "ai.openclaw.gateway-env-wrapper.sh",
+        ),
+      nonEmptyString(env.OPENCLAW_GATEWAY_ENV_FILE) ??
+        path.join(homedir, ".openclaw-director-state", "service-env", "ai.openclaw.gateway.env"),
+      path.join(path.dirname(path.resolve(pointerPath)), "bin", "custom-runtime-guard.sh"),
+    ],
+    ...(options.runtimeGuardLoaded === undefined ? {} : { loaded: options.runtimeGuardLoaded }),
+  });
+  const runtimeGuard = runtimeGuardReceipt.healthy ? runtimeGuardAgent : runtimeGuardReceipt;
   const preparation = readPreparationState(pointerPath);
   const backupConfigured = readBackupConfigured(pointerPath, env);
-  const preparationBlocked = !sourceDurability.durable || !backupConfigured;
+  const preparationBlocked =
+    !sourceDurability.durable || !runtimeGuard.healthy || !backupConfigured;
   return {
     managedRuntime,
     standardUpdateBlocked: managedRuntime,
     sourceDurable: sourceDurability.durable,
     sourceDurabilityReason: sourceDurability.reason,
+    runtimeGuardHealthy: runtimeGuard.healthy,
+    runtimeGuardReason: runtimeGuard.reason,
     backupConfigured,
     approvalPending: preparation.approvalPending,
     pendingCandidateSha: preparation.pendingCandidateSha,
@@ -527,7 +791,9 @@ export function resolveCustomRuntimeUpdatePolicy(
     preparationReason: preparationBlocked
       ? !sourceDurability.durable
         ? "source-provenance-unavailable"
-        : "verified-backup-unavailable"
+        : !runtimeGuard.healthy
+          ? "runtime-guard-verification-unavailable"
+          : "verified-backup-unavailable"
       : preparation.preparationReason,
     sourceSha: pointer.sourceSha,
     sourceRepo: pointer.sourceRepo,

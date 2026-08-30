@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildControlDirectorReadinessScorecard,
@@ -153,6 +155,14 @@ function scorecard(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Control Director readiness", () => {
+  it("awaits live update-safety status before scoring production readiness", () => {
+    const source = fs.readFileSync(path.resolve("scripts/control-director-readiness.mjs"), "utf8");
+
+    expect(source).toContain(
+      "updateSafety: args.sourceOnly ? undefined : await readPccUpdateSafety()",
+    );
+  });
+
   it("accepts the exact Gemma managed lineage only after every proof surface passes", () => {
     const result = scorecard();
     expect(result.sourceReady).toBe(true);

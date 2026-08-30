@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import * as tar from "tar";
 
-const RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v1";
+const RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v2";
 const CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v1";
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
@@ -68,6 +68,59 @@ function regularDirectory(directory, label) {
   }
 }
 
+function ensurePrivateDirectoryPath(root, segments) {
+  const verifiedRoot = fs.realpathSync(root);
+  let current = verifiedRoot;
+  for (const segment of segments) {
+    if (!segment || segment === "." || segment === ".." || segment.includes(path.sep)) {
+      fail("backup destination contains an invalid directory component");
+    }
+    const next = path.join(current, segment);
+    try {
+      const stat = fs.lstatSync(next);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        fail(`backup destination component is not a regular directory: ${segment}`);
+      }
+    } catch (error) {
+      if (error?.message?.startsWith("custom runtime update backup blocked:")) {
+        throw error;
+      }
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+      fs.mkdirSync(next, { recursive: false, mode: 0o700 });
+    }
+    const resolved = fs.realpathSync(next);
+    if (!isPathWithin(resolved, verifiedRoot)) {
+      fail(`backup destination escaped the verified external root: ${segment}`);
+    }
+    current = resolved;
+  }
+  return current;
+}
+
+function createExclusivePrivateDirectory(parent, preferredName) {
+  const verifiedParent = fs.realpathSync(parent);
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const name = attempt === 0 ? preferredName : `${preferredName}-${crypto.randomUUID()}`;
+    const target = path.join(verifiedParent, name);
+    try {
+      fs.mkdirSync(target, { recursive: false, mode: 0o700 });
+    } catch (error) {
+      if (error?.code === "EEXIST") {
+        continue;
+      }
+      throw error;
+    }
+    const resolved = fs.realpathSync(target);
+    if (!isPathWithin(resolved, verifiedParent)) {
+      fail("exclusive backup destination escaped the verified external root");
+    }
+    return { name, path: resolved };
+  }
+  return fail("could not allocate an exclusive backup destination");
+}
+
 function writeAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const temporary = `${filePath}.tmp-${process.pid}-${crypto.randomUUID()}`;
@@ -106,7 +159,14 @@ function verifyExternalRoot(externalRoot, allowTestDirectory) {
   const resolved = fs.realpathSync(path.resolve(externalRoot));
   regularDirectory(resolved, "external backup root");
   if (allowTestDirectory) {
-    return resolved;
+    const stat = fs.statSync(resolved);
+    return {
+      path: resolved,
+      identity: crypto
+        .createHash("sha256")
+        .update(JSON.stringify({ kind: "test", device: stat.dev, inode: stat.ino }))
+        .digest("hex"),
+    };
   }
   if (process.platform !== "darwin" || !resolved.startsWith(`/Volumes${path.sep}`)) {
     fail("external backup root must be on an attached macOS volume");
@@ -118,7 +178,17 @@ function verifyExternalRoot(externalRoot, allowTestDirectory) {
   if (!/^\s*Encrypted:\s*Yes\s*$/imu.test(info)) {
     fail("external backup volume is not encrypted or unlocked");
   }
-  return resolved;
+  const volumeUuid = /^\s*Volume UUID:\s*(\S+)\s*$/imu.exec(info)?.[1];
+  if (!volumeUuid) {
+    fail("external backup volume identity is unavailable");
+  }
+  return {
+    path: resolved,
+    identity: crypto
+      .createHash("sha256")
+      .update(JSON.stringify({ kind: "apfs", volumeUuid }))
+      .digest("hex"),
+  };
 }
 
 function configPath(runtimeHome) {
@@ -141,9 +211,9 @@ function configureBackup({ runtimeHome, externalRoot, allowTestDirectory = false
   const target = configPath(runtimeHome);
   writeAtomic(target, {
     schema: CONFIG_SCHEMA,
-    backupRoot: verifiedExternalRoot,
+    backupRoot: verifiedExternalRoot.path,
   });
-  return { result: "configured", configPath: target, backupRoot: verifiedExternalRoot };
+  return { result: "configured", configPath: target, backupRoot: verifiedExternalRoot.path };
 }
 
 function parseBackupOutput(stdout) {
@@ -297,7 +367,36 @@ function rehearseRestore(archivePath) {
   }
 }
 
-function controlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist) {
+function gatewayEnvironmentFile(gatewayPlist, gatewayEnvWrapper, gatewayLauncher) {
+  let resolved;
+  try {
+    resolved = execFileSync(
+      "python3",
+      [
+        "-c",
+        "import os, plistlib, sys\nwith open(sys.argv[1], 'rb') as f: value = plistlib.load(f)\nargs = value.get('ProgramArguments')\nif not isinstance(args, list) or len(args) < 3 or args[0] != sys.argv[2] or not isinstance(args[1], str) or not args[1] or not isinstance(args[2], str) or os.path.realpath(args[2]) != os.path.realpath(sys.argv[3]): raise SystemExit(1)\nprint(args[1])",
+        gatewayPlist,
+        gatewayEnvWrapper,
+        gatewayLauncher,
+      ],
+      { encoding: "utf8" },
+    ).trim();
+  } catch {
+    fail("managed Gateway LaunchAgent environment contract is invalid");
+  }
+  const environmentFile = path.resolve(resolved);
+  regularFile(environmentFile, "managed Gateway environment file");
+  return environmentFile;
+}
+
+function controlPlaneEvidence(
+  pointerPath,
+  pointer,
+  runtimeHome,
+  gatewayPlist,
+  gatewayEnvWrapper,
+  gatewayEnvFile,
+) {
   const runtimeRoot = path.resolve(String(pointer.runtimeRoot ?? ""));
   const provenance = isRecord(pointer.sourceProvenance) ? pointer.sourceProvenance : {};
   const candidates = [
@@ -310,7 +409,10 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist) {
     path.join(runtimeRoot, ".openclaw-runtime-provenance.json"),
     path.join(runtimeRoot, "snapshot.json"),
     path.join(runtimeRoot, "config", "custom-runtime-capabilities.json"),
+    path.join(runtimeHome, "bin", "custom-runtime-launcher.sh"),
     gatewayPlist,
+    gatewayEnvWrapper,
+    gatewayEnvFile,
     typeof provenance.recordPath === "string" ? provenance.recordPath : "",
     typeof provenance.bundlePath === "string" ? provenance.bundlePath : "",
   ];
@@ -324,8 +426,22 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist) {
   });
 }
 
-function resolveRequiredControlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist) {
-  const required = controlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist);
+function resolveRequiredControlPlaneEvidence(
+  pointerPath,
+  pointer,
+  runtimeHome,
+  gatewayPlist,
+  gatewayEnvWrapper,
+  gatewayEnvFile,
+) {
+  const required = controlPlaneEvidence(
+    pointerPath,
+    pointer,
+    runtimeHome,
+    gatewayPlist,
+    gatewayEnvWrapper,
+    gatewayEnvFile,
+  );
   const requiredSources = new Set(required.map((entry) => entry.sourcePath));
   for (const requiredPath of [
     pointerPath,
@@ -337,7 +453,10 @@ function resolveRequiredControlPlaneEvidence(pointerPath, pointer, runtimeHome, 
     path.join(pointer.runtimeRoot, ".openclaw-runtime-provenance.json"),
     path.join(pointer.runtimeRoot, "snapshot.json"),
     path.join(pointer.runtimeRoot, "config", "custom-runtime-capabilities.json"),
+    path.join(runtimeHome, "bin", "custom-runtime-launcher.sh"),
     gatewayPlist,
+    gatewayEnvWrapper,
+    gatewayEnvFile,
   ]) {
     if (!requiredSources.has(path.resolve(requiredPath))) {
       fail(`required control-plane recovery file is unavailable: ${path.basename(requiredPath)}`);
@@ -406,6 +525,8 @@ function createBackup({
   stateDir = process.env.OPENCLAW_STATE_DIR || path.join(homedir, ".openclaw-director-state"),
   gatewayPlist = process.env.OPENCLAW_GATEWAY_PLIST ||
     path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
+  gatewayEnvWrapper = process.env.OPENCLAW_GATEWAY_ENV_WRAPPER ||
+    path.join(stateDir, "service-env", "ai.openclaw.gateway-env-wrapper.sh"),
   allowTestDirectory = false,
 }) {
   const pointerPath = path.join(runtimeHome, "active-runtime.json");
@@ -419,24 +540,37 @@ function createBackup({
   const resolvedConfigFile = path.resolve(configFile);
   const resolvedStateDir = path.resolve(stateDir);
   const resolvedGatewayPlist = path.resolve(gatewayPlist);
+  const resolvedGatewayEnvWrapper = path.resolve(gatewayEnvWrapper);
+  const resolvedGatewayLauncher = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
   regularFile(resolvedConfigFile, "managed Gateway configuration");
   regularDirectory(resolvedStateDir, "managed Gateway state directory");
   regularFile(resolvedGatewayPlist, "managed Gateway LaunchAgent");
+  regularFile(resolvedGatewayEnvWrapper, "managed Gateway environment wrapper");
+  regularFile(resolvedGatewayLauncher, "active custom runtime launcher");
+  const resolvedGatewayEnvFile = gatewayEnvironmentFile(
+    resolvedGatewayPlist,
+    resolvedGatewayEnvWrapper,
+    resolvedGatewayLauncher,
+  );
   const backupEnvironment = {
     ...process.env,
     OPENCLAW_CONFIG_PATH: resolvedConfigFile,
     OPENCLAW_STATE_DIR: resolvedStateDir,
     OPENCLAW_GATEWAY_PLIST: resolvedGatewayPlist,
+    OPENCLAW_GATEWAY_ENV_WRAPPER: resolvedGatewayEnvWrapper,
   };
   const verifiedExternalRoot = verifyExternalRoot(
     configuredExternalRoot(runtimeHome, externalRoot),
     allowTestDirectory,
   );
   const stamp = new Date().toISOString().replaceAll(/[-:.]/gu, "");
-  const externalBackupRoot = path.join(verifiedExternalRoot, "OpenClaw", "verified-updates");
-  fs.mkdirSync(externalBackupRoot, { recursive: true, mode: 0o700 });
-  const externalDirectory = path.join(externalBackupRoot, stamp);
-  fs.mkdirSync(externalDirectory, { recursive: false, mode: 0o700 });
+  const externalBackupRoot = ensurePrivateDirectoryPath(verifiedExternalRoot.path, [
+    "OpenClaw",
+    "verified-updates",
+  ]);
+  const exclusiveDirectory = createExclusivePrivateDirectory(externalBackupRoot, stamp);
+  const backupId = exclusiveDirectory.name;
+  const externalDirectory = exclusiveDirectory.path;
   const dryRun = parseBackupOutput(
     execFileSync(process.execPath, [entrypoint, "backup", "create", "--dry-run", "--json"], {
       encoding: "utf8",
@@ -456,6 +590,8 @@ function createBackup({
     pointer,
     runtimeHome,
     resolvedGatewayPlist,
+    resolvedGatewayEnvWrapper,
+    resolvedGatewayEnvFile,
   );
   const estimatedInputBytes = sourcePaths.reduce(
     (total, sourcePath) => total + estimatePathBytes(sourcePath),
@@ -499,7 +635,10 @@ function createBackup({
   fs.mkdirSync(localRoot, { recursive: true, mode: 0o700 });
   const archiveBytes = fs.statSync(externalArchivePath).size;
   assertAvailableBytes(localRoot, archiveBytes, "local backup volume");
-  const localArchivePath = path.join(localRoot, path.basename(externalArchivePath));
+  const localArchivePath = path.join(
+    localRoot,
+    `${backupId}-${path.basename(externalArchivePath)}`,
+  );
   fs.copyFileSync(externalArchivePath, localArchivePath, fs.constants.COPYFILE_EXCL);
   syncFile(localArchivePath);
   if (sha256File(localArchivePath) !== archiveSha256) {
@@ -510,7 +649,7 @@ function createBackup({
     pointer,
     externalDirectory,
   });
-  const receiptPath = path.join(runtimeHome, "receipts", `update-backup-${stamp}.json`);
+  const receiptPath = path.join(runtimeHome, "receipts", `update-backup-${backupId}.json`);
   const receipt = {
     schema: RECEIPT_SCHEMA,
     createdAt: new Date().toISOString(),
@@ -518,6 +657,7 @@ function createBackup({
     result: "passed",
     backupVerified: true,
     restoreDrill,
+    externalRoot: verifiedExternalRoot,
     localArchive: { path: localArchivePath, sha256: archiveSha256 },
     externalArchive: { path: externalArchivePath, sha256: archiveSha256 },
     controlPlane,
@@ -526,7 +666,14 @@ function createBackup({
   return { ...receipt, receiptPath, receiptSha256: sha256File(receiptPath) };
 }
 
-function verifyReceipt({ receiptPath, expectedSha, maxAgeMs = DEFAULT_MAX_AGE_MS }) {
+function verifyReceipt({
+  receiptPath,
+  expectedSha,
+  runtimeHome,
+  externalRoot = process.env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT || "",
+  allowTestDirectory = false,
+  maxAgeMs = DEFAULT_MAX_AGE_MS,
+}) {
   if (!Number.isFinite(maxAgeMs) || maxAgeMs <= 0) {
     fail("backup receipt maximum age is invalid");
   }
@@ -549,6 +696,17 @@ function verifyReceipt({ receiptPath, expectedSha, maxAgeMs = DEFAULT_MAX_AGE_MS
   ) {
     fail("backup receipt is stale or has an invalid timestamp");
   }
+  const verifiedExternalRoot = verifyExternalRoot(
+    configuredExternalRoot(runtimeHome, externalRoot),
+    allowTestDirectory,
+  );
+  if (
+    !isRecord(receipt.externalRoot) ||
+    receipt.externalRoot.path !== verifiedExternalRoot.path ||
+    receipt.externalRoot.identity !== verifiedExternalRoot.identity
+  ) {
+    fail("external backup volume identity changed after preparation");
+  }
   for (const key of ["localArchive", "externalArchive", "controlPlane"]) {
     const binding = receipt[key];
     if (!isRecord(binding) || !DIGEST_PATTERN.test(String(binding.sha256 ?? ""))) {
@@ -558,6 +716,12 @@ function verifyReceipt({ receiptPath, expectedSha, maxAgeMs = DEFAULT_MAX_AGE_MS
     regularFile(filePath, key);
     if (sha256File(filePath) !== binding.sha256) {
       fail(`${key} hash changed after verification`);
+    }
+    if (
+      (key === "externalArchive" || key === "controlPlane") &&
+      !isPathWithin(fs.realpathSync(filePath), verifiedExternalRoot.path)
+    ) {
+      fail(`${key} is outside the verified external backup volume`);
     }
   }
   return { result: "verified", receiptPath: path.resolve(receiptPath), sourceSha: expectedSha };
@@ -589,11 +753,18 @@ if (isMainModule()) {
               configFile: values.get("config-path") || process.env.OPENCLAW_CONFIG_PATH,
               stateDir: values.get("state-dir") || process.env.OPENCLAW_STATE_DIR,
               gatewayPlist: values.get("gateway-plist") || process.env.OPENCLAW_GATEWAY_PLIST,
+              gatewayEnvWrapper:
+                values.get("gateway-env-wrapper") || process.env.OPENCLAW_GATEWAY_ENV_WRAPPER,
             })
           : command === "verify"
             ? verifyReceipt({
                 receiptPath: path.resolve(values.get("receipt") || ""),
                 expectedSha: values.get("expected-sha") || "",
+                runtimeHome,
+                externalRoot:
+                  values.get("external-root") ||
+                  process.env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT ||
+                  "",
                 maxAgeMs: Number(values.get("max-age-ms") || DEFAULT_MAX_AGE_MS),
               })
             : fail("command must be configure, create, or verify");

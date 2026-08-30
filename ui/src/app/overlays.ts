@@ -66,6 +66,8 @@ const UPDATE_HANDOFF_POLL_MS = 1_000;
 const UPDATE_HANDOFF_TIMEOUT_MS = 35 * 60_000;
 const UPDATE_SAFETY_POLL_MS = 5_000;
 const UPDATE_SAFETY_START_GRACE_MS = 30_000;
+const UPDATE_INSTALL_START_GRACE_MS = 5 * 60_000;
+type UpdateSafetyOperation = "prepare" | "install";
 const PENDING_UPDATE_HANDOFF_REASONS = new Set([
   UPDATE_HANDOFF_STARTED_REASON,
   UPDATE_RESTART_HEALTH_PENDING_REASON,
@@ -234,6 +236,8 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
   let activeClient = gateway.snapshot.client;
   let pendingUpdateExpectedVersion: string | null = null;
   let pendingUpdateHandoff = false;
+  let pendingManagedInstallSha: string | null = null;
+  let pendingManagedInstallDeadline = 0;
   let updateRunGeneration = 0;
   let updateVerificationGeneration = 0;
   let updateVerificationTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -333,51 +337,114 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
   const scheduleUpdateSafetyPoll = (
     client: NonNullable<typeof activeClient>,
     startGraceDeadline = 0,
+    operation: UpdateSafetyOperation = "prepare",
   ) => {
     cancelUpdateSafetyPoll();
+    const preparationStatus = snapshot.updateSafety?.preparationStatus;
+    const waitingForOperationStart =
+      Date.now() < startGraceDeadline &&
+      (operation === "install"
+        ? pendingManagedInstallSha !== null && preparationStatus !== "failed"
+        : snapshot.updateSafety?.approvalPending !== true);
     const preparationPending =
       snapshot.updateSafety?.preparationRunning === true ||
-      snapshot.updateSafety?.preparationStatus === "preparing" ||
-      snapshot.updateSafety?.preparationStatus === "installing" ||
-      (snapshot.updateSafety?.approvalPending !== true && Date.now() < startGraceDeadline);
+      preparationStatus === "preparing" ||
+      preparationStatus === "installing" ||
+      waitingForOperationStart;
     if (!preparationPending || !isCurrentClient(client)) {
       return;
     }
     updateSafetyPollTimer = globalThis.setTimeout(() => {
       updateSafetyPollTimer = null;
-      void refreshUpdateSafety(client, startGraceDeadline);
+      void refreshUpdateSafety(client, startGraceDeadline, operation);
     }, UPDATE_SAFETY_POLL_MS);
   };
 
   const refreshUpdateSafety = async (
     client: NonNullable<typeof activeClient>,
     startGraceDeadline = 0,
+    operation: UpdateSafetyOperation = "prepare",
   ) => {
     let result: UpdateRestartStatusResponse;
     try {
       result = await client.request<UpdateRestartStatusResponse>("update.status", {});
     } catch {
+      if (isCurrentClient(client)) {
+        const installStartUnverified =
+          operation === "install" &&
+          Date.now() >= startGraceDeadline &&
+          snapshot.updateSafety?.preparationStatus !== "installing";
+        if (installStartUnverified) {
+          pendingManagedInstallSha = null;
+          pendingManagedInstallDeadline = 0;
+          snapshot = {
+            ...snapshot,
+            updateStatusBanner: {
+              tone: "warn",
+              text: "Verified installation status could not be confirmed. The prepared update remains unchanged; retry after the Gateway is reachable.",
+            },
+          };
+          publish();
+        } else {
+          scheduleUpdateSafetyPoll(client, startGraceDeadline, operation);
+        }
+      }
       return;
     }
     if (!isCurrentClient(client)) {
       return;
     }
     const updateSafety = result.updateSafety ?? null;
+    const managedInstallVerified =
+      operation === "install" &&
+      pendingManagedInstallSha !== null &&
+      updateSafety?.managedRuntime === true &&
+      updateSafety.standardUpdateBlocked &&
+      updateSafety.sourceDurable &&
+      updateSafety.runtimeGuardHealthy &&
+      updateSafety.backupConfigured &&
+      updateSafety?.sourceSha === pendingManagedInstallSha &&
+      updateSafety.preparationStatus === "idle" &&
+      !updateSafety.approvalPending;
     const updateStatusBanner =
       updateSafety?.preparationStatus === "failed"
         ? {
             tone: "danger" as const,
             text: `Verified update preparation failed: ${updateSafety.preparationReason ?? "unknown failure"}. The live runtime was not changed.`,
           }
-        : updateSafety?.preparationStatus === "ready" && updateSafety.pendingCandidateSha
+        : managedInstallVerified
           ? {
               tone: "info" as const,
-              text: `Verified update ${updateSafety.pendingCandidateSha.slice(0, 12)} is ready for explicit installation approval.`,
+              text: "Verified update installed. Runtime identity and browser health checks are complete.",
             }
-          : snapshot.updateStatusBanner;
+          : operation === "install" &&
+              updateSafety?.preparationStatus !== "installing" &&
+              Date.now() >= startGraceDeadline
+            ? {
+                tone: "warn" as const,
+                text: "Verified installation did not start. The prepared update remains unchanged; retry once the reported blocker is resolved.",
+              }
+            : operation !== "install" &&
+                updateSafety?.preparationStatus === "ready" &&
+                updateSafety.pendingCandidateSha
+              ? {
+                  tone: "info" as const,
+                  text: `Verified update ${updateSafety.pendingCandidateSha.slice(0, 12)} is ready for explicit installation approval.`,
+                }
+              : snapshot.updateStatusBanner;
+    if (
+      updateSafety?.preparationStatus === "failed" ||
+      managedInstallVerified ||
+      (operation === "install" &&
+        updateSafety?.preparationStatus !== "installing" &&
+        Date.now() >= startGraceDeadline)
+    ) {
+      pendingManagedInstallSha = null;
+      pendingManagedInstallDeadline = 0;
+    }
     snapshot = { ...snapshot, updateSafety, updateStatusBanner };
     publish();
-    scheduleUpdateSafetyPoll(client, startGraceDeadline);
+    scheduleUpdateSafetyPoll(client, startGraceDeadline, operation);
   };
 
   const publishUpdateBanner = (updateStatusBanner: ApplicationStatusBanner | null) => {
@@ -520,7 +587,11 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
     snapshot = { ...snapshot, updateAvailable: readUpdateAvailable(next.hello) };
     if (previousClient !== next.client) {
       void refreshApprovals(next.client);
-      void refreshUpdateSafety(next.client);
+      if (pendingManagedInstallSha && pendingManagedInstallDeadline > 0) {
+        void refreshUpdateSafety(next.client, pendingManagedInstallDeadline, "install");
+      } else {
+        void refreshUpdateSafety(next.client, Date.now() + UPDATE_SAFETY_START_GRACE_MS, "prepare");
+      }
       if (next.client) {
         void verifyPendingUpdateVersion(next.client);
       }
@@ -578,7 +649,13 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
     },
     async runUpdate(approvalSha?: string) {
       const client = gateway.snapshot.client;
-      if (!client || !gateway.snapshot.connected || disposed || snapshot.updateRunning) {
+      if (
+        !client ||
+        !gateway.snapshot.connected ||
+        disposed ||
+        snapshot.updateRunning ||
+        snapshot.updateSafety?.preparationStatus === "installing"
+      ) {
         return;
       }
       const generation = ++updateRunGeneration;
@@ -634,13 +711,46 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
             }),
           };
         }
-        const preparationStarted =
+        const managedOperation =
           response.ok === true &&
           status === "skipped" &&
-          response.result?.reason === "custom-runtime-update-preparation-started";
+          response.result?.reason === "custom-runtime-update-approval-started"
+            ? "install"
+            : response.ok === true &&
+                status === "skipped" &&
+                response.result?.reason === "custom-runtime-update-preparation-started"
+              ? "prepare"
+              : null;
+        if (managedOperation === "install") {
+          // Managed activation is verified by update-safety receipts, not the stock update sentinel.
+          // Arming generic reconnect verification would misreport a successful managed restart.
+          pendingUpdateHandoff = false;
+          if (!approvalSha) {
+            pendingManagedInstallSha = null;
+            pendingManagedInstallDeadline = 0;
+            snapshot = {
+              ...snapshot,
+              updateStatusBanner: {
+                tone: "warn",
+                text: "Verified installation could not be bound to an exact prepared candidate.",
+              },
+            };
+            return;
+          }
+          pendingManagedInstallSha = approvalSha;
+          pendingManagedInstallDeadline = Date.now() + UPDATE_INSTALL_START_GRACE_MS;
+        } else if (managedOperation !== "prepare") {
+          pendingManagedInstallSha = null;
+          pendingManagedInstallDeadline = 0;
+        }
         void refreshUpdateSafety(
           client,
-          preparationStarted ? Date.now() + UPDATE_SAFETY_START_GRACE_MS : 0,
+          managedOperation
+            ? managedOperation === "install"
+              ? pendingManagedInstallDeadline
+              : Date.now() + UPDATE_SAFETY_START_GRACE_MS
+            : 0,
+          managedOperation ?? "prepare",
         );
       } catch (error) {
         if (

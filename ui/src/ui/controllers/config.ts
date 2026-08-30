@@ -41,6 +41,8 @@ export type ConfigState = {
   configActiveSubsection: string | null;
   pendingUpdateExpectedVersion: string | null;
   pendingUpdateHandoff: boolean;
+  pendingManagedInstallSha?: string | null;
+  pendingManagedInstallDeadline?: number | null;
   updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
   customRuntimeUpdatePolicy?: CustomRuntimeUpdatePolicy | null;
   lastError: string | null;
@@ -53,29 +55,46 @@ const updateSafetyPollTimers = new WeakMap<ConfigState, ReturnType<typeof global
 const UPDATE_HANDOFF_STARTED_REASON = "managed-service-handoff-started";
 const UPDATE_SAFETY_POLL_MS = 5_000;
 const UPDATE_SAFETY_START_GRACE_MS = 30_000;
+const UPDATE_INSTALL_START_GRACE_MS = 5 * 60_000;
 
-function scheduleUpdateSafetyRefresh(state: ConfigState, startGraceDeadline: number): void {
+type UpdateSafetyOperation = "prepare" | "install";
+
+function scheduleUpdateSafetyRefresh(
+  state: ConfigState,
+  startGraceDeadline: number,
+  operation: UpdateSafetyOperation,
+): void {
   const previous = updateSafetyPollTimers.get(state);
   if (previous) {
     globalThis.clearTimeout(previous);
   }
+  const preparationStatus = state.customRuntimeUpdatePolicy?.preparationStatus;
+  const waitingForOperationStart =
+    Date.now() < startGraceDeadline &&
+    (operation === "install"
+      ? Boolean(state.pendingManagedInstallSha) && preparationStatus !== "failed"
+      : state.customRuntimeUpdatePolicy?.approvalPending !== true);
   const shouldPoll =
     state.customRuntimeUpdatePolicy?.preparationRunning === true ||
-    state.customRuntimeUpdatePolicy?.preparationStatus === "preparing" ||
-    state.customRuntimeUpdatePolicy?.preparationStatus === "installing" ||
-    (state.customRuntimeUpdatePolicy?.approvalPending !== true && Date.now() < startGraceDeadline);
+    preparationStatus === "preparing" ||
+    preparationStatus === "installing" ||
+    waitingForOperationStart;
   if (!shouldPoll || !state.client || !state.connected) {
     updateSafetyPollTimers.delete(state);
     return;
   }
   const timer = globalThis.setTimeout(() => {
     updateSafetyPollTimers.delete(state);
-    void refreshUpdateSafety(state, startGraceDeadline);
+    void refreshUpdateSafety(state, startGraceDeadline, operation);
   }, UPDATE_SAFETY_POLL_MS);
   updateSafetyPollTimers.set(state, timer);
 }
 
-async function refreshUpdateSafety(state: ConfigState, startGraceDeadline: number): Promise<void> {
+async function refreshUpdateSafety(
+  state: ConfigState,
+  startGraceDeadline: number,
+  operation: UpdateSafetyOperation,
+): Promise<void> {
   const client = state.client;
   if (!client || !state.connected) {
     return;
@@ -90,11 +109,43 @@ async function refreshUpdateSafety(state: ConfigState, startGraceDeadline: numbe
     }
     state.customRuntimeUpdatePolicy = response.updateSafety ?? null;
     if (state.customRuntimeUpdatePolicy?.preparationStatus === "failed") {
+      state.pendingManagedInstallSha = null;
+      state.pendingManagedInstallDeadline = null;
       state.updateStatusBanner = {
         tone: "danger",
         text: `Verified update preparation failed: ${state.customRuntimeUpdatePolicy.preparationReason ?? "unknown failure"}. The live runtime was not changed.`,
       };
     } else if (
+      operation === "install" &&
+      state.pendingManagedInstallSha &&
+      state.customRuntimeUpdatePolicy?.managedRuntime === true &&
+      state.customRuntimeUpdatePolicy.standardUpdateBlocked &&
+      state.customRuntimeUpdatePolicy.sourceDurable &&
+      state.customRuntimeUpdatePolicy.runtimeGuardHealthy &&
+      state.customRuntimeUpdatePolicy.backupConfigured &&
+      state.customRuntimeUpdatePolicy?.sourceSha === state.pendingManagedInstallSha &&
+      state.customRuntimeUpdatePolicy.preparationStatus === "idle" &&
+      !state.customRuntimeUpdatePolicy.approvalPending
+    ) {
+      state.pendingManagedInstallSha = null;
+      state.pendingManagedInstallDeadline = null;
+      state.updateStatusBanner = {
+        tone: "info",
+        text: "Verified update installed. Runtime identity and browser health checks are complete.",
+      };
+    } else if (
+      operation === "install" &&
+      state.customRuntimeUpdatePolicy?.preparationStatus !== "installing" &&
+      Date.now() >= startGraceDeadline
+    ) {
+      state.pendingManagedInstallSha = null;
+      state.pendingManagedInstallDeadline = null;
+      state.updateStatusBanner = {
+        tone: "warn",
+        text: "Verified installation did not start. The prepared update remains unchanged; retry once the reported blocker is resolved.",
+      };
+    } else if (
+      operation !== "install" &&
       state.customRuntimeUpdatePolicy?.preparationStatus === "ready" &&
       state.customRuntimeUpdatePolicy.pendingCandidateSha
     ) {
@@ -104,9 +155,41 @@ async function refreshUpdateSafety(state: ConfigState, startGraceDeadline: numbe
       };
     }
   } catch {
+    const installStartUnverified =
+      operation === "install" &&
+      Date.now() >= startGraceDeadline &&
+      state.customRuntimeUpdatePolicy?.preparationStatus !== "installing";
+    if (installStartUnverified) {
+      state.pendingManagedInstallSha = null;
+      state.pendingManagedInstallDeadline = null;
+      state.updateStatusBanner = {
+        tone: "warn",
+        text: "Verified installation status could not be confirmed. The prepared update remains unchanged; retry after the Gateway is reachable.",
+      };
+      return;
+    }
     // A transient status read must not hide a preparation that is still starting.
   }
-  scheduleUpdateSafetyRefresh(state, startGraceDeadline);
+  scheduleUpdateSafetyRefresh(state, startGraceDeadline, operation);
+}
+
+export function resumeManagedInstallVerification(state: ConfigState): void {
+  const deadline = state.pendingManagedInstallDeadline ?? 0;
+  if (!state.pendingManagedInstallSha || !state.client || !state.connected) {
+    return;
+  }
+  if (!Number.isFinite(deadline) || deadline <= 0) {
+    state.pendingManagedInstallSha = null;
+    state.pendingManagedInstallDeadline = null;
+    state.updateStatusBanner = {
+      tone: "warn",
+      text: "Verified installation status could not be resumed. Retry the prepared update after checking update safety.",
+    };
+    return;
+  }
+  // An expired start window still requires one final status read. That read
+  // resolves exact-candidate success or clears the operation as unverified.
+  void refreshUpdateSafety(state, deadline, "install");
 }
 
 export type LoadConfigOptions = {
@@ -345,8 +428,39 @@ export async function applyConfig(state: ConfigState): Promise<boolean> {
   });
 }
 
-export async function runUpdate(state: ConfigState) {
+export async function runUpdate(state: ConfigState, approvalSha?: string) {
   if (!state.client || !state.connected) {
+    return;
+  }
+  if (state.customRuntimeUpdatePolicy?.preparationStatus === "installing") {
+    return;
+  }
+  if (
+    state.customRuntimeUpdatePolicy?.standardUpdateBlocked &&
+    !state.customRuntimeUpdatePolicy.managedRuntime
+  ) {
+    state.updateStatusBanner = {
+      tone: "warn",
+      text: "Verified update safety is unavailable. The stock updater is blocked so PCC and other customizations cannot be replaced.",
+    };
+    return;
+  }
+  const pendingCandidateSha = state.customRuntimeUpdatePolicy?.pendingCandidateSha ?? null;
+  const managedApprovalPending =
+    state.customRuntimeUpdatePolicy?.managedRuntime &&
+    state.customRuntimeUpdatePolicy.approvalPending;
+  const exactApprovalMatches =
+    typeof approvalSha === "string" &&
+    /^[0-9a-f]{40}$/u.test(approvalSha) &&
+    approvalSha === pendingCandidateSha;
+  if (
+    (managedApprovalPending && !exactApprovalMatches) ||
+    (!managedApprovalPending && approvalSha)
+  ) {
+    state.updateStatusBanner = {
+      tone: "warn",
+      text: "Verified installation requires the exact prepared candidate shown by update safety.",
+    };
     return;
   }
   state.updateRunning = true;
@@ -360,9 +474,7 @@ export async function runUpdate(state: ConfigState) {
       handoff?: { status?: string };
     }>("update.run", {
       sessionKey: state.applySessionKey,
-      ...(state.customRuntimeUpdatePolicy?.pendingCandidateSha
-        ? { approvalSha: state.customRuntimeUpdatePolicy.pendingCandidateSha }
-        : {}),
+      ...(approvalSha ? { approvalSha } : {}),
     });
     const status = res.result?.status ?? (res.ok === true ? "ok" : "error");
     const handoffStarted =
@@ -371,6 +483,8 @@ export async function runUpdate(state: ConfigState) {
       res.result?.reason === UPDATE_HANDOFF_STARTED_REASON &&
       res.handoff?.status === "started";
     if (handoffStarted) {
+      state.pendingManagedInstallSha = null;
+      state.pendingManagedInstallDeadline = null;
       state.pendingUpdateExpectedVersion = res.result?.after?.version ?? null;
       state.pendingUpdateHandoff = true;
       return;
@@ -380,13 +494,15 @@ export async function runUpdate(state: ConfigState) {
       status === "skipped" &&
       res.result?.reason === "custom-runtime-update-preparation-started"
     ) {
+      state.pendingManagedInstallSha = null;
+      state.pendingManagedInstallDeadline = null;
       state.pendingUpdateExpectedVersion = null;
       state.pendingUpdateHandoff = false;
       state.updateStatusBanner = {
         tone: "info",
         text: "Verified update preparation started. The live runtime will remain unchanged.",
       };
-      void refreshUpdateSafety(state, Date.now() + UPDATE_SAFETY_START_GRACE_MS);
+      void refreshUpdateSafety(state, Date.now() + UPDATE_SAFETY_START_GRACE_MS, "prepare");
       return;
     }
     if (
@@ -394,14 +510,28 @@ export async function runUpdate(state: ConfigState) {
       status === "skipped" &&
       res.result?.reason === "custom-runtime-update-approval-started"
     ) {
+      if (!approvalSha) {
+        state.updateStatusBanner = {
+          tone: "warn",
+          text: "Verified installation could not be bound to an exact prepared candidate.",
+        };
+        return;
+      }
       state.pendingUpdateExpectedVersion = null;
-      state.pendingUpdateHandoff = true;
+      // Managed activation is verified by update-safety receipts, not the stock update sentinel.
+      // Arming generic reconnect verification would misreport a successful managed restart.
+      state.pendingUpdateHandoff = false;
+      state.pendingManagedInstallSha = approvalSha;
+      state.pendingManagedInstallDeadline = Date.now() + UPDATE_INSTALL_START_GRACE_MS;
       state.updateStatusBanner = {
         tone: "info",
         text: "Verified installation started. The Dashboard will reconnect after restart.",
       };
+      void refreshUpdateSafety(state, state.pendingManagedInstallDeadline, "install");
       return;
     }
+    state.pendingManagedInstallSha = null;
+    state.pendingManagedInstallDeadline = null;
     if (status === "ok" && res.ok === true) {
       state.pendingUpdateExpectedVersion = res.result?.after?.version ?? null;
       state.pendingUpdateHandoff = false;
@@ -417,6 +547,8 @@ export async function runUpdate(state: ConfigState) {
     state.lastError = String(err);
     state.pendingUpdateExpectedVersion = null;
     state.pendingUpdateHandoff = false;
+    state.pendingManagedInstallSha = null;
+    state.pendingManagedInstallDeadline = null;
   } finally {
     state.updateRunning = false;
   }

@@ -12,6 +12,10 @@ function git(args: string[], cwd?: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
+function sha256(filePath: string): string {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -19,7 +23,7 @@ afterEach(() => {
 });
 
 describe("PCC update safety", () => {
-  it("reports a protected durable runtime and pending approval", () => {
+  it("reports a protected durable runtime and pending approval", async () => {
     const homedir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-update-safety-"));
     temporaryDirectories.push(homedir);
     const runtimeHome = path.join(homedir, ".openclaw-custom-runtime");
@@ -34,7 +38,43 @@ describe("PCC update safety", () => {
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh"), "");
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs"), "");
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-update-github-proof.mjs"), "");
-    fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-guard.sh"), "");
+    const guardExecutablePath = path.join(runtimeHome, "bin", "custom-runtime-guard.sh");
+    fs.writeFileSync(guardExecutablePath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    const launcherPath = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
+    const gatewayPlistPath = path.join(
+      homedir,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.gateway.plist",
+    );
+    const configPath = path.join(homedir, ".openclaw", "openclaw.director.json");
+    const gatewayEnvWrapperPath = path.join(
+      homedir,
+      ".openclaw-director-state",
+      "service-env",
+      "ai.openclaw.gateway-env-wrapper.sh",
+    );
+    const gatewayEnvFilePath = path.join(
+      homedir,
+      ".openclaw-director-state",
+      "service-env",
+      "ai.openclaw.gateway.env",
+    );
+    const guardPlistPath = path.join(
+      homedir,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.custom-runtime.guard.plist",
+    );
+    fs.writeFileSync(launcherPath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    fs.writeFileSync(gatewayPlistPath, "fixture LaunchAgent\n");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.mkdirSync(path.dirname(gatewayEnvWrapperPath), { recursive: true });
+    fs.writeFileSync(gatewayEnvWrapperPath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    fs.writeFileSync(gatewayEnvFilePath, "export OPENCLAW_STATE_DIR=/fixture\n", {
+      mode: 0o600,
+    });
+    fs.writeFileSync(configPath, "{}\n");
     fs.writeFileSync(
       path.join(runtimeHome, "update-safety.json"),
       `${JSON.stringify({
@@ -52,8 +92,13 @@ describe("PCC update safety", () => {
       "",
     );
     fs.writeFileSync(
-      path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist"),
-      "",
+      guardPlistPath,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>Label</key><string>ai.openclaw.custom-runtime.guard</string>
+<key>ProgramArguments</key><array>
+<string>${gatewayEnvWrapperPath}</string><string>${gatewayEnvFilePath}</string><string>${guardExecutablePath}</string>
+</array></dict></plist>\n`,
     );
     const sourceRoot = path.join(homedir, "source");
     fs.mkdirSync(sourceRoot);
@@ -137,6 +182,50 @@ describe("PCC update safety", () => {
         },
       })}\n`,
     );
+    const provenancePath = path.join(runtimeRoot, ".openclaw-runtime-provenance.json");
+    const dashboardManifestPath = path.join(
+      runtimeRoot,
+      "dist",
+      "control-ui",
+      "dashboard-surfaces.json",
+    );
+    fs.mkdirSync(path.dirname(dashboardManifestPath), { recursive: true });
+    fs.writeFileSync(provenancePath, `${JSON.stringify({ recordPath, migrationPath: "" })}\n`);
+    fs.writeFileSync(dashboardManifestPath, '{"buildId":"fixture"}\n');
+    fs.writeFileSync(
+      path.join(runtimeHome, "receipts", "guard-verification-current.json"),
+      `${JSON.stringify({
+        schema: "openclaw.custom-runtime-guard-verification.v1",
+        result: "passed",
+        verifiedAt: Math.floor(Date.now() / 1000),
+        runtimeRoot,
+        sourceSha,
+        pointerSha256: sha256(pointerPath),
+        launcherSha256: sha256(launcherPath),
+        plistSha256: sha256(gatewayPlistPath),
+        guardPlistPath: fs.realpathSync(guardPlistPath),
+        guardPlistSha256: sha256(guardPlistPath),
+        guardExecutablePath: fs.realpathSync(guardExecutablePath),
+        guardExecutableSha256: sha256(guardExecutablePath),
+        guardLabel: "ai.openclaw.custom-runtime.guard",
+        gatewayEnvWrapperPath: fs.realpathSync(gatewayEnvWrapperPath),
+        gatewayEnvWrapperSha256: sha256(gatewayEnvWrapperPath),
+        gatewayEnvFilePath: fs.realpathSync(gatewayEnvFilePath),
+        gatewayEnvFileSha256: sha256(gatewayEnvFilePath),
+        guardProgramArguments: [gatewayEnvWrapperPath, gatewayEnvFilePath, guardExecutablePath].map(
+          (filePath) => fs.realpathSync(filePath),
+        ),
+        provenanceSha256: sha256(provenancePath),
+        provenanceRecordSha256: sha256(recordPath),
+        provenanceMigrationSha256: "",
+        dashboardManifestSha256: sha256(dashboardManifestPath),
+        gatewayConfigSha256: crypto
+          .createHash("sha256")
+          .update(`${JSON.stringify(null)}\n${JSON.stringify({})}\n`)
+          .digest("hex"),
+      })}\n`,
+      { mode: 0o600 },
+    );
     fs.writeFileSync(
       path.join(runtimeHome, "pending-update.json"),
       `${JSON.stringify({ result: "ready_for_approval", sourceSha: "c".repeat(40) })}\n`,
@@ -151,7 +240,7 @@ describe("PCC update safety", () => {
     );
 
     expect(
-      readPccUpdateSafety({
+      await readPccUpdateSafety({
         homedir,
         runtimeHome,
         pointerPath,
@@ -185,8 +274,59 @@ describe("PCC update safety", () => {
       issues: [],
     });
 
+    fs.writeFileSync(
+      path.join(runtimeHome, "pending-update.json"),
+      `${JSON.stringify({
+        result: "ready_for_approval",
+        sourceSha: "c".repeat(40),
+        verifiedBackup: { schema: "openclaw.custom-runtime-update-backup.v1" },
+      })}\n`,
+    );
     expect(
-      readPccUpdateSafety({
+      await readPccUpdateSafety({
+        homedir,
+        runtimeHome,
+        pointerPath,
+        schedulerLoaded: true,
+        guardLoaded: true,
+        argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
+        env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot },
+      }),
+    ).toMatchObject({
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationStatus: "idle",
+      preparationReason: "legacy-backup-repreparation-required",
+    });
+
+    fs.rmSync(path.join(runtimeHome, "pending-update.json"));
+    fs.writeFileSync(
+      path.join(runtimeHome, "receipts", "update-20260716T000000Z.json"),
+      '{"at":"20260716T000000Z","result":"failed","stage":"candidate-proof"}\n',
+    );
+    expect(
+      await readPccUpdateSafety({
+        homedir,
+        runtimeHome,
+        pointerPath,
+        schedulerLoaded: true,
+        guardLoaded: true,
+        argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
+        env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot },
+      }),
+    ).toMatchObject({
+      status: "attention",
+      preparationStatus: "failed",
+      issues: ["Verified update preparation failed: candidate-proof."],
+    });
+
+    fs.writeFileSync(
+      path.join(runtimeHome, "pending-update.json"),
+      `${JSON.stringify({ result: "ready_for_approval", sourceSha: "c".repeat(40) })}\n`,
+    );
+
+    expect(
+      await readPccUpdateSafety({
         homedir,
         runtimeHome,
         pointerPath,
@@ -206,7 +346,7 @@ describe("PCC update safety", () => {
     });
 
     expect(
-      readPccUpdateSafety({
+      await readPccUpdateSafety({
         homedir,
         runtimeHome,
         pointerPath,
@@ -225,9 +365,36 @@ describe("PCC update safety", () => {
       issues: ["The verified custom-runtime recovery guard is installed but not scheduled."],
     });
 
+    const realGuardPlistPath = `${guardPlistPath}.real`;
+    fs.renameSync(guardPlistPath, realGuardPlistPath);
+    fs.symlinkSync(realGuardPlistPath, guardPlistPath);
+    expect(
+      await readPccUpdateSafety({
+        homedir,
+        runtimeHome,
+        pointerPath,
+        schedulerLoaded: true,
+        guardLoaded: true,
+        argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
+        env: {
+          OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot,
+          OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT: externalBackupRoot,
+        },
+      }),
+    ).toMatchObject({
+      status: "attention",
+      runtimeGuardConfigured: false,
+      issues: [
+        "The active runtime guard has no current identity and route verification.",
+        "The verified custom-runtime recovery guard is not fully installed.",
+      ],
+    });
+    fs.unlinkSync(guardPlistPath);
+    fs.renameSync(realGuardPlistPath, guardPlistPath);
+
     fs.rmSync(path.join(runtimeHome, "bin", "custom-runtime-update-github-proof.mjs"));
     expect(
-      readPccUpdateSafety({
+      await readPccUpdateSafety({
         homedir,
         runtimeHome,
         pointerPath,

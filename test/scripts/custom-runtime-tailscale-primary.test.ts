@@ -140,14 +140,15 @@ function parsePlist(filePath: string): unknown {
   return JSON.parse(result.stdout) as unknown;
 }
 
-function writePlist(filePath: string, programArguments: string[]): void {
+function writePlist(filePath: string, programArguments: string[], label = "test.gateway"): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const result = spawnSync(
     "python3",
     [
       "-c",
-      "import plistlib, sys; plistlib.dump({'Label': 'test.gateway', 'ProgramArguments': sys.argv[2:]}, open(sys.argv[1], 'wb'))",
+      "import plistlib, sys; plistlib.dump({'Label': sys.argv[2], 'ProgramArguments': sys.argv[3:]}, open(sys.argv[1], 'wb'))",
       filePath,
+      label,
       ...programArguments,
     ],
     { encoding: "utf8" },
@@ -264,13 +265,18 @@ describe("custom runtime primary Tailscale continuity guard", () => {
   it("does not let a healthy Gateway mask a failed configured primary route", () => {
     const fixture = createFixture();
     const launcher = path.join(fixture.runtimeHome, "bin", "custom-runtime-launcher.sh");
+    const guardExecutable = path.join(fixture.runtimeHome, "bin", "custom-runtime-guard.sh");
     const primaryGuard = path.join(
       fixture.runtimeHome,
       "bin",
       "custom-runtime-tailscale-primary.sh",
     );
     const fakeBin = path.join(fixture.root, "guard-bin");
+    const secretProvider = path.join(fakeBin, "secret-provider");
     const gatewayPlist = path.join(fixture.root, "gateway.plist");
+    const guardPlist = path.join(fixture.root, "guard.plist");
+    const gatewayEnvWrapper = path.join(fixture.root, "gateway-env-wrapper.sh");
+    const gatewayEnvFile = path.join(fixture.root, "gateway.env");
     const runtimeRoot = path.join(fixture.root, "immutable", "openclaw-release");
     const dashboardManifest = path.join(
       runtimeRoot,
@@ -278,9 +284,38 @@ describe("custom runtime primary Tailscale continuity guard", () => {
       "control-ui",
       "dashboard-surfaces.json",
     );
+    const effectiveConfigModule = path.join(runtimeRoot, "dist", "config", "config.js");
+    const writeEffectiveConfig = (allowedOrigins: string[]) => {
+      writeFile(
+        effectiveConfigModule,
+        [
+          `const allowedOrigins = ${JSON.stringify(allowedOrigins)};`,
+          "export async function readConfigFileSnapshot() {",
+          "  return {",
+          "    valid: true,",
+          "    config: {",
+          "      gateway: {",
+          '        auth: { mode: "token", token: "test-guard-token" },',
+          '        controlUi: { allowedOrigins, basePath: "openclaw/" },',
+          "      },",
+          "    },",
+          "  };",
+          "}",
+          "",
+        ].join("\n"),
+      );
+    };
     writeFile(launcher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n', 0o755);
+    writeFile(guardExecutable, "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(gatewayEnvWrapper, '#!/bin/sh\nexec "$@"\n', 0o755);
+    writeFile(gatewayEnvFile, "export TEST_ONLY=1\n", 0o600);
     writeFile(primaryGuard, "#!/bin/sh\nexit 1\n", 0o755);
     writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(
+      secretProvider,
+      '#!/bin/sh\ncat >/dev/null\nprintf \'%s\\n\' \'{"values":{"discord/bot-token":"fixture-token"}}\'\n',
+      0o755,
+    );
     const lsofProbe = path.join(fakeBin, "lsof");
     const psProbe = path.join(fakeBin, "ps");
     writeFile(lsofProbe, "#!/bin/sh\nprintf '%s\\n' 4242\n", 0o755);
@@ -290,6 +325,8 @@ describe("custom runtime primary Tailscale continuity guard", () => {
       0o755,
     );
     writeFile(dashboardManifest, '{"buildId":"test-build","surfaces":[]}\n');
+    writeFile(path.join(runtimeRoot, "package.json"), '{"type":"module"}\n');
+    writeEffectiveConfig([]);
     writeFile(
       path.join(fakeBin, "curl"),
       [
@@ -320,13 +357,23 @@ describe("custom runtime primary Tailscale continuity guard", () => {
       `${JSON.stringify({ runtimeRoot })}\n`,
     );
     writePlist(gatewayPlist, [launcher, "gateway"]);
+    writePlist(
+      guardPlist,
+      [gatewayEnvWrapper, gatewayEnvFile, guardExecutable],
+      "ai.openclaw.custom-runtime.guard",
+    );
     const env = {
       ...process.env,
       HOME: fixture.home,
       OPENCLAW_CUSTOM_RUNTIME_HOME: fixture.runtimeHome,
       OPENCLAW_GATEWAY_PLIST: gatewayPlist,
+      OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST: guardPlist,
+      OPENCLAW_GATEWAY_ENV_WRAPPER: gatewayEnvWrapper,
+      OPENCLAW_GATEWAY_ENV_FILE: gatewayEnvFile,
       OPENCLAW_LSOF_BIN: lsofProbe,
+      OPENCLAW_NODE_BIN: process.execPath,
       OPENCLAW_PS_BIN: psProbe,
+      OPENCLAW_SECRET_PROVIDER: secretProvider,
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
     };
 
@@ -351,16 +398,13 @@ describe("custom runtime primary Tailscale continuity guard", () => {
 
     writeFile(
       path.join(fixture.home, ".openclaw", "openclaw.director.json"),
-      `${JSON.stringify({
-        gateway: {
-          auth: { mode: "token", token: "test-guard-token" },
-          controlUi: {
-            allowedOrigins: ["https://primary.example.ts.net"],
-            basePath: "openclaw/",
-          },
-        },
-      })}\n`,
+      '{\n  // The runtime loader owns JSON5 and include resolution.\n  $include: "./gateway.inc.json5",\n}\n',
     );
+    writeFile(
+      path.join(fixture.home, ".openclaw", "gateway.inc.json5"),
+      '{ gateway: { controlUi: { allowedOrigins: ["https://primary.example.ts.net",], }, }, }\n',
+    );
+    writeEffectiveConfig(["https://primary.example.ts.net"]);
     const healthy = spawnSync("sh", [runtimeGuardScript], {
       cwd: process.cwd(),
       encoding: "utf8",

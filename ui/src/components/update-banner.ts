@@ -86,15 +86,25 @@ class UpdateBanner extends LitElement {
       return nothing;
     }
     const updateAvailable = props.updateAvailable;
+    const safetyUnavailable =
+      props.updateSafety === null ||
+      (props.updateSafety.managedRuntime &&
+        props.updateSafety.preparationReason === "invalid-active-runtime-pointer");
     const managed = props.updateSafety?.managedRuntime === true;
     const preparationBlocked =
-      managed && (!props.updateSafety?.sourceDurable || !props.updateSafety?.backupConfigured);
+      safetyUnavailable ||
+      (managed &&
+        (!props.updateSafety?.sourceDurable ||
+          !props.updateSafety?.runtimeGuardHealthy ||
+          !props.updateSafety?.backupConfigured));
     const approvalPending = managed && props.updateSafety?.approvalPending === true;
     const pendingCandidateSha = approvalPending ? props.updateSafety?.pendingCandidateSha : null;
     const installReady = Boolean(
       pendingCandidateSha && /^[0-9a-f]{40}$/u.test(pendingCandidateSha),
     );
     const preparationRunning = managed && props.updateSafety?.preparationRunning === true;
+    const installationRunning = managed && props.updateSafety?.preparationStatus === "installing";
+    const updateOperationRunning = preparationRunning || installationRunning;
     const preparationFailed = managed && props.updateSafety?.preparationStatus === "failed";
     return html`
       ${props.statusBanner
@@ -114,19 +124,23 @@ class UpdateBanner extends LitElement {
               !props.connected ||
               preparationBlocked ||
               (approvalPending && !installReady) ||
-              preparationRunning}
+              updateOperationRunning}
               @click=${() =>
                 props.onUpdate(installReady ? (pendingCandidateSha ?? undefined) : undefined)}
             >
-              ${props.updateRunning || preparationRunning
-                ? t("chat.preparingVerifiedUpdate")
+              ${props.updateRunning || updateOperationRunning
+                ? installationRunning
+                  ? t("chat.updating")
+                  : t("chat.preparingVerifiedUpdate")
                 : installReady
                   ? t("chat.installVerifiedUpdate")
                   : approvalPending
                     ? t("chat.exactShaApprovalRequired")
-                    : managed
-                      ? t("chat.prepareVerifiedUpdate")
-                      : t("chat.updateNow")}
+                    : safetyUnavailable
+                      ? t("chat.updateProtectionIncomplete")
+                      : managed
+                        ? t("chat.prepareVerifiedUpdate")
+                        : t("chat.updateNow")}
             </button>
             ${preparationBlocked || preparationFailed
               ? html`<span class="update-banner__running"

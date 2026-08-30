@@ -809,16 +809,18 @@ PY
 install_runtime_guard() {
   mkdir -p "$(dirname "$guard_plist")" "$HOME/Library/Logs/openclaw"
   if ! python3 - "$guard_plist_source" "$guard_plist.tmp" "$guard_label" \
-    "$runtime_home/bin/custom-runtime-guard.sh" "$plist" "$HOME/Library/Logs/openclaw" <<'PY'
+    "$runtime_home/bin/custom-runtime-guard.sh" "$plist" "$HOME/Library/Logs/openclaw" \
+    "$env_wrapper" "$env_file" <<'PY'
 import os
 import plistlib
 import sys
 
-source, target, label, guard, gateway_plist, logs = sys.argv[1:]
+source, target, label, guard, gateway_plist, logs, wrapper, env_file = sys.argv[1:]
 with open(source, "rb") as f:
     data = plistlib.load(f)
 data["Label"] = label
-data["ProgramArguments"] = [guard]
+# The guard must inspect the same config, state, pointer, plist, and port as Gateway.
+data["ProgramArguments"] = [wrapper, env_file, guard]
 data["WatchPaths"] = [gateway_plist]
 data["StandardOutPath"] = os.path.join(logs, "custom-runtime-guard.log")
 data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-guard-error.log")
@@ -841,9 +843,19 @@ PY
 promotion_applied=true
 mv -f "$pointer_tmp" "$previous_pointer"
 python3 - "$env_file" "$launcher" "$release" "$enable_sig_background" "$release_version" \
-  "$plist" <<'PY'
+  "$plist" "$env_wrapper" "$guard_plist" "$guard_label" <<'PY'
 import os, shlex, stat, sys
-path, launcher, release, enable_sig_background, release_version, gateway_plist = sys.argv[1:]
+(
+    path,
+    launcher,
+    release,
+    enable_sig_background,
+    release_version,
+    gateway_plist,
+    env_wrapper,
+    guard_plist,
+    guard_label,
+) = sys.argv[1:]
 mode = stat.S_IMODE(os.stat(path).st_mode)
 with open(path, encoding="utf-8") as f:
     replaced = (
@@ -853,6 +865,10 @@ with open(path, encoding="utf-8") as f:
         "export OPENCLAW_NO_AUTO_UPDATE=",
         "export OPENCLAW_SERVICE_VERSION=",
         "export OPENCLAW_GATEWAY_PLIST=",
+        "export OPENCLAW_GATEWAY_ENV_WRAPPER=",
+        "export OPENCLAW_GATEWAY_ENV_FILE=",
+        "export OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST=",
+        "export OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL=",
     )
     if enable_sig_background == "true":
         replaced += ("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=",)
@@ -865,6 +881,10 @@ lines.append(
 lines.append("export OPENCLAW_NO_AUTO_UPDATE=1\n")
 lines.append(f"export OPENCLAW_SERVICE_VERSION={shlex.quote(release_version)}\n")
 lines.append(f"export OPENCLAW_GATEWAY_PLIST={shlex.quote(gateway_plist)}\n")
+lines.append(f"export OPENCLAW_GATEWAY_ENV_WRAPPER={shlex.quote(env_wrapper)}\n")
+lines.append(f"export OPENCLAW_GATEWAY_ENV_FILE={shlex.quote(path)}\n")
+lines.append(f"export OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST={shlex.quote(guard_plist)}\n")
+lines.append(f"export OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL={shlex.quote(guard_label)}\n")
 if enable_sig_background == "true":
     lines.append("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1\n")
 with open(path + ".tmp", "w", encoding="utf-8") as f:
@@ -936,6 +956,10 @@ if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! grep -Fqx 'export OPENCLAW_NO_AUTO_UPDATE=1' "$env_file" || \
    ! grep -Fqx "export OPENCLAW_SERVICE_VERSION=$release_version" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_GATEWAY_PLIST=$plist" "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_GATEWAY_ENV_WRAPPER=$env_wrapper" "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_GATEWAY_ENV_FILE=$env_file" "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST=$guard_plist" "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL=$guard_label" "$env_file" || \
    [ "$plist_comment" != "OpenClaw Gateway (v$release_version)" ]; then
   fail_promotion runtime_identity
 fi

@@ -21,6 +21,7 @@ export function assertCustomRuntimeUpdateCanPrepare(policy: CustomRuntimeUpdateP
     !policy.managedRuntime ||
     !policy.standardUpdateBlocked ||
     !policy.sourceDurable ||
+    !policy.runtimeGuardHealthy ||
     !policy.backupConfigured
   ) {
     throw new Error(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);
@@ -41,6 +42,7 @@ export function assertCustomRuntimeUpdateCanApprove(
     !policy.managedRuntime ||
     !policy.standardUpdateBlocked ||
     !policy.sourceDurable ||
+    !policy.runtimeGuardHealthy ||
     !policy.backupConfigured ||
     !policy.approvalPending ||
     !policy.pendingCandidateSha ||
@@ -60,12 +62,61 @@ function requireRegularFile(filePath: string): void {
   }
 }
 
-export function startCustomRuntimeUpdateBroker(params: {
+async function assertCurrentRuntimeGuard(params: {
+  policy: CustomRuntimeUpdatePolicy;
+  env?: NodeJS.ProcessEnv;
+}): Promise<void> {
+  const runtimeHome = path.dirname(path.resolve(params.policy.pointerPath));
+  const guard = path.join(runtimeHome, "bin", "custom-runtime-guard.sh");
+  requireRegularFile(guard);
+  try {
+    fs.accessSync(guard, fs.constants.X_OK);
+  } catch {
+    throw new Error(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);
+  }
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(guard, ["--verify-only"], {
+      env: resolveCustomRuntimeUpdateBrokerEnv(params),
+      stdio: "ignore",
+    });
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON));
+    }, 30_000);
+    child.once("error", () => {
+      clearTimeout(timeout);
+      reject(new Error(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON));
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON));
+      }
+    });
+  });
+}
+
+export function resolveCustomRuntimeUpdateBrokerEnv(params: {
+  policy: CustomRuntimeUpdatePolicy;
+  env?: NodeJS.ProcessEnv;
+}): NodeJS.ProcessEnv {
+  const pointerPath = path.resolve(params.policy.pointerPath);
+  return {
+    ...(params.env ?? process.env),
+    OPENCLAW_CUSTOM_RUNTIME_HOME: path.dirname(pointerPath),
+    OPENCLAW_CUSTOM_RUNTIME_POINTER: pointerPath,
+  };
+}
+
+export async function startCustomRuntimeUpdateBroker(params: {
   policy: CustomRuntimeUpdatePolicy;
   env?: NodeJS.ProcessEnv;
   homedir?: string;
-}): { action: "prepare"; pid: number; reason: string } {
+}): Promise<{ action: "prepare"; pid: number; reason: string }> {
   assertCustomRuntimeUpdateCanPrepare(params.policy);
+  await assertCurrentRuntimeGuard(params);
   const runtimeHome = path.dirname(path.resolve(params.policy.pointerPath));
   const script = path.join(runtimeHome, "bin", "custom-runtime-updater.sh");
   requireRegularFile(script);
@@ -77,7 +128,7 @@ export function startCustomRuntimeUpdateBroker(params: {
   try {
     child = spawn("/bin/sh", [script, "--prepare"], {
       detached: true,
-      env: params.env ?? process.env,
+      env: resolveCustomRuntimeUpdateBrokerEnv(params),
       stdio: ["ignore", output, error],
     });
   } finally {
@@ -95,13 +146,14 @@ export function startCustomRuntimeUpdateBroker(params: {
   };
 }
 
-export function startCustomRuntimeUpdateApproval(params: {
+export async function startCustomRuntimeUpdateApproval(params: {
   policy: CustomRuntimeUpdatePolicy;
   approvalSha: string;
   env?: NodeJS.ProcessEnv;
   homedir?: string;
-}): { action: "install"; pid: number; reason: string } {
+}): Promise<{ action: "install"; pid: number; reason: string }> {
   assertCustomRuntimeUpdateCanApprove(params.policy, params.approvalSha);
+  await assertCurrentRuntimeGuard(params);
   const runtimeHome = path.dirname(path.resolve(params.policy.pointerPath));
   const script = path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh");
   requireRegularFile(script);
@@ -126,7 +178,7 @@ export function startCustomRuntimeUpdateApproval(params: {
       ],
       {
         detached: true,
-        env: params.env ?? process.env,
+        env: resolveCustomRuntimeUpdateBrokerEnv(params),
         stdio: ["ignore", output, error],
       },
     );

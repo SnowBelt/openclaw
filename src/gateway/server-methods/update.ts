@@ -145,7 +145,7 @@ export const updateHandlers: GatewayRequestHandlers = {
     }
     respond(true, {
       sentinel,
-      updateSafety: resolveCustomRuntimeUpdatePolicy(),
+      updateSafety: await resolveCustomRuntimeUpdatePolicy(),
     });
   },
   "update.run": async ({ params, respond, client, context }) => {
@@ -186,13 +186,13 @@ export const updateHandlers: GatewayRequestHandlers = {
       ...(continuationMessage !== undefined ? { continuationMessage } : {}),
     };
     try {
-      const updateSafety = resolveCustomRuntimeUpdatePolicy();
+      const updateSafety = await resolveCustomRuntimeUpdatePolicy();
       if (updateSafety.standardUpdateBlocked) {
         try {
           const startedAt = Date.now();
-          const started = approvalSha
+          const started = await (approvalSha
             ? startCustomRuntimeUpdateApproval({ policy: updateSafety, approvalSha })
-            : startCustomRuntimeUpdateBroker({ policy: updateSafety });
+            : startCustomRuntimeUpdateBroker({ policy: updateSafety }));
           const approvalStarted = started.action === "install";
           handoff = {
             status: "started",

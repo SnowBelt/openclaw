@@ -14,6 +14,26 @@ describe("config view", () => {
     saving: false,
     applying: false,
     updating: false,
+    updateSafety: {
+      managedRuntime: false,
+      standardUpdateBlocked: false,
+      sourceDurable: false,
+      sourceDurabilityReason: "stock-runtime",
+      runtimeGuardHealthy: false,
+      runtimeGuardReason: "stock-runtime",
+      backupConfigured: false,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "idle" as const,
+      preparationReason: null,
+      sourceSha: null,
+      sourceRepo: null,
+      sourceBranch: null,
+      runtimeRoot: null,
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "stock-runtime",
+    },
     connected: true,
     schema: {
       type: "object",
@@ -75,7 +95,9 @@ describe("config view", () => {
       clearButton: buttons.find((btn) => btn.textContent?.trim() === "Clear"),
       saveButton: buttons.find((btn) => btn.textContent?.trim() === "Save"),
       applyButton: buttons.find((btn) => btn.textContent?.trim() === "Apply"),
-      updateButton: buttons.find((btn) => btn.textContent?.trim() === "Update"),
+      updateButton: buttons.find((btn) =>
+        ["Update", "Update now"].includes(btn.textContent?.trim() ?? ""),
+      ),
     };
   }
 
@@ -222,6 +244,62 @@ describe("config view", () => {
     expect(onReset).toHaveBeenCalledTimes(1);
   });
 
+  it("binds managed installation to the exact prepared candidate", () => {
+    const candidateSha = "b".repeat(40);
+    const onUpdate = vi.fn();
+    const { container } = renderConfigView({
+      updateSafety: {
+        ...baseProps().updateSafety,
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        sourceDurable: true,
+        sourceDurabilityReason: "durable",
+        runtimeGuardHealthy: true,
+        runtimeGuardReason: "healthy",
+        backupConfigured: true,
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+        preparationStatus: "ready",
+        preparationReason: "ready-for-approval",
+      },
+      onUpdate,
+    });
+
+    const button = findButtonByText(container, "Install verified update");
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(onUpdate).toHaveBeenCalledWith(candidateSha);
+  });
+
+  it("fails closed when managed update protection is unavailable", () => {
+    const { container } = renderConfigView({ updateSafety: null });
+
+    const button = findButtonByText(container, "Update protection needs attention.");
+    expect(button.disabled).toBe(true);
+  });
+
+  it("disables managed installation while an install is already active", () => {
+    const { container } = renderConfigView({
+      updateSafety: {
+        ...baseProps().updateSafety,
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        sourceDurable: true,
+        sourceDurabilityReason: "durable",
+        runtimeGuardHealthy: true,
+        runtimeGuardReason: "healthy",
+        backupConfigured: true,
+        approvalPending: true,
+        pendingCandidateSha: "c".repeat(40),
+        preparationStatus: "installing",
+        preparationReason: "installation-running",
+      },
+    });
+
+    const button = findButtonContainingText(container, "Updating");
+    expect(button.disabled).toBe(true);
+  });
+
   it("renders inline progress inside busy action buttons without locking adjacent controls", () => {
     const container = document.createElement("div");
     const renderCase = (overrides: Partial<ConfigProps>) =>
@@ -316,7 +394,7 @@ describe("config view", () => {
     const actionButtons = queryRequired(container, ".config-actions__buttons", HTMLElement);
     expect(
       [...actionButtons.querySelectorAll("button")].map((button) => button.textContent?.trim()),
-    ).toEqual(["Reload", "Clear", "Save", "Apply", "Update"]);
+    ).toEqual(["Reload", "Clear", "Save", "Apply", "Update now"]);
     expect(container.querySelector(".config-raw-field")).toBeNull();
 
     rawButton.click();
