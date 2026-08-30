@@ -6,6 +6,9 @@
   <string>ai.openclaw.custom-runtime.guard</string>
   <key>ProgramArguments</key>
   <array>
+    <string>/bin/sh</string>
+    <string>/Users/openclaw/.openclaw-director-state/service-env/ai.openclaw.gateway-env-wrapper.sh</string>
+    <string>/Users/openclaw/.openclaw-director-state/service-env/ai.openclaw.gateway.env</string>
     <string>/Users/openclaw/.openclaw-custom-runtime/bin/custom-runtime-guard.sh</string>
   </array>
   <key>RunAtLoad</key>

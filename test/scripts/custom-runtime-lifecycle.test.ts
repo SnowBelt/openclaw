@@ -979,7 +979,11 @@ describe("custom runtime lifecycle", () => {
       ].join("\n"),
       0o700,
     );
-    writeFile(envWrapper, "#!/bin/sh\n", 0o700);
+    writeFile(
+      envWrapper,
+      '#!/bin/sh\nset -eu\nenv_file="$1"\nshift\n. "$env_file"\nexec "$@"\n',
+      0o700,
+    );
     writeFile(envFile, "export TEST_ONLY=1\n", 0o600);
     writeFile(
       path.join(runtimeHome, "active-runtime.json"),
@@ -1136,28 +1140,38 @@ describe("custom runtime lifecycle", () => {
     expect(fs.readFileSync(plistPath, "utf8")).toContain(
       `${runtimeHome}/receipts/promotion-stderr-`,
     );
-    expect(
-      readPlistArray(
-        path.join(
-          home,
-          "Library",
-          "LaunchAgents",
-          "ai.openclaw.custom-runtime.update-weekly.plist",
-        ),
-        "ProgramArguments",
-      ),
-    ).toEqual([envWrapper, envFile, path.join(runtimeHome, "bin", "custom-runtime-updater.sh")]);
+    const updateProgramArguments = readPlistArray(
+      path.join(home, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist"),
+      "ProgramArguments",
+    );
+    expect(updateProgramArguments).toEqual([
+      "/bin/sh",
+      envWrapper,
+      envFile,
+      path.join(runtimeHome, "bin", "custom-runtime-updater.sh"),
+    ]);
     const guardPlistPath = path.join(
       home,
       "Library",
       "LaunchAgents",
       "ai.openclaw.custom-runtime.guard.plist",
     );
-    expect(readPlistArray(guardPlistPath, "ProgramArguments")).toEqual([
+    const guardProgramArguments = readPlistArray(guardPlistPath, "ProgramArguments");
+    expect(guardProgramArguments).toEqual([
+      "/bin/sh",
       envWrapper,
       envFile,
       path.join(runtimeHome, "bin", "custom-runtime-guard.sh"),
     ]);
+    for (const programArguments of [updateProgramArguments, guardProgramArguments]) {
+      const probe = spawnSync(
+        programArguments[0],
+        [programArguments[1], programArguments[2], "/usr/bin/printf", "wrapper-ok"],
+        { encoding: "utf8" },
+      );
+      expect(probe.status, probe.stderr).toBe(0);
+      expect(probe.stdout).toBe("wrapper-ok");
+    }
     expect(readPlistArray(guardPlistPath, "WatchPaths")).toEqual([plistPath]);
     expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(
       path.join(home, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist"),

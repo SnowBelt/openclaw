@@ -787,7 +787,7 @@ with open(source, "rb") as f:
 data["Label"] = label
 # Update preparation must see the exact same config and state owners as the
 # managed Gateway. Otherwise a green backup can bind to unrelated defaults.
-data["ProgramArguments"] = [wrapper, env_file, updater]
+data["ProgramArguments"] = ["/bin/sh", wrapper, env_file, updater]
 data["StandardOutPath"] = os.path.join(logs, "custom-runtime-update.log")
 data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-update-error.log")
 with open(target, "wb") as f:
@@ -820,7 +820,7 @@ with open(source, "rb") as f:
     data = plistlib.load(f)
 data["Label"] = label
 # The guard must inspect the same config, state, pointer, plist, and port as Gateway.
-data["ProgramArguments"] = [wrapper, env_file, guard]
+data["ProgramArguments"] = ["/bin/sh", wrapper, env_file, guard]
 data["WatchPaths"] = [gateway_plist]
 data["StandardOutPath"] = os.path.join(logs, "custom-runtime-guard.log")
 data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-guard-error.log")

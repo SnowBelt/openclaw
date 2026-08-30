@@ -6,6 +6,7 @@
   <string>ai.openclaw.custom-runtime.update-weekly</string>
   <key>ProgramArguments</key>
   <array>
+    <string>/bin/sh</string>
     <string>/Users/openclaw/.openclaw-director-state/service-env/ai.openclaw.gateway-env-wrapper.sh</string>
     <string>/Users/openclaw/.openclaw-director-state/service-env/ai.openclaw.gateway.env</string>
     <string>/Users/openclaw/.openclaw-custom-runtime/bin/custom-runtime-updater.sh</string>

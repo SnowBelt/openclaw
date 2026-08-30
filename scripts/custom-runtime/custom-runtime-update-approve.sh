@@ -350,7 +350,7 @@ runtime_guard="$runtime_home/bin/custom-runtime-guard.sh"
   exit 64
 }
 OPENCLAW_GATEWAY_PLIST="$gateway_plist" \
-  "$gateway_env_wrapper" "$gateway_env_file" "$runtime_guard" --verify-only >/dev/null || {
+  /bin/sh "$gateway_env_wrapper" "$gateway_env_file" "$runtime_guard" --verify-only >/dev/null || {
   printf '%s\n' 'active runtime guard verification failed before activation' >&2
   exit 64
 }

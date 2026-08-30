@@ -144,6 +144,14 @@ function assertSuccessfulRun(runInfo, sha, branch) {
   }
 }
 
+function assertPublishedBranch(remoteLine, sha, branch) {
+  const lines = remoteLine.trim().split("\n").filter(Boolean);
+  const fields = lines.length === 1 ? lines[0].trim().split(/\s+/u) : [];
+  if (fields.length !== 2 || fields[0] !== sha || fields[1] !== `refs/heads/${branch}`) {
+    fail("published branch does not resolve to the exact candidate SHA");
+  }
+}
+
 function waitForRun(runId, sha, branch, options = {}) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
@@ -175,9 +183,7 @@ function runProof({ source, sha, branch, receiptPath }) {
   const remoteLine = run("git", ["ls-remote", REMOTE_URL, `refs/heads/${branch}`], {
     cwd: sourceRoot,
   });
-  if (remoteLine.split(/\s+/u)[0] !== sha) {
-    fail("published branch does not resolve to the exact candidate SHA");
-  }
+  assertPublishedBranch(remoteLine, sha, branch);
   const dispatchedAtMs = Date.now();
   run("gh", ["workflow", "run", WORKFLOW, "--repo", REPOSITORY, "--ref", branch]);
   let runInfo;
@@ -259,6 +265,11 @@ function verifyProof({ receiptPath, expectedSha }) {
   ) {
     fail("GitHub proof receipt is stale or future-dated");
   }
+  assertPublishedBranch(
+    run("git", ["ls-remote", REMOTE_URL, `refs/heads/${receipt.branch}`]),
+    expectedSha,
+    receipt.branch,
+  );
   assertSuccessfulRun(readRun(receipt.runId), expectedSha, receipt.branch);
   return { result: "verified", receiptPath: resolved, sourceSha: expectedSha };
 }
@@ -291,4 +302,4 @@ if (isMainModule()) {
   }
 }
 
-export { exactRun, assertSuccessfulRun };
+export { exactRun, assertPublishedBranch, assertSuccessfulRun };
