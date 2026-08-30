@@ -50,7 +50,7 @@ function readPrivateJson(filePath, label) {
   try {
     info = fs.lstatSync(filePath);
   } catch {
-    fail(`${label} is missing`);
+    return fail(`${label} is missing`);
   }
   if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
     fail(`${label} is not a private regular file`);
@@ -65,7 +65,7 @@ function readPrivateJson(filePath, label) {
     if (error?.message?.startsWith("signature verification blocked:")) {
       throw error;
     }
-    fail(`${label} is malformed`);
+    return fail(`${label} is malformed`);
   }
 }
 

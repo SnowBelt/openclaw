@@ -375,7 +375,12 @@ export function runReadOnly(
     // lsof and pgrep exit 1 when a valid query has no matches. Treat that as
     // an empty observation; preserve non-empty stderr and every other failure
     // as a hard probe error so permission/tool failures cannot look quiescent.
-    const stderr = probeError.stderr == null ? "" : String(probeError.stderr);
+    const stderr =
+      typeof probeError.stderr === "string"
+        ? probeError.stderr
+        : Buffer.isBuffer(probeError.stderr)
+          ? probeError.stderr.toString("utf8")
+          : "";
     if (
       ["lsof", "pgrep", "ps"].includes(path.basename(command)) &&
       probeError.status === 1 &&
@@ -470,12 +475,12 @@ export function readLocalModelResourceSnapshot(): LocalModelResourceSnapshot {
   );
   const activeClients = [...clients]
     .filter((pid) => !listeners.has(pid) && pid !== selfPid)
-    .sort((a, b) => a - b);
+    .toSorted((a, b) => a - b);
   return {
     observedAt: new Date().toISOString(),
     activeOpenClawWorkerCount: workers.size,
     activeOllamaClientCount: activeClients.length,
-    activeOpenClawWorkerPids: [...workers].sort((a, b) => a - b),
+    activeOpenClawWorkerPids: [...workers].toSorted((a, b) => a - b),
     activeOllamaClientPids: activeClients,
   };
 }
@@ -613,7 +618,9 @@ function processGroupAlive(pid: number): boolean {
 async function waitForProcessGroupGone(pid: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (processGroupAlive(pid) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
   }
   return !processGroupAlive(pid);
 }
@@ -745,7 +752,6 @@ export function executeOwnedProcess(params: {
     let contentionSnapshot: LocalModelResourceSnapshot | null = null;
     let monitorError: string | null = null;
     let settled = false;
-    let timeout: NodeJS.Timeout | undefined;
     let monitor: NodeJS.Timeout | undefined;
     let monitorRunning = false;
     const complete = async (
@@ -761,9 +767,7 @@ export function executeOwnedProcess(params: {
         return;
       }
       settled = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      clearTimeout(timeout);
       if (monitor) {
         clearInterval(monitor);
       }
@@ -885,7 +889,7 @@ export function executeOwnedProcess(params: {
           });
       }, params.monitorIntervalMs ?? EXECUTION_MONITOR_INTERVAL_MS);
     }
-    timeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       timedOut = true;
       void complete(child.pid, null, "SIGTERM", child);
     }, params.timeoutMs);
