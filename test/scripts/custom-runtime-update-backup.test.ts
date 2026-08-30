@@ -9,6 +9,11 @@ import {
   validateArchiveEntries,
   verifyReceipt,
 } from "../../scripts/custom-runtime/custom-runtime-update-backup.mjs";
+import {
+  hashBuildArtifactTree,
+  hashRuntimeClosure,
+  listRuntimeClosurePaths,
+} from "../../scripts/custom-runtime/runtime-package-integrity.mjs";
 
 const roots: string[] = [];
 
@@ -18,9 +23,37 @@ function root(prefix: string): string {
   return fs.realpathSync(value);
 }
 
-function writeFile(filePath: string, contents: string): void {
+function writeFile(filePath: string, contents = `${filePath}\n`): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, contents);
+}
+
+function makeReadOnlyTree(directory: string): void {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      makeReadOnlyTree(entryPath);
+      fs.chmodSync(entryPath, 0o500);
+    } else {
+      fs.chmodSync(
+        entryPath,
+        entry.name.endsWith(".sh") || entry.name === "index.js" ? 0o500 : 0o400,
+      );
+    }
+  }
+  fs.chmodSync(directory, 0o500);
+}
+
+function makeWritableTree(directory: string): void {
+  fs.chmodSync(directory, 0o700);
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      makeWritableTree(entryPath);
+    } else {
+      fs.chmodSync(entryPath, 0o600);
+    }
+  }
 }
 
 function writeGatewayPlist(
@@ -138,8 +171,99 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
   };
 }
 
+function bootstrapFixture(): ReturnType<typeof fixture> & {
+  releasesRoot: string;
+  bootstrapEntrypoint: string;
+  bootstrapSourceSha: string;
+  candidateVerifierMarker: string;
+} {
+  const value = fixture();
+  const releasesRoot = path.join(value.homedir, ".openclaw-runtime-releases");
+  const bootstrapRoot = path.join(releasesRoot, "candidate");
+  const bootstrapEntrypoint = path.join(bootstrapRoot, "dist", "index.js");
+  const bootstrapSourceSha = "b".repeat(40);
+  const candidateVerifierMarker = path.join(value.homedir, "candidate-verifier-ran");
+  fs.mkdirSync(path.dirname(bootstrapEntrypoint), { recursive: true });
+  fs.copyFileSync(path.join(value.runtimeRoot, "dist", "index.js"), bootstrapEntrypoint);
+  writeFile(path.join(bootstrapRoot, ".openclaw-production-sha"), `${bootstrapSourceSha}\n`);
+  writeFile(path.join(bootstrapRoot, "dist", "entry.js"));
+  writeFile(path.join(bootstrapRoot, "dist", "control-ui", "index.html"));
+  writeFile(path.join(bootstrapRoot, "dist-runtime", "extensions", "research-manager", "index.js"));
+  writeFile(path.join(bootstrapRoot, "package.json"), '{"name":"openclaw","type":"module"}\n');
+  writeFile(path.join(bootstrapRoot, "config", "release-governor-policy.json"), "{}\n");
+  writeFile(path.join(bootstrapRoot, "src", "pcc", "capability-addition-registry.ts"));
+  writeFile(
+    path.join(bootstrapRoot, "config", "custom-runtime-capabilities.json"),
+    `${JSON.stringify({
+      preservation: { standardsRegistry: "src/pcc/capability-addition-registry.ts" },
+      capabilities: [
+        {
+          id: "plugin:research-manager",
+          requiredPaths: [
+            "extensions/research-manager/index.ts",
+            "extensions/research-manager/openclaw.plugin.json",
+            "extensions/research-manager/package.json",
+            "extensions/research-manager/src/tool-descriptor.ts",
+          ],
+        },
+      ],
+    })}\n`,
+  );
+  writeFile(path.join(bootstrapRoot, "extensions", "research-manager", "index.ts"));
+  writeFile(
+    path.join(bootstrapRoot, "extensions", "research-manager", "openclaw.plugin.json"),
+    "{}\n",
+  );
+  writeFile(
+    path.join(bootstrapRoot, "extensions", "research-manager", "package.json"),
+    '{"dependencies":{}}\n',
+  );
+  writeFile(
+    path.join(bootstrapRoot, "extensions", "research-manager", "src", "tool-descriptor.ts"),
+  );
+  writeFile(
+    path.join(bootstrapRoot, "scripts", "custom-runtime", "custom-runtime-seal.sh"),
+    `#!/bin/sh\ntouch ${candidateVerifierMarker}\nexit 97\n`,
+  );
+  fs.mkdirSync(path.join(value.runtimeRoot, "scripts", "custom-runtime"), { recursive: true });
+  fs.copyFileSync(
+    path.resolve("scripts/custom-runtime/runtime-package-integrity.mjs"),
+    path.join(value.runtimeRoot, "scripts", "custom-runtime", "runtime-package-integrity.mjs"),
+  );
+  makeReadOnlyTree(bootstrapRoot);
+  const runtimeClosurePaths = listRuntimeClosurePaths(bootstrapRoot);
+  const runtimeClosureHash = hashRuntimeClosure(bootstrapRoot, runtimeClosurePaths);
+  makeWritableTree(bootstrapRoot);
+  writeFile(
+    path.join(bootstrapRoot, "snapshot.json"),
+    `${JSON.stringify({
+      version: 2,
+      releaseId: "candidate",
+      root: bootstrapRoot,
+      artifactHash: hashBuildArtifactTree(bootstrapRoot),
+      runtimeClosureVersion: 1,
+      runtimeClosurePaths,
+      runtimeClosureHash,
+      source: { commit: bootstrapSourceSha },
+    })}\n`,
+  );
+  writeFile(
+    path.join(bootstrapRoot, ".openclaw-runtime-sealed"),
+    `${bootstrapSourceSha} ${runtimeClosureHash}\n`,
+  );
+  makeReadOnlyTree(bootstrapRoot);
+  return {
+    ...value,
+    releasesRoot,
+    bootstrapEntrypoint,
+    bootstrapSourceSha,
+    candidateVerifierMarker,
+  };
+}
+
 afterEach(() => {
   for (const directory of roots.splice(0)) {
+    makeWritableTree(directory);
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -266,6 +390,61 @@ describe("custom runtime update backup", () => {
         allowTestDirectory: true,
       }),
     ).not.toThrow();
+  });
+
+  it("uses a sealed candidate entrypoint for bootstrap backup while binding the receipt to the active SHA", async () => {
+    const value = bootstrapFixture();
+    const result = await createBackup({
+      ...value,
+      externalRoot: "",
+      releasesRoot: value.releasesRoot,
+      bootstrapEntrypoint: value.bootstrapEntrypoint,
+      bootstrapSourceSha: value.bootstrapSourceSha,
+    });
+
+    expect(result).toMatchObject({
+      sourceSha: value.sourceSha,
+      backupRuntime: {
+        entrypoint: value.bootstrapEntrypoint,
+        releaseRoot: path.dirname(path.dirname(value.bootstrapEntrypoint)),
+        sourceSha: value.bootstrapSourceSha,
+      },
+    });
+    expect(fs.existsSync(value.candidateVerifierMarker)).toBe(false);
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        homedir: value.homedir,
+        releasesRoot: value.releasesRoot,
+        allowTestDirectory: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("requires both bootstrap identity arguments", () => {
+    const value = fixture();
+
+    expect(() =>
+      createBackup({
+        ...value,
+        bootstrapEntrypoint: value.runtimeRoot,
+      }),
+    ).toThrow(/bootstrap runtime entrypoint and source SHA must be provided together/u);
+  });
+
+  it("rejects a bootstrap entrypoint outside the immutable releases root", () => {
+    const value = fixture();
+
+    expect(() =>
+      createBackup({
+        ...value,
+        releasesRoot: value.homedir,
+        bootstrapEntrypoint: path.join(value.runtimeRoot, "dist", "index.js"),
+        bootstrapSourceSha: value.sourceSha,
+      }),
+    ).toThrow(/bootstrap runtime is outside the immutable releases root/u);
   });
 
   it("allocates exclusive recovery points when timestamps collide", async () => {

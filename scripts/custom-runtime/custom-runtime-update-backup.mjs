@@ -286,6 +286,31 @@ function isPathWithin(childPath, parentPath) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
 }
 
+function assertReadOnlyTree(root, label) {
+  const visit = (current) => {
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink()) {
+      return;
+    }
+    if (stat.isDirectory()) {
+      if (stat.mode & 0o222) {
+        fail(`${label} contains a writable directory: ${path.relative(root, current) || "."}`);
+      }
+      for (const entry of fs.readdirSync(current)) {
+        visit(path.join(current, entry));
+      }
+      return;
+    }
+    if (!stat.isFile()) {
+      fail(`${label} contains a special filesystem entry`);
+    }
+    if (stat.mode & 0o222) {
+      fail(`${label} contains a writable file: ${path.relative(root, current)}`);
+    }
+  };
+  visit(root);
+}
+
 function loadTar(runtimeHome, runtimeRoot) {
   const modulePath = fs.realpathSync(fileURLToPath(import.meta.url));
   const installedBin = path.join(fs.realpathSync(runtimeHome), "bin");
@@ -306,6 +331,79 @@ function loadTar(runtimeHome, runtimeRoot) {
     fail("active runtime tar dependency escaped the immutable release");
   }
   return runtimeRequire("tar");
+}
+
+function resolveBootstrapRuntime({
+  entrypoint,
+  sourceSha,
+  homedir,
+  trustedRuntimeRoot,
+  releasesRoot = process.env.OPENCLAW_CUSTOM_RUNTIME_RELEASES ||
+    path.join(homedir, ".openclaw-runtime-releases"),
+}) {
+  if (!SHA_PATTERN.test(sourceSha)) {
+    fail("bootstrap runtime source SHA is invalid");
+  }
+  const configuredReleasesRoot = path.resolve(releasesRoot);
+  regularDirectory(configuredReleasesRoot, "immutable releases root");
+  const resolvedReleasesRoot = fs.realpathSync(configuredReleasesRoot);
+  if (configuredReleasesRoot !== resolvedReleasesRoot) {
+    fail("immutable releases root must not be a symlink");
+  }
+  const resolvedEntrypoint = fs.realpathSync(path.resolve(entrypoint));
+  const releaseRoot = path.dirname(path.dirname(resolvedEntrypoint));
+  if (!isPathWithin(releaseRoot, resolvedReleasesRoot)) {
+    fail("bootstrap runtime is outside the immutable releases root");
+  }
+  regularDirectory(releaseRoot, "bootstrap runtime release root");
+  if (resolvedEntrypoint !== path.join(releaseRoot, "dist", "index.js")) {
+    fail("bootstrap runtime entrypoint is outside its immutable release");
+  }
+  regularFile(resolvedEntrypoint, "bootstrap runtime entrypoint");
+  const sourceStamp = path.join(releaseRoot, ".openclaw-production-sha");
+  regularFile(sourceStamp, "bootstrap runtime source stamp");
+  if (fs.readFileSync(sourceStamp, "utf8").trim() !== sourceSha) {
+    fail("bootstrap runtime source stamp does not match the requested SHA");
+  }
+  const sealMarker = path.join(releaseRoot, ".openclaw-runtime-sealed");
+  regularFile(sealMarker, "bootstrap runtime seal marker");
+  const markerSha = fs.readFileSync(sealMarker, "utf8").trim().split(/\s+/u)[0];
+  if (markerSha !== sourceSha) {
+    fail("bootstrap runtime seal marker does not match the requested SHA");
+  }
+  assertReadOnlyTree(releaseRoot, "bootstrap runtime");
+  const resolvedTrustedRuntimeRoot = path.resolve(trustedRuntimeRoot);
+  regularDirectory(resolvedTrustedRuntimeRoot, "active runtime root");
+  if (resolvedTrustedRuntimeRoot === releaseRoot) {
+    fail("bootstrap integrity verifier must be separate from the candidate release");
+  }
+  const trustedVerifier = path.join(
+    resolvedTrustedRuntimeRoot,
+    "scripts",
+    "custom-runtime",
+    "runtime-package-integrity.mjs",
+  );
+  regularFile(trustedVerifier, "active runtime integrity verifier");
+  if (!isPathWithin(fs.realpathSync(trustedVerifier), resolvedTrustedRuntimeRoot)) {
+    fail("active runtime integrity verifier escaped the immutable release");
+  }
+  try {
+    execFileSync(
+      process.execPath,
+      [trustedVerifier, "verify", "--release", releaseRoot, "--expected-root", releaseRoot],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: homedir,
+        },
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
+  } catch {
+    fail("bootstrap runtime integrity verification failed");
+  }
+  return { entrypoint: resolvedEntrypoint, releaseRoot, sourceSha };
 }
 
 function estimateExternalCanonicalSqliteBytes(assets, sourcePaths) {
@@ -542,6 +640,8 @@ function createBackup({
   runtimeHome,
   externalRoot,
   homedir = os.homedir(),
+  releasesRoot = process.env.OPENCLAW_CUSTOM_RUNTIME_RELEASES ||
+    path.join(homedir, ".openclaw-runtime-releases"),
   configFile = process.env.OPENCLAW_CONFIG_PATH ||
     path.join(homedir, ".openclaw", "openclaw.director.json"),
   stateDir = process.env.OPENCLAW_STATE_DIR || path.join(homedir, ".openclaw-director-state"),
@@ -549,6 +649,8 @@ function createBackup({
     path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
   gatewayEnvWrapper = process.env.OPENCLAW_GATEWAY_ENV_WRAPPER ||
     path.join(stateDir, "service-env", "ai.openclaw.gateway-env-wrapper.sh"),
+  bootstrapEntrypoint,
+  bootstrapSourceSha,
   allowTestDirectory = false,
 }) {
   const pointerPath = path.join(runtimeHome, "active-runtime.json");
@@ -564,7 +666,22 @@ function createBackup({
     fail("active runtime entrypoint is outside the immutable release");
   }
   regularFile(entrypoint, "active runtime entrypoint");
-  const tar = loadTar(runtimeHome, runtimeRoot);
+  const hasBootstrapEntrypoint = bootstrapEntrypoint !== undefined;
+  if (hasBootstrapEntrypoint !== (bootstrapSourceSha !== undefined)) {
+    fail("bootstrap runtime entrypoint and source SHA must be provided together");
+  }
+  const bootstrapRuntime = hasBootstrapEntrypoint
+    ? resolveBootstrapRuntime({
+        entrypoint: bootstrapEntrypoint,
+        sourceSha: bootstrapSourceSha,
+        homedir,
+        trustedRuntimeRoot: runtimeRoot,
+        releasesRoot,
+      })
+    : null;
+  const backupEntrypoint = bootstrapRuntime?.entrypoint ?? entrypoint;
+  const backupRuntimeRoot = bootstrapRuntime?.releaseRoot ?? runtimeRoot;
+  const tar = loadTar(runtimeHome, backupRuntimeRoot);
   const resolvedConfigFile = path.resolve(configFile);
   const resolvedStateDir = path.resolve(stateDir);
   const resolvedGatewayPlist = path.resolve(gatewayPlist);
@@ -600,7 +717,7 @@ function createBackup({
   const backupId = exclusiveDirectory.name;
   const externalDirectory = exclusiveDirectory.path;
   const dryRun = parseBackupOutput(
-    execFileSync(process.execPath, [entrypoint, "backup", "create", "--dry-run", "--json"], {
+    execFileSync(process.execPath, [backupEntrypoint, "backup", "create", "--dry-run", "--json"], {
       encoding: "utf8",
       env: backupEnvironment,
       maxBuffer: 16 * 1024 * 1024,
@@ -640,7 +757,7 @@ function createBackup({
   );
   const stdout = execFileSync(
     process.execPath,
-    [entrypoint, "backup", "create", "--output", externalDirectory, "--verify", "--json"],
+    [backupEntrypoint, "backup", "create", "--output", externalDirectory, "--verify", "--json"],
     {
       encoding: "utf8",
       env: backupEnvironment,
@@ -690,6 +807,7 @@ function createBackup({
     localArchive: { path: localArchivePath, sha256: archiveSha256 },
     externalArchive: { path: externalArchivePath, sha256: archiveSha256 },
     controlPlane,
+    ...(bootstrapRuntime ? { backupRuntime: bootstrapRuntime } : {}),
   };
   writeAtomic(receiptPath, receipt);
   return { ...receipt, receiptPath, receiptSha256: sha256File(receiptPath) };
@@ -699,6 +817,9 @@ function verifyReceipt({
   receiptPath,
   expectedSha,
   runtimeHome,
+  homedir = os.homedir(),
+  releasesRoot = process.env.OPENCLAW_CUSTOM_RUNTIME_RELEASES ||
+    path.join(homedir, ".openclaw-runtime-releases"),
   externalRoot = process.env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT || "",
   allowTestDirectory = false,
   maxAgeMs = DEFAULT_MAX_AGE_MS,
@@ -716,6 +837,31 @@ function verifyReceipt({
     receipt.restoreDrill?.result !== "passed"
   ) {
     fail("backup receipt did not pass for the expected active SHA");
+  }
+  if (receipt.backupRuntime !== undefined) {
+    const activePointer = readJson(
+      path.join(runtimeHome, "active-runtime.json"),
+      "active runtime pointer",
+    );
+    const trustedRuntimeRoot = path.resolve(String(activePointer.runtimeRoot ?? ""));
+    regularDirectory(trustedRuntimeRoot, "active runtime root");
+    if (!isRecord(receipt.backupRuntime)) {
+      fail("backup runtime binding is invalid");
+    }
+    const verifiedBootstrapRuntime = resolveBootstrapRuntime({
+      entrypoint: String(receipt.backupRuntime.entrypoint ?? ""),
+      sourceSha: String(receipt.backupRuntime.sourceSha ?? ""),
+      homedir,
+      trustedRuntimeRoot,
+      releasesRoot,
+    });
+    if (
+      receipt.backupRuntime.entrypoint !== verifiedBootstrapRuntime.entrypoint ||
+      receipt.backupRuntime.releaseRoot !== verifiedBootstrapRuntime.releaseRoot ||
+      receipt.backupRuntime.sourceSha !== verifiedBootstrapRuntime.sourceSha
+    ) {
+      fail("backup runtime binding changed after verification");
+    }
   }
   const createdAt = Date.parse(String(receipt.createdAt ?? ""));
   if (
@@ -784,6 +930,12 @@ if (isMainModule()) {
               gatewayPlist: values.get("gateway-plist") || process.env.OPENCLAW_GATEWAY_PLIST,
               gatewayEnvWrapper:
                 values.get("gateway-env-wrapper") || process.env.OPENCLAW_GATEWAY_ENV_WRAPPER,
+              releasesRoot:
+                values.get("releases-root") ||
+                process.env.OPENCLAW_CUSTOM_RUNTIME_RELEASES ||
+                path.join(os.homedir(), ".openclaw-runtime-releases"),
+              bootstrapEntrypoint: values.get("bootstrap-entrypoint"),
+              bootstrapSourceSha: values.get("bootstrap-sha"),
             })
           : command === "verify"
             ? verifyReceipt({
@@ -794,6 +946,11 @@ if (isMainModule()) {
                   values.get("external-root") ||
                   process.env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT ||
                   "",
+                homedir: os.homedir(),
+                releasesRoot:
+                  values.get("releases-root") ||
+                  process.env.OPENCLAW_CUSTOM_RUNTIME_RELEASES ||
+                  path.join(os.homedir(), ".openclaw-runtime-releases"),
                 maxAgeMs: Number(values.get("max-age-ms") || DEFAULT_MAX_AGE_MS),
               })
             : fail("command must be configure, create, or verify");

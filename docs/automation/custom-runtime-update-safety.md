@@ -88,6 +88,29 @@ The broker also:
 
 Preparation and later approval both revalidate that receipt. A disconnected drive, stale receipt, changed archive, failed restore rehearsal, missing rollback identity, or missing source recovery bundle blocks installation without changing the live runtime. Recovery points are retained by default; automatic deletion is intentionally excluded so retention cleanup cannot destroy the last known-good copy.
 
+### One-time bootstrap from a sealed successor
+
+If the currently active runtime predates the backup sanitizer fix and cannot create
+its first verified backup, the sealed same-version successor may be used only as
+the backup executor. The receipt remains bound to the currently active SHA and
+the control-plane bundle captures that active pointer for rollback:
+
+```bash
+node /path/to/sealed-successor/scripts/custom-runtime/custom-runtime-update-backup.mjs create \
+  --runtime-home "$HOME/.openclaw-custom-runtime" \
+  --external-root /Volumes/<encrypted-openclaw-backup> \
+  --bootstrap-entrypoint "$HOME/.openclaw-runtime-releases/<sealed-successor>/dist/index.js" \
+  --bootstrap-sha <sealed-successor-sha>
+```
+
+The helper accepts this mode only when the entrypoint is the exact `dist/index.js`
+of a sealed release under the immutable releases root, its production stamp and
+seal marker match the supplied SHA, and the release verifier passes. It records
+the executor identity separately from `sourceSha`; it never treats a temporary,
+dirty, or unsealed checkout as durable source authority. Once the successor is
+active, omit the bootstrap arguments: normal preparation always executes backup
+from the active immutable runtime.
+
 ## Canonical production package
 
 Build and package an approved candidate from its clean exact-SHA source checkout. The package command rejects a candidate unless its `HEAD` equals the requested SHA and the currently active source SHA is an ancestor:
