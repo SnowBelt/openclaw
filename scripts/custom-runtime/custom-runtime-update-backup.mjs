@@ -297,7 +297,7 @@ function rehearseRestore(archivePath) {
   }
 }
 
-function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
+function controlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist) {
   const runtimeRoot = path.resolve(String(pointer.runtimeRoot ?? ""));
   const provenance = isRecord(pointer.sourceProvenance) ? pointer.sourceProvenance : {};
   const candidates = [
@@ -310,7 +310,7 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
     path.join(runtimeRoot, ".openclaw-runtime-provenance.json"),
     path.join(runtimeRoot, "snapshot.json"),
     path.join(runtimeRoot, "config", "custom-runtime-capabilities.json"),
-    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
+    gatewayPlist,
     typeof provenance.recordPath === "string" ? provenance.recordPath : "",
     typeof provenance.bundlePath === "string" ? provenance.bundlePath : "",
   ];
@@ -324,8 +324,8 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
   });
 }
 
-function resolveRequiredControlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
-  const required = controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir);
+function resolveRequiredControlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist) {
+  const required = controlPlaneEvidence(pointerPath, pointer, runtimeHome, gatewayPlist);
   const requiredSources = new Set(required.map((entry) => entry.sourcePath));
   for (const requiredPath of [
     pointerPath,
@@ -337,7 +337,7 @@ function resolveRequiredControlPlaneEvidence(pointerPath, pointer, runtimeHome, 
     path.join(pointer.runtimeRoot, ".openclaw-runtime-provenance.json"),
     path.join(pointer.runtimeRoot, "snapshot.json"),
     path.join(pointer.runtimeRoot, "config", "custom-runtime-capabilities.json"),
-    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
+    gatewayPlist,
   ]) {
     if (!requiredSources.has(path.resolve(requiredPath))) {
       fail(`required control-plane recovery file is unavailable: ${path.basename(requiredPath)}`);
@@ -401,6 +401,11 @@ function createBackup({
   runtimeHome,
   externalRoot,
   homedir = os.homedir(),
+  configFile = process.env.OPENCLAW_CONFIG_PATH ||
+    path.join(homedir, ".openclaw", "openclaw.director.json"),
+  stateDir = process.env.OPENCLAW_STATE_DIR || path.join(homedir, ".openclaw-director-state"),
+  gatewayPlist = process.env.OPENCLAW_GATEWAY_PLIST ||
+    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.gateway.plist"),
   allowTestDirectory = false,
 }) {
   const pointerPath = path.join(runtimeHome, "active-runtime.json");
@@ -411,6 +416,18 @@ function createBackup({
   }
   const entrypoint = path.resolve(String(pointer.entrypoint ?? ""));
   regularFile(entrypoint, "active runtime entrypoint");
+  const resolvedConfigFile = path.resolve(configFile);
+  const resolvedStateDir = path.resolve(stateDir);
+  const resolvedGatewayPlist = path.resolve(gatewayPlist);
+  regularFile(resolvedConfigFile, "managed Gateway configuration");
+  regularDirectory(resolvedStateDir, "managed Gateway state directory");
+  regularFile(resolvedGatewayPlist, "managed Gateway LaunchAgent");
+  const backupEnvironment = {
+    ...process.env,
+    OPENCLAW_CONFIG_PATH: resolvedConfigFile,
+    OPENCLAW_STATE_DIR: resolvedStateDir,
+    OPENCLAW_GATEWAY_PLIST: resolvedGatewayPlist,
+  };
   const verifiedExternalRoot = verifyExternalRoot(
     configuredExternalRoot(runtimeHome, externalRoot),
     allowTestDirectory,
@@ -423,6 +440,7 @@ function createBackup({
   const dryRun = parseBackupOutput(
     execFileSync(process.execPath, [entrypoint, "backup", "create", "--dry-run", "--json"], {
       encoding: "utf8",
+      env: backupEnvironment,
       maxBuffer: 16 * 1024 * 1024,
     }),
   );
@@ -437,7 +455,7 @@ function createBackup({
     pointerPath,
     pointer,
     runtimeHome,
-    homedir,
+    resolvedGatewayPlist,
   );
   const estimatedInputBytes = sourcePaths.reduce(
     (total, sourcePath) => total + estimatePathBytes(sourcePath),
@@ -461,6 +479,7 @@ function createBackup({
     [entrypoint, "backup", "create", "--output", externalDirectory, "--verify", "--json"],
     {
       encoding: "utf8",
+      env: backupEnvironment,
       maxBuffer: 16 * 1024 * 1024,
     },
   );
@@ -567,6 +586,9 @@ if (isMainModule()) {
                 values.get("external-root") ||
                 process.env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT ||
                 "",
+              configFile: values.get("config-path") || process.env.OPENCLAW_CONFIG_PATH,
+              stateDir: values.get("state-dir") || process.env.OPENCLAW_STATE_DIR,
+              gatewayPlist: values.get("gateway-plist") || process.env.OPENCLAW_GATEWAY_PLIST,
             })
           : command === "verify"
             ? verifyReceipt({

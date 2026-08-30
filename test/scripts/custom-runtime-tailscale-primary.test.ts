@@ -294,9 +294,21 @@ describe("custom runtime primary Tailscale continuity guard", () => {
       path.join(fakeBin, "curl"),
       [
         "#!/bin/sh",
-        'case "$*" in',
-        `  *control-ui-config.json*) printf '%s\\n' '${JSON.stringify({ runtimeIdentity: { runtimeRoot, dashboardBuildId: "test-build" } })}' ;;`,
-        `  *sw.js*) printf '%s\\n' 'const BUILD = "test-build";' ;;`,
+        'case "$*" in *test-guard-token*) exit 1 ;; esac',
+        "curl_config=",
+        "url=",
+        'while [ "$#" -gt 0 ]; do',
+        '  case "$1" in',
+        "    --config) curl_config=$2; shift 2 ;;",
+        "    http://*) url=$1; shift ;;",
+        "    *) shift ;;",
+        "  esac",
+        "done",
+        '[ -f "$curl_config" ] || exit 1',
+        `grep -F 'header = "Authorization: Bearer test-guard-token"' "$curl_config" >/dev/null || exit 1`,
+        'case "$url" in',
+        `  */openclaw/control-ui-config.json) printf '%s\\n' '${JSON.stringify({ runtimeIdentity: { runtimeRoot, dashboardBuildId: "test-build" } })}' ;;`,
+        `  */openclaw/sw.js) printf '%s\\n' 'const BUILD = "test-build";' ;;`,
         "  *) exit 1 ;;",
         "esac",
         "",
@@ -340,7 +352,13 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     writeFile(
       path.join(fixture.home, ".openclaw", "openclaw.director.json"),
       `${JSON.stringify({
-        gateway: { controlUi: { allowedOrigins: ["https://primary.example.ts.net"] } },
+        gateway: {
+          auth: { mode: "token", token: "test-guard-token" },
+          controlUi: {
+            allowedOrigins: ["https://primary.example.ts.net"],
+            basePath: "openclaw/",
+          },
+        },
       })}\n`,
     );
     const healthy = spawnSync("sh", [runtimeGuardScript], {

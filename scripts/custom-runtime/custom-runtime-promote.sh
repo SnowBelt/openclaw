@@ -775,16 +775,19 @@ fail_promotion() {
 install_update_scheduler() {
   mkdir -p "$(dirname "$update_plist")" "$HOME/Library/Logs/openclaw"
   if ! python3 - "$update_plist_source" "$update_plist.tmp" "$update_label" \
-    "$runtime_home/bin/custom-runtime-updater.sh" "$HOME/Library/Logs/openclaw" <<'PY'
+    "$env_wrapper" "$env_file" "$runtime_home/bin/custom-runtime-updater.sh" \
+    "$HOME/Library/Logs/openclaw" <<'PY'
 import os
 import plistlib
 import sys
 
-source, target, label, updater, logs = sys.argv[1:]
+source, target, label, wrapper, env_file, updater, logs = sys.argv[1:]
 with open(source, "rb") as f:
     data = plistlib.load(f)
 data["Label"] = label
-data["ProgramArguments"] = [updater]
+# Update preparation must see the exact same config and state owners as the
+# managed Gateway. Otherwise a green backup can bind to unrelated defaults.
+data["ProgramArguments"] = [wrapper, env_file, updater]
 data["StandardOutPath"] = os.path.join(logs, "custom-runtime-update.log")
 data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-update-error.log")
 with open(target, "wb") as f:
@@ -837,9 +840,10 @@ PY
 
 promotion_applied=true
 mv -f "$pointer_tmp" "$previous_pointer"
-python3 - "$env_file" "$launcher" "$release" "$enable_sig_background" "$release_version" <<'PY'
+python3 - "$env_file" "$launcher" "$release" "$enable_sig_background" "$release_version" \
+  "$plist" <<'PY'
 import os, shlex, stat, sys
-path, launcher, release, enable_sig_background, release_version = sys.argv[1:]
+path, launcher, release, enable_sig_background, release_version, gateway_plist = sys.argv[1:]
 mode = stat.S_IMODE(os.stat(path).st_mode)
 with open(path, encoding="utf-8") as f:
     replaced = (
@@ -848,6 +852,7 @@ with open(path, encoding="utf-8") as f:
         "export OPENCLAW_BUNDLED_PLUGINS_DIR=",
         "export OPENCLAW_NO_AUTO_UPDATE=",
         "export OPENCLAW_SERVICE_VERSION=",
+        "export OPENCLAW_GATEWAY_PLIST=",
     )
     if enable_sig_background == "true":
         replaced += ("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=",)
@@ -859,6 +864,7 @@ lines.append(
 )
 lines.append("export OPENCLAW_NO_AUTO_UPDATE=1\n")
 lines.append(f"export OPENCLAW_SERVICE_VERSION={shlex.quote(release_version)}\n")
+lines.append(f"export OPENCLAW_GATEWAY_PLIST={shlex.quote(gateway_plist)}\n")
 if enable_sig_background == "true":
     lines.append("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1\n")
 with open(path + ".tmp", "w", encoding="utf-8") as f:
@@ -929,6 +935,7 @@ if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! grep -Fqx "export OPENCLAW_BUNDLED_PLUGINS_DIR=$release/dist-runtime/extensions" "$env_file" || \
    ! grep -Fqx 'export OPENCLAW_NO_AUTO_UPDATE=1' "$env_file" || \
    ! grep -Fqx "export OPENCLAW_SERVICE_VERSION=$release_version" "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_GATEWAY_PLIST=$plist" "$env_file" || \
    [ "$plist_comment" != "OpenClaw Gateway (v$release_version)" ]; then
   fail_promotion runtime_identity
 fi

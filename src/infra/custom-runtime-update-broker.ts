@@ -45,6 +45,8 @@ export function assertCustomRuntimeUpdateCanApprove(
     !policy.approvalPending ||
     !policy.pendingCandidateSha ||
     policy.pendingCandidateSha !== approvalSha ||
+    policy.preparationRunning ||
+    policy.preparationStatus === "preparing" ||
     policy.preparationStatus === "installing"
   ) {
     throw new Error(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);

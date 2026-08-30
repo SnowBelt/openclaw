@@ -67,6 +67,37 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+[ ! -e "$runtime_home/update-installation.lock" ] || fail installation_running
+pending_update="$runtime_home/pending-update.json"
+pending_state=$(python3 - "$pending_update" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+path = sys.argv[1]
+try:
+    info = os.lstat(path)
+except FileNotFoundError:
+    print("absent")
+    raise SystemExit(0)
+if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+    raise SystemExit("unsafe pending update state")
+with open(path, encoding="utf-8") as f:
+    value = json.load(f)
+if (
+    value.get("schema") == "openclaw.custom-runtime-update-candidate.v1"
+    and value.get("result") == "ready_for_approval"
+    and re.fullmatch(r"[0-9a-f]{40}", str(value.get("sourceSha", "")))
+):
+    print("ready")
+    raise SystemExit(0)
+raise SystemExit("invalid pending update state")
+PY
+) || fail pending_update_state
+[ "$pending_state" != ready ] || fail approval_pending
+
 usage() {
   printf '%s\n' 'usage: custom-runtime-updater.sh [--prepare]' >&2
   exit 64

@@ -137,6 +137,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh")) &&
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh")) &&
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs")) &&
+    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-github-proof.mjs")) &&
     fs.existsSync(launchAgentPath);
   const schedulerLoaded = options.schedulerLoaded ?? isLaunchAgentLoaded(UPDATE_SCHEDULER_LABEL);
   const brokerConfigured = brokerInstalled && schedulerLoaded;

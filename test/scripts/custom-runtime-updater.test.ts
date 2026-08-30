@@ -162,6 +162,51 @@ describe("custom runtime update broker", () => {
     expect(fs.existsSync(path.join(lock, "owner.json"))).toBe(true);
   });
 
+  it("does not overwrite a candidate that is waiting for approval", () => {
+    const base = root("openclaw-update-broker-pending-");
+    const runtimeHome = path.join(base, "runtime-home");
+    const pendingPath = path.join(runtimeHome, "pending-update.json");
+    const pending = {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      sourceSha: "a".repeat(40),
+    };
+    writeJson(pendingPath, pending);
+
+    const result = spawnSync(updater, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES: path.join(base, "updates"),
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(latestUpdateReceipt(runtimeHome)).toMatchObject({
+      result: "failed",
+      stage: "approval_pending",
+    });
+    expect(JSON.parse(fs.readFileSync(pendingPath, "utf8"))).toEqual(pending);
+  });
+
+  it("does not approve while candidate preparation is active", () => {
+    const base = root("openclaw-update-broker-approval-race-");
+    const runtimeHome = path.join(base, "runtime-home");
+    fs.mkdirSync(path.join(runtimeHome, "update-preparation.lock"), { recursive: true });
+
+    const result = spawnSync(approve, ["--sha", "a".repeat(40)], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+      },
+    });
+
+    expect(result.status).toBe(75);
+    expect(result.stderr).toContain("verified update preparation is active");
+  });
+
   it("preserves and recovers an orphaned preparation lock", () => {
     const base = root("openclaw-update-broker-stale-lock-");
     const runtimeHome = path.join(base, "runtime-home");

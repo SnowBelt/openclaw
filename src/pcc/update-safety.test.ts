@@ -33,6 +33,7 @@ describe("PCC update safety", () => {
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh"), "");
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh"), "");
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs"), "");
+    fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-update-github-proof.mjs"), "");
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-guard.sh"), "");
     fs.writeFileSync(
       path.join(runtimeHome, "update-safety.json"),
@@ -222,6 +223,26 @@ describe("PCC update safety", () => {
       brokerConfigured: true,
       runtimeGuardConfigured: false,
       issues: ["The verified custom-runtime recovery guard is installed but not scheduled."],
+    });
+
+    fs.rmSync(path.join(runtimeHome, "bin", "custom-runtime-update-github-proof.mjs"));
+    expect(
+      readPccUpdateSafety({
+        homedir,
+        runtimeHome,
+        pointerPath,
+        schedulerLoaded: true,
+        guardLoaded: true,
+        argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
+        env: {
+          OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot,
+          OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT: externalBackupRoot,
+        },
+      }),
+    ).toMatchObject({
+      status: "attention",
+      brokerConfigured: false,
+      issues: ["The verified custom-runtime update broker is not fully installed."],
     });
   });
 });

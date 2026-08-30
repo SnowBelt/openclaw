@@ -25,6 +25,10 @@ case "$expected_sha" in
   *[!0-9a-f]*|'') usage ;;
 esac
 [ "${#expected_sha}" -eq 40 ] || usage
+[ ! -e "$runtime_home/update-preparation.lock" ] || {
+  printf '%s\n' 'verified update preparation is active' >&2
+  exit 75
+}
 [ -f "$receipt" ] || { printf '%s\n' 'prepared update receipt is missing' >&2; exit 64; }
 [ -f "$runtime_home/active-runtime.json" ] || { printf '%s\n' 'active runtime pointer is missing' >&2; exit 64; }
 
@@ -299,6 +303,10 @@ PY
   exit "$code"
 }
 trap finish_installation EXIT
+[ ! -e "$runtime_home/update-preparation.lock" ] || {
+  printf '%s\n' 'verified update preparation started during approval' >&2
+  exit 75
+}
 
 "$release/scripts/custom-runtime/custom-runtime-activate.sh" \
   --release "$release" --source-sha "$source_sha" --source-repo "$source_repo" \

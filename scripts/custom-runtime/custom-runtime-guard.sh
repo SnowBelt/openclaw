@@ -230,17 +230,65 @@ fi
 
 dashboard_runtime_ok() {
   [ -n "$dashboard_manifest_sha" ] || return 1
+  custom_runtime_export_gateway_auth "$config_path" || return 1
+  control_ui_base_path=$(python3 - "$config_path" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    config = json.load(f)
+control_ui = (config.get("gateway") or {}).get("controlUi") or {}
+if not isinstance(control_ui, dict):
+    raise SystemExit("gateway.controlUi must be an object")
+base_path = control_ui.get("basePath")
+if base_path is None:
+    print("")
+    raise SystemExit(0)
+if not isinstance(base_path, str):
+    raise SystemExit("gateway.controlUi.basePath must be a string")
+normalized = base_path.strip()
+if not normalized:
+    print("")
+    raise SystemExit(0)
+if not normalized.startswith("/"):
+    normalized = f"/{normalized}"
+if normalized == "/":
+    normalized = ""
+elif normalized.endswith("/"):
+    normalized = normalized[:-1]
+print(normalized)
+PY
+  ) || return 1
   bootstrap=$(mktemp "$runtime_home/.guard-control-ui-config.XXXXXX") || return 1
   service_worker=$(mktemp "$runtime_home/.guard-service-worker.XXXXXX") || {
     rm -f "$bootstrap"
     return 1
   }
-  chmod 600 "$bootstrap" "$service_worker"
-  cleanup_dashboard_probe() { rm -f "$bootstrap" "$service_worker"; }
-  if ! curl --silent --fail --max-time 3 -H 'Cache-Control: no-cache' \
-    "http://127.0.0.1:$port/control-ui-config.json" > "$bootstrap" || \
-     ! curl --silent --fail --max-time 3 -H 'Cache-Control: no-cache' \
-    "http://127.0.0.1:$port/sw.js" > "$service_worker"; then
+  curl_config=$(mktemp "$runtime_home/.guard-curl-config.XXXXXX") || {
+    rm -f "$bootstrap" "$service_worker"
+    return 1
+  }
+  chmod 600 "$bootstrap" "$service_worker" "$curl_config"
+  if ! python3 - "$curl_config" <<'PY'
+import os
+import sys
+
+secret = os.environ.get("OPENCLAW_GATEWAY_TOKEN") or os.environ.get("OPENCLAW_GATEWAY_PASSWORD")
+if not secret or "\n" in secret or "\r" in secret:
+    raise SystemExit("Gateway auth secret is unavailable")
+escaped = secret.replace("\\", "\\\\").replace('"', '\\"')
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    f.write(f'header = "Authorization: Bearer {escaped}"\n')
+PY
+  then
+    rm -f "$bootstrap" "$service_worker" "$curl_config"
+    return 1
+  fi
+  cleanup_dashboard_probe() { rm -f "$bootstrap" "$service_worker" "$curl_config"; }
+  if ! curl --config "$curl_config" --silent --fail --max-time 3 -H 'Cache-Control: no-cache' \
+    "http://127.0.0.1:$port${control_ui_base_path}/control-ui-config.json" > "$bootstrap" || \
+     ! curl --config "$curl_config" --silent --fail --max-time 3 -H 'Cache-Control: no-cache' \
+    "http://127.0.0.1:$port${control_ui_base_path}/sw.js" > "$service_worker"; then
     cleanup_dashboard_probe
     return 1
   fi
@@ -282,6 +330,7 @@ cache_valid=false
 verification_receipt="$runtime_home/receipts/guard-verification-current.json"
 if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && [ -n "$runtime_source_sha" ] && \
   [ -n "$pointer_sha" ] && [ -n "$launcher_sha" ] && [ -n "$plist_sha" ] && \
+  [ -n "$dashboard_manifest_sha" ] && \
   [ "$process_probes_available" = true ] && \
   custom_runtime_port_owner_pid "$port" "$runtime_root" >/dev/null 2>&1
 then

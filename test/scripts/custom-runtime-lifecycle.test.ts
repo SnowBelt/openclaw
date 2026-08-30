@@ -789,9 +789,9 @@ describe("custom runtime lifecycle", () => {
         `record=$(awk -F'|' -v pid="$pid" '$1 == pid { print; exit }' ${JSON.stringify(processMarker)})`,
         '[ -n "$record" ] || exit 1',
         'kill -0 "$pid" 2>/dev/null || exit 1',
-        "pointer=$(printf '%s' \"$record\" | cut -d'|' -f3-)",
+        `pointer=$(printf '%s' "$record" | cut -d'|' -f3-)`,
         `if [ "$pointer" = ${JSON.stringify(path.join(runtimeHome, "active-runtime.json"))} ]; then root=${JSON.stringify(path.join(root, "releases", "previous"))}; else root=${JSON.stringify(release)}; fi`,
-        `port=$(printf '%s' \"$record\" | cut -d'|' -f2)`,
+        `port=$(printf '%s' "$record" | cut -d'|' -f2)`,
         `printf '%s\\n' ${JSON.stringify(`${process.execPath} `)}"$root/dist/index.js gateway --port $port"`,
         "",
       ].join("\n"),
@@ -1112,6 +1112,7 @@ describe("custom runtime lifecycle", () => {
     expect(serviceEnv).toContain(
       `export OPENCLAW_BUNDLED_PLUGINS_DIR=${release}/dist-runtime/extensions`,
     );
+    expect(serviceEnv).toContain(`export OPENCLAW_GATEWAY_PLIST=${plistPath}`);
     expect(readPlistArray(plistPath, "ProgramArguments")).toEqual([
       envWrapper,
       envFile,
@@ -1133,7 +1134,7 @@ describe("custom runtime lifecycle", () => {
         ),
         "ProgramArguments",
       ),
-    ).toEqual([path.join(runtimeHome, "bin", "custom-runtime-updater.sh")]);
+    ).toEqual([envWrapper, envFile, path.join(runtimeHome, "bin", "custom-runtime-updater.sh")]);
     const guardPlistPath = path.join(
       home,
       "Library",

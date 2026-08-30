@@ -70,5 +70,14 @@ describe("custom runtime update broker", () => {
         candidateSha,
       ),
     ).toThrow(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);
+    expect(() =>
+      assertCustomRuntimeUpdateCanApprove({ ...ready, preparationRunning: true }, candidateSha),
+    ).toThrow(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);
+    expect(() =>
+      assertCustomRuntimeUpdateCanApprove(
+        { ...ready, preparationStatus: "preparing" },
+        candidateSha,
+      ),
+    ).toThrow(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);
   });
 });

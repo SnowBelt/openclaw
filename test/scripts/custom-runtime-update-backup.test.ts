@@ -36,8 +36,12 @@ function fixture(): {
   const runtimeRoot = path.join(base, "release");
   const externalRoot = path.join(base, "external");
   const payload = path.join(base, "payload");
+  const configFile = path.join(homedir, ".openclaw", "openclaw.director.json");
+  const stateDir = path.join(homedir, ".openclaw-director-state");
   const sourceSha = "a".repeat(40);
   fs.mkdirSync(externalRoot, { recursive: true });
+  fs.mkdirSync(stateDir, { recursive: true });
+  writeFile(configFile, "{}\n");
   writeFile(path.join(payload, "manifest.json"), '{"schema":"fixture"}\n');
   const entrypoint = path.join(runtimeRoot, "dist", "index.js");
   writeFile(
@@ -47,6 +51,9 @@ import fs from "node:fs";
 import path from "node:path";
 const outputIndex = process.argv.indexOf("--output") + 1;
 const output = process.argv[outputIndex];
+if (process.env.OPENCLAW_CONFIG_PATH !== ${JSON.stringify(configFile)} || process.env.OPENCLAW_STATE_DIR !== ${JSON.stringify(stateDir)}) {
+  throw new Error("managed backup environment mismatch");
+}
 if (process.argv.includes("--dry-run")) {
   process.stdout.write(JSON.stringify({ assets: [{ kind: "state", sourcePath: ${JSON.stringify(payload)} }] }) + "\\n");
   process.exit(0);
@@ -153,6 +160,23 @@ describe("custom runtime update backup", () => {
     expect(() =>
       verifyReceipt({ receiptPath: result.receiptPath, expectedSha: value.sourceSha }),
     ).toThrow(/externalArchive hash changed/u);
+  });
+
+  it("preserves a configured non-default Gateway LaunchAgent", async () => {
+    const value = fixture();
+    const defaultPlist = path.join(
+      value.homedir,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.gateway.plist",
+    );
+    const gatewayPlist = path.join(value.homedir, "custom", "gateway.plist");
+    fs.mkdirSync(path.dirname(gatewayPlist), { recursive: true });
+    fs.renameSync(defaultPlist, gatewayPlist);
+
+    const result = await createBackup({ ...value, gatewayPlist });
+
+    expect(result.controlPlane.fileCount).toBe(12);
   });
 
   it("rejects an incomplete control-plane recovery bundle", async () => {
