@@ -639,6 +639,7 @@
         "scripts/dev/control-ui-pcc-release-governor-smoke.ts",
         "src/pcc/release-governance/browser-proof-contract.ts",
         "src/pcc/release-governance/contracts.ts",
+        "src/pcc/release-governance/proof-types.ts",
         "src/pcc/release-governance/local-proof.ts",
         "test/scripts/custom-runtime-lifecycle-arbitration.test.ts",
         "test/scripts/custom-runtime-package.test.ts",
