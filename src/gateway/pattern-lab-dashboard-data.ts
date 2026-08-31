@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -328,15 +329,50 @@ function addAncestorYoutubeRootCandidates(candidates: string[], anchor: string, 
   }
 }
 
-function collectPatternLabYoutubeRootCandidates(): string[] {
+const PATTERN_LAB_WORKSPACE_LAYOUTS = ["OpenClaw", "PatternLabRuntime"] as const;
+
+type PatternLabYoutubeRootResolutionOptions = {
+  env?: NodeJS.ProcessEnv;
+  homeDirectory?: string;
+  moduleDirectory?: string;
+  currentDirectory?: string;
+};
+
+function collectPatternLabYoutubeRootCandidates(
+  options: PatternLabYoutubeRootResolutionOptions = {},
+): string[] {
   const candidates: string[] = [];
-  const configuredRoot = process.env[PATTERN_LAB_YOUTUBE_ROOT_ENV]?.trim();
+  const env = options.env ?? process.env;
+  const configuredRoot = env[PATTERN_LAB_YOUTUBE_ROOT_ENV]?.trim();
   if (configuredRoot) {
     pushUniquePath(candidates, configuredRoot);
   }
-  addAncestorYoutubeRootCandidates(candidates, MODULE_DIR);
-  addAncestorYoutubeRootCandidates(candidates, process.cwd());
+  const homeDirectory = options.homeDirectory ?? os.homedir();
+  for (const workspaceDirectory of PATTERN_LAB_WORKSPACE_LAYOUTS) {
+    pushUniquePath(candidates, path.join(homeDirectory, workspaceDirectory, "youtube-v1"));
+  }
+  addAncestorYoutubeRootCandidates(candidates, options.moduleDirectory ?? MODULE_DIR);
+  addAncestorYoutubeRootCandidates(candidates, options.currentDirectory ?? process.cwd());
   return candidates;
+}
+
+function usablePatternLabYoutubeRoot(candidate: string): string | null {
+  try {
+    const rootInfo = fs.lstatSync(candidate);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+      return null;
+    }
+    const real = fs.realpathSync(candidate);
+    fs.accessSync(real, fs.constants.R_OK);
+    const localOutput = path.join(real, "local-output");
+    const operations = path.join(localOutput, "operations");
+    if (!fs.statSync(localOutput).isDirectory() || !fs.statSync(operations).isDirectory()) {
+      return null;
+    }
+    return real;
+  } catch {
+    return null;
+  }
 }
 
 function patternLabYoutubeRootMissingMessage(): string {
@@ -367,19 +403,35 @@ export function normalizePatternLabAssetType(value: unknown): PatternLabAssetTyp
   return value;
 }
 
-export function resolvePatternLabYoutubeRoot(): string {
-  if (cachedPatternLabYoutubeRoot) {
+export function resolvePatternLabYoutubeRoot(
+  options: PatternLabYoutubeRootResolutionOptions = {},
+): string {
+  const useCache = Object.keys(options).length === 0;
+  if (useCache && cachedPatternLabYoutubeRoot) {
     return cachedPatternLabYoutubeRoot;
   }
-  const candidates = collectPatternLabYoutubeRootCandidates();
+  const env = options.env ?? process.env;
+  const configuredRoot = env[PATTERN_LAB_YOUTUBE_ROOT_ENV]?.trim();
+  if (configuredRoot) {
+    const configuredReal = usablePatternLabYoutubeRoot(configuredRoot);
+    if (configuredReal) {
+      if (useCache) {
+        cachedPatternLabYoutubeRoot = configuredReal;
+      }
+      return configuredReal;
+    }
+    throw new Error(
+      `Configured Pattern Lab youtube-v1 root is unavailable or missing its local-output/operations layout.`,
+    );
+  }
+  const candidates = collectPatternLabYoutubeRootCandidates(options);
   for (const candidate of candidates) {
-    try {
-      const real = fs.realpathSync(candidate);
-      fs.accessSync(real, fs.constants.R_OK);
-      cachedPatternLabYoutubeRoot = real;
+    const real = usablePatternLabYoutubeRoot(candidate);
+    if (real) {
+      if (useCache) {
+        cachedPatternLabYoutubeRoot = real;
+      }
       return real;
-    } catch {
-      // Try the next known source/dist layout.
     }
   }
   throw new Error(patternLabYoutubeRootMissingMessage());
@@ -1049,6 +1101,8 @@ export const patternLabDashboardDataTesting = {
   reviewStatusForAction,
   normalizeMediaPath,
   collectPatternLabYoutubeRootCandidates,
+  usablePatternLabYoutubeRoot,
+  resolvePatternLabYoutubeRoot,
   readPatternLabSystemCertification,
   patternLabYoutubeRootMissingMessage,
   resetPatternLabYoutubeRootCacheForTests,

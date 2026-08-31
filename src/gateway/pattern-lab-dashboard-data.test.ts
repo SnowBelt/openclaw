@@ -12,7 +12,7 @@ describe("Pattern Lab dashboard data helpers", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "openclaw-pattern-lab-test-"));
     const youtubeRoot = path.join(root, "youtube-v1");
     const previous = process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT;
-    mkdirSync(youtubeRoot);
+    mkdirSync(path.join(youtubeRoot, "local-output", "operations"), { recursive: true });
     process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT = youtubeRoot;
     patternLabDashboardDataTesting.resetPatternLabYoutubeRootCacheForTests();
     try {
@@ -32,6 +32,38 @@ describe("Pattern Lab dashboard data helpers", () => {
     expect(patternLabDashboardDataTesting.collectPatternLabYoutubeRootCandidates()).toContain(
       path.resolve(process.cwd(), "youtube-v1"),
     );
+  });
+
+  it("rejects lookalike roots and prefers a complete known workspace layout", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "openclaw-pattern-lab-layout-"));
+    const lookalikeRoot = path.join(root, "youtube-v1");
+    const validRoot = path.join(root, "OpenClaw", "youtube-v1");
+    mkdirSync(path.join(lookalikeRoot, "local-output", "oauth-backups"), { recursive: true });
+    mkdirSync(path.join(validRoot, "local-output", "operations"), { recursive: true });
+    try {
+      expect(patternLabDashboardDataTesting.usablePatternLabYoutubeRoot(lookalikeRoot)).toBeNull();
+      expect(patternLabDashboardDataTesting.usablePatternLabYoutubeRoot(validRoot)).toBe(
+        realpathSync(validRoot),
+      );
+      expect(
+        patternLabDashboardDataTesting.resolvePatternLabYoutubeRoot({
+          env: {},
+          homeDirectory: root,
+          moduleDirectory: path.join(root, "runtime", "dist"),
+          currentDirectory: path.join(root, "runtime"),
+        }),
+      ).toBe(realpathSync(validRoot));
+      expect(() =>
+        patternLabDashboardDataTesting.resolvePatternLabYoutubeRoot({
+          env: { OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT: lookalikeRoot },
+          homeDirectory: root,
+          moduleDirectory: path.join(root, "runtime", "dist"),
+          currentDirectory: path.join(root, "runtime"),
+        }),
+      ).toThrow(/Configured Pattern Lab youtube-v1 root is unavailable/);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 
   it("keeps missing-root errors actionable without leaking checked absolute paths", () => {
