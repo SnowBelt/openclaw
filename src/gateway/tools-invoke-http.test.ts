@@ -15,12 +15,50 @@ const pluginToolMetaState = vi.hoisted(
 
 const hookMocks = vi.hoisted(() => ({
   resolveToolLoopDetectionConfig: vi.fn(() => ({ warnAt: 3 })),
+  prepareToolParamsBeforeHook: vi.fn(
+    async (args: {
+      tool: {
+        prepareBeforeToolCallParams?: (
+          params: unknown,
+          context: { toolCallId?: string; hookContext?: unknown; signal?: AbortSignal },
+        ) => unknown;
+      };
+      rawParams: unknown;
+      toolCallId?: string;
+      hookContext?: unknown;
+      signal?: AbortSignal;
+    }) =>
+      args.tool.prepareBeforeToolCallParams
+        ? await args.tool.prepareBeforeToolCallParams(args.rawParams, {
+            ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+            ...(args.hookContext ? { hookContext: args.hookContext } : {}),
+            ...(args.signal ? { signal: args.signal } : {}),
+          })
+        : args.rawParams,
+  ),
+  finalizeToolParamsBeforeExecute: vi.fn(
+    (args: {
+      tool: {
+        finalizeBeforeToolCallParams?: (params: unknown, preparedParams: unknown) => unknown;
+      };
+      executeParams: unknown;
+      preparedParams: unknown;
+    }) =>
+      args.tool.finalizeBeforeToolCallParams
+        ? args.tool.finalizeBeforeToolCallParams(args.executeParams, args.preparedParams)
+        : args.executeParams,
+  ),
   runBeforeToolCallHook: vi.fn(
     async (args: RunBeforeToolCallHookArgs): Promise<RunBeforeToolCallHookResult> => ({
       blocked: false,
       params: args.params,
     }),
   ),
+}));
+
+const browserLifecycleMocks = vi.hoisted(() => ({
+  prepare: vi.fn((params: unknown) => params),
+  finalize: vi.fn((params: unknown) => params),
 }));
 
 let cfg: Record<string, unknown> = {};
@@ -146,6 +184,8 @@ vi.mock("../agents/openclaw-tools.js", () => {
     {
       name: "browser",
       parameters: { type: "object", properties: {} },
+      prepareBeforeToolCallParams: (params: unknown) => browserLifecycleMocks.prepare(params),
+      finalizeBeforeToolCallParams: (params: unknown) => browserLifecycleMocks.finalize(params),
       execute: async () => ({ ok: true, result: "browser" }),
     },
     {
@@ -216,6 +256,8 @@ vi.mock("../agents/agent-tools.js", () => ({
 }));
 
 vi.mock("../agents/agent-tools.before-tool-call.js", () => ({
+  finalizeToolParamsBeforeExecute: hookMocks.finalizeToolParamsBeforeExecute,
+  prepareToolParamsBeforeHook: hookMocks.prepareToolParamsBeforeHook,
   runBeforeToolCallHook: hookMocks.runBeforeToolCallHook,
 }));
 
@@ -281,6 +323,7 @@ beforeEach(() => {
   pluginToolMetaState.set("plugin_doctor", { pluginId: "test-plugin", optional: true });
   hookMocks.resolveToolLoopDetectionConfig.mockClear();
   hookMocks.resolveToolLoopDetectionConfig.mockImplementation(() => ({ warnAt: 3 }));
+  hookMocks.prepareToolParamsBeforeHook.mockClear();
   hookMocks.runBeforeToolCallHook.mockClear();
   hookMocks.runBeforeToolCallHook.mockImplementation(
     async (args: RunBeforeToolCallHookArgs): Promise<RunBeforeToolCallHookResult> => ({
@@ -288,6 +331,9 @@ beforeEach(() => {
       params: args.params,
     }),
   );
+  hookMocks.finalizeToolParamsBeforeExecute.mockClear();
+  browserLifecycleMocks.prepare.mockClear();
+  browserLifecycleMocks.finalize.mockClear();
   vi.mocked(authorizeHttpGatewayConnect).mockResolvedValue({ ok: true });
 });
 
@@ -1038,6 +1084,28 @@ describe("POST /tools/invoke", () => {
     const body = await expectOkInvokeResponse(res);
     expect(body.result).toEqual({ ok: true, result: "browser" });
     expect(lastCreateOpenClawToolsContext?.disablePluginTools).toBe(false);
+  });
+
+  it("prepares and finalizes direct Browser invokes around before-tool-call hooks", async () => {
+    setMainAllowedTools({ allow: ["browser"] });
+    browserLifecycleMocks.prepare.mockImplementationOnce((params: unknown) => ({
+      ...(params as Record<string, unknown>),
+      preparationMarker: "private",
+    }));
+
+    const res = await invokeToolAuthed({
+      tool: "browser",
+      args: { action: "status" },
+      sessionKey: "main",
+    });
+
+    const body = await expectOkInvokeResponse(res);
+    expect(body.result).toEqual({ ok: true, result: "browser" });
+    expect(browserLifecycleMocks.prepare).toHaveBeenCalledTimes(1);
+    expect(browserLifecycleMocks.finalize).toHaveBeenCalledTimes(1);
+    expect(browserLifecycleMocks.finalize.mock.calls[0]?.[0]).toMatchObject({
+      preparationMarker: "private",
+    });
   });
 });
 

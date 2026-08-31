@@ -27,6 +27,7 @@ import { AuthStorage } from "./auth-storage.js";
 import { createExtensionRuntime } from "./extensions/loader.js";
 import type { LoadExtensionsResult, ToolDefinition } from "./extensions/types.js";
 import { ModelRegistry } from "./model-registry.js";
+import { readObserverToolEventRedaction } from "./observer-tool-event-redaction.js";
 import type { ResourceLoader } from "./resource-loader.js";
 import { createAgentSession } from "./sdk.js";
 import { SessionManager } from "./session-manager.js";
@@ -676,6 +677,18 @@ describe("AgentSession observer tool diagnostics", () => {
       },
       { ...endEvent, result: { redacted: "result" } },
     ]);
+    expect(readObserverToolEventRedaction(observedEvents[0])).toEqual({
+      paramsRedacted: true,
+      resultRedacted: false,
+    });
+    expect(readObserverToolEventRedaction(observedEvents[1])).toEqual({
+      paramsRedacted: true,
+      resultRedacted: true,
+    });
+    expect(readObserverToolEventRedaction(observedEvents[2])).toEqual({
+      paramsRedacted: true,
+      resultRedacted: true,
+    });
     expect(extensionEvents).toEqual([
       {
         type: "tool_execution_start",

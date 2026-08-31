@@ -24,6 +24,10 @@ const hookMocks = vi.hoisted(() => ({
   },
   isToolWrappedWithBeforeToolCallHook: vi.fn(() => false),
   consumeAdjustedParamsForToolCall: vi.fn((_: string) => undefined as unknown),
+  prepareToolParamsBeforeHook: vi.fn(async ({ rawParams }: { rawParams: unknown }) => rawParams),
+  finalizeToolParamsBeforeExecute: vi.fn(
+    ({ executeParams }: { executeParams: unknown }) => executeParams,
+  ),
   recordAdjustedParamsForToolCall: vi.fn(),
   recordStructuredReplayTrustForToolCall: vi.fn(),
   runBeforeToolCallHook: vi.fn(async ({ params }: { params: unknown }) => ({
@@ -43,6 +47,8 @@ vi.mock("./agent-tools.before-tool-call.js", () => ({
     details: { status: "blocked", deniedReason: "plugin-before-tool-call", reason },
   }),
   consumeAdjustedParamsForToolCall: hookMocks.consumeAdjustedParamsForToolCall,
+  finalizeToolParamsBeforeExecute: hookMocks.finalizeToolParamsBeforeExecute,
+  prepareToolParamsBeforeHook: hookMocks.prepareToolParamsBeforeHook,
   recordAdjustedParamsForToolCall: hookMocks.recordAdjustedParamsForToolCall,
   recordStructuredReplayTrustForToolCall: hookMocks.recordStructuredReplayTrustForToolCall,
   isBeforeToolCallBlockedError: (error: unknown) =>

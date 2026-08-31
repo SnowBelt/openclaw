@@ -439,8 +439,11 @@ export function createCodexDynamicToolBridge(params: {
   };
   const redactToolSessionKey = (toolName: string, sessionKey: string | undefined) => {
     const redactor = toolMap.get(toolName)?.tool.redactBeforeToolCallDiagnosticParams;
-    if (!sessionKey || !redactor) {
+    if (!sessionKey) {
       return sessionKey;
+    }
+    if (!redactor) {
+      return toolName.trim().toLowerCase() === "browser" ? "REDACTED" : sessionKey;
     }
     try {
       const redacted = redactor({ sessionKey });

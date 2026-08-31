@@ -26,6 +26,7 @@ import type {
 } from "./embedded-agent-subscribe.handlers.types.js";
 import { isPromiseLike } from "./embedded-agent-subscribe.promise.js";
 import type { AgentMessage } from "./runtime/index.js";
+import { readObserverToolEventRedaction } from "./sessions/observer-tool-event-redaction.js";
 
 /** Create the serialized event dispatcher for subscribed embedded-agent sessions. */
 export function createEmbeddedAgentSessionEventHandler(ctx: EmbeddedAgentSubscribeContext) {
@@ -124,7 +125,12 @@ export function createEmbeddedAgentSessionEventHandler(ctx: EmbeddedAgentSubscri
         scheduleEvent(
           evt,
           () => {
-            return handleToolExecutionEnd(ctx, evt as never);
+            const observerRedaction = readObserverToolEventRedaction(evt);
+            return handleToolExecutionEnd(ctx, evt as never, {
+              paramsAlreadyRedacted: observerRedaction?.paramsRedacted,
+              resultAlreadyRedacted: observerRedaction?.resultRedacted,
+              failClosedIfUnredacted: true,
+            });
           },
           { detach: true },
         );

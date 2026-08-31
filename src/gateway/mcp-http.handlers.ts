@@ -3,7 +3,17 @@
 import crypto from "node:crypto";
 import { ContentBlockSchema, type ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { runBeforeToolCallHook, type HookContext } from "../agents/agent-tools.before-tool-call.js";
+import {
+  finalizeToolParamsBeforeExecute,
+  prepareToolParamsBeforeHook,
+  runBeforeToolCallHook,
+  type HookContext,
+} from "../agents/agent-tools.before-tool-call.js";
+import {
+  getCodeModeExecBeforeHookMetadata,
+  normalizeCodeModeExecBeforeHookParams,
+  reconcileCodeModeExecBeforeHookParams,
+} from "../agents/code-mode-control-tools.js";
 import {
   formatToolExecutionErrorMessage,
   resolveToolExecutionErrorKind,
@@ -28,11 +38,7 @@ function stringifyMcpContent(value: unknown): string {
   return typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
 }
 
-const MCP_LOOPBACK_CONTENT_TYPES = new Set<ContentBlock["type"]>([
-  "text",
-  "image",
-  "resource",
-]);
+const MCP_LOOPBACK_CONTENT_TYPES = new Set<ContentBlock["type"]>(["text", "image", "resource"]);
 
 // Tool implementations may return MCP content blocks, plain strings, or
 // arbitrary JSON. Preserve the valid block types shared by every protocol revision
@@ -142,9 +148,25 @@ export async function handleMcpJsonRpc(params: {
       try {
         // Gateway before-tool hooks still run for loopback MCP calls so policy
         // and audit behavior matches native tool calls from normal chat runs.
+        const preparedParams = await prepareToolParamsBeforeHook({
+          tool,
+          rawParams: toolArgs,
+          toolCallId,
+          hookContext: params.hookContext,
+          signal: params.signal,
+        });
+        const hookParams = normalizeCodeModeExecBeforeHookParams({
+          tool,
+          params: preparedParams,
+        });
+        const hookMetadata = getCodeModeExecBeforeHookMetadata({
+          tool,
+          params: preparedParams,
+        });
         const hookResult = await runBeforeToolCallHook({
           toolName,
-          params: toolArgs,
+          params: hookParams,
+          ...hookMetadata,
           toolCallId,
           ctx: params.hookContext,
           signal: params.signal,
@@ -170,7 +192,17 @@ export async function handleMcpJsonRpc(params: {
         } catch {
           // Observability callbacks must never alter the tool result returned to the MCP client.
         }
-        const result = await tool.execute(toolCallId, hookResult.params, params.signal);
+        const executeParams = finalizeToolParamsBeforeExecute({
+          tool,
+          executeParams: reconcileCodeModeExecBeforeHookParams({
+            tool,
+            originalParams: preparedParams,
+            hookParams,
+            adjustedParams: hookResult.params,
+          }),
+          preparedParams,
+        });
+        const result = await tool.execute(toolCallId, executeParams, params.signal);
         const failureKind = resolveToolResultFailureKind(result);
         reportToolCallResult(
           failureKind === "blocked"

@@ -222,7 +222,7 @@ type BeforeToolCallWrapperOptions = {
   approvalMode?: "request" | "report" | "defer";
   emitDiagnostics: boolean;
 };
-type BeforeToolCallPreparingTool = AnyAgentTool & {
+export type BeforeToolCallPreparingTool = AnyAgentTool & {
   prepareBeforeToolCallParams?: (
     params: unknown,
     ctx: { toolCallId?: string; hookContext?: HookContext; signal?: AbortSignal },
@@ -231,6 +231,34 @@ type BeforeToolCallPreparingTool = AnyAgentTool & {
   redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
   redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
 };
+
+/** Prepare one tool call before the shared before-tool-call policy chain. */
+export async function prepareToolParamsBeforeHook(params: {
+  tool: AnyAgentTool;
+  rawParams: unknown;
+  toolCallId?: string;
+  hookContext?: HookContext;
+  signal?: AbortSignal;
+}): Promise<unknown> {
+  const prepare = (params.tool as BeforeToolCallPreparingTool).prepareBeforeToolCallParams;
+  return prepare
+    ? await prepare(params.rawParams, {
+        ...(params.toolCallId ? { toolCallId: params.toolCallId } : {}),
+        ...(params.hookContext ? { hookContext: params.hookContext } : {}),
+        ...(params.signal ? { signal: params.signal } : {}),
+      })
+    : params.rawParams;
+}
+
+/** Restore private execution parameters after hooks have accepted a call. */
+export function finalizeToolParamsBeforeExecute(params: {
+  tool: AnyAgentTool;
+  executeParams: unknown;
+  preparedParams: unknown;
+}): unknown {
+  const finalize = (params.tool as BeforeToolCallPreparingTool).finalizeBeforeToolCallParams;
+  return finalize?.(params.executeParams, params.preparedParams) ?? params.executeParams;
+}
 
 export type BeforeToolCallPolicyDiagnosticState = {
   hasBeforeToolCallHook: boolean;
@@ -1823,16 +1851,15 @@ export function wrapToolWithBeforeToolCallHook(
           terminalReason: disposition,
         });
       };
-      const prepare = (tool as BeforeToolCallPreparingTool).prepareBeforeToolCallParams;
       let preparedParams: unknown;
       try {
-        preparedParams = prepare
-          ? await prepare(params, {
-              ...(toolCallId ? { toolCallId } : {}),
-              ...(ctx ? { hookContext: ctx } : {}),
-              ...(signal ? { signal } : {}),
-            })
-          : params;
+        preparedParams = await prepareToolParamsBeforeHook({
+          tool,
+          rawParams: params,
+          ...(toolCallId ? { toolCallId } : {}),
+          ...(ctx ? { hookContext: ctx } : {}),
+          ...(signal ? { signal } : {}),
+        });
       } catch (error) {
         recordPreExecutionError(error, params, "tool_preparation");
         throw tagBeforeToolCallFailure(error, signal);
@@ -1905,11 +1932,11 @@ export function wrapToolWithBeforeToolCallHook(
           hookParams,
           adjustedParams: outcome.params,
         });
-        executeParams =
-          (tool as BeforeToolCallPreparingTool).finalizeBeforeToolCallParams?.(
-            executeParams,
-            preparedParams,
-          ) ?? executeParams;
+        executeParams = finalizeToolParamsBeforeExecute({
+          tool,
+          executeParams,
+          preparedParams,
+        });
       } catch (error) {
         recordPreExecutionError(error, outcome.params ?? hookParams, "tool_preparation");
         throw tagBeforeToolCallFailure(error, signal);

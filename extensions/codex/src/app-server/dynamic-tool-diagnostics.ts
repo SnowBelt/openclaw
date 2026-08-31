@@ -14,7 +14,10 @@ type DynamicToolDiagnosticContext = {
 };
 
 function resolveDiagnosticSessionKey(params: DynamicToolDiagnosticContext): string | undefined {
-  return params.diagnosticSessionKey ?? params.sessionKey;
+  if (params.diagnosticSessionKey !== undefined) {
+    return params.diagnosticSessionKey;
+  }
+  return params.call.tool.trim().toLowerCase() === "browser" ? "REDACTED" : params.sessionKey;
 }
 
 /** Emits a start event for one Codex dynamic tool call. */

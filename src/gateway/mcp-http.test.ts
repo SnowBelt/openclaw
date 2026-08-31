@@ -11,6 +11,11 @@ type MockGatewayTool = {
   label: string;
   description: string;
   parameters: Record<string, unknown>;
+  prepareBeforeToolCallParams?: (
+    params: unknown,
+    context: { toolCallId?: string; hookContext?: unknown; signal?: AbortSignal },
+  ) => unknown;
+  finalizeBeforeToolCallParams?: (params: unknown, preparedParams: unknown) => unknown;
   execute: (...args: unknown[]) => Promise<{
     content: unknown[];
     details?: Record<string, unknown>;
@@ -85,6 +90,33 @@ const runBeforeToolCallHookMock = vi.hoisted(() =>
   ),
 );
 
+const prepareToolParamsBeforeHookMock = vi.hoisted(() =>
+  vi.fn(
+    async (args: {
+      tool: MockGatewayTool;
+      rawParams: unknown;
+      toolCallId?: string;
+      hookContext?: unknown;
+      signal?: AbortSignal;
+    }) =>
+      args.tool.prepareBeforeToolCallParams
+        ? await args.tool.prepareBeforeToolCallParams(args.rawParams, {
+            ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+            ...(args.hookContext ? { hookContext: args.hookContext } : {}),
+            ...(args.signal ? { signal: args.signal } : {}),
+          })
+        : args.rawParams,
+  ),
+);
+
+const finalizeToolParamsBeforeExecuteMock = vi.hoisted(() =>
+  vi.fn((args: { tool: MockGatewayTool; executeParams: unknown; preparedParams: unknown }) =>
+    args.tool.finalizeBeforeToolCallParams
+      ? args.tool.finalizeBeforeToolCallParams(args.executeParams, args.preparedParams)
+      : args.executeParams,
+  ),
+);
+
 const resolveGatewayScopedToolsMock = vi.hoisted(() =>
   vi.fn<(...args: unknown[]) => MockGatewayScopedTools>(() => ({
     agentId: "main",
@@ -121,6 +153,11 @@ vi.mock("../config/sessions.js", () => ({
 }));
 
 vi.mock("../agents/agent-tools.before-tool-call.js", () => ({
+  finalizeToolParamsBeforeExecute: (
+    ...args: Parameters<typeof finalizeToolParamsBeforeExecuteMock>
+  ) => finalizeToolParamsBeforeExecuteMock(...args),
+  prepareToolParamsBeforeHook: (...args: Parameters<typeof prepareToolParamsBeforeHookMock>) =>
+    prepareToolParamsBeforeHookMock(...args),
   runBeforeToolCallHook: (...args: Parameters<typeof runBeforeToolCallHookMock>) =>
     runBeforeToolCallHookMock(...args),
 }));
@@ -602,6 +639,8 @@ beforeEach(() => {
   logWarnMock.mockClear();
   clearMcpLoopbackToolCallCapturesForTest();
   resolveGatewayScopedToolsMock.mockClear();
+  prepareToolParamsBeforeHookMock.mockClear();
+  finalizeToolParamsBeforeExecuteMock.mockClear();
   runBeforeToolCallHookMock.mockClear();
   runBeforeToolCallHookMock.mockImplementation(
     async (args: { params: unknown }): Promise<MockBeforeToolCallHookResult> => ({

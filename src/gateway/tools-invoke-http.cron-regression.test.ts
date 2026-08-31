@@ -10,6 +10,8 @@ const runBeforeToolCallHook = async (args: { params: unknown }) => ({
   blocked: false as const,
   params: args.params,
 });
+const prepareToolParamsBeforeHook = async (args: { rawParams: unknown }) => args.rawParams;
+const finalizeToolParamsBeforeExecute = (args: { executeParams: unknown }) => args.executeParams;
 
 let cfg: Record<string, unknown> = {};
 const alwaysAuthorized = async () => ({ ok: true as const });
@@ -42,6 +44,8 @@ vi.mock("../agents/agent-tools.js", () => ({
 }));
 
 vi.mock("../agents/agent-tools.before-tool-call.js", () => ({
+  finalizeToolParamsBeforeExecute,
+  prepareToolParamsBeforeHook,
   runBeforeToolCallHook,
 }));
 

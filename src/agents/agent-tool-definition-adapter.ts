@@ -11,8 +11,10 @@ import { isPlainObject } from "../utils.js";
 import type { HookContext } from "./agent-tools.before-tool-call.js";
 import {
   buildBlockedToolResult,
+  finalizeToolParamsBeforeExecute,
   isToolWrappedWithBeforeToolCallHook,
   isBeforeToolCallBlockedError,
+  prepareToolParamsBeforeHook,
   recordAdjustedParamsForToolCall,
   recordStructuredReplayTrustForToolCall,
   runBeforeToolCallHook,
@@ -34,16 +36,6 @@ import {
 } from "./tools/common.js";
 
 type AnyAgentTool = CoreAnyAgentTool;
-type BeforeToolCallPreparingTool = AnyAgentTool & {
-  prepareBeforeToolCallParams?: (
-    params: unknown,
-    ctx: { toolCallId?: string; hookContext?: HookContext; signal?: AbortSignal },
-  ) => unknown;
-  finalizeBeforeToolCallParams?: (params: unknown, preparedParams: unknown) => unknown;
-  redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
-  redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
-};
-
 type ToolExecuteArgsCurrent = [
   string,
   unknown,
@@ -319,32 +311,6 @@ function splitToolExecuteArgs(args: ToolExecuteArgsAny): {
     onUpdate,
     signal,
   };
-}
-
-async function prepareToolParamsBeforeHook(params: {
-  tool: AnyAgentTool;
-  rawParams: unknown;
-  toolCallId?: string;
-  hookContext?: HookContext;
-  signal?: AbortSignal;
-}): Promise<unknown> {
-  const prepare = (params.tool as BeforeToolCallPreparingTool).prepareBeforeToolCallParams;
-  return prepare
-    ? await prepare(params.rawParams, {
-        ...(params.toolCallId ? { toolCallId: params.toolCallId } : {}),
-        ...(params.hookContext ? { hookContext: params.hookContext } : {}),
-        ...(params.signal ? { signal: params.signal } : {}),
-      })
-    : params.rawParams;
-}
-
-function finalizeToolParamsBeforeExecute(params: {
-  tool: AnyAgentTool;
-  executeParams: unknown;
-  preparedParams: unknown;
-}): unknown {
-  const finalize = (params.tool as BeforeToolCallPreparingTool).finalizeBeforeToolCallParams;
-  return finalize ? finalize(params.executeParams, params.preparedParams) : params.executeParams;
 }
 
 const CLIENT_TOOL_NAME_CONFLICT_PREFIX = "client tool name conflict:";

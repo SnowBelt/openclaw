@@ -25,7 +25,7 @@ import type {
 } from "./embedded-agent-subscribe.types.js";
 import type { AgentRunTimeoutPhase } from "./run-timeout-attribution.js";
 import type { AgentMessage } from "./runtime/index.js";
-import type { AgentSessionEvent } from "./sessions/index.js";
+import type { AgentSession, AgentSessionEvent } from "./sessions/index.js";
 import type { ToolErrorSummary } from "./tool-error-summary.js";
 import type { NormalizedUsage } from "./usage.js";
 
@@ -297,7 +297,10 @@ type ToolHandlerParams = Pick<
   | "toolResultFormat"
   | "toolProgressDetail"
   | "sourceReplyDeliveryMode"
->;
+> & {
+  /** Session definitions provide the canonical diagnostic redactors for observer hooks. */
+  session?: AgentSession;
+};
 
 type ToolHandlerState = Pick<
   EmbeddedAgentSubscribeState,

@@ -4,9 +4,18 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
-import { runBeforeToolCallHook } from "../agents/agent-tools.before-tool-call.js";
+import {
+  finalizeToolParamsBeforeExecute,
+  prepareToolParamsBeforeHook,
+  runBeforeToolCallHook,
+} from "../agents/agent-tools.before-tool-call.js";
 import { resolveToolLoopDetectionConfig } from "../agents/agent-tools.js";
 import { getChannelAgentToolMeta } from "../agents/channel-tools.js";
+import {
+  getCodeModeExecBeforeHookMetadata,
+  normalizeCodeModeExecBeforeHookParams,
+  reconcileCodeModeExecBeforeHookParams,
+} from "../agents/code-mode-control-tools.js";
 import { isKnownCoreToolId } from "../agents/tool-catalog.js";
 import { ToolInputError, type AnyAgentTool } from "../agents/tools/common.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
@@ -249,17 +258,33 @@ export async function invokeGatewayTool(params: {
       action,
       args,
     });
+    const hookContext = {
+      agentId,
+      config: params.cfg,
+      sessionKey,
+      workspaceDir,
+      loopDetection: resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId }),
+    };
+    const preparedParams = await prepareToolParamsBeforeHook({
+      tool: gatewayTool,
+      rawParams: toolArgs,
+      toolCallId,
+      hookContext,
+    });
+    const hookParams = normalizeCodeModeExecBeforeHookParams({
+      tool: gatewayTool,
+      params: preparedParams,
+    });
+    const hookMetadata = getCodeModeExecBeforeHookMetadata({
+      tool: gatewayTool,
+      params: preparedParams,
+    });
     const hookResult = await runBeforeToolCallHook({
       toolName,
-      params: toolArgs,
+      params: hookParams,
+      ...hookMetadata,
       toolCallId,
-      ctx: {
-        agentId,
-        config: params.cfg,
-        sessionKey,
-        workspaceDir,
-        loopDetection: resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId }),
-      },
+      ctx: hookContext,
       approvalMode: params.approvalMode,
     });
     if (hookResult.blocked) {
@@ -274,12 +299,22 @@ export async function invokeGatewayTool(params: {
         },
       };
     }
+    const executeParams = finalizeToolParamsBeforeExecute({
+      tool: gatewayTool,
+      executeParams: reconcileCodeModeExecBeforeHookParams({
+        tool: gatewayTool,
+        originalParams: preparedParams,
+        hookParams,
+        adjustedParams: hookResult.params,
+      }),
+      preparedParams,
+    });
     return {
       ok: true,
       status: 200,
       toolName,
       source: resolveToolSource(gatewayTool),
-      result: await gatewayTool.execute?.(toolCallId, hookResult.params),
+      result: await gatewayTool.execute?.(toolCallId, executeParams),
     };
   } catch (err) {
     const inputStatus = resolveToolInputErrorStatus(err);

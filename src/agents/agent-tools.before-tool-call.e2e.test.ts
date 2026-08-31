@@ -26,6 +26,7 @@ import { setPluginToolMeta } from "../plugins/tools.js";
 import { createCanonicalFixtureSkill } from "../skills/test-support/test-helpers.js";
 import { createChannelTestPluginBase, createTestRegistry } from "../test-utils/channel-plugins.js";
 import {
+  finalizeToolParamsBeforeExecute,
   getBeforeToolCallFailureDisposition,
   getBeforeToolCallPolicyDiagnosticState,
   runBeforeToolCallHook,
@@ -736,6 +737,23 @@ describe("before_tool_call loop detection behavior", () => {
     expect(getBeforeToolCallFailureDisposition(error)).toBe("timed_out");
     expect(error).toHaveProperty("cause", timeout);
   });
+
+  it.each([undefined, null])(
+    "preserves execute params when an optional finalizer returns %j",
+    (finalizerResult) => {
+      const executeParams = { path: "/tmp/execute.txt" };
+      const result = finalizeToolParamsBeforeExecute({
+        tool: {
+          name: "read",
+          finalizeBeforeToolCallParams: () => finalizerResult,
+        } as unknown as AnyAgentTool,
+        executeParams,
+        preparedParams: { path: "/tmp/prepared.txt" },
+      });
+
+      expect(result).toBe(executeParams);
+    },
+  );
 
   it("emits a blocked terminal diagnostic when tool approval is denied", async () => {
     hookRunner.hasHooks.mockImplementation((hookName: string) => hookName === "before_tool_call");

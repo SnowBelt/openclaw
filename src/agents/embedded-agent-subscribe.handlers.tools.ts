@@ -30,6 +30,7 @@ import {
   emitAgentPatchSummaryEvent,
 } from "../infra/agent-events.js";
 import { consumeRootOptionToken } from "../infra/cli-root-options.js";
+import { cloneDiagnosticContentValue } from "../infra/diagnostic-llm-content.js";
 import { redactBrowserDiagnosticSessionKey } from "../infra/diagnostic-session-key.js";
 import type { ExecApprovalDecision } from "../infra/exec-approvals.js";
 import {
@@ -101,6 +102,12 @@ type ChannelToolProgress = {
   text: string;
 };
 
+type ToolExecutionObserverRedaction = {
+  paramsAlreadyRedacted?: boolean;
+  resultAlreadyRedacted?: boolean;
+  failClosedIfUnredacted?: boolean;
+};
+
 const execApprovalReplyModuleLoader = createLazyImportLoader<ExecApprovalReplyModule>(
   () => import("../infra/exec-approval-reply.js"),
 );
@@ -125,6 +132,68 @@ function isMiddlewareToolResultError(result: unknown): boolean {
     typeof details === "object" &&
     !Array.isArray(details) &&
     (details as { middlewareError?: unknown }).middlewareError === true,
+  );
+}
+
+function redactAfterToolCallValue(params: {
+  ctx: ToolHandlerContext;
+  toolName: string;
+  normalizedToolName: string;
+  value: unknown;
+  fallback: unknown;
+  kind: "params" | "result";
+  failClosedIfUnredacted?: boolean;
+}): unknown {
+  const session = params.ctx.params.session;
+  if (!session || typeof session.getToolDefinition !== "function") {
+    return params.failClosedIfUnredacted || params.normalizedToolName === "browser"
+      ? { redacted: true }
+      : params.fallback;
+  }
+  let definition: ReturnType<typeof session.getToolDefinition> | undefined;
+  try {
+    definition = session.getToolDefinition(params.toolName);
+  } catch {
+    definition = undefined;
+  }
+  if (!definition && params.toolName !== params.normalizedToolName) {
+    try {
+      definition = session.getToolDefinition(params.normalizedToolName);
+    } catch {
+      definition = undefined;
+    }
+  }
+  const redactor =
+    params.kind === "params"
+      ? definition?.redactBeforeToolCallDiagnosticParams
+      : definition?.redactBeforeToolCallDiagnosticResult;
+  if (redactor) {
+    try {
+      return redactor(cloneDiagnosticContentValue(params.value));
+    } catch {
+      return { redacted: true };
+    }
+  }
+  return params.failClosedIfUnredacted || params.normalizedToolName === "browser"
+    ? { redacted: true }
+    : params.fallback;
+}
+
+function redactAfterToolCallParams(params: {
+  ctx: ToolHandlerContext;
+  toolName: string;
+  normalizedToolName: string;
+  value: unknown;
+  fallback: unknown;
+  failClosedIfUnredacted?: boolean;
+}): Record<string, unknown> {
+  return (
+    asOptionalObjectRecord(
+      redactAfterToolCallValue({
+        ...params,
+        kind: "params",
+      }),
+    ) ?? { redacted: true }
   );
 }
 
@@ -1276,6 +1345,7 @@ export function handleToolExecutionUpdate(
 export async function handleToolExecutionEnd(
   ctx: ToolHandlerContext,
   evt: Extract<AgentEvent, { type: "tool_execution_end" }>,
+  redaction: ToolExecutionObserverRedaction = {},
 ) {
   const rawToolName = evt.toolName;
   const toolName = normalizeToolName(rawToolName);
@@ -1747,21 +1817,47 @@ export async function handleToolExecutionEnd(
   const hookRunnerAfter = ctx.hookRunner ?? (await loadHookRunnerGlobal()).getGlobalHookRunner();
   if (hookRunnerAfter?.hasHooks("after_tool_call")) {
     const durationMs = startData?.startTime != null ? Date.now() - startData.startTime : undefined;
-    const afterHookArgs = startArgs;
+    const afterHookArgs = redaction.paramsAlreadyRedacted
+      ? (asOptionalObjectRecord(startArgs) ?? { redacted: true })
+      : redactAfterToolCallParams({
+          ctx,
+          toolName: rawToolName,
+          normalizedToolName: toolName,
+          value: startArgs,
+          fallback: startArgs,
+          failClosedIfUnredacted: redaction.failClosedIfUnredacted,
+        });
+    const afterHookResult = redaction.resultAlreadyRedacted
+      ? sanitizeToolResult(result)
+      : redactAfterToolCallValue({
+          ctx,
+          toolName: rawToolName,
+          normalizedToolName: toolName,
+          value: result,
+          fallback: sanitizedResult,
+          kind: "result",
+          failClosedIfUnredacted: redaction.failClosedIfUnredacted,
+        });
+    const afterHookError = isToolError
+      ? (extractToolErrorMessage(afterHookResult) ?? "tool execution failed")
+      : undefined;
     const hookEvent: PluginHookAfterToolCallEvent = {
       toolName,
       params: afterHookArgs,
       runId,
       toolCallId,
-      result: sanitizedResult,
-      error: isToolError ? extractToolErrorMessage(sanitizedResult) : undefined,
+      result: afterHookResult,
+      error: afterHookError,
       durationMs,
     };
     void hookRunnerAfter
       .runAfterToolCall(hookEvent, {
         toolName,
         agentId: ctx.params.agentId,
-        sessionKey: ctx.params.sessionKey,
+        sessionKey:
+          toolName === "browser"
+            ? redactBrowserDiagnosticSessionKey(ctx.params.sessionKey)
+            : ctx.params.sessionKey,
         sessionId: ctx.params.sessionId,
         runId,
         toolCallId,

@@ -154,6 +154,32 @@ describe("runCodexAppServerAttempt dynamic tools", () => {
     expect(JSON.stringify(diagnosticEvents)).not.toContain(rawSessionKey);
   });
 
+  it("fails closed when Browser diagnostics omit their redacted session key", async () => {
+    const diagnosticEvents: DiagnosticEventPayload[] = [];
+    const unsubscribeDiagnostics = onInternalDiagnosticEvent((event) =>
+      diagnosticEvents.push(event),
+    );
+    const rawSessionKey = "agent:main:dynamic-private-tail";
+    const call = {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      callId: "call-browser-diagnostic-fallback",
+      namespace: null,
+      tool: "browser",
+      arguments: {},
+    } satisfies CodexDynamicToolCallParams;
+    try {
+      emitDynamicToolStartedDiagnostic({ call, sessionKey: rawSessionKey });
+      await flushDiagnosticEvents();
+    } finally {
+      unsubscribeDiagnostics();
+    }
+
+    expect(diagnosticEvents).toHaveLength(1);
+    expect(diagnosticEvents[0]?.sessionKey).toBe("REDACTED");
+    expect(JSON.stringify(diagnosticEvents)).not.toContain(rawSessionKey);
+  });
+
   it("passes the live run session key to Codex dynamic tools when sandbox policy uses another key", () => {
     const workspaceDir = path.join(tempDir, "workspace");
     const params = createParams(path.join(tempDir, "session.jsonl"), workspaceDir);

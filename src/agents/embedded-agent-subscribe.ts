@@ -1369,26 +1369,34 @@ export function subscribeEmbeddedAgentSession(params: SubscribeEmbeddedAgentSess
       } as never);
       try {
         const result = await toolParams.execute();
-        await handleToolExecutionEnd(ctx, {
-          type: "tool_execution_end",
-          toolName: toolParams.toolName,
-          toolCallId: toolParams.toolCallId,
-          isError: false,
-          executionStarted: true,
-          result,
-          hideFromChannelProgress: toolParams.hideFromChannelProgress,
-        } as never);
+        await handleToolExecutionEnd(
+          ctx,
+          {
+            type: "tool_execution_end",
+            toolName: toolParams.toolName,
+            toolCallId: toolParams.toolCallId,
+            isError: false,
+            executionStarted: true,
+            result,
+            hideFromChannelProgress: toolParams.hideFromChannelProgress,
+          } as never,
+          { paramsAlreadyRedacted: true, failClosedIfUnredacted: true },
+        );
         return result;
       } catch (error) {
-        await handleToolExecutionEnd(ctx, {
-          type: "tool_execution_end",
-          toolName: toolParams.toolName,
-          toolCallId: toolParams.toolCallId,
-          isError: true,
-          executionStarted: true,
-          result: buildToolLifecycleErrorResult(error),
-          hideFromChannelProgress: toolParams.hideFromChannelProgress,
-        } as never);
+        await handleToolExecutionEnd(
+          ctx,
+          {
+            type: "tool_execution_end",
+            toolName: toolParams.toolName,
+            toolCallId: toolParams.toolCallId,
+            isError: true,
+            executionStarted: true,
+            result: buildToolLifecycleErrorResult(error),
+            hideFromChannelProgress: toolParams.hideFromChannelProgress,
+          } as never,
+          { paramsAlreadyRedacted: true, failClosedIfUnredacted: true },
+        );
         throw error;
       }
     },

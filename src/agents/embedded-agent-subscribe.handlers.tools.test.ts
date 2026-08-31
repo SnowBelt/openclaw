@@ -287,10 +287,21 @@ describe("handleToolExecutionStart read path checks", () => {
   it("keeps adjusted params redacted for embedded after-tool hooks", async () => {
     const { ctx } = createTestContext();
     const afterToolCall = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const redactParams = (value: unknown) => value;
     ctx.hookRunner = {
       hasHooks: (hookName: string) => hookName === "after_tool_call",
       runAfterToolCall: afterToolCall,
     } as never;
+    ctx.params.session = {
+      getToolDefinition: (name: string) =>
+        name === "browser"
+          ? {
+              redactBeforeToolCallDiagnosticParams: redactParams,
+              redactBeforeToolCallDiagnosticResult: () => ({ redacted: true }),
+            }
+          : undefined,
+    } as never;
+    ctx.params.sessionKey = "agent:unit-session:direct:person-123";
     recordAdjustedParamsForToolCall(
       "tool-browser-after-hook",
       { action: "act", request: { text: "synthetic-private-value" } },
@@ -303,17 +314,148 @@ describe("handleToolExecutionStart read path checks", () => {
       toolName: "browser",
       toolCallId: "tool-browser-after-hook",
       isError: false,
-      result: { ok: true },
+      result: {
+        ok: true,
+        content: [{ type: "text", text: "page-private-value" }],
+        cookie: "cookie-private-value",
+      },
     });
     await Promise.resolve();
 
     expect(afterToolCall).toHaveBeenCalledTimes(1);
     expect(afterToolCall.mock.calls[0]?.[0]).toMatchObject({
       params: { action: "act", request: { text: "REDACTED" } },
+      result: { redacted: true },
+    });
+    expect(afterToolCall.mock.calls[0]?.[1]).toMatchObject({
+      sessionKey: "agent:unit-session:REDACTED",
     });
     expect(JSON.stringify(afterToolCall.mock.calls[0]?.[0])).not.toContain(
       "synthetic-private-value",
     );
+    expect(JSON.stringify(afterToolCall.mock.calls[0])).not.toContain("page-private-value");
+    expect(JSON.stringify(afterToolCall.mock.calls[0])).not.toContain("cookie-private-value");
+    expect(JSON.stringify(afterToolCall.mock.calls[0])).not.toContain("person-123");
+  });
+
+  it("uses the raw tool name when resolving after-tool redactors", async () => {
+    const { ctx } = createTestContext();
+    const afterToolCall = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    ctx.hookRunner = {
+      hasHooks: (hookName: string) => hookName === "after_tool_call",
+      runAfterToolCall: afterToolCall,
+    } as never;
+    ctx.params.session = {
+      getToolDefinition: (name: string) =>
+        name === "SecretTool"
+          ? {
+              redactBeforeToolCallDiagnosticParams: () => ({ redacted: true }),
+              redactBeforeToolCallDiagnosticResult: () => ({ redacted: true }),
+            }
+          : undefined,
+    } as never;
+
+    await handleToolExecutionEnd(ctx, {
+      type: "tool_execution_end",
+      toolName: "SecretTool",
+      toolCallId: "tool-custom-case",
+      isError: false,
+      result: { secret: "synthetic-private-value" },
+    });
+    await Promise.resolve();
+
+    expect(afterToolCall).toHaveBeenCalledTimes(1);
+    expect(afterToolCall.mock.calls[0]?.[0]).toMatchObject({
+      params: { redacted: true },
+      result: { redacted: true },
+    });
+    expect(JSON.stringify(afterToolCall.mock.calls[0])).not.toContain("synthetic-private-value");
+  });
+
+  it("does not apply observer redactors twice", async () => {
+    const { ctx } = createTestContext();
+    const afterToolCall = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const redactParams = vi.fn((value: unknown) => ({ redactedParams: value }));
+    const redactResult = vi.fn((value: unknown) => ({ redactedResult: value }));
+    ctx.hookRunner = {
+      hasHooks: (hookName: string) => hookName === "after_tool_call",
+      runAfterToolCall: afterToolCall,
+    } as never;
+    ctx.params.session = {
+      getToolDefinition: () => ({
+        redactBeforeToolCallDiagnosticParams: redactParams,
+        redactBeforeToolCallDiagnosticResult: redactResult,
+      }),
+    } as never;
+
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "SecretTool",
+      toolCallId: "tool-observer-redacted",
+      args: { redacted: "params-once" },
+    });
+    await handleToolExecutionEnd(
+      ctx,
+      {
+        type: "tool_execution_end",
+        toolName: "SecretTool",
+        toolCallId: "tool-observer-redacted",
+        isError: false,
+        result: { redacted: "result-once" },
+      },
+      { paramsAlreadyRedacted: true, resultAlreadyRedacted: true },
+    );
+    await Promise.resolve();
+
+    expect(redactParams).not.toHaveBeenCalled();
+    expect(redactResult).not.toHaveBeenCalled();
+    expect(afterToolCall.mock.calls[0]?.[0]).toMatchObject({
+      params: { redacted: "params-once" },
+      result: { redacted: "result-once" },
+    });
+  });
+
+  it("fails closed when an observer event has no registered tool definition", async () => {
+    const { ctx } = createTestContext();
+    const afterToolCall = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    ctx.hookRunner = {
+      hasHooks: (hookName: string) => hookName === "after_tool_call",
+      runAfterToolCall: afterToolCall,
+    } as never;
+
+    await handleToolExecutionStart(ctx, {
+      type: "tool_execution_start",
+      toolName: "deferred-secret-tool",
+      toolCallId: "tool-deferred-secret",
+      args: {
+        password: "deferred-password",
+        sessionKey: "agent:main:direct:person-123",
+      },
+    });
+    await handleToolExecutionEnd(
+      ctx,
+      {
+        type: "tool_execution_end",
+        toolName: "deferred-secret-tool",
+        toolCallId: "tool-deferred-secret",
+        isError: false,
+        result: {
+          token: "deferred-token",
+          content: "private page",
+        },
+      },
+      { failClosedIfUnredacted: true },
+    );
+    await Promise.resolve();
+
+    expect(afterToolCall).toHaveBeenCalledTimes(1);
+    expect(afterToolCall.mock.calls[0]?.[0]).toMatchObject({
+      params: { redacted: true },
+      result: { redacted: true },
+    });
+    expect(JSON.stringify(afterToolCall.mock.calls[0])).not.toContain("deferred-password");
+    expect(JSON.stringify(afterToolCall.mock.calls[0])).not.toContain("deferred-token");
+    expect(JSON.stringify(afterToolCall.mock.calls[0])).not.toContain("person-123");
   });
 
   it("does not warn when read tool uses file_path alias", async () => {

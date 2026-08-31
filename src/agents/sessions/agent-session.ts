@@ -91,6 +91,7 @@ import {
 import { emitSessionShutdownEvent } from "./extensions/runner.js";
 import type { BashExecutionMessage, CustomMessage } from "./messages.js";
 import type { ModelRegistry } from "./model-registry.js";
+import { markObserverToolEventRedaction } from "./observer-tool-event-redaction.js";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.js";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.js";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.js";
@@ -693,33 +694,55 @@ export class AgentSession {
 
     const definition = this.toolDefinitions.get(event.toolName)?.definition;
     if (!definition) {
-      return event;
+      return markObserverToolEventRedaction(
+        { ...event },
+        {
+          paramsRedacted: false,
+          resultRedacted: false,
+        },
+      );
     }
 
     if (event.type === "tool_execution_start") {
-      return {
-        ...event,
-        args: this.redactObserverValue(definition.redactBeforeToolCallDiagnosticParams, event.args),
-      };
+      const redactor = definition.redactBeforeToolCallDiagnosticParams;
+      return markObserverToolEventRedaction(
+        {
+          ...event,
+          args: this.redactObserverValue(redactor, event.args),
+        },
+        {
+          paramsRedacted: typeof redactor === "function",
+          resultRedacted: false,
+        },
+      );
     }
 
     if (event.type === "tool_execution_update") {
-      return {
-        ...event,
-        args: this.redactObserverValue(definition.redactBeforeToolCallDiagnosticParams, event.args),
-        partialResult: this.redactObserverValue(
-          definition.redactBeforeToolCallDiagnosticResult,
-          event.partialResult,
-        ),
-      };
+      const paramsRedactor = definition.redactBeforeToolCallDiagnosticParams;
+      const resultRedactor = definition.redactBeforeToolCallDiagnosticResult;
+      return markObserverToolEventRedaction(
+        {
+          ...event,
+          args: this.redactObserverValue(paramsRedactor, event.args),
+          partialResult: this.redactObserverValue(resultRedactor, event.partialResult),
+        },
+        {
+          paramsRedacted: typeof paramsRedactor === "function",
+          resultRedacted: typeof resultRedactor === "function",
+        },
+      );
     }
-    return {
-      ...event,
-      result: this.redactObserverValue(
-        definition.redactBeforeToolCallDiagnosticResult,
-        event.result,
-      ),
-    };
+    const redactor = definition.redactBeforeToolCallDiagnosticResult;
+    return markObserverToolEventRedaction(
+      {
+        ...event,
+        result: this.redactObserverValue(redactor, event.result),
+      },
+      {
+        paramsRedacted: typeof definition.redactBeforeToolCallDiagnosticParams === "function",
+        resultRedacted: typeof redactor === "function",
+      },
+    );
   }
 
   private redactObserverValue(

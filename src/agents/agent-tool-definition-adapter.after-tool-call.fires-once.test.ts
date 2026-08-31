@@ -30,9 +30,14 @@ const beforeToolCallMocks = vi.hoisted(() => ({
     }
   },
   consumeAdjustedParamsForToolCall: vi.fn((_: string): unknown => undefined),
+  consumeDiagnosticAdjustedParamsForToolCall: vi.fn((_: string): unknown => undefined),
   recordAdjustedParamsForToolCall: vi.fn(),
   recordStructuredReplayTrustForToolCall: vi.fn(),
   isToolWrappedWithBeforeToolCallHook: vi.fn(() => false),
+  prepareToolParamsBeforeHook: vi.fn(async ({ rawParams }: { rawParams: unknown }) => rawParams),
+  finalizeToolParamsBeforeExecute: vi.fn(
+    ({ executeParams }: { executeParams: unknown }) => executeParams,
+  ),
   runBeforeToolCallHook: vi.fn(async ({ params }: { params: unknown }) => ({
     blocked: false,
     params,
@@ -100,6 +105,8 @@ async function loadFreshAfterToolCallModulesForTest() {
   }));
   vi.doMock("./agent-tools.before-tool-call.state.js", () => ({
     consumeAdjustedParamsForToolCall: beforeToolCallMocks.consumeAdjustedParamsForToolCall,
+    consumeDiagnosticAdjustedParamsForToolCall:
+      beforeToolCallMocks.consumeDiagnosticAdjustedParamsForToolCall,
     consumePreExecutionBlockedToolCall: vi.fn(() => false),
     consumeStructuredReplaySafeToolCall: vi.fn(() => false),
   }));
@@ -111,6 +118,8 @@ async function loadFreshAfterToolCallModulesForTest() {
     }),
     consumeAdjustedParamsForToolCall: beforeToolCallMocks.consumeAdjustedParamsForToolCall,
     consumePreExecutionBlockedToolCall: vi.fn(() => false),
+    finalizeToolParamsBeforeExecute: beforeToolCallMocks.finalizeToolParamsBeforeExecute,
+    prepareToolParamsBeforeHook: beforeToolCallMocks.prepareToolParamsBeforeHook,
     recordAdjustedParamsForToolCall: beforeToolCallMocks.recordAdjustedParamsForToolCall,
     recordStructuredReplayTrustForToolCall:
       beforeToolCallMocks.recordStructuredReplayTrustForToolCall,
@@ -252,8 +261,8 @@ describe("after_tool_call fires exactly once in embedded runs", () => {
     const ctx = createToolHandlerCtx();
 
     beforeToolCallMocks.isToolWrappedWithBeforeToolCallHook.mockReturnValue(true);
-    beforeToolCallMocks.consumeAdjustedParamsForToolCall.mockImplementation((id: string) =>
-      id === toolCallId ? adjusted : undefined,
+    beforeToolCallMocks.consumeDiagnosticAdjustedParamsForToolCall.mockImplementation(
+      (id: string) => (id === toolCallId ? adjusted : undefined),
     );
 
     await emitToolExecutionStartEvent({ ctx, toolName: "read", toolCallId, args });
@@ -266,7 +275,7 @@ describe("after_tool_call fires exactly once in embedded runs", () => {
       result: { content: [{ type: "text", text: "ok" }] },
     });
 
-    expect(beforeToolCallMocks.consumeAdjustedParamsForToolCall).toHaveBeenCalledWith(
+    expect(beforeToolCallMocks.consumeDiagnosticAdjustedParamsForToolCall).toHaveBeenCalledWith(
       toolCallId,
       "integration-test",
     );

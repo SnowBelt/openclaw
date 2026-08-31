@@ -425,6 +425,7 @@ export async function runCodexAppServerSideQuestion(
         runId: sideRunParams.runId,
         sessionId: params.sessionId,
         sessionKey: params.sessionKey,
+        diagnosticSessionKey: toolBridge.redactToolSessionKey(call.tool, params.sessionKey),
       };
       emitDynamicToolStartedDiagnostic(diagnosticContext);
       try {
