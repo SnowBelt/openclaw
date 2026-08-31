@@ -33,6 +33,7 @@ import type { AppViewState } from "./app-view-state.ts";
 import { createLazyChatRenderer } from "./chat/lazy-render.ts";
 import { resolveCurrentChatGoal } from "./chat/pursue-goal.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
+import "../components/update-banner.ts";
 import {
   renderChatSessionSelect,
   resolveChatAgentFilterId,
@@ -968,7 +969,6 @@ function resolveDreamingNextCycle(
 
 let clawhubSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
-const UPDATE_BANNER_DISMISS_KEY = "openclaw:control-ui:update-banner-dismissed:v1";
 const CRON_THINKING_SUGGESTIONS = ["off", "minimal", "low", "medium", "high"];
 const CRON_TIMEZONE_SUGGESTIONS = [
   "UTC",
@@ -1005,64 +1005,6 @@ function uniquePreserveOrder(values: string[]): string[] {
     output.push(normalized);
   }
   return output;
-}
-
-type DismissedUpdateBanner = {
-  latestVersion: string;
-  channel: string | null;
-  dismissedAtMs: number;
-};
-
-function loadDismissedUpdateBanner(): DismissedUpdateBanner | null {
-  try {
-    const raw = getSafeLocalStorage()?.getItem(UPDATE_BANNER_DISMISS_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<DismissedUpdateBanner>;
-    if (!parsed || typeof parsed.latestVersion !== "string") {
-      return null;
-    }
-    return {
-      latestVersion: parsed.latestVersion,
-      channel: typeof parsed.channel === "string" ? parsed.channel : null,
-      dismissedAtMs: typeof parsed.dismissedAtMs === "number" ? parsed.dismissedAtMs : Date.now(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function isUpdateBannerDismissed(updateAvailable: unknown): boolean {
-  const dismissed = loadDismissedUpdateBanner();
-  if (!dismissed) {
-    return false;
-  }
-  const info = updateAvailable as { latestVersion?: unknown; channel?: unknown };
-  const latestVersion = info && typeof info.latestVersion === "string" ? info.latestVersion : null;
-  const channel = info && typeof info.channel === "string" ? info.channel : null;
-  return Boolean(
-    latestVersion && dismissed.latestVersion === latestVersion && dismissed.channel === channel,
-  );
-}
-
-function dismissUpdateBanner(updateAvailable: unknown) {
-  const info = updateAvailable as { latestVersion?: unknown; channel?: unknown };
-  const latestVersion = info && typeof info.latestVersion === "string" ? info.latestVersion : null;
-  if (!latestVersion) {
-    return;
-  }
-  const channel = info && typeof info.channel === "string" ? info.channel : null;
-  const payload: DismissedUpdateBanner = {
-    latestVersion,
-    channel,
-    dismissedAtMs: Date.now(),
-  };
-  try {
-    getSafeLocalStorage()?.setItem(UPDATE_BANNER_DISMISS_KEY, JSON.stringify(payload));
-  } catch {
-    // ignore
-  }
 }
 
 const COMMUNICATION_SECTION_KEYS = [
@@ -1891,6 +1833,7 @@ export function renderApp(state: AppViewState) {
     saving: state.configSaving,
     applying: state.configApplying,
     updating: state.updateRunning,
+    updateSafety: state.customRuntimeUpdatePolicy,
     connected: state.connected,
     schema: state.configSchema,
     schemaLoading: state.configSchemaLoading,
@@ -1907,7 +1850,7 @@ export function renderApp(state: AppViewState) {
     onReset: () => resetConfigPendingChanges(state),
     onSave: () => void saveConfig(state),
     onApply: () => void applyConfig(state),
-    onUpdate: () => void runUpdate(state),
+    onUpdate: (approvalSha?: string) => void runUpdate(state, approvalSha),
     onOpenFile: () => void openConfigFile(state),
     version: state.hello?.server?.version ?? "",
     theme: state.theme,
@@ -2883,51 +2826,20 @@ export function renderApp(state: AppViewState) {
             }`
           : ""}"
       >
-        ${state.updateStatusBanner
-          ? html`<div class="callout ${state.updateStatusBanner.tone}" role="alert">
-              ${state.updateStatusBanner.text}
-            </div>`
-          : nothing}
-        ${state.updateAvailable &&
-        state.updateAvailable.latestVersion !== state.updateAvailable.currentVersion &&
-        !isUpdateBannerDismissed(state.updateAvailable)
-          ? html`<div
-              class=${`update-banner callout danger ${state.tab === "pcc" ? "update-banner--pcc-chip" : ""}`}
-              role="alert"
-              data-update-banner
-            >
-              <span class="update-banner__message">
-                <strong>${t("chat.updateAvailable")}</strong>
-                v${state.updateAvailable.latestVersion}
-                <span class="update-banner__running"
-                  >${t("chat.runningVersion", {
-                    version: state.updateAvailable.currentVersion,
-                  })}</span
-                >
-              </span>
-              <span class="update-banner__actions">
-                <button
-                  class="btn btn--sm update-banner__btn"
-                  ?disabled=${state.updateRunning || !state.connected}
-                  @click=${() => runUpdate(state)}
-                >
-                  ${state.updateRunning ? t("chat.updating") : t("chat.updateNow")}
-                </button>
-                <button
-                  class="update-banner__close"
-                  type="button"
-                  title=${t("common.dismiss")}
-                  aria-label=${t("chat.dismissUpdateBanner")}
-                  @click=${() => {
-                    dismissUpdateBanner(state.updateAvailable);
-                    state.updateAvailable = null;
-                  }}
-                >
-                  ${icons.x}
-                </button>
-              </span>
-            </div>`
-          : nothing}
+        <openclaw-update-banner
+          .props=${{
+            statusBanner: state.updateStatusBanner,
+            updateAvailable: state.updateAvailable,
+            updateRunning: state.updateRunning,
+            updateSafety: state.customRuntimeUpdatePolicy,
+            connected: state.connected,
+            pccChip: state.tab === "pcc",
+            onUpdate: (approvalSha?: string) => void runUpdate(state, approvalSha),
+            onDismiss: () => {
+              state.updateAvailable = null;
+            },
+          }}
+        ></openclaw-update-banner>
         ${state.tab === "config" || state.tab === "operations" || isChat
           ? nothing
           : html`<section

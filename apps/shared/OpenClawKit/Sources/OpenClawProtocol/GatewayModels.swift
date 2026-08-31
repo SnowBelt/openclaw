@@ -15723,6 +15723,7 @@ public struct UpdateRunParams: Codable, Sendable {
     public let continuationmessage: String?
     public let restartdelayms: Int?
     public let timeoutms: Int?
+    public let approvalsha: String?
 
     public init(
         sessionkey: String?,
@@ -15730,7 +15731,8 @@ public struct UpdateRunParams: Codable, Sendable {
         note: String?,
         continuationmessage: String?,
         restartdelayms: Int?,
-        timeoutms: Int?)
+        timeoutms: Int?,
+        approvalsha: String?)
     {
         self.sessionkey = sessionkey
         self.deliverycontext = deliverycontext
@@ -15738,6 +15740,7 @@ public struct UpdateRunParams: Codable, Sendable {
         self.continuationmessage = continuationmessage
         self.restartdelayms = restartdelayms
         self.timeoutms = timeoutms
+        self.approvalsha = approvalsha
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -15747,6 +15750,7 @@ public struct UpdateRunParams: Codable, Sendable {
         case continuationmessage = "continuationMessage"
         case restartdelayms = "restartDelayMs"
         case timeoutms = "timeoutMs"
+        case approvalsha = "approvalSha"
     }
 }
 

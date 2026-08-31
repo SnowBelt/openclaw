@@ -8,18 +8,83 @@ export PATH
 
 repo=${OPENCLAW_CUSTOM_RUNTIME_REPO:-}
 branch=${OPENCLAW_CUSTOM_RUNTIME_BRANCH:-}
-official_remote=${OPENCLAW_CUSTOM_RUNTIME_OFFICIAL_REMOTE:-origin}
+official_remote=${OPENCLAW_CUSTOM_RUNTIME_OFFICIAL_REMOTE:-openclaw-official}
+official_url=${OPENCLAW_CUSTOM_RUNTIME_OFFICIAL_URL:-https://github.com/openclaw/openclaw.git}
 official_ref=${OPENCLAW_CUSTOM_RUNTIME_OFFICIAL_REF:-}
 worktrees=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES:-"$HOME/OpenClaw-runtime-updates"}
 receipts=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}/receipts
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime update helper is missing' >&2; exit 64; }
+. "$auth_helper"
 mkdir -p "$worktrees" "$receipts"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 candidate="$worktrees/$stamp"
 update_branch="codex/runtime-update-$stamp"
 receipt="$receipts/update-$stamp.json"
-fail() { printf '{"at":"%s","result":"failed","stage":"%s","worktree":"%s"}\n' "$stamp" "$1" "$candidate" > "$receipt"; exit 1; }
+fail() {
+  printf '{"at":"%s","result":"failed","stage":"%s","worktree":"%s"}\n' "$stamp" "$1" "$candidate" > "$receipt"
+  exit 1
+}
+preparation_lock="$runtime_home/update-preparation.lock"
+acquire_result=$(custom_runtime_update_lock_transition \
+  acquire "$preparation_lock" "$receipts" "$stamp" preparation "$$") || fail preparation_lock
+[ "$acquire_result" = acquired ] || fail preparation_lock
+release_preparation_lock() {
+  rm -f "$preparation_lock/owner.json"
+  rmdir "$preparation_lock" 2>/dev/null || true
+}
+trap release_preparation_lock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+custom_runtime_update_lock_transition check "$runtime_home/update-installation.lock" \
+  "$receipts" "$stamp" installation >/dev/null || fail installation_running
+pending_update="$runtime_home/pending-update.json"
+pending_state=$(python3 - "$pending_update" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+path = sys.argv[1]
+try:
+    info = os.lstat(path)
+except FileNotFoundError:
+    print("absent")
+    raise SystemExit(0)
+if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+    raise SystemExit("unsafe pending update state")
+with open(path, encoding="utf-8") as f:
+    value = json.load(f)
+if (
+    value.get("schema") == "openclaw.custom-runtime-update-candidate.v1"
+    and value.get("result") == "ready_for_approval"
+    and re.fullmatch(r"[0-9a-f]{40}", str(value.get("sourceSha", "")))
+):
+    verified_backup = value.get("verifiedBackup")
+    repository_proof = value.get("repositoryProof")
+    if (
+        not isinstance(verified_backup, dict)
+        or verified_backup.get("schema") != "openclaw.custom-runtime-update-backup.v2"
+        or not isinstance(repository_proof, dict)
+        or repository_proof.get("schema") != "openclaw.custom-runtime-github-proof.v1"
+    ):
+        print("reprepare")
+        raise SystemExit(0)
+    print("ready")
+    raise SystemExit(0)
+raise SystemExit("invalid pending update state")
+PY
+) || fail pending_update_state
+[ "$pending_state" != ready ] || fail approval_pending
+if [ "$pending_state" = reprepare ]; then
+  mv "$pending_update" "$receipts/superseded-pending-update-$stamp.json" \
+    || fail pending_update_reprepare
+fi
 
 usage() {
   printf '%s\n' 'usage: custom-runtime-updater.sh [--prepare]' >&2
@@ -37,7 +102,7 @@ print(value.get("sourceSha", "") if isinstance(value.get("sourceSha"), str) else
 provenance = value.get("sourceProvenance")
 if not isinstance(provenance, dict):
     provenance = {}
-for key in ("recordPath", "recordSha256", "treeSha", "storePath"):
+for key in ("recordPath", "recordSha256", "treeSha"):
     item = provenance.get(key, "")
     print(item if isinstance(item, str) else "")
 PY
@@ -46,17 +111,51 @@ active_sha=$(printf '%s\n' "$pointer_fields" | sed -n '1p')
 provenance_record=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
 provenance_record_sha=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
 provenance_tree=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
-provenance_store=$(printf '%s\n' "$pointer_fields" | sed -n '5p')
+active_pointer_sha256=$(shasum -a 256 "$active_pointer" | awk '{print $1}') || fail active_pointer
+assert_active_runtime_unchanged() {
+  current_pointer_sha256=$(shasum -a 256 "$active_pointer" | awk '{print $1}') || fail active_runtime_changed_during_preparation
+  current_active_sha=$(python3 - "$active_pointer" <<'PY'
+import json, sys
+try:
+    value = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+source_sha = value.get("sourceSha")
+if not isinstance(source_sha, str):
+    raise SystemExit(1)
+print(source_sha)
+PY
+  ) || fail active_runtime_changed_during_preparation
+  [ "$current_pointer_sha256" = "$active_pointer_sha256" ] || fail active_runtime_changed_during_preparation
+  [ "$current_active_sha" = "$active_sha" ] || fail active_runtime_changed_during_preparation
+}
 case "$active_sha" in *[!0-9a-fA-F]*|'') fail durable_source_sha ;; esac
 [ "${#active_sha}" -eq 40 ] || [ "${#active_sha}" -eq 64 ] || fail durable_source_sha
 if [ -n "$provenance_record" ]; then
-  [ -n "$provenance_record_sha" ] && [ -n "$provenance_tree" ] && [ -n "$provenance_store" ] || fail durable_source_provenance
+  [ -n "$provenance_record_sha" ] && [ -n "$provenance_tree" ] || fail durable_source_provenance
   [ -f "$provenance_record" ] && [ ! -L "$provenance_record" ] || fail durable_source_provenance
   [ "$(shasum -a 256 "$provenance_record" | awk '{print $1}')" = "$provenance_record_sha" ] || fail durable_source_provenance
   provenance_helper="$runtime_home/bin/custom-runtime-source-provenance.mjs"
   [ -f "$provenance_helper" ] && [ ! -L "$provenance_helper" ] || fail durable_source_provenance
-  "${OPENCLAW_NODE_BIN:-node}" "$provenance_helper" verify --record "$provenance_record" \
-    --expected-sha "$active_sha" --deep true >/dev/null || fail durable_source_provenance
+  verified_provenance=$("${OPENCLAW_NODE_BIN:-node}" "$provenance_helper" verify \
+    --record "$provenance_record" --expected-sha "$active_sha" --deep true) \
+    || fail durable_source_provenance
+  provenance_fields=$(printf '%s' "$verified_provenance" | python3 -c '
+import json,sys
+value=json.load(sys.stdin)
+for key in ("storePath", "sourceRemote", "sourceRemoteBranch"):
+    item=value.get(key)
+    if not isinstance(item, str) or not item:
+        raise SystemExit(f"verified provenance omitted {key}")
+    print(item)
+') \
+    || fail durable_source_provenance
+  provenance_store=$(printf '%s\n' "$provenance_fields" | sed -n '1p')
+  source_remote=$(printf '%s\n' "$provenance_fields" | sed -n '2p')
+  source_remote_branch=$(printf '%s\n' "$provenance_fields" | sed -n '3p')
+  [ "$source_remote" = "https://github.com/SnowBelt/openclaw.git" ] || \
+    fail durable_source_remote
+  [ -n "$provenance_store" ] || fail durable_source_provenance
   [ -d "$provenance_store" ] && [ ! -L "$provenance_store" ] || fail durable_source_provenance
   source_git() { git --git-dir "$provenance_store" "$@"; }
   repo="$provenance_store"
@@ -73,11 +172,134 @@ source_git show "$active_sha:config/custom-runtime-capabilities.json" \
   > "$active_source_manifest_tmp" || fail durable_source_capabilities
 mv "$active_source_manifest_tmp" "$active_source_manifest"
 active_capability_manifest=$active_source_manifest
+backup_helper="$runtime_home/bin/custom-runtime-update-backup.mjs"
+[ -f "$backup_helper" ] && [ ! -L "$backup_helper" ] || fail verified_backup_tool
+gateway_env_wrapper=${OPENCLAW_GATEWAY_ENV_WRAPPER:-}
+gateway_env_file=${OPENCLAW_GATEWAY_ENV_FILE:-}
+if [ -n "$gateway_env_wrapper" ] || [ -n "$gateway_env_file" ]; then
+  [ -n "$gateway_env_wrapper" ] && [ -n "$gateway_env_file" ] || \
+    fail gateway_environment_incomplete
+fi
+gateway_plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
+gateway_environment=$(python3 - \
+  "$gateway_plist" "$gateway_env_wrapper" "$gateway_env_file" <<'PY'
+import os
+import plistlib
+import stat
+import sys
+
+path = sys.argv[1]
+provided_wrapper = sys.argv[2]
+provided_file = sys.argv[3]
+try:
+    info = os.lstat(path)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise SystemExit(0)
+    with open(path, "rb") as handle:
+        value = plistlib.load(handle)
+except (FileNotFoundError, OSError, plistlib.InvalidFileException):
+    raise SystemExit(0)
+arguments = value.get("ProgramArguments")
+if (
+    isinstance(arguments, list)
+    and len(arguments) >= 3
+    and all(isinstance(item, str) and item for item in arguments[:3])
+    and os.path.basename(arguments[2]) == "custom-runtime-launcher.sh"
+    and os.path.isabs(arguments[0])
+    and os.path.isabs(arguments[1])
+):
+    actual_wrapper = os.path.realpath(arguments[0])
+    actual_file = os.path.realpath(arguments[1])
+    if provided_wrapper and os.path.realpath(provided_wrapper) != actual_wrapper:
+        raise SystemExit(0)
+    if provided_file and os.path.realpath(provided_file) != actual_file:
+        raise SystemExit(0)
+    print(os.path.realpath(path))
+    print(actual_wrapper)
+    print(actual_file)
+PY
+) || fail gateway_environment_contract
+gateway_plist=$(printf '%s\n' "$gateway_environment" | sed -n '1p')
+gateway_env_wrapper=$(printf '%s\n' "$gateway_environment" | sed -n '2p')
+gateway_env_file=$(printf '%s\n' "$gateway_environment" | sed -n '3p')
+[ -n "$gateway_plist" ] && [ -n "$gateway_env_wrapper" ] && [ -n "$gateway_env_file" ] || \
+  fail gateway_environment_contract
+[ -f "$gateway_plist" ] && [ ! -L "$gateway_plist" ] || fail gateway_launch_agent
+[ -f "$gateway_env_wrapper" ] && [ ! -L "$gateway_env_wrapper" ] && \
+  [ -x "$gateway_env_wrapper" ] || fail gateway_env_wrapper
+[ -f "$gateway_env_file" ] && [ ! -L "$gateway_env_file" ] || fail gateway_env_file
+gateway_storage_paths=$(python3 - "$gateway_env_file" <<'PY'
+import os
+import shlex
+import sys
+
+path = sys.argv[1]
+values = {}
+for raw_line in open(path, encoding="utf-8"):
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        continue
+    try:
+        tokens = shlex.split(line, comments=False, posix=True)
+    except ValueError as error:
+        raise SystemExit(f"invalid Gateway environment file: {error}") from error
+    if len(tokens) != 2 or tokens[0] != "export" or "=" not in tokens[1]:
+        continue
+    key, value = tokens[1].split("=", 1)
+    if key not in ("OPENCLAW_CONFIG_PATH", "OPENCLAW_STATE_DIR"):
+        continue
+    if key in values and values[key] != value:
+        raise SystemExit(f"duplicate {key} in Gateway environment file")
+    values[key] = value
+for key in ("OPENCLAW_CONFIG_PATH", "OPENCLAW_STATE_DIR"):
+    value = values.get(key, "")
+    if not value or not os.path.isabs(value):
+        raise SystemExit(f"Gateway environment file does not bind an absolute {key}")
+    print(value)
+PY
+) || fail gateway_storage_contract
+gateway_config_path=$(printf '%s\n' "$gateway_storage_paths" | sed -n '1p')
+gateway_state_dir=$(printf '%s\n' "$gateway_storage_paths" | sed -n '2p')
+gateway_plist_sha=$(shasum -a 256 "$gateway_plist" | awk '{print $1}')
+gateway_env_wrapper_sha=$(shasum -a 256 "$gateway_env_wrapper" | awk '{print $1}')
+gateway_env_file_sha=$(shasum -a 256 "$gateway_env_file" | awk '{print $1}')
+backup_result=$("${OPENCLAW_NODE_BIN:-node}" "$backup_helper" create \
+  --runtime-home "$runtime_home" \
+  --config-path "$gateway_config_path" \
+  --state-dir "$gateway_state_dir" \
+  --gateway-plist "$gateway_plist" \
+  --gateway-env-wrapper "$gateway_env_wrapper") || fail verified_backup
+backup_fields=$(printf '%s' "$backup_result" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+for key in ("receiptPath", "receiptSha256", "sourceSha"):
+    item = value.get(key)
+    if not isinstance(item, str) or not item:
+        raise SystemExit(f"backup result omitted {key}")
+    print(item)
+if value.get("result") != "passed" or value.get("backupVerified") is not True or value.get("restoreDrill", {}).get("result") != "passed":
+    raise SystemExit("backup result did not pass")
+') || fail verified_backup
+backup_receipt=$(printf '%s\n' "$backup_fields" | sed -n '1p')
+backup_receipt_sha=$(printf '%s\n' "$backup_fields" | sed -n '2p')
+[ "$(printf '%s\n' "$backup_fields" | sed -n '3p')" = "$active_sha" ] || fail verified_backup
+assert_active_runtime_unchanged
+published_active_sha=$(git ls-remote "$source_remote" "refs/heads/$source_remote_branch" | \
+  awk 'NR == 1 { print $1 }') || fail durable_source_remote
+[ "$published_active_sha" = "$active_sha" ] || fail durable_source_remote
 
 if [ -z "$official_ref" ]; then
   stable_version=$(npm view openclaw dist-tags.latest 2>/dev/null | tr -d '[:space:]') || fail stable_version_lookup
-  case "$stable_version" in ''|*[!0-9.]*) fail stable_version_invalid ;; esac
+  printf '%s\n' "$stable_version" | grep -Eq \
+    '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' || fail stable_version_invalid
   official_ref="v$stable_version"
+fi
+case "$official_remote" in *[!A-Za-z0-9._-]*|'') fail official_remote_invalid ;; esac
+case "$official_url" in https://github.com/openclaw/openclaw.git) ;; *) fail official_url_invalid ;; esac
+if source_git remote get-url "$official_remote" >/dev/null 2>&1; then
+  [ "$(source_git remote get-url "$official_remote")" = "$official_url" ] || fail official_remote_mismatch
+else
+  source_git remote add "$official_remote" "$official_url" || fail official_remote_add
 fi
 source_git fetch --prune --tags "$official_remote" || fail fetch
 source_git rev-parse --verify "$official_ref^{commit}" >/dev/null 2>&1 || fail stable_ref
@@ -173,6 +395,56 @@ pnpm -C "$candidate" test \
   src/cli/daemon-cli/install.test.ts src/commands/daemon-install-helpers.test.ts \
   || fail custom_surface_tests
 [ -z "$(git -C "$candidate" status --porcelain)" ] || fail verified_source_drift
+github_proof_helper="$candidate/scripts/custom-runtime/custom-runtime-update-github-proof.mjs"
+[ -f "$github_proof_helper" ] && [ ! -L "$github_proof_helper" ] || fail github_proof_tool
+github_proof_receipt="$receipts/update-github-proof-$stamp.json"
+github_proof_result=$("${OPENCLAW_NODE_BIN:-node}" "$github_proof_helper" run \
+  --source "$candidate" --sha "$sha" --branch "$update_branch" \
+  --receipt "$github_proof_receipt") || fail github_proof
+github_proof_fields=$(printf '%s' "$github_proof_result" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+for key in ("receiptPath", "receiptSha256", "sourceSha"):
+    item = value.get(key)
+    if not isinstance(item, str) or not item:
+        raise SystemExit(f"GitHub proof result omitted {key}")
+    print(item)
+if value.get("result") != "passed":
+    raise SystemExit("GitHub proof did not pass")
+') || fail github_proof
+github_proof_receipt=$(printf '%s\n' "$github_proof_fields" | sed -n '1p')
+github_proof_receipt_sha=$(printf '%s\n' "$github_proof_fields" | sed -n '2p')
+[ "$(printf '%s\n' "$github_proof_fields" | sed -n '3p')" = "$sha" ] || fail github_proof
+[ "$(git -C "$candidate" rev-parse HEAD)" = "$sha" ] || fail github_proof_source_drift
+[ -z "$(git -C "$candidate" status --porcelain --untracked-files=all)" ] || \
+  fail github_proof_source_drift
+assert_active_runtime_unchanged
+candidate_provenance=$("${OPENCLAW_NODE_BIN:-node}" \
+  "$candidate/scripts/custom-runtime/custom-runtime-source-provenance.mjs" import \
+  --source "$candidate" --source-sha "$sha" --runtime-home "$runtime_home" \
+  --source-remote "https://github.com/SnowBelt/openclaw.git" \
+  --source-remote-branch "$update_branch") \
+  || fail candidate_source_provenance
+candidate_provenance_fields=$(printf '%s' "$candidate_provenance" | python3 -c '
+import json, sys
+value = json.load(sys.stdin)
+for key in ("recordPath", "treeSha", "objectFormat", "storePath", "bundlePath", "bundleSha256", "sourceRemote", "sourceRemoteBranch"):
+    item = value.get(key)
+    if not isinstance(item, str) or not item:
+        raise SystemExit(f"candidate provenance omitted {key}")
+    print(item)
+') || fail candidate_source_provenance
+candidate_provenance_record=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '1p')
+candidate_provenance_tree=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '2p')
+candidate_provenance_format=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '3p')
+candidate_provenance_store=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '4p')
+candidate_provenance_bundle=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '5p')
+candidate_provenance_bundle_sha=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '6p')
+candidate_source_remote=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '7p')
+candidate_source_remote_branch=$(printf '%s\n' "$candidate_provenance_fields" | sed -n '8p')
+candidate_provenance_record_sha=$(shasum -a 256 "$candidate_provenance_record" | awk '{print $1}')
+repo=$candidate_provenance_store
+branch="refs/provenance/$sha"
 short_sha=$(printf '%s' "$sha" | cut -c1-8)
 release="$releases/$stamp-$short_sha"
 [ ! -e "$release" ] || fail release_exists
@@ -195,10 +467,35 @@ else
     "$candidate/" "$release/" || fail snapshot
 fi
 printf '%s\n' "$sha" > "$release/.openclaw-production-sha"
-python3 - "$candidate/.artifacts/openclaw-gateway-runtime/latest.json" "$release" <<'PY'
+python3 - "$release/.openclaw-runtime-provenance.json" "$sha" \
+  "$candidate_provenance_tree" "$candidate_provenance_format" "$candidate_provenance_record" \
+  "$candidate_provenance_record_sha" "$candidate_provenance_store" "$candidate_provenance_bundle" \
+  "$candidate_provenance_bundle_sha" "$candidate_source_remote" \
+  "$candidate_source_remote_branch" <<'PY'
 import json, os, sys
 
-latest_path, release = sys.argv[1:]
+target, source_sha, tree_sha, object_format, record_path, record_sha, store_path, bundle_path, bundle_sha, source_remote, source_remote_branch = sys.argv[1:]
+with open(target, "w", encoding="utf-8") as f:
+    json.dump({
+        "schema": "openclaw.custom-runtime-runtime-provenance.v1",
+        "sourceSha": source_sha,
+        "treeSha": tree_sha,
+        "objectFormat": object_format,
+        "recordPath": os.path.realpath(record_path),
+        "recordSha256": record_sha,
+        "storePath": os.path.realpath(store_path),
+        "bundlePath": os.path.realpath(bundle_path),
+        "bundleSha256": bundle_sha,
+        "sourceRemote": source_remote,
+        "sourceRemoteBranch": source_remote_branch,
+    }, f, indent=2, sort_keys=True)
+    f.write("\n")
+PY
+python3 - "$candidate/.artifacts/openclaw-gateway-runtime/latest.json" "$release" \
+  "$repo" <<'PY'
+import hashlib, json, os, sys
+
+latest_path, release, source_repo = sys.argv[1:]
 with open(latest_path, encoding="utf-8") as f:
     latest = json.load(f)
 snapshot_root = latest.get("root")
@@ -209,6 +506,15 @@ with open(os.path.join(snapshot_root, "snapshot.json"), encoding="utf-8") as f:
 if snapshot.get("root") != snapshot_root:
     raise SystemExit("latest Gateway runtime snapshot provenance root mismatch")
 snapshot["root"] = release
+source = snapshot.get("source")
+if not isinstance(source, dict):
+    raise SystemExit("latest Gateway runtime snapshot source is missing")
+provenance_path = os.path.join(release, ".openclaw-runtime-provenance.json")
+with open(provenance_path, "rb") as f:
+    provenance_sha = hashlib.sha256(f.read()).hexdigest()
+source["root"] = source_repo
+source["provenancePath"] = provenance_path
+source["provenanceSha256"] = provenance_sha
 snapshot["paths"] = {
     "entrypoint": os.path.join(release, "dist", "index.js"),
     "controlUi": os.path.join(release, "dist", "control-ui"),
@@ -219,12 +525,17 @@ with open(target, "w", encoding="utf-8") as f:
     json.dump(snapshot, f, indent=2, sort_keys=True)
     f.write("\n")
 PY
+assert_active_runtime_unchanged
 "$(dirname "$0")/custom-runtime-seal.sh" --seal --release "$release" || fail release_seal
+assert_active_runtime_unchanged
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
-  "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" "$survival_receipt" \
-  "$survival_receipt_sha" "$verification_commands" <<'PY'
+  "$official_ref" "$active_sha" "$sha" "$repo" "$branch" "$survival_receipt" \
+  "$survival_receipt_sha" "$verification_commands" "$backup_receipt" \
+  "$backup_receipt_sha" "$github_proof_receipt" "$github_proof_receipt_sha" \
+  "$gateway_plist" "$gateway_plist_sha" "$gateway_env_wrapper" \
+  "$gateway_env_wrapper_sha" "$gateway_env_file" "$gateway_env_file_sha" <<'PY'
 import json, os, sys
-receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, proof_path, proof_sha, commands_path = sys.argv[1:]
+receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, proof_path, proof_sha, commands_path, backup_path, backup_sha, github_path, github_sha, gateway_plist, gateway_plist_sha, gateway_wrapper, gateway_wrapper_sha, gateway_env_file, gateway_env_file_sha = sys.argv[1:]
 with open(commands_path, encoding="utf-8") as f:
     verification_commands = [line.rstrip("\n") for line in f if line.strip()]
 data = {
@@ -245,6 +556,26 @@ data = {
     },
     "verificationCommands": verification_commands,
     "verificationResult": "passed",
+    "verifiedBackup": {
+        "path": os.path.realpath(backup_path),
+        "sha256": backup_sha,
+        "schema": "openclaw.custom-runtime-update-backup.v2",
+        "sourceSha": base_sha,
+    },
+    "repositoryProof": {
+        "path": os.path.realpath(github_path),
+        "sha256": github_sha,
+        "schema": "openclaw.custom-runtime-github-proof.v1",
+        "sourceSha": source_sha,
+    },
+    "gatewayLaunchAgent": {
+        "path": os.path.realpath(gateway_plist),
+        "sha256": gateway_plist_sha,
+    },
+    "gatewayEnvironment": {
+        "wrapper": {"path": os.path.realpath(gateway_wrapper), "sha256": gateway_wrapper_sha},
+        "file": {"path": os.path.realpath(gateway_env_file), "sha256": gateway_env_file_sha},
+    },
 }
 for target in (receipt, pending):
     temporary = target + ".tmp"

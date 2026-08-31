@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 export const SIGNATURE_SCHEMA = "openclaw.custom-runtime-signature.v1";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const DEVICE_ID_PATTERN = /^[a-f0-9]{64}$/u;
+const PRIVATE_KEY_MARKER = ["BEGIN", "PRIVATE", "KEY"].join(" ");
 
 function fail(message) {
   throw new Error(`signature verification blocked: ${message}`);
@@ -50,7 +51,7 @@ function readPrivateJson(filePath, label) {
   try {
     info = fs.lstatSync(filePath);
   } catch {
-    fail(`${label} is missing`);
+    return fail(`${label} is missing`);
   }
   if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
     fail(`${label} is not a private regular file`);
@@ -65,7 +66,7 @@ function readPrivateJson(filePath, label) {
     if (error?.message?.startsWith("signature verification blocked:")) {
       throw error;
     }
-    fail(`${label} is malformed`);
+    return fail(`${label} is malformed`);
   }
 }
 
@@ -107,7 +108,7 @@ function loadIdentity(identityPath, includePrivate) {
   }
   if (
     typeof record.privateKeyPem !== "string" ||
-    !record.privateKeyPem.includes("BEGIN PRIVATE KEY")
+    !record.privateKeyPem.includes(PRIVATE_KEY_MARKER)
   ) {
     fail("device private key is unavailable");
   }

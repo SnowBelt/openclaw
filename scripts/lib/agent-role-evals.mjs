@@ -1722,7 +1722,7 @@ export function evaluateAapaPlaybookText(visibleText, options = {}) {
     issues.push("model_route must contain exactly its ten keys");
   }
   for (const field of routeKeys.filter(
-    (field) => !["escalation_required", "approval_required"].includes(field),
+    (routeKey) => !["escalation_required", "approval_required"].includes(routeKey),
   )) {
     checkAapaString(route?.[field], `model_route.${field}`, issues, 180);
   }

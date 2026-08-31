@@ -2166,12 +2166,36 @@ function renderUpdateSafetyDrawer(props: PccDashboardProps) {
           <dd>${safety.brokerConfigured ? "Scheduled" : "Missing or inactive"}</dd>
         </div>
         <div>
+          <dt>Recovery backup</dt>
+          <dd>
+            ${safety.backupConfigured
+              ? "Configured; verified during preparation"
+              : "Drive unavailable"}
+          </dd>
+        </div>
+        <div>
           <dt>Runtime guard</dt>
           <dd>${safety.runtimeGuardConfigured ? "Scheduled" : "Missing or inactive"}</dd>
         </div>
         <div>
           <dt>Approval</dt>
           <dd>${safety.approvalPending ? "Waiting for you" : "No candidate waiting"}</dd>
+        </div>
+        <div>
+          <dt>Prepared candidate</dt>
+          <dd>
+            ${safety.pendingCandidateSha
+              ? safety.pendingCandidateSha.slice(0, 12)
+              : "No candidate waiting"}
+          </dd>
+        </div>
+        <div>
+          <dt>Preparation</dt>
+          <dd>
+            ${safety.preparationStatus}${safety.preparationReason
+              ? `: ${safety.preparationReason.replaceAll("_", " ").replaceAll("-", " ")}`
+              : ""}
+          </dd>
         </div>
         <div>
           <dt>Source</dt>
@@ -2195,6 +2219,9 @@ function renderUpdateSafetyDrawer(props: PccDashboardProps) {
             ${safety.issues.map((issue) => html`<li>${issue}</li>`)}
           </ul>`
         : html`<p>All update-preservation controls are healthy.</p>`}
+      ${safety.recommendedAction
+        ? html`<p class="callout warn" role="alert">${safety.recommendedAction}</p>`
+        : nothing}
     </section>
   </details>`;
 }

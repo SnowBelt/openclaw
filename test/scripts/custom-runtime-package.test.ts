@@ -32,6 +32,15 @@ function writeFile(root: string, relativePath: string, contents = `${relativePat
   fs.writeFileSync(target, contents);
 }
 
+function createRemote(sourceRoot: string, sourceSha: string, branch: string): string {
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-remote-"));
+  roots.push(remote);
+  runGit(remote, ["init", "--bare", "-q"]);
+  runGit(sourceRoot, ["remote", "add", "provenance", remote]);
+  runGit(sourceRoot, ["push", "--quiet", remote, `${sourceSha}:refs/heads/${branch}`]);
+  return remote;
+}
+
 function createRepository(
   options: {
     includeSourceImport?: boolean;
@@ -156,7 +165,13 @@ describe("custom managed-runtime packaging", () => {
     });
     writeBuildSnapshot(root, candidateSha);
     const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
+    const provenanceRuntimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-runtime-package-provenance-"),
+    );
     roots.push(releasesDir);
+    roots.push(provenanceRuntimeHome);
+    const sourceRemoteBranch = "codex/runtime-update-20260829T120000Z";
+    const sourceRemote = createRemote(root, candidateSha, sourceRemoteBranch);
 
     const result = assembleManagedRuntimePackage({
       sourceRoot: root,
@@ -164,6 +179,9 @@ describe("custom managed-runtime packaging", () => {
       sourceSha: candidateSha,
       activeSha,
       releaseId: "candidate-release",
+      provenanceRuntimeHome,
+      sourceRemote,
+      sourceRemoteBranch,
       seal: false,
       deploy({ stagingRoot }) {
         writeFile(stagingRoot, "package.json", '{"name":"openclaw"}\n');
@@ -180,6 +198,17 @@ describe("custom managed-runtime packaging", () => {
       artifactHash: result.artifactHash,
       runtimeClosureVersion: 1,
       runtimeClosureHash: result.runtimeClosureHash,
+    });
+    const provenance = JSON.parse(
+      fs.readFileSync(path.join(result.releaseRoot, ".openclaw-runtime-provenance.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(provenance).toMatchObject({
+      sourceSha: candidateSha,
+      storePath: expect.stringContaining("source-provenance"),
+      bundlePath: expect.stringContaining("source.bundle"),
+      bundleSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      sourceRemote,
+      sourceRemoteBranch,
     });
     expect(fs.realpathSync(path.join(result.releaseRoot, "node_modules/pdfjs-dist"))).toContain(
       result.releaseRoot,

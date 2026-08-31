@@ -29,16 +29,37 @@ const isRestartEnabledMock = vi.fn(() => true);
 const readPackageVersionMock = vi.fn(async () => "1.0.0");
 const detectRespawnSupervisorMock = vi.fn<() => RespawnSupervisor | null>(() => null);
 const normalizeUpdateChannelMock = vi.fn((): UpdateChannel | null => null);
-const resolveCustomRuntimeUpdatePolicyMock = vi.fn<() => CustomRuntimeUpdatePolicy>(() => ({
-  managedRuntime: false,
-  standardUpdateBlocked: false,
-  sourceDurable: false,
-  sourceSha: null,
-  sourceRepo: null,
-  sourceBranch: null,
-  runtimeRoot: null,
-  pointerPath: "/tmp/active-runtime.json",
-  reason: "not managed",
+const resolveCustomRuntimeUpdatePolicyMock = vi.fn<() => Promise<CustomRuntimeUpdatePolicy>>(
+  async () => ({
+    managedRuntime: false,
+    standardUpdateBlocked: false,
+    sourceDurable: false,
+    sourceDurabilityReason: "not durable",
+    runtimeGuardHealthy: false,
+    runtimeGuardReason: "not healthy",
+    backupConfigured: false,
+    approvalPending: false,
+    pendingCandidateSha: null,
+    preparationRunning: false,
+    preparationStatus: "blocked",
+    preparationReason: "invalid-active-runtime-pointer",
+    sourceSha: null,
+    sourceRepo: null,
+    sourceBranch: null,
+    runtimeRoot: null,
+    pointerPath: "/tmp/active-runtime.json",
+    reason: "not managed",
+  }),
+);
+const startCustomRuntimeUpdateBrokerMock = vi.fn(() => ({
+  action: "prepare" as const,
+  pid: 23456,
+  reason: "custom-runtime-update-preparation-started",
+}));
+const startCustomRuntimeUpdateApprovalMock = vi.fn(() => ({
+  action: "install" as const,
+  pid: 23457,
+  reason: "custom-runtime-update-approval-started",
 }));
 const readConfigFileSnapshotMock = vi.fn<() => Promise<ConfigFileSnapshot>>();
 const startManagedServiceUpdateHandoffMock = vi.fn(async () => ({
@@ -106,8 +127,17 @@ vi.mock("../../infra/openclaw-root.js", async () => {
 });
 
 vi.mock("../../infra/custom-runtime-update-policy.js", () => ({
-  CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON: "custom-runtime-update-broker-required",
   resolveCustomRuntimeUpdatePolicy: resolveCustomRuntimeUpdatePolicyMock,
+}));
+
+vi.mock("../../infra/custom-runtime-update-broker.js", () => ({
+  CUSTOM_RUNTIME_UPDATE_APPROVAL_STARTED_REASON: "custom-runtime-update-approval-started",
+  CUSTOM_RUNTIME_UPDATE_EXACT_SHA_APPROVAL_REQUIRED_REASON:
+    "custom-runtime-update-exact-sha-approval-required",
+  CUSTOM_RUNTIME_UPDATE_PREPARATION_RUNNING_REASON: "custom-runtime-update-preparation-running",
+  CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON: "custom-runtime-update-safety-blocked",
+  startCustomRuntimeUpdateApproval: startCustomRuntimeUpdateApprovalMock,
+  startCustomRuntimeUpdateBroker: startCustomRuntimeUpdateBrokerMock,
 }));
 
 vi.mock("../../infra/restart-sentinel.js", async () => {
@@ -232,10 +262,19 @@ beforeEach(() => {
   detectRespawnSupervisorMock.mockReset();
   detectRespawnSupervisorMock.mockReturnValue(null);
   resolveCustomRuntimeUpdatePolicyMock.mockReset();
-  resolveCustomRuntimeUpdatePolicyMock.mockReturnValue({
+  resolveCustomRuntimeUpdatePolicyMock.mockResolvedValue({
     managedRuntime: false,
     standardUpdateBlocked: false,
     sourceDurable: false,
+    sourceDurabilityReason: "not durable",
+    runtimeGuardHealthy: false,
+    runtimeGuardReason: "not healthy",
+    backupConfigured: false,
+    approvalPending: false,
+    pendingCandidateSha: null,
+    preparationRunning: false,
+    preparationStatus: "blocked",
+    preparationReason: "invalid-active-runtime-pointer",
     sourceSha: null,
     sourceRepo: null,
     sourceBranch: null,
@@ -243,6 +282,8 @@ beforeEach(() => {
     pointerPath: "/tmp/active-runtime.json",
     reason: "not managed",
   });
+  startCustomRuntimeUpdateBrokerMock.mockClear();
+  startCustomRuntimeUpdateApprovalMock.mockClear();
   runGatewayUpdateMock.mockClear();
   runGatewayUpdateMock.mockResolvedValue({
     status: "ok",
@@ -345,11 +386,20 @@ function mockGitInstallSurface(root: string) {
 }
 
 describe("custom runtime update safety", () => {
-  it("blocks update.run before any generic update or handoff is started", async () => {
-    resolveCustomRuntimeUpdatePolicyMock.mockReturnValueOnce({
+  it("starts only isolated preparation before any generic update is run", async () => {
+    resolveCustomRuntimeUpdatePolicyMock.mockResolvedValueOnce({
       managedRuntime: true,
       standardUpdateBlocked: true,
       sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
+      backupConfigured: true,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "idle",
+      preparationReason: null,
       sourceSha: "a".repeat(40),
       sourceRepo: "/source",
       sourceBranch: "codex/custom-runtime",
@@ -361,17 +411,60 @@ describe("custom runtime update safety", () => {
     const payload = await captureUpdateRunPayload();
 
     expect(payload).toMatchObject({
-      ok: false,
+      ok: true,
       result: {
         status: "skipped",
         mode: "unknown",
-        reason: "custom-runtime-update-broker-required",
+        reason: "custom-runtime-update-preparation-started",
       },
+      handoff: { status: "started", command: "Prepare verified update" },
       restart: null,
     });
+    expect(startCustomRuntimeUpdateBrokerMock).toHaveBeenCalledTimes(1);
     expect(resolveUpdateInstallSurfaceMock).not.toHaveBeenCalled();
     expect(runGatewayUpdateMock).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
+  });
+
+  it("starts exact-SHA installation only for the prepared candidate", async () => {
+    const candidateSha = "b".repeat(40);
+    resolveCustomRuntimeUpdatePolicyMock.mockResolvedValueOnce({
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
+      backupConfigured: true,
+      approvalPending: true,
+      pendingCandidateSha: candidateSha,
+      preparationRunning: false,
+      preparationStatus: "ready",
+      preparationReason: "ready-for-approval",
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source",
+      sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+      runtimeRoot: "/managed/release",
+      pointerPath: "/managed/active-runtime.json",
+      reason: "managed",
+    });
+
+    const payload = await captureUpdateRunPayload({ approvalSha: candidateSha });
+
+    expect(payload).toMatchObject({
+      ok: true,
+      result: {
+        status: "skipped",
+        reason: "custom-runtime-update-approval-started",
+      },
+      handoff: { status: "started", command: "Install verified update" },
+      restart: null,
+    });
+    expect(startCustomRuntimeUpdateApprovalMock).toHaveBeenCalledWith({
+      policy: expect.objectContaining({ pendingCandidateSha: candidateSha }),
+      approvalSha: candidateSha,
+    });
+    expect(startCustomRuntimeUpdateBrokerMock).not.toHaveBeenCalled();
   });
 });
 

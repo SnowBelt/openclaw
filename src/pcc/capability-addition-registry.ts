@@ -106,7 +106,6 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     tests: [
       "extensions/research-manager/index.test.ts",
       "extensions/research-manager/manifest.test.ts",
-      "extensions/research-manager/src/runtime.test.ts",
     ],
     proofSurfaces: [
       "pnpm test extensions/research-manager",
@@ -165,6 +164,7 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "ui/src/ui/chat/layout-health.test.ts",
       "src/gateway/chat-turn-inbox-state.test.ts",
       "src/gateway/server-methods/self-improvement.test.ts",
+      "src/agents/tools/curator-tools.test.ts",
       "test/scripts/control-ui-production-chat-stack.test.ts",
     ],
     proofSurfaces: [
@@ -374,17 +374,29 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     owner: "Custom runtime update broker",
     tests: [
       "src/infra/custom-runtime-update-policy.test.ts",
+      "src/infra/custom-runtime-update-broker.test.ts",
+      "src/infra/custom-runtime-surface-lease.test.ts",
       "src/pcc/update-safety.test.ts",
       "test/scripts/custom-runtime-lifecycle.test.ts",
       "test/scripts/custom-runtime-update-survival.test.ts",
       "test/scripts/custom-runtime-updater.test.ts",
+      "test/scripts/custom-runtime-update-backup.test.ts",
+      "test/scripts/custom-runtime-update-github-proof.test.ts",
+      "test/scripts/custom-runtime-source-provenance.test.ts",
       "src/gateway/server-methods/update.test.ts",
+      "packages/gateway-protocol/src/index.test.ts",
+      "test/scripts/custom-runtime-package.test.ts",
+      "ui/src/app/overlays.test.ts",
+      "ui/src/ui/controllers/config.test.ts",
     ],
     proofSurfaces: [
       "pnpm check:custom-runtime-capabilities",
+      "pnpm protocol:check",
       "pnpm custom-runtime:update-survival",
+      ".github/workflows/ci.yml trusted default-branch target_ref proof on GitHub-hosted runners",
       "PCC Update Safety dashboard scheduled-broker and recovery-guard status",
       "exact-parent candidate preservation and approval receipts",
+      "SnowBelt repository-native exact-SHA proof receipt",
     ],
   },
   {

@@ -14,8 +14,8 @@ export const SOURCE_PROVENANCE_MIGRATION_SCHEMA =
   "openclaw.custom-runtime-source-provenance-migration.v1";
 
 const SHA_PATTERN = /^[a-f0-9]{40,64}$/u;
-const RELEASE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/u;
 
+/** @returns {never} */
 function fail(message) {
   throw new Error(`source provenance blocked: ${message}`);
 }
@@ -46,12 +46,26 @@ function runGit(args, cwd) {
     }).trim();
   } catch (error) {
     const detail = error?.stderr?.toString("utf8") || error?.message || String(error);
-    fail(`git ${args.join(" ")} failed: ${detail.trim()}`);
+    return fail(`git ${args.join(" ")} failed: ${detail.trim()}`);
   }
 }
 
 function runGitDir(gitDir, args) {
   return runGit(["--git-dir", gitDir, ...args], undefined);
+}
+
+function runRemoteGit(args) {
+  try {
+    return execFileSync("git", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 8 * 1024 * 1024,
+      timeout: 30_000,
+    }).trim();
+  } catch (error) {
+    const detail = error?.stderr?.toString("utf8") || error?.message || String(error);
+    return fail(`git ${args.join(" ")} failed: ${detail.trim()}`);
+  }
 }
 
 function lstatRegular(filePath, label) {
@@ -143,7 +157,7 @@ function readPrivateJson(filePath, label) {
     if (error?.message?.startsWith("source provenance blocked:")) {
       throw error;
     }
-    fail(`${label} is malformed`);
+    return fail(`${label} is malformed`);
   }
 }
 
@@ -155,7 +169,7 @@ function resolvePrivateRoot(runtimeHome) {
   return root;
 }
 
-function inspectSource(sourceRoot, sourceSha) {
+function inspectSource(sourceRoot, sourceSha, sourceRemoteOverride, sourceRemoteBranch) {
   if (!isSha(sourceSha)) {
     fail("source commit must be an exact lowercase Git object id");
   }
@@ -184,16 +198,48 @@ function inspectSource(sourceRoot, sourceSha) {
   }
   runGit(["cat-file", "-e", `${sourceSha}^{commit}`], root);
   const treeSha = runGit(["rev-parse", `${sourceSha}^{tree}`], root);
-  let sourceRemote = "";
-  try {
-    sourceRemote = runGit(["remote", "get-url", "origin"], root);
-  } catch {
-    // A recovery source may be local-only; the immutable objects remain valid.
+  const requestedRemote = sourceRemoteOverride?.trim() ?? "";
+  const remoteBranch = sourceRemoteBranch?.trim() ?? "";
+  if (requestedRemote && !remoteBranch) {
+    fail("source remote and branch must be provided together");
+  }
+  let sourceRemote = requestedRemote;
+  if (!sourceRemote && remoteBranch) {
+    try {
+      sourceRemote = runGit(["remote", "get-url", "origin"], root);
+    } catch {
+      // A recovery source may be local-only; the immutable objects remain valid.
+    }
+  }
+  // An origin URL without an explicitly bound branch is only checkout metadata,
+  // not durable provenance. Recording it alone creates a record the verifier
+  // must reject because remote and branch identity are one contract.
+  if (!remoteBranch) {
+    sourceRemote = "";
+  }
+  if (Boolean(sourceRemote) !== Boolean(remoteBranch)) {
+    fail("source remote and branch must be provided together");
   }
   if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*@/iu.test(sourceRemote)) {
     fail("source origin contains embedded credentials");
   }
-  return { root, sourceSha, treeSha, objectFormat, sourceRemote };
+  if (remoteBranch) {
+    runGit(["check-ref-format", "--branch", remoteBranch], root);
+    const remoteRef = `refs/heads/${remoteBranch}`;
+    const remoteResult = runRemoteGit([
+      "ls-remote",
+      "--heads",
+      "--exit-code",
+      sourceRemote,
+      remoteRef,
+    ]);
+    const remoteLine = remoteResult.split(/\r?\n/u).find((line) => line.trim());
+    const [remoteSha, resolvedRef] = remoteLine?.trim().split(/\s+/u) ?? [];
+    if (remoteSha !== sourceSha || resolvedRef !== remoteRef) {
+      fail("source remote branch does not resolve to the source SHA");
+    }
+  }
+  return { root, sourceSha, treeSha, objectFormat, sourceRemote, sourceRemoteBranch: remoteBranch };
 }
 
 function verifyGitStore(storePath, sourceSha, treeSha, objectFormat) {
@@ -217,6 +263,28 @@ function verifyGitStore(storePath, sourceSha, treeSha, objectFormat) {
   const actualTree = runGitDir(storePath, ["rev-parse", `${sourceSha}^{tree}`]);
   if (actualTree !== treeSha) {
     fail(`provenance tree ${actualTree} differs from ${treeSha}`);
+  }
+}
+
+function verifyRemoteIdentity(storePath, sourceRemote, sourceRemoteBranch, sourceSha) {
+  if (Boolean(sourceRemote) !== Boolean(sourceRemoteBranch)) {
+    fail("source remote and branch must be recorded together");
+  }
+  if (!sourceRemote) {
+    return;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*@/iu.test(sourceRemote)) {
+    fail("source origin contains embedded credentials");
+  }
+  runGitDir(storePath, ["check-ref-format", "--branch", sourceRemoteBranch]);
+  if (runGitDir(storePath, ["remote", "get-url", "origin"]) !== sourceRemote) {
+    fail("provenance Git store origin does not match the recorded source remote");
+  }
+  if (
+    runGitDir(storePath, ["rev-parse", `refs/remotes/origin/${sourceRemoteBranch}^{commit}`]) !==
+    sourceSha
+  ) {
+    fail("provenance Git store remote branch does not match the source SHA");
   }
 }
 
@@ -277,8 +345,10 @@ export function importSourceProvenance({
   sourceSha,
   runtimeHome,
   historicalSourceSha,
+  sourceRemote,
+  sourceRemoteBranch,
 }) {
-  const source = inspectSource(sourceRoot, sourceSha);
+  const source = inspectSource(sourceRoot, sourceSha, sourceRemote, sourceRemoteBranch);
   const root = resolvePrivateRoot(runtimeHome);
   const finalDirectory = path.join(root, sourceSha);
   const finalStore = path.join(finalDirectory, "store.git");
@@ -292,6 +362,12 @@ export function importSourceProvenance({
     });
     if (existing.treeSha !== source.treeSha || existing.objectFormat !== source.objectFormat) {
       fail("existing provenance identity differs from source");
+    }
+    if (
+      (source.sourceRemote && existing.sourceRemote !== source.sourceRemote) ||
+      (source.sourceRemoteBranch && existing.sourceRemoteBranch !== source.sourceRemoteBranch)
+    ) {
+      fail("existing provenance remote identity differs from source");
     }
     return existing;
   }
@@ -314,6 +390,13 @@ export function importSourceProvenance({
     if (source.sourceRemote) {
       runGitDir(temporaryStore, ["remote", "add", "origin", source.sourceRemote]);
     }
+    if (source.sourceRemoteBranch) {
+      runGitDir(temporaryStore, [
+        "update-ref",
+        `refs/remotes/origin/${source.sourceRemoteBranch}`,
+        source.sourceSha,
+      ]);
+    }
     verifyGitStore(temporaryStore, source.sourceSha, source.treeSha, source.objectFormat);
     bundleStore(temporaryStore, `refs/provenance/${source.sourceSha}`, temporaryBundle);
     independentBundleCheck(
@@ -333,6 +416,7 @@ export function importSourceProvenance({
       objectFormat: source.objectFormat,
       sourceInputRoot: source.root,
       ...(source.sourceRemote ? { sourceRemote: source.sourceRemote } : {}),
+      ...(source.sourceRemoteBranch ? { sourceRemoteBranch: source.sourceRemoteBranch } : {}),
       storePath: finalStore,
       bundlePath: finalBundle,
       bundleSha256: sha256File(temporaryBundle),
@@ -381,10 +465,15 @@ export function verifySourceProvenance({ recordPath, expectedSha, deep = false }
     fail("provenance bundle hash does not match");
   }
   verifyGitStore(storePath, record.sourceSha, record.treeSha, record.objectFormat);
+  const sourceRemote = typeof record.sourceRemote === "string" ? record.sourceRemote.trim() : "";
+  const sourceRemoteBranch =
+    typeof record.sourceRemoteBranch === "string" ? record.sourceRemoteBranch.trim() : "";
+  verifyRemoteIdentity(storePath, sourceRemote, sourceRemoteBranch, record.sourceSha);
   // The helper is called by launchd with no repository cwd. Verify against the
   // already hash- and tree-verified private store instead of process cwd.
   runGitDir(storePath, ["bundle", "verify", bundlePath]);
   if (deep) {
+    runGitDir(storePath, ["fsck", "--full", "--strict"]);
     const temporaryRoot = fs.mkdtempSync(path.join(directory, ".verify-"));
     fs.chmodSync(temporaryRoot, 0o700);
     try {
@@ -408,12 +497,16 @@ function createRecoveryRoot({
   historicalSourceSha,
   runtimeHome,
   activeRelease,
+  sourceRemote,
+  sourceRemoteBranch,
 }) {
   const imported = importSourceProvenance({
     sourceRoot,
     sourceSha,
     runtimeHome,
     historicalSourceSha,
+    sourceRemote,
+    sourceRemoteBranch,
   });
   const storePath = path.resolve(imported.storePath);
   const treeSha = imported.treeSha;
@@ -569,6 +662,8 @@ if (isMainModule()) {
         runtimeHome:
           values.get("runtime-home") || path.join(os.homedir(), ".openclaw-custom-runtime"),
         historicalSourceSha: values.get("historical-source-sha"),
+        sourceRemote: values.get("source-remote"),
+        sourceRemoteBranch: values.get("source-remote-branch"),
       });
       process.stdout.write(`${JSON.stringify(result)}\n`);
     } else if (command === "verify") {
@@ -589,6 +684,8 @@ if (isMainModule()) {
         runtimeHome:
           values.get("runtime-home") || path.join(os.homedir(), ".openclaw-custom-runtime"),
         activeRelease: values.get("active-release"),
+        sourceRemote: values.get("source-remote"),
+        sourceRemoteBranch: values.get("source-remote-branch"),
       });
       process.stdout.write(`${JSON.stringify(result)}\n`);
     } else if (command === "verify-migration") {

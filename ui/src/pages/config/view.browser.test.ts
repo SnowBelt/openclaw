@@ -4,6 +4,27 @@ import { describe, expect, it, vi } from "vitest";
 import type { ThemeMode, ThemeName } from "../../app/theme.ts";
 import { createConfigViewState, renderConfig, type ConfigProps } from "./view.ts";
 
+const unmanagedUpdateSafety = {
+  managedRuntime: false,
+  standardUpdateBlocked: false,
+  sourceDurable: false,
+  sourceDurabilityReason: "not-managed",
+  runtimeGuardHealthy: false,
+  runtimeGuardReason: "not-managed",
+  backupConfigured: false,
+  approvalPending: false,
+  pendingCandidateSha: null,
+  preparationRunning: false,
+  preparationStatus: "idle",
+  preparationReason: null,
+  sourceSha: null,
+  sourceRepo: null,
+  sourceBranch: null,
+  runtimeRoot: null,
+  pointerPath: "",
+  reason: "not-managed",
+} as const;
+
 describe("config view", () => {
   const baseProps = () => ({
     raw: "{\n}\n",
@@ -14,6 +35,7 @@ describe("config view", () => {
     saving: false,
     applying: false,
     updating: false,
+    updateSafety: unmanagedUpdateSafety,
     connected: true,
     schema: {
       type: "object",
@@ -220,6 +242,51 @@ describe("config view", () => {
     expect(onReset).toHaveBeenCalledTimes(1);
   });
 
+  it("binds managed installation to the exact prepared candidate", () => {
+    const candidateSha = "a".repeat(40);
+    const onUpdate = vi.fn();
+    const { container } = renderConfigView({
+      onUpdate,
+      updateSafety: {
+        ...unmanagedUpdateSafety,
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        sourceDurable: true,
+        sourceDurabilityReason: "verified",
+        runtimeGuardHealthy: true,
+        runtimeGuardReason: "verified",
+        backupConfigured: true,
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+        preparationStatus: "ready",
+        reason: "verified-update-ready",
+      },
+    });
+
+    const updateButton = findButtonByText(container, "Install verified update");
+    expect(updateButton.disabled).toBe(false);
+    updateButton.click();
+    expect(onUpdate).toHaveBeenCalledExactlyOnceWith(candidateSha);
+  });
+
+  it("fails closed when managed update protection is incomplete", () => {
+    const onUpdate = vi.fn();
+    const { container } = renderConfigView({
+      onUpdate,
+      updateSafety: {
+        ...unmanagedUpdateSafety,
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        preparationReason: "invalid-active-runtime-pointer",
+      },
+    });
+
+    const updateButton = findButtonByText(container, "Update protection needs attention.");
+    expect(updateButton.disabled).toBe(true);
+    updateButton.click();
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
   it("renders inline progress inside busy action buttons without locking adjacent controls", () => {
     const container = document.createElement("div");
     const renderCase = (overrides: Partial<ConfigProps>) =>
@@ -314,7 +381,7 @@ describe("config view", () => {
     const actionButtons = queryRequired(container, ".config-actions__buttons", HTMLElement);
     expect(
       [...actionButtons.querySelectorAll("button")].map((button) => button.textContent?.trim()),
-    ).toEqual(["Reload", "Clear", "Save", "Apply", "Update"]);
+    ).toEqual(["Reload", "Clear", "Save", "Apply", "Update now"]);
     expect(container.querySelector(".config-raw-field")).toBeNull();
 
     rawButton.click();

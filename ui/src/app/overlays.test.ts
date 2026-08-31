@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient, GatewayEventFrame } from "../api/gateway.ts";
 import type { ApplicationGateway, ApplicationGatewaySnapshot } from "./gateway.ts";
 import { createApplicationOverlays } from "./overlays.ts";
+import "../components/update-banner.ts";
 
 type RequestFn = (method: string, params?: unknown) => Promise<unknown>;
 
@@ -145,6 +146,348 @@ describe("application approval overlays", () => {
 });
 
 describe("application update overlays", () => {
+  it("retries the initial safety read after a transient connection failure", async () => {
+    vi.useFakeTimers();
+    let statusReads = 0;
+    const oldClient = client(() => Promise.resolve([]));
+    const nextClient = client((method) => {
+      if (method === "update.status") {
+        statusReads += 1;
+        if (statusReads === 1) {
+          return Promise.reject(new Error("temporary disconnect"));
+        }
+        return Promise.resolve({
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            runtimeGuardHealthy: true,
+            backupConfigured: true,
+            preparationRunning: false,
+            preparationStatus: "idle",
+          },
+        });
+      }
+      return Promise.resolve([]);
+    });
+    const harness = createGatewayHarness(oldClient);
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    try {
+      harness.update({ client: nextClient, connected: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(statusReads).toBe(1);
+      expect(overlays.snapshot.updateSafety).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(statusReads).toBe(2);
+      expect(overlays.snapshot.updateSafety).toMatchObject({ managedRuntime: true });
+    } finally {
+      overlays.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("disables the global update action when safety status is unavailable", async () => {
+    const element = document.createElement("openclaw-update-banner") as HTMLElement & {
+      props: {
+        statusBanner: null;
+        updateAvailable: { currentVersion: string; latestVersion: string; channel: string };
+        updateRunning: boolean;
+        updateSafety: null;
+        connected: boolean;
+        onUpdate: () => void;
+        onDismiss: () => void;
+      };
+      updateComplete: Promise<boolean>;
+    };
+    element.props = {
+      statusBanner: null,
+      updateAvailable: {
+        currentVersion: "2026.6.8",
+        latestVersion: "2099.1.1",
+        channel: "latest",
+      },
+      updateRunning: false,
+      updateSafety: null,
+      connected: true,
+      onUpdate: vi.fn(),
+      onDismiss: vi.fn(),
+    };
+    document.body.append(element);
+    try {
+      await element.updateComplete;
+      const button = element.querySelector<HTMLButtonElement>(".update-banner__btn");
+      expect(button?.disabled).toBe(true);
+      expect(button?.textContent).toContain("Update protection needs attention");
+    } finally {
+      element.remove();
+    }
+  });
+
+  it("disables the global update action when the managed runtime pointer is invalid", async () => {
+    const element = document.createElement("openclaw-update-banner") as HTMLElement & {
+      props: Record<string, unknown>;
+      updateComplete: Promise<boolean>;
+    };
+    element.props = {
+      statusBanner: null,
+      updateAvailable: {
+        currentVersion: "2026.6.8",
+        latestVersion: "2099.1.2",
+        channel: "latest",
+      },
+      updateRunning: false,
+      updateSafety: {
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        sourceDurable: false,
+        sourceDurabilityReason: "missing",
+        runtimeGuardHealthy: false,
+        runtimeGuardReason: "missing",
+        backupConfigured: false,
+        approvalPending: false,
+        pendingCandidateSha: null,
+        preparationRunning: false,
+        preparationStatus: "blocked",
+        preparationReason: "invalid-active-runtime-pointer",
+        sourceSha: null,
+        sourceRepo: null,
+        sourceBranch: null,
+        runtimeRoot: null,
+        pointerPath: "/missing/active-runtime.json",
+        reason: "missing pointer",
+      },
+      connected: true,
+      onUpdate: vi.fn(),
+      onDismiss: vi.fn(),
+    };
+    document.body.append(element);
+    try {
+      await element.updateComplete;
+      const button = element.querySelector<HTMLButtonElement>(".update-banner__btn");
+      expect(button?.disabled).toBe(true);
+      expect(button?.textContent).toContain("Update protection needs attention");
+    } finally {
+      element.remove();
+    }
+  });
+
+  it("disables the global update action while verified installation is active", async () => {
+    const element = document.createElement("openclaw-update-banner") as HTMLElement & {
+      props: Record<string, unknown>;
+      updateComplete: Promise<boolean>;
+    };
+    element.props = {
+      statusBanner: null,
+      updateAvailable: {
+        currentVersion: "2026.6.8",
+        latestVersion: "2099.1.3",
+        channel: "latest",
+      },
+      updateRunning: false,
+      updateSafety: {
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        sourceDurable: true,
+        sourceDurabilityReason: "durable",
+        runtimeGuardHealthy: true,
+        runtimeGuardReason: "healthy",
+        backupConfigured: true,
+        approvalPending: true,
+        pendingCandidateSha: "a".repeat(40),
+        preparationRunning: false,
+        preparationStatus: "installing",
+        preparationReason: "installation-running",
+        sourceSha: "b".repeat(40),
+        sourceRepo: "/source.git",
+        sourceBranch: "refs/provenance/source",
+        runtimeRoot: "/release",
+        pointerPath: "/runtime-home/active-runtime.json",
+        reason: "managed",
+      },
+      connected: true,
+      onUpdate: vi.fn(),
+      onDismiss: vi.fn(),
+    };
+    document.body.append(element);
+    try {
+      await element.updateComplete;
+      const button = element.querySelector<HTMLButtonElement>(".update-banner__btn");
+      expect(button?.disabled).toBe(true);
+      expect(button?.textContent).toContain("Updating");
+    } finally {
+      element.remove();
+    }
+  });
+
+  it("preserves active installation tracking when a duplicate action is requested", async () => {
+    const candidateSha = "d".repeat(40);
+    const request = vi.fn<RequestFn>((method) => {
+      if (method === "update.status") {
+        return Promise.resolve({
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            sourceDurabilityReason: "durable",
+            runtimeGuardHealthy: true,
+            runtimeGuardReason: "healthy",
+            backupConfigured: true,
+            approvalPending: true,
+            pendingCandidateSha: candidateSha,
+            preparationRunning: false,
+            preparationStatus: "installing",
+            preparationReason: "installation-running",
+            sourceSha: "a".repeat(40),
+            sourceRepo: "/source.git",
+            sourceBranch: "refs/provenance/source",
+            runtimeRoot: "/release",
+            pointerPath: "/runtime-home/active-runtime.json",
+            reason: "managed",
+          },
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const harness = createGatewayHarness(client(() => Promise.resolve([])));
+    const overlays = createApplicationOverlays(harness.gateway);
+    try {
+      harness.update({ client: client(request), connected: true });
+      await vi.waitFor(() =>
+        expect(overlays.snapshot.updateSafety?.preparationStatus).toBe("installing"),
+      );
+      const updateRunCallsBefore = request.mock.calls.filter(
+        ([method]) => method === "update.run",
+      ).length;
+
+      await overlays.runUpdate(candidateSha);
+
+      expect(request.mock.calls.filter(([method]) => method === "update.run")).toHaveLength(
+        updateRunCallsBefore,
+      );
+      expect(overlays.snapshot.updateSafety?.preparationStatus).toBe("installing");
+    } finally {
+      overlays.dispose();
+    }
+  });
+
+  it("polls isolated preparation until the exact candidate is ready", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "c".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn<RequestFn>((method) => {
+      if (method === "update.run") {
+        return Promise.resolve({
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-preparation-started" },
+          handoff: { status: "started" },
+        });
+      }
+      if (method === "update.status") {
+        statusReads += 1;
+        return Promise.resolve({
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            sourceDurabilityReason: "durable",
+            runtimeGuardHealthy: true,
+            runtimeGuardReason: "healthy",
+            backupConfigured: true,
+            approvalPending: statusReads > 2,
+            pendingCandidateSha: statusReads > 2 ? candidateSha : null,
+            preparationRunning: statusReads === 2,
+            preparationStatus: statusReads === 2 ? "preparing" : statusReads > 2 ? "ready" : "idle",
+            preparationReason: statusReads > 2 ? "ready-for-approval" : null,
+            sourceSha: "a".repeat(40),
+            sourceRepo: "/source.git",
+            sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+            runtimeRoot: "/release",
+            pointerPath: "/runtime-home/active-runtime.json",
+            reason: "managed",
+          },
+        });
+      }
+      return Promise.resolve([]);
+    });
+    const harness = createGatewayHarness(client(request));
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    try {
+      await overlays.runUpdate();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(overlays.snapshot.updateSafety?.preparationRunning).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(overlays.snapshot.updateSafety?.preparationRunning).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(overlays.snapshot.updateSafety).toMatchObject({
+        preparationRunning: false,
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+      });
+      expect(statusReads).toBe(3);
+    } finally {
+      overlays.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("continues polling after a transient update status failure", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "d".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn<RequestFn>((method) => {
+      if (method === "update.run") {
+        return Promise.resolve({
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-preparation-started" },
+          handoff: { status: "started" },
+        });
+      }
+      if (method === "update.status") {
+        statusReads += 1;
+        if (statusReads === 2) {
+          return Promise.reject(new Error("temporary disconnect"));
+        }
+        return Promise.resolve({
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            backupConfigured: true,
+            approvalPending: statusReads > 2,
+            pendingCandidateSha: statusReads > 2 ? candidateSha : null,
+            preparationRunning: statusReads === 1,
+            preparationStatus: statusReads > 2 ? "ready" : "preparing",
+          },
+        });
+      }
+      return Promise.resolve([]);
+    });
+    const harness = createGatewayHarness(client(request));
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    try {
+      await overlays.runUpdate();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(statusReads).toBe(3);
+      expect(overlays.snapshot.updateSafety).toMatchObject({
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+        preparationStatus: "ready",
+      });
+    } finally {
+      overlays.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("surfaces a coalesced restart while reconnect verification remains active", async () => {
     const request = vi.fn<RequestFn>().mockResolvedValue({
       ok: true,
@@ -164,4 +507,192 @@ describe("application update overlays", () => {
     expect(overlays.snapshot.updateRunning).toBe(false);
     overlays.dispose();
   });
+
+  it("passes the exact prepared SHA for one-click managed installation", async () => {
+    const candidateSha = "b".repeat(40);
+    const request = vi.fn<RequestFn>().mockResolvedValue({
+      ok: true,
+      result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+      handoff: { status: "started" },
+    });
+    const harness = createGatewayHarness(client(request));
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    await overlays.runUpdate(candidateSha);
+
+    expect(request).toHaveBeenCalledWith("update.run", { approvalSha: candidateSha });
+    expect(overlays.snapshot.updateStatusBanner).toEqual({
+      tone: "info",
+      text: "Verified installation started. The Dashboard will reconnect after the managed restart.",
+    });
+
+    const reconnectRequest = vi.fn<RequestFn>((method) =>
+      Promise.resolve(
+        method === "update.status"
+          ? {
+              updateSafety: {
+                managedRuntime: true,
+                standardUpdateBlocked: true,
+                sourceDurable: true,
+                runtimeGuardHealthy: true,
+                backupConfigured: true,
+                approvalPending: false,
+                pendingCandidateSha: null,
+                preparationRunning: false,
+                preparationStatus: "idle",
+                sourceSha: candidateSha,
+              },
+            }
+          : [],
+      ),
+    );
+    harness.update({ client: client(reconnectRequest), connected: true });
+    await vi.waitFor(() => expect(reconnectRequest).toHaveBeenCalledWith("update.status", {}));
+    expect(overlays.snapshot.updateStatusBanner).toEqual({
+      tone: "info",
+      text: "Verified update installed. Runtime identity and browser health checks are complete.",
+    });
+    overlays.dispose();
+  });
+
+  it("retries installation status after a transient read failure", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "e".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn<RequestFn>((method) => {
+      if (method === "update.run") {
+        return Promise.resolve({
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+          handoff: { status: "started" },
+        });
+      }
+      if (method === "update.status") {
+        statusReads += 1;
+        if (statusReads === 1) {
+          return Promise.reject(new Error("temporary disconnect"));
+        }
+        return Promise.resolve({
+          updateSafety: {
+            approvalPending: true,
+            pendingCandidateSha: candidateSha,
+            preparationRunning: true,
+            preparationStatus: "installing",
+          },
+        });
+      }
+      return Promise.resolve([]);
+    });
+    const harness = createGatewayHarness(client(request));
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    try {
+      await overlays.runUpdate(candidateSha);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(statusReads).toBe(2);
+      expect(overlays.snapshot.updateSafety).toMatchObject({
+        pendingCandidateSha: candidateSha,
+        preparationStatus: "installing",
+      });
+    } finally {
+      overlays.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps polling when installation status initially returns the ready snapshot", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "f".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn<RequestFn>((method) => {
+      if (method === "update.run") {
+        return Promise.resolve({
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+          handoff: { status: "started" },
+        });
+      }
+      if (method === "update.status") {
+        statusReads += 1;
+        return Promise.resolve({
+          updateSafety: {
+            approvalPending: statusReads === 1,
+            pendingCandidateSha: candidateSha,
+            preparationRunning: statusReads > 1,
+            preparationStatus: statusReads === 1 ? "ready" : "installing",
+          },
+        });
+      }
+      return Promise.resolve([]);
+    });
+    const harness = createGatewayHarness(client(request));
+    const overlays = createApplicationOverlays(harness.gateway);
+
+    try {
+      await overlays.runUpdate(candidateSha);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(overlays.snapshot.updateSafety?.preparationStatus).toBe("ready");
+      expect(overlays.snapshot.updateStatusBanner).toEqual({
+        tone: "info",
+        text: "Verified installation started. The Dashboard will reconnect after the managed restart.",
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(statusReads).toBe(2);
+      expect(overlays.snapshot.updateSafety?.preparationStatus).toBe("installing");
+    } finally {
+      overlays.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["ready", "idle", "blocked"] as const)(
+    "reports an unverified install after the start window from a stale %s snapshot",
+    async (staleStatus) => {
+      vi.useFakeTimers();
+      const candidateSha = "9".repeat(40);
+      let statusReads = 0;
+      const request = vi.fn<RequestFn>((method) => {
+        if (method === "update.run") {
+          return Promise.resolve({
+            ok: true,
+            result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+            handoff: { status: "started" },
+          });
+        }
+        if (method === "update.status") {
+          statusReads += 1;
+          if (statusReads > 1) {
+            return Promise.reject(new Error("temporary disconnect"));
+          }
+          return Promise.resolve({
+            updateSafety: {
+              approvalPending: true,
+              pendingCandidateSha: candidateSha,
+              preparationRunning: false,
+              preparationStatus: staleStatus,
+            },
+          });
+        }
+        return Promise.resolve([]);
+      });
+      const harness = createGatewayHarness(client(request));
+      const overlays = createApplicationOverlays(harness.gateway);
+
+      try {
+        await overlays.runUpdate(candidateSha);
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+        expect(overlays.snapshot.updateStatusBanner).toEqual({
+          tone: "warn",
+          text: "Verified installation status could not be confirmed. The prepared update remains unchanged; retry after the Gateway is reachable.",
+        });
+      } finally {
+        overlays.dispose();
+        vi.useRealTimers();
+      }
+    },
+  );
 });

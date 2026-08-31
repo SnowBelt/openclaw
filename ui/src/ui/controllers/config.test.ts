@@ -8,6 +8,7 @@ import {
   loadConfig,
   openConfigFile,
   resetConfigPendingChanges,
+  resumeManagedInstallVerification,
   runUpdate,
   saveConfig,
   stageDefaultAgentConfigEntry,
@@ -46,6 +47,8 @@ function createState(): ConfigState {
     lastError: null,
     pendingUpdateExpectedVersion: null,
     pendingUpdateHandoff: false,
+    pendingManagedInstallSha: null,
+    pendingManagedInstallDeadline: null,
     updateStatusBanner: null,
     updateRunning: false,
   };
@@ -1094,11 +1097,138 @@ describe("saveConfig", () => {
 });
 
 describe("runUpdate", () => {
-  it("fails closed when the verified PCC runtime is active", async () => {
+  it("fails closed when update safety blocks stock updating without a managed broker", async () => {
     const request = vi.fn();
     const state = createState();
     state.connected = true;
     state.client = { request } as unknown as ConfigState["client"];
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: false,
+      standardUpdateBlocked: true,
+      sourceDurable: false,
+      sourceDurabilityReason: "managed-broker-unavailable",
+      runtimeGuardHealthy: false,
+      runtimeGuardReason: "managed-broker-unavailable",
+      backupConfigured: false,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "blocked",
+      preparationReason: "managed-broker-unavailable",
+      sourceSha: null,
+      sourceRepo: null,
+      sourceBranch: null,
+      runtimeRoot: "/release",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "managed-broker-unavailable",
+    };
+
+    await runUpdate(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.updateRunning).toBe(false);
+    expect(state.updateStatusBanner).toEqual({
+      tone: "warn",
+      text: "Verified update safety is unavailable. The stock updater is blocked so PCC and other customizations cannot be replaced.",
+    });
+  });
+
+  it("allows a stock update when the stock Dashboard includes the PCC surface", async () => {
+    const request = vi.fn().mockResolvedValue({ ok: true, result: { status: "ok" } });
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: false,
+      standardUpdateBlocked: false,
+      sourceDurable: false,
+      sourceDurabilityReason: "stock-runtime",
+      runtimeGuardHealthy: false,
+      runtimeGuardReason: "stock-runtime",
+      backupConfigured: false,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "idle",
+      preparationReason: null,
+      sourceSha: null,
+      sourceRepo: null,
+      sourceBranch: null,
+      runtimeRoot: "/stock",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "stock-runtime",
+    };
+    state.runtimeIdentity = {
+      runtimeRoot: "/stock",
+      runtimeEntrypoint: "/stock/dist/index.js",
+      dashboardBuildId: "stock-build",
+      dashboardSurfaces: ["pcc"],
+    };
+
+    await runUpdate(state);
+
+    expect(request).toHaveBeenCalledWith("update.run", { sessionKey: "main" });
+  });
+
+  it("routes a verified custom runtime through isolated preparation", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "c".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "update.run") {
+        return {
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-preparation-started" },
+          handoff: { status: "started" },
+        };
+      }
+      statusReads += 1;
+      return {
+        updateSafety: {
+          managedRuntime: true,
+          standardUpdateBlocked: true,
+          sourceDurable: true,
+          sourceDurabilityReason: "durable",
+          runtimeGuardHealthy: true,
+          runtimeGuardReason: "healthy",
+          backupConfigured: true,
+          approvalPending: statusReads > 1,
+          pendingCandidateSha: statusReads > 1 ? candidateSha : null,
+          preparationRunning: false,
+          preparationStatus: statusReads > 1 ? "ready" : "idle",
+          preparationReason: statusReads > 1 ? "ready-for-approval" : null,
+          sourceSha: "a".repeat(40),
+          sourceRepo: "/source.git",
+          sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+          runtimeRoot: "/release",
+          pointerPath: "/runtime-home/active-runtime.json",
+          reason: "managed",
+        },
+      };
+    });
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
+      backupConfigured: true,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "idle",
+      preparationReason: null,
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source.git",
+      sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+      runtimeRoot: "/release",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "managed",
+    };
     state.runtimeIdentity = {
       runtimeRoot: "/Users/openclaw/OpenClaw-dashboard-production-runtime",
       runtimeEntrypoint: "/Users/openclaw/OpenClaw-dashboard-production-runtime/dist/index.js",
@@ -1106,14 +1236,397 @@ describe("runUpdate", () => {
       dashboardSurfaces: ["pcc"],
     };
 
+    try {
+      await runUpdate(state);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(request).toHaveBeenCalledWith("update.run", { sessionKey: "main" });
+      expect(state.updateStatusBanner).toEqual({
+        tone: "info",
+        text: "Verified update preparation started. The live runtime will remain unchanged.",
+      });
+      expect(state.customRuntimeUpdatePolicy?.approvalPending).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(state.customRuntimeUpdatePolicy).toMatchObject({
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+      });
+      expect(statusReads).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("binds a one-click managed installation to the prepared candidate SHA", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "b".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn().mockImplementation(async (method: string) => {
+      if (method === "update.run") {
+        return {
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+          handoff: { status: "started" },
+        };
+      }
+      statusReads += 1;
+      return {
+        updateSafety: {
+          approvalPending: statusReads === 1,
+          pendingCandidateSha: candidateSha,
+          preparationRunning: true,
+          preparationStatus: statusReads === 1 ? "ready" : "installing",
+        },
+      };
+    });
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
+      backupConfigured: true,
+      approvalPending: true,
+      pendingCandidateSha: candidateSha,
+      preparationRunning: false,
+      preparationStatus: "ready",
+      preparationReason: "ready-for-approval",
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source.git",
+      sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+      runtimeRoot: "/release",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "managed",
+    };
+
+    try {
+      await runUpdate(state, candidateSha);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(request).toHaveBeenCalledWith("update.run", {
+        sessionKey: "main",
+        approvalSha: candidateSha,
+      });
+      expect(state.pendingUpdateHandoff).toBe(false);
+      expect(state.pendingManagedInstallSha).toBe(candidateSha);
+      expect(state.pendingManagedInstallDeadline).toBeGreaterThan(Date.now());
+      expect(state.updateStatusBanner).toEqual({
+        tone: "info",
+        text: "Verified installation started. The Dashboard will reconnect after restart.",
+      });
+      expect(statusReads).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(statusReads).toBe(2);
+      expect(state.customRuntimeUpdatePolicy?.preparationStatus).toBe("installing");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not infer managed installation approval from a pending policy snapshot", async () => {
+    const candidateSha = "e".repeat(40);
+    const request = vi.fn();
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
+      backupConfigured: true,
+      approvalPending: true,
+      pendingCandidateSha: candidateSha,
+      preparationRunning: false,
+      preparationStatus: "ready",
+      preparationReason: "ready-for-approval",
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source.git",
+      sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+      runtimeRoot: "/release",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "managed",
+    };
+
     await runUpdate(state);
 
     expect(request).not.toHaveBeenCalled();
     expect(state.updateStatusBanner).toEqual({
       tone: "warn",
-      text: "This dashboard includes PCC custom surfaces. Use the verified PCC runtime deployment flow so an update cannot replace them.",
+      text: "Verified installation requires the exact prepared candidate shown by update safety.",
     });
   });
+
+  it("preserves active installation tracking when another install action is requested", async () => {
+    const candidateSha = "8".repeat(40);
+    const request = vi.fn();
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.pendingManagedInstallSha = candidateSha;
+    state.pendingManagedInstallDeadline = Date.now() + 60_000;
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
+      backupConfigured: true,
+      approvalPending: true,
+      pendingCandidateSha: candidateSha,
+      preparationRunning: false,
+      preparationStatus: "installing",
+      preparationReason: "installation-running",
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source.git",
+      sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+      runtimeRoot: "/release",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "managed",
+    };
+
+    await runUpdate(state, candidateSha);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pendingManagedInstallSha).toBe(candidateSha);
+    expect(state.pendingManagedInstallDeadline).toBeGreaterThan(Date.now());
+  });
+
+  it("resumes exact-candidate installation verification after reconnect", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "7".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "update.status") {
+        statusReads += 1;
+        if (statusReads === 1) {
+          return {
+            updateSafety: {
+              managedRuntime: true,
+              standardUpdateBlocked: true,
+              sourceDurable: true,
+              runtimeGuardHealthy: false,
+              backupConfigured: true,
+              approvalPending: false,
+              pendingCandidateSha: null,
+              preparationRunning: false,
+              preparationStatus: "blocked",
+              preparationReason: "runtime-guard-verification-unavailable",
+              sourceSha: candidateSha,
+            },
+          };
+        }
+        return {
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            runtimeGuardHealthy: true,
+            backupConfigured: true,
+            approvalPending: false,
+            pendingCandidateSha: null,
+            preparationRunning: false,
+            preparationStatus: "idle",
+            sourceSha: candidateSha,
+          },
+        };
+      }
+      return {};
+    });
+    const state = createState();
+    state.client = { request } as unknown as ConfigState["client"];
+    state.connected = true;
+    state.pendingManagedInstallSha = candidateSha;
+    state.pendingManagedInstallDeadline = Date.now() + 60_000;
+    state.updateStatusBanner = {
+      tone: "info",
+      text: "Verified installation started. The Dashboard will reconnect after restart.",
+    };
+
+    try {
+      resumeManagedInstallVerification(state);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(statusReads).toBe(1);
+      expect(state.pendingManagedInstallSha).toBe(candidateSha);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(statusReads).toBe(2);
+      expect(state.pendingManagedInstallSha).toBeNull();
+      expect(state.pendingManagedInstallDeadline).toBeNull();
+      expect(state.updateStatusBanner).toEqual({
+        tone: "info",
+        text: "Verified update installed. Runtime identity and browser health checks are complete.",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("performs a final exact-candidate status read after a late reconnect", async () => {
+    const candidateSha = "8".repeat(40);
+    const request = vi.fn(async () => ({
+      updateSafety: {
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        sourceDurable: true,
+        runtimeGuardHealthy: true,
+        backupConfigured: true,
+        approvalPending: false,
+        pendingCandidateSha: null,
+        preparationRunning: false,
+        preparationStatus: "idle",
+        sourceSha: candidateSha,
+      },
+    }));
+    const state = createState();
+    state.client = { request } as unknown as ConfigState["client"];
+    state.connected = true;
+    state.pendingManagedInstallSha = candidateSha;
+    state.pendingManagedInstallDeadline = Date.now() - 1;
+
+    resumeManagedInstallVerification(state);
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith("update.status", {}));
+    expect(state.pendingManagedInstallSha).toBeNull();
+    expect(state.updateStatusBanner?.text).toContain("Verified update installed");
+  });
+
+  it("retries installation status after a transient read failure", async () => {
+    vi.useFakeTimers();
+    const candidateSha = "d".repeat(40);
+    let statusReads = 0;
+    const request = vi.fn().mockImplementation(async (method: string) => {
+      if (method === "update.run") {
+        return {
+          ok: true,
+          result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+          handoff: { status: "started" },
+        };
+      }
+      statusReads += 1;
+      if (statusReads === 1) {
+        throw new Error("temporary disconnect");
+      }
+      return {
+        updateSafety: {
+          approvalPending: true,
+          pendingCandidateSha: candidateSha,
+          preparationRunning: true,
+          preparationStatus: "installing",
+        },
+      };
+    });
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceDurabilityReason: "durable",
+      runtimeGuardHealthy: true,
+      runtimeGuardReason: "healthy",
+      backupConfigured: true,
+      approvalPending: true,
+      pendingCandidateSha: candidateSha,
+      preparationRunning: false,
+      preparationStatus: "ready",
+      preparationReason: "ready-for-approval",
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source.git",
+      sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+      runtimeRoot: "/release",
+      pointerPath: "/runtime-home/active-runtime.json",
+      reason: "managed",
+    };
+
+    try {
+      await runUpdate(state, candidateSha);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(statusReads).toBe(2);
+      expect(state.customRuntimeUpdatePolicy).toMatchObject({
+        approvalPending: true,
+        preparationStatus: "installing",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["ready", "idle", "blocked"] as const)(
+    "reports an unverified install after the start window from a stale %s snapshot",
+    async (staleStatus) => {
+      vi.useFakeTimers();
+      const candidateSha = "9".repeat(40);
+      let statusReads = 0;
+      const request = vi.fn().mockImplementation(async (method: string) => {
+        if (method === "update.run") {
+          return {
+            ok: true,
+            result: { status: "skipped", reason: "custom-runtime-update-approval-started" },
+            handoff: { status: "started" },
+          };
+        }
+        statusReads += 1;
+        if (statusReads > 1) {
+          throw new Error("temporary disconnect");
+        }
+        return {
+          updateSafety: {
+            approvalPending: true,
+            pendingCandidateSha: candidateSha,
+            preparationRunning: false,
+            preparationStatus: staleStatus,
+          },
+        };
+      });
+      const state = createState();
+      state.connected = true;
+      state.client = { request } as unknown as ConfigState["client"];
+      state.customRuntimeUpdatePolicy = {
+        managedRuntime: true,
+        standardUpdateBlocked: true,
+        sourceDurable: true,
+        sourceDurabilityReason: "durable",
+        runtimeGuardHealthy: true,
+        runtimeGuardReason: "healthy",
+        backupConfigured: true,
+        approvalPending: true,
+        pendingCandidateSha: candidateSha,
+        preparationRunning: false,
+        preparationStatus: "ready",
+        preparationReason: "ready-for-approval",
+        sourceSha: "a".repeat(40),
+        sourceRepo: "/source.git",
+        sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+        runtimeRoot: "/release",
+        pointerPath: "/runtime-home/active-runtime.json",
+        reason: "managed",
+      };
+
+      try {
+        await runUpdate(state, candidateSha);
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+        expect(state.updateStatusBanner).toEqual({
+          tone: "warn",
+          text: "Verified installation status could not be confirmed. The prepared update remains unchanged; retry after the Gateway is reachable.",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("sends update.run with session key", async () => {
     const request = vi.fn().mockResolvedValue({});

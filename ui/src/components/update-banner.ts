@@ -1,7 +1,7 @@
 // Control UI component renders update status and available-update actions.
 import { LitElement, html, nothing } from "lit";
 import { property } from "lit/decorators.js";
-import type { UpdateAvailable } from "../api/types.ts";
+import type { CustomRuntimeUpdatePolicy, UpdateAvailable } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
 import { getSafeLocalStorage } from "../local-storage.ts";
 import { icons } from "./icons.ts";
@@ -62,9 +62,11 @@ type UpdateBannerProps = {
   statusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
   updateAvailable: UpdateAvailable | null;
   updateRunning: boolean;
+  updateSafety: CustomRuntimeUpdatePolicy | null;
   connected: boolean;
-  onUpdate: () => void | Promise<void>;
+  onUpdate: (approvalSha?: string) => void | Promise<void>;
   onDismiss: () => void;
+  pccChip?: boolean;
 };
 
 class UpdateBanner extends LitElement {
@@ -85,6 +87,28 @@ class UpdateBanner extends LitElement {
       return nothing;
     }
     const updateAvailable = props.updateAvailable;
+    const safetyUnavailable =
+      !props.updateSafety ||
+      (props.updateSafety.managedRuntime &&
+        props.updateSafety.preparationReason === "invalid-active-runtime-pointer");
+    const managed = props.updateSafety?.managedRuntime === true;
+    const preparationBlocked =
+      safetyUnavailable ||
+      (managed &&
+        (!props.updateSafety?.sourceDurable ||
+          !props.updateSafety?.runtimeGuardHealthy ||
+          !props.updateSafety?.backupConfigured));
+    const approvalPending = managed && props.updateSafety?.approvalPending === true;
+    const pendingCandidateSha = approvalPending ? props.updateSafety?.pendingCandidateSha : null;
+    const installReady = Boolean(
+      pendingCandidateSha && /^[0-9a-f]{40}$/u.test(pendingCandidateSha),
+    );
+    const preparationRunning = managed && props.updateSafety?.preparationRunning === true;
+    const installationRunning = managed && props.updateSafety?.preparationStatus === "installing";
+    const updateOperationRunning = preparationRunning || installationRunning;
+    const preparationFailed = managed && props.updateSafety?.preparationStatus === "failed";
+    const protectionMessage =
+      props.updateSafety?.recommendedAction ?? t("chat.updateProtectionIncomplete");
     return html`
       ${props.statusBanner
         ? html`<div class="callout ${props.statusBanner.tone}" role="alert">
@@ -94,16 +118,44 @@ class UpdateBanner extends LitElement {
       ${updateAvailable &&
       updateAvailable.latestVersion !== updateAvailable.currentVersion &&
       !isDismissed(updateAvailable)
-        ? html`<div class="update-banner callout danger" role="alert">
+        ? html`<div
+            class=${`update-banner callout danger ${props.pccChip ? "update-banner--pcc-chip" : ""}`}
+            role="alert"
+            data-update-banner
+          >
             <strong>${t("chat.updateAvailable")}</strong> v${updateAvailable.latestVersion}
             (${t("chat.runningVersion", { version: updateAvailable.currentVersion })}).
             <button
               class="btn btn--sm update-banner__btn"
-              ?disabled=${props.updateRunning || !props.connected}
-              @click=${() => props.onUpdate()}
+              ?disabled=${props.updateRunning ||
+              !props.connected ||
+              preparationBlocked ||
+              (approvalPending && !installReady) ||
+              updateOperationRunning}
+              @click=${() =>
+                props.onUpdate(installReady ? (pendingCandidateSha ?? undefined) : undefined)}
             >
-              ${props.updateRunning ? t("chat.updating") : t("chat.updateNow")}
+              ${props.updateRunning || updateOperationRunning
+                ? installationRunning
+                  ? t("chat.updating")
+                  : t("chat.preparingVerifiedUpdate")
+                : installReady
+                  ? t("chat.installVerifiedUpdate")
+                  : approvalPending
+                    ? t("chat.exactShaApprovalRequired")
+                    : safetyUnavailable
+                      ? t("chat.updateProtectionIncomplete")
+                      : managed
+                        ? t("chat.prepareVerifiedUpdate")
+                        : t("chat.updateNow")}
             </button>
+            ${preparationBlocked || preparationFailed
+              ? html`<span class="update-banner__running"
+                  >${preparationFailed
+                    ? `Preparation failed: ${props.updateSafety?.preparationReason ?? "unknown failure"}`
+                    : protectionMessage}</span
+                >`
+              : nothing}
             <openclaw-tooltip .content=${t("common.dismiss")}>
               <button
                 class="update-banner__close"

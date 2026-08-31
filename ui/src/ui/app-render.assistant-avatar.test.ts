@@ -270,8 +270,9 @@ describe("renderApp assistant avatar routing", () => {
     expect(scheduleChatScrollMock).toHaveBeenCalledWith(state, true);
   });
 
-  it("renders update availability as a compact PCC chip", () => {
+  it("renders update availability as a compact PCC chip", async () => {
     const container = document.createElement("div");
+    document.body.append(container);
 
     render(
       renderApp(
@@ -287,9 +288,85 @@ describe("renderApp assistant avatar routing", () => {
       container,
     );
 
+    const bannerHost = container.querySelector<HTMLElement & { updateComplete: Promise<boolean> }>(
+      "openclaw-update-banner",
+    );
+    await bannerHost?.updateComplete;
     const banner = container.querySelector<HTMLElement>("[data-update-banner]");
     expect(banner?.classList.contains("update-banner--pcc-chip")).toBe(true);
     expect(banner?.textContent).toContain("2026.6.11");
+    container.remove();
+  });
+
+  it("fails closed when update safety status is unavailable", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    render(
+      renderApp(
+        createState({
+          customRuntimeUpdatePolicy: null,
+          updateAvailable: {
+            currentVersion: "2026.6.8",
+            latestVersion: "2026.6.11",
+            channel: "latest",
+          },
+        }),
+      ),
+      container,
+    );
+
+    const bannerHost = container.querySelector<HTMLElement & { updateComplete: Promise<boolean> }>(
+      "openclaw-update-banner",
+    );
+    await bannerHost?.updateComplete;
+    const button = container.querySelector<HTMLButtonElement>("[data-update-banner] button");
+    expect(button?.disabled).toBe(true);
+    expect(button?.textContent).toContain("Update protection needs attention");
+    container.remove();
+  });
+
+  it("fails closed when the active custom-runtime pointer is invalid", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const state = createState({
+      updateAvailable: {
+        currentVersion: "2026.6.8",
+        latestVersion: "2026.6.11",
+        channel: "latest",
+      },
+    });
+    state.customRuntimeUpdatePolicy = {
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: false,
+      sourceDurabilityReason: "missing",
+      runtimeGuardHealthy: false,
+      runtimeGuardReason: "missing",
+      backupConfigured: false,
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "blocked",
+      preparationReason: "invalid-active-runtime-pointer",
+      sourceSha: null,
+      sourceRepo: null,
+      sourceBranch: null,
+      runtimeRoot: null,
+      pointerPath: "/missing/active-runtime.json",
+      reason: "missing pointer",
+    };
+
+    render(renderApp(state), container);
+
+    const bannerHost = container.querySelector<HTMLElement & { updateComplete: Promise<boolean> }>(
+      "openclaw-update-banner",
+    );
+    await bannerHost?.updateComplete;
+    const button = container.querySelector<HTMLButtonElement>("[data-update-banner] button");
+    expect(button?.disabled).toBe(true);
+    expect(button?.textContent).toContain("Update protection needs attention");
+    container.remove();
   });
 
   it("passes the browser-local assistant override to Quick Settings ahead of stale identity metadata", () => {

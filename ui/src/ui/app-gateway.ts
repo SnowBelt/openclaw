@@ -4,6 +4,7 @@ import {
   GATEWAY_EVENT_UPDATE_AVAILABLE,
   type GatewayUpdateAvailableEventPayload,
 } from "../../../src/gateway/events.js";
+import type { CustomRuntimeUpdatePolicy } from "../api/types.ts";
 import {
   normalizeGatewayComposerScope,
   normalizeGatewayCredentialScope,
@@ -66,6 +67,7 @@ import {
   type ChatEventPayload,
   type ChatState,
 } from "./controllers/chat.ts";
+import { resumeManagedInstallVerification } from "./controllers/config.ts";
 import { loadControlUiBootstrapConfig } from "./controllers/control-ui-bootstrap.ts";
 import { loadDevices, type DevicesState } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
@@ -150,7 +152,10 @@ type GatewayHost = {
   serverVersion: string | null;
   pendingUpdateExpectedVersion: string | null;
   pendingUpdateHandoff: boolean;
+  pendingManagedInstallSha?: string | null;
+  pendingManagedInstallDeadline?: number | null;
   updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
+  customRuntimeUpdatePolicy?: CustomRuntimeUpdatePolicy | null;
   sessionKey: string;
   sessionsShowArchived: boolean;
   chatRunId: string | null;
@@ -292,6 +297,8 @@ const UPDATE_RESTART_VERIFICATION_POLL_MS = 250;
 const UPDATE_RESTART_VERIFICATION_TIMEOUT_MS = 10_000;
 const UPDATE_HANDOFF_POLL_MS = 1_000;
 const UPDATE_HANDOFF_TIMEOUT_MS = 35 * 60_000;
+const UPDATE_SAFETY_HYDRATION_POLL_MS = 1_000;
+const UPDATE_SAFETY_HYDRATION_TIMEOUT_MS = 30_000;
 const UPDATE_HANDOFF_STARTED_REASON = "managed-service-handoff-started";
 const UPDATE_RESTART_HEALTH_PENDING_REASON = "restart-health-pending";
 const PENDING_UPDATE_HANDOFF_REASONS = new Set([
@@ -406,6 +413,7 @@ type UpdateRestartStatusResponse = {
       after?: { version?: string | null } | null;
     } | null;
   } | null;
+  updateSafety?: CustomRuntimeUpdatePolicy;
 };
 
 function resolveUpdateVerificationBanner(params: {
@@ -462,9 +470,29 @@ async function verifyPendingUpdateVersion(
   host: GatewayHost,
   client: GatewayBrowserClient,
 ): Promise<void> {
+  if (host.pendingManagedInstallSha && host.pendingManagedInstallDeadline) {
+    return;
+  }
   const expectedVersion = host.pendingUpdateExpectedVersion?.trim();
   const pendingHandoff = host.pendingUpdateHandoff;
   if (!expectedVersion && !pendingHandoff) {
+    const deadline = Date.now() + UPDATE_SAFETY_HYDRATION_TIMEOUT_MS;
+    while (host.client === client && host.connected) {
+      try {
+        const response = await client.request<UpdateRestartStatusResponse>("update.status", {});
+        if (host.client === client && host.connected) {
+          host.customRuntimeUpdatePolicy = response.updateSafety ?? null;
+        }
+        return;
+      } catch {
+        if (Date.now() >= deadline) {
+          return;
+        }
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, UPDATE_SAFETY_HYDRATION_POLL_MS);
+      });
+    }
     return;
   }
   const deadline =
@@ -477,6 +505,9 @@ async function verifyPendingUpdateVersion(
       response = await client.request<UpdateRestartStatusResponse>("update.status", {});
     } catch {
       response = null;
+    }
+    if (response && host.client === client && host.connected) {
+      host.customRuntimeUpdatePolicy = response.updateSafety ?? null;
     }
     const sentinel = response?.sentinel;
     if (isPendingUpdateHandoffSentinel(sentinel)) {
@@ -1400,6 +1431,9 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
           void refreshChatAvatar(host as unknown as Parameters<typeof refreshChatAvatar>[0]);
         }
         void loadHealthState(host as unknown as HealthState);
+        resumeManagedInstallVerification(
+          host as unknown as Parameters<typeof resumeManagedInstallVerification>[0],
+        );
         // Re-run push reconciliation now that the gateway client is available.
         void host.reconcileWebPushState?.();
         void verifyPendingUpdateVersion(host, client);

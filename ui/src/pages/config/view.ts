@@ -1,7 +1,7 @@
 // Control UI view renders config screen content.
 import JSON5 from "json5";
 import { html, nothing, type TemplateResult } from "lit";
-import type { ConfigUiHints } from "../../api/types.ts";
+import type { ConfigUiHints, CustomRuntimeUpdatePolicy } from "../../api/types.ts";
 import {
   BORDER_RADIUS_STOPS,
   TEXT_SCALE_STOPS,
@@ -105,6 +105,7 @@ export type ConfigProps = {
   saving: boolean;
   applying: boolean;
   updating: boolean;
+  updateSafety: CustomRuntimeUpdatePolicy | null;
   connected: boolean;
   schema: unknown;
   schemaLoading: boolean;
@@ -129,7 +130,7 @@ export type ConfigProps = {
   onReset: () => void;
   onSave: () => void;
   onApply: () => void;
-  onUpdate: () => void;
+  onUpdate: (approvalSha?: string) => void;
   onOpenFile?: () => void;
   version: string;
   theme: ThemeName;
@@ -1482,7 +1483,46 @@ export function renderConfig(props: ConfigProps) {
     !props.updating &&
     hasChanges &&
     (formMode === "raw" ? true : canSaveForm);
-  const canUpdate = props.connected && !props.applying && !props.updating;
+  const safetyUnavailable =
+    props.updateSafety === null ||
+    (props.updateSafety.managedRuntime &&
+      props.updateSafety.preparationReason === "invalid-active-runtime-pointer");
+  const managedUpdate = props.updateSafety?.managedRuntime === true;
+  const preparationBlocked =
+    safetyUnavailable ||
+    (managedUpdate &&
+      (!props.updateSafety?.sourceDurable ||
+        !props.updateSafety.runtimeGuardHealthy ||
+        !props.updateSafety.backupConfigured));
+  const approvalPending = managedUpdate && props.updateSafety?.approvalPending === true;
+  const pendingCandidateSha = approvalPending ? props.updateSafety?.pendingCandidateSha : null;
+  const installReady = Boolean(pendingCandidateSha && /^[0-9a-f]{40}$/u.test(pendingCandidateSha));
+  const preparationRunning = managedUpdate && props.updateSafety?.preparationRunning === true;
+  const installationRunning =
+    managedUpdate && props.updateSafety?.preparationStatus === "installing";
+  const updateOperationRunning = preparationRunning || installationRunning;
+  const updateProtectionMessage =
+    props.updateSafety?.recommendedAction ?? t("chat.updateProtectionIncomplete");
+  const canUpdate =
+    props.connected &&
+    !props.applying &&
+    !props.updating &&
+    !preparationBlocked &&
+    !(approvalPending && !installReady) &&
+    !updateOperationRunning;
+  const updateLabel = updateOperationRunning
+    ? installationRunning
+      ? t("chat.updating")
+      : t("chat.preparingVerifiedUpdate")
+    : installReady
+      ? t("chat.installVerifiedUpdate")
+      : approvalPending
+        ? t("chat.exactShaApprovalRequired")
+        : safetyUnavailable
+          ? updateProtectionMessage
+          : managedUpdate
+            ? t("chat.prepareVerifiedUpdate")
+            : t("chat.updateNow");
   const renderActionButtonContent = (busy: boolean, label: string, busyLabel: string) =>
     busy
       ? html`<span class="config-action-spinner" aria-hidden="true">${icons.loader}</span
@@ -1576,9 +1616,16 @@ export function renderConfig(props: ConfigProps) {
                 class="btn btn--sm"
                 ?disabled=${!canUpdate}
                 aria-busy=${props.updating ? "true" : "false"}
-                @click=${props.onUpdate}
+                @click=${() =>
+                  props.onUpdate(installReady ? (pendingCandidateSha ?? undefined) : undefined)}
               >
-                ${renderActionButtonContent(props.updating, "Update", "Updating…")}
+                ${renderActionButtonContent(
+                  props.updating || updateOperationRunning,
+                  updateLabel,
+                  managedUpdate && !installationRunning
+                    ? t("chat.preparingVerifiedUpdate")
+                    : t("chat.updating"),
+                )}
               </button>
             </div>
           </div>
