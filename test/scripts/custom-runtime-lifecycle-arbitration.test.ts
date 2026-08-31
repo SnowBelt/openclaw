@@ -64,6 +64,7 @@ function fixture() {
 function lifecycleCommand(runtimeHome: string, operation: string, holdSeconds = 0) {
   return [
     "set -eu",
+    'export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID="test:release-governor"',
     `. "${authScript}"`,
     `custom_runtime_lifecycle_begin "${runtimeHome}" "${operation}" "${activeSha}" "${candidateSha}"`,
     holdSeconds > 0 ? `sleep ${holdSeconds}` : ":",
@@ -301,7 +302,7 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
     expect(receipt).toMatchObject({
       activeSha,
       actor: expect.any(String),
-      approvalId: "pending:release-governor-verification",
+      approvalId: "test:release-governor",
       candidateSha,
       exitCode: 0,
       invocationId: expect.any(String),
