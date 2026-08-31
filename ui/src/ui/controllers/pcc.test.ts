@@ -565,6 +565,75 @@ describe("loadPccDashboard", () => {
     expect(state.pccUpdatedAt).toEqual(expect.any(Number));
   });
 
+  it("loads the PCC system record when the System surface is opened directly", async () => {
+    const systemDetail = {
+      project: { ...project, id: "project-command-center", title: "Project Command Center" },
+      milestones: [milestone],
+      permissions: [],
+      evidence: [evidence],
+      receipts: [receipt],
+      summary: { ...summary, id: "project-command-center", title: "Project Command Center" },
+    };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ projects: [systemDetail.summary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce(systemDetail)
+      .mockResolvedValueOnce({ presence: [] });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+    });
+    vi.stubGlobal("location", { href: "http://localhost/pcc?pcc=system" });
+
+    try {
+      await loadPccDashboard(state);
+
+      expect(request).toHaveBeenNthCalledWith(3, "pcc.projects.get", {
+        projectId: "project-command-center",
+      });
+      expect(state.pccSurface).toBe("system");
+      expect(state.pccSelectedProjectId).toBeNull();
+      expect(state.pccProjectDetail).toBeNull();
+      expect(state.pccProjectDetails["project-command-center"]?.evidence).toEqual([evidence]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("refreshes cached system proof instead of rendering stale detail", async () => {
+    const staleDetail = executionTeamDetail();
+    const freshDetail = {
+      ...staleDetail,
+      project: {
+        ...staleDetail.project,
+        id: "project-command-center",
+        title: "Project Command Center",
+      },
+    };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ projects: [summary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce(freshDetail)
+      .mockResolvedValueOnce({ presence: [] });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccSurface: "system",
+      pccUpdatedAt: Date.now(),
+      pccProjectDetails: { "project-command-center": staleDetail },
+    });
+
+    await loadPccDashboard(state);
+
+    expect(request).toHaveBeenNthCalledWith(3, "pcc.projects.get", {
+      projectId: "project-command-center",
+    });
+    expect(state.pccProjectDetails["project-command-center"]).not.toBe(staleDetail);
+    expect(state.pccProjectDetails["project-command-center"]?.project.id).toBe(
+      "project-command-center",
+    );
+  });
+
   it("opens the work overview without auto-selecting the internal PCC Product record", async () => {
     const pccSummary = {
       ...summary,

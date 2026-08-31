@@ -322,6 +322,8 @@ type PccProjectsGetResult = {
   summary: PccProjectSummary;
 };
 
+const PCC_SYSTEM_PROJECT_ID = "project-command-center";
+
 type PccAttachmentsListResult = {
   attachments: PccAttachment[];
 };
@@ -2030,6 +2032,24 @@ function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDeta
   };
 }
 
+async function refreshPccSystemRecord(state: PccDashboardState): Promise<void> {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  try {
+    const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
+      projectId: PCC_SYSTEM_PROJECT_ID,
+    });
+    rememberPccProjectDetailForState(state, normalizePccProjectDetail(detail));
+  } catch {
+    // Current production truth must fail closed when its source record cannot be refreshed.
+    const { [PCC_SYSTEM_PROJECT_ID]: _removed, ...remainingDetails } = state.pccProjectDetails;
+    state.pccProjectDetails = remainingDetails;
+  } finally {
+    state.requestUpdate?.();
+  }
+}
+
 function milestoneFormFromMilestone(milestone: PccMilestone): PccMilestoneFormState {
   return {
     id: milestone.id,
@@ -2185,6 +2205,9 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     if (activeSurface !== "project") {
       state.pccSelectedProjectId = null;
       state.pccProjectDetail = null;
+      if (activeSurface === "system") {
+        await refreshPccSystemRecord(state);
+      }
     } else if (state.pccSelectedProjectId) {
       const selectedProjectId = state.pccSelectedProjectId;
       const cached = state.pccProjectDetails[selectedProjectId];
@@ -2275,12 +2298,19 @@ export function updatePccSurface(state: PccDashboardState, surface: PccSurface):
     state.pccProjectDetail = null;
     state.pccExecutionProjection = null;
   }
+  if (surface === "system") {
+    const { [PCC_SYSTEM_PROJECT_ID]: _removed, ...remainingDetails } = state.pccProjectDetails;
+    state.pccProjectDetails = remainingDetails;
+  }
   if (surface === "projects") {
     syncPccDirectoryUrl(state.pccProjectFilter, state.pccProjectSearchQuery, false);
   } else {
     syncPccUrl(surface);
   }
   state.requestUpdate?.();
+  if (surface === "system") {
+    void refreshPccSystemRecord(state);
+  }
   void updatePccPresence(state);
 }
 
