@@ -2098,6 +2098,11 @@ export const en: TranslationMap = {
     runningVersion: "running v{version}",
     updating: "Updating…",
     updateNow: "Update now",
+    prepareVerifiedUpdate: "Prepare verified update",
+    preparingVerifiedUpdate: "Preparing verified update…",
+    installVerifiedUpdate: "Install verified update",
+    exactShaApprovalRequired: "Exact SHA approval required",
+    updateProtectionIncomplete: "Update protection needs attention.",
     dismissUpdateBanner: "Dismiss update banner",
     switchedSession: "Switched to {session}",
     splitView: {

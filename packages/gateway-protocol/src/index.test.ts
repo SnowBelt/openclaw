@@ -71,6 +71,13 @@ describe("lazy protocol validators", () => {
     expect(formatValidationErrors(validateCommandsListParams.errors)).toContain("must be boolean");
   });
 
+  it("accepts only an exact lowercase SHA for managed update approval", () => {
+    const sha = "a".repeat(40);
+    expect(protocol.validateUpdateRunParams({ approvalSha: sha })).toBe(true);
+    expect(protocol.validateUpdateRunParams({ approvalSha: sha.toUpperCase() })).toBe(false);
+    expect(protocol.validateUpdateRunParams({ approvalSha: "a".repeat(39) })).toBe(false);
+  });
+
   it("keeps erased public SIG result types runtime-exact", () => {
     expect(protocol.validateSelfImprovementProductionCheckResult({})).toBe(false);
     expect(

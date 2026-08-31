@@ -28,6 +28,8 @@ const controlPlaneFiles = [
   "custom-runtime-tailscale-primary.sh",
   "custom-runtime-updater.sh",
   "custom-runtime-update-approve.sh",
+  "custom-runtime-update-backup.mjs",
+  "custom-runtime-update-github-proof.mjs",
   "custom-runtime-source-provenance.mjs",
   "custom-runtime-signature.mjs",
   "control-director-role-config.py",
@@ -857,9 +859,9 @@ describe("custom runtime lifecycle", () => {
         `record=$(awk -F'|' -v pid="$pid" '$1 == pid { print; exit }' ${JSON.stringify(processMarker)})`,
         '[ -n "$record" ] || exit 1',
         'kill -0 "$pid" 2>/dev/null || exit 1',
-        "pointer=$(printf '%s' \"$record\" | cut -d'|' -f3-)",
+        `pointer=$(printf '%s' "$record" | cut -d'|' -f3-)`,
         `if [ "$pointer" = ${JSON.stringify(path.join(runtimeHome, "active-runtime.json"))} ]; then root=${JSON.stringify(path.join(root, "releases", "previous"))}; else root=${JSON.stringify(release)}; fi`,
-        `port=$(printf '%s' \"$record\" | cut -d'|' -f2)`,
+        `port=$(printf '%s' "$record" | cut -d'|' -f2)`,
         `printf '%s\\n' ${JSON.stringify(`${process.execPath} `)}"$root/dist/index.js gateway --port $port"`,
         "",
       ].join("\n"),
@@ -1005,6 +1007,12 @@ describe("custom runtime lifecycle", () => {
     const envWrapper = path.join(root, "service-env-wrapper.sh");
     const envFile = path.join(root, "gateway.env");
     const plistPath = path.join(root, "ai.openclaw.gateway.plist");
+    const guardPlist = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.custom-runtime.guard.plist",
+    );
     const fakeBin = path.join(root, "bin");
     const sigRpcMarker = path.join(root, "sig-rpc-called");
     const sigRpcArgsMarker = path.join(root, "sig-rpc-args");
@@ -1041,7 +1049,11 @@ describe("custom runtime lifecycle", () => {
       ].join("\n"),
       0o700,
     );
-    writeFile(envWrapper, "#!/bin/sh\n", 0o700);
+    writeFile(
+      envWrapper,
+      '#!/bin/sh\nset -eu\nenv_file="$1"\nshift\n. "$env_file"\nexec "$@"\n',
+      0o700,
+    );
     writeFile(envFile, "export TEST_ONLY=1\n", 0o600);
     writeFile(
       path.join(runtimeHome, "active-runtime.json"),
@@ -1180,6 +1192,13 @@ describe("custom runtime lifecycle", () => {
     expect(serviceEnv).toContain(
       `export OPENCLAW_BUNDLED_PLUGINS_DIR=${release}/dist-runtime/extensions`,
     );
+    expect(serviceEnv).toContain(`export OPENCLAW_GATEWAY_PLIST=${plistPath}`);
+    expect(serviceEnv).toContain(`export OPENCLAW_GATEWAY_ENV_WRAPPER=${envWrapper}`);
+    expect(serviceEnv).toContain(`export OPENCLAW_GATEWAY_ENV_FILE=${envFile}`);
+    expect(serviceEnv).toContain(`export OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST=${guardPlist}`);
+    expect(serviceEnv).toContain(
+      "export OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL=ai.openclaw.custom-runtime.guard",
+    );
     expect(readPlistArray(plistPath, "ProgramArguments")).toEqual([
       envWrapper,
       envFile,
@@ -1191,26 +1210,38 @@ describe("custom runtime lifecycle", () => {
     expect(fs.readFileSync(plistPath, "utf8")).toContain(
       `${runtimeHome}/receipts/promotion-stderr-`,
     );
-    expect(
-      readPlistArray(
-        path.join(
-          home,
-          "Library",
-          "LaunchAgents",
-          "ai.openclaw.custom-runtime.update-weekly.plist",
-        ),
-        "ProgramArguments",
-      ),
-    ).toEqual([path.join(runtimeHome, "bin", "custom-runtime-updater.sh")]);
+    const updateProgramArguments = readPlistArray(
+      path.join(home, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist"),
+      "ProgramArguments",
+    );
+    expect(updateProgramArguments).toEqual([
+      "/bin/sh",
+      envWrapper,
+      envFile,
+      path.join(runtimeHome, "bin", "custom-runtime-updater.sh"),
+    ]);
     const guardPlistPath = path.join(
       home,
       "Library",
       "LaunchAgents",
       "ai.openclaw.custom-runtime.guard.plist",
     );
-    expect(readPlistArray(guardPlistPath, "ProgramArguments")).toEqual([
+    const guardProgramArguments = readPlistArray(guardPlistPath, "ProgramArguments");
+    expect(guardProgramArguments).toEqual([
+      "/bin/sh",
+      envWrapper,
+      envFile,
       path.join(runtimeHome, "bin", "custom-runtime-guard.sh"),
     ]);
+    for (const programArguments of [updateProgramArguments, guardProgramArguments]) {
+      const probe = spawnSync(
+        programArguments[0],
+        [programArguments[1], programArguments[2], "/usr/bin/printf", "wrapper-ok"],
+        { encoding: "utf8" },
+      );
+      expect(probe.status, probe.stderr).toBe(0);
+      expect(probe.stdout).toBe("wrapper-ok");
+    }
     expect(readPlistArray(guardPlistPath, "WatchPaths")).toEqual([plistPath]);
     expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(
       path.join(home, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist"),

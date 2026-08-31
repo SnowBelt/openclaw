@@ -876,7 +876,7 @@ async function main() {
     ollamaModelBases,
     ollamaEnv,
     ollamaChatSmoke,
-    updateSafety: args.sourceOnly ? undefined : readPccUpdateSafety(),
+    updateSafety: args.sourceOnly ? undefined : await readPccUpdateSafety(),
     sourceOnly: args.sourceOnly,
   });
   if (args.json) {

@@ -7,7 +7,7 @@ releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releas
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
-managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh custom-runtime-source-provenance.mjs custom-runtime-signature.mjs control-director-role-config.py copy_stage_state.py'
+managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh custom-runtime-update-backup.mjs custom-runtime-update-github-proof.mjs custom-runtime-source-provenance.mjs custom-runtime-signature.mjs control-director-role-config.py copy_stage_state.py'
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"

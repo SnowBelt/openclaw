@@ -3744,7 +3744,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
-          updateSafety: readPccUpdateSafety(),
+          updateSafety: await readPccUpdateSafety(),
           releaseGovernance: readReleaseGovernanceStatus(),
         });
         return;
@@ -3755,7 +3755,7 @@ export const pccHandlers: GatewayRequestHandlers = {
         privateTeamPolicy: normalizePccPrivateTeamPolicy(ledger.settings?.privateTeamPolicy),
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
-        updateSafety: readPccUpdateSafety(),
+        updateSafety: await readPccUpdateSafety(),
         releaseGovernance: readReleaseGovernanceStatus(),
       });
     } catch (error) {

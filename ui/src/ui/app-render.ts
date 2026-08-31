@@ -1891,6 +1891,7 @@ export function renderApp(state: AppViewState) {
     saving: state.configSaving,
     applying: state.configApplying,
     updating: state.updateRunning,
+    updateSafety: state.customRuntimeUpdatePolicy,
     connected: state.connected,
     schema: state.configSchema,
     schemaLoading: state.configSchemaLoading,
@@ -1907,7 +1908,7 @@ export function renderApp(state: AppViewState) {
     onReset: () => resetConfigPendingChanges(state),
     onSave: () => void saveConfig(state),
     onApply: () => void applyConfig(state),
-    onUpdate: () => void runUpdate(state),
+    onUpdate: (approvalSha?: string) => void runUpdate(state, approvalSha),
     onOpenFile: () => void openConfigFile(state),
     version: state.hello?.server?.version ?? "",
     theme: state.theme,
@@ -2908,11 +2909,66 @@ export function renderApp(state: AppViewState) {
               <span class="update-banner__actions">
                 <button
                   class="btn btn--sm update-banner__btn"
-                  ?disabled=${state.updateRunning || !state.connected}
-                  @click=${() => runUpdate(state)}
+                  ?disabled=${state.updateRunning ||
+                  !state.connected ||
+                  state.customRuntimeUpdatePolicy === null ||
+                  (state.customRuntimeUpdatePolicy?.managedRuntime &&
+                    state.customRuntimeUpdatePolicy.preparationReason ===
+                      "invalid-active-runtime-pointer") ||
+                  (state.customRuntimeUpdatePolicy?.approvalPending &&
+                    !state.customRuntimeUpdatePolicy.pendingCandidateSha) ||
+                  state.customRuntimeUpdatePolicy?.preparationRunning ||
+                  state.customRuntimeUpdatePolicy?.preparationStatus === "installing" ||
+                  (state.customRuntimeUpdatePolicy?.standardUpdateBlocked &&
+                    (!state.customRuntimeUpdatePolicy.sourceDurable ||
+                      !state.customRuntimeUpdatePolicy.runtimeGuardHealthy ||
+                      !state.customRuntimeUpdatePolicy.backupConfigured))}
+                  @click=${() =>
+                    runUpdate(
+                      state,
+                      state.customRuntimeUpdatePolicy?.approvalPending === true
+                        ? (state.customRuntimeUpdatePolicy.pendingCandidateSha ?? undefined)
+                        : undefined,
+                    )}
                 >
-                  ${state.updateRunning ? t("chat.updating") : t("chat.updateNow")}
+                  ${state.updateRunning ||
+                  state.customRuntimeUpdatePolicy?.preparationRunning ||
+                  state.customRuntimeUpdatePolicy?.preparationStatus === "installing"
+                    ? state.customRuntimeUpdatePolicy?.preparationStatus === "installing"
+                      ? t("chat.updating")
+                      : t("chat.preparingVerifiedUpdate")
+                    : state.customRuntimeUpdatePolicy?.approvalPending &&
+                        state.customRuntimeUpdatePolicy.pendingCandidateSha
+                      ? t("chat.installVerifiedUpdate")
+                      : state.customRuntimeUpdatePolicy?.approvalPending
+                        ? t("chat.exactShaApprovalRequired")
+                        : state.customRuntimeUpdatePolicy === null ||
+                            (state.customRuntimeUpdatePolicy?.managedRuntime &&
+                              state.customRuntimeUpdatePolicy.preparationReason ===
+                                "invalid-active-runtime-pointer")
+                          ? t("chat.updateProtectionIncomplete")
+                          : state.customRuntimeUpdatePolicy?.managedRuntime
+                            ? t("chat.prepareVerifiedUpdate")
+                            : t("chat.updateNow")}
                 </button>
+                ${state.customRuntimeUpdatePolicy?.preparationStatus === "failed"
+                  ? html`<span class="update-banner__running"
+                      >Preparation failed:
+                      ${state.customRuntimeUpdatePolicy.preparationReason ??
+                      "unknown failure"}</span
+                    >`
+                  : state.customRuntimeUpdatePolicy === null ||
+                      (state.customRuntimeUpdatePolicy?.managedRuntime &&
+                        state.customRuntimeUpdatePolicy.preparationReason ===
+                          "invalid-active-runtime-pointer") ||
+                      (state.customRuntimeUpdatePolicy?.standardUpdateBlocked &&
+                        (!state.customRuntimeUpdatePolicy.sourceDurable ||
+                          !state.customRuntimeUpdatePolicy.runtimeGuardHealthy ||
+                          !state.customRuntimeUpdatePolicy.backupConfigured))
+                    ? html`<span class="update-banner__running"
+                        >${t("chat.updateProtectionIncomplete")}</span
+                      >`
+                    : nothing}
                 <button
                   class="update-banner__close"
                   type="button"

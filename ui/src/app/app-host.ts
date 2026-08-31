@@ -386,6 +386,7 @@ class OpenClawShell extends LitElement {
     updateAvailable: null,
     updateRunning: false,
     updateStatusBanner: null,
+    updateSafety: null,
     approvalQueue: [],
     approvalBusy: false,
     approvalError: null,
@@ -832,8 +833,9 @@ class OpenClawShell extends LitElement {
               statusBanner: this.overlaySnapshot.updateStatusBanner,
               updateAvailable: this.overlaySnapshot.updateAvailable,
               updateRunning: this.overlaySnapshot.updateRunning,
+              updateSafety: this.overlaySnapshot.updateSafety,
               connected: this.gatewayConnected,
-              onUpdate: () => context.overlays.runUpdate(),
+              onUpdate: (approvalSha?: string) => context.overlays.runUpdate(approvalSha),
               onDismiss: () => context.overlays.dismissUpdate(),
             }}
           ></openclaw-update-banner>

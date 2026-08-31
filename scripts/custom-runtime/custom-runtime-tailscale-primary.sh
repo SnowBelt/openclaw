@@ -60,7 +60,7 @@ PY
 
 if [ ! -x "$tailscaled" ] || [ ! -x "$tailscale" ]; then
   if [ "$operation" = status ]; then
-    printf '%s\n' '{"configured":true,"healthy":false,"plistMatches":false,"result":"required_binary_missing","serveConfigured":false}'
+    printf '%s\n' '{"configured":true,"dnsName":null,"healthy":false,"plistMatches":false,"result":"required_binary_missing","serveConfigured":false}'
     exit 1
   fi
   write_receipt required_binary_missing false
@@ -183,15 +183,29 @@ PY
 if [ "$operation" = status ]; then
   healthy=false
   serve_configured=false
-  if probe_status; then healthy=true; fi
-  if [ "$healthy" = true ] && probe_serve; then serve_configured=true; fi
-  python3 - "$configured" "$plist_matches" "$healthy" "$serve_configured" <<'PY'
+  dns_name=
+  if probe_status; then
+    healthy=true
+    dns_name=$(python3 - "$status_file" <<'PY'
 import json
 import sys
 
-configured, plist_matches, healthy, serve = (value == "true" for value in sys.argv[1:])
+with open(sys.argv[1], encoding="utf-8") as f:
+    status = json.load(f)
+print(str((status.get("Self") or {}).get("DNSName") or ""))
+PY
+)
+  fi
+  if [ "$healthy" = true ] && probe_serve; then serve_configured=true; fi
+  python3 - "$configured" "$plist_matches" "$healthy" "$serve_configured" "$dns_name" <<'PY'
+import json
+import sys
+
+configured, plist_matches, healthy, serve = (value == "true" for value in sys.argv[1:5])
+dns_name = sys.argv[5] or None
 print(json.dumps({
     "configured": configured,
+    "dnsName": dns_name,
     "plistMatches": plist_matches,
     "healthy": healthy,
     "serveConfigured": serve,

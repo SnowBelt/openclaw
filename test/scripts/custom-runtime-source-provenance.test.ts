@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const helper = path.resolve("scripts/custom-runtime/custom-runtime-source-provenance.mjs");
+const sourceRemote = "https://github.com/SnowBelt/openclaw.git";
+const sourceRemoteBranch = "codex/runtime-update-20260829T120000Z";
 const temporaryDirectories: string[] = [];
 
 function runGit(cwd: string, args: string[]): string {
@@ -44,6 +46,15 @@ function createRepository(): { root: string; sourceSha: string } {
   return { root, sourceSha: runGit(root, ["rev-parse", "HEAD"]) };
 }
 
+function createRemote(root: string, sourceSha: string): string {
+  const remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-remote-"));
+  temporaryDirectories.push(remoteRoot);
+  fs.chmodSync(remoteRoot, 0o700);
+  runGit(remoteRoot, ["init", "--bare", "-q"]);
+  runGit(root, ["push", remoteRoot, `${sourceSha}:refs/heads/${sourceRemoteBranch}`]);
+  return remoteRoot;
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     fs.chmodSync(directory, 0o700);
@@ -54,6 +65,7 @@ afterEach(() => {
 describe("custom runtime source provenance", () => {
   it("imports, independently verifies, and truthfully migrates a recovery root", () => {
     const { root, sourceSha } = createRepository();
+    const remote = createRemote(root, sourceSha);
     const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
     temporaryDirectories.push(runtimeHome);
     fs.chmodSync(runtimeHome, 0o700);
@@ -65,7 +77,19 @@ describe("custom runtime source provenance", () => {
     const historicalSha = "e8dc155fe2f16183373f8ce1bc8d28f5d48377cd";
 
     const imported = runHelper(
-      ["import", "--source", root, "--source-sha", sourceSha, "--runtime-home", runtimeHome],
+      [
+        "import",
+        "--source",
+        root,
+        "--source-sha",
+        sourceSha,
+        "--runtime-home",
+        runtimeHome,
+        "--source-remote",
+        remote,
+        "--source-remote-branch",
+        sourceRemoteBranch,
+      ],
       nonRepositoryCwd,
     );
     expect(imported.status, imported.stderr).toBe(0);
@@ -73,8 +97,24 @@ describe("custom runtime source provenance", () => {
       bundlePath: string;
       recordPath: string;
       sourceSha: string;
+      sourceRemote: string;
+      sourceRemoteBranch: string;
+      storePath: string;
     };
     expect(record.sourceSha).toBe(sourceSha);
+    expect(record.sourceRemote).toBe(remote);
+    expect(record.sourceRemoteBranch).toBe(sourceRemoteBranch);
+    expect(runGit(root, ["--git-dir", record.storePath, "remote", "get-url", "origin"])).toBe(
+      remote,
+    );
+    expect(
+      runGit(root, [
+        "--git-dir",
+        record.storePath,
+        "rev-parse",
+        `refs/remotes/origin/${sourceRemoteBranch}^{commit}`,
+      ]),
+    ).toBe(sourceSha);
     expect(fs.statSync(record.bundlePath).mode & 0o077).toBe(0);
 
     const verified = runHelper(
@@ -95,6 +135,10 @@ describe("custom runtime source provenance", () => {
       runtimeHome,
       "--active-release",
       "legacy-runtime",
+      "--source-remote",
+      remote,
+      "--source-remote-branch",
+      sourceRemoteBranch,
     ]);
     expect(migrationResult.status, migrationResult.stderr).toBe(0);
     const migration = JSON.parse(migrationResult.stdout) as {
@@ -124,6 +168,10 @@ describe("custom runtime source provenance", () => {
       sourceSha,
       "--runtime-home",
       runtimeHome,
+      "--source-remote",
+      remote,
+      "--source-remote-branch",
+      sourceRemoteBranch,
     ]);
     expect(repeatedImport.status, repeatedImport.stderr).toBe(0);
     expect(JSON.parse(repeatedImport.stdout)).toMatchObject({ recordPath: record.recordPath });
@@ -190,5 +238,89 @@ describe("custom runtime source provenance", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("provenance Git store is not private");
     expect(fs.statSync(record.storePath).mode & 0o777).toBe(0o710);
+  });
+
+  it("does not record checkout origin without an explicitly bound branch", () => {
+    const { root, sourceSha } = createRepository();
+    runGit(root, ["remote", "add", "origin", sourceRemote]);
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
+    temporaryDirectories.push(runtimeHome);
+    fs.chmodSync(runtimeHome, 0o700);
+
+    const imported = runHelper([
+      "import",
+      "--source",
+      root,
+      "--source-sha",
+      sourceSha,
+      "--runtime-home",
+      runtimeHome,
+    ]);
+    expect(imported.status, imported.stderr).toBe(0);
+    const record = JSON.parse(imported.stdout) as Record<string, unknown>;
+    expect(record).not.toHaveProperty("sourceRemote");
+    expect(record).not.toHaveProperty("sourceRemoteBranch");
+
+    const verified = runHelper([
+      "verify",
+      "--record",
+      String(record.recordPath),
+      "--expected-sha",
+      sourceSha,
+      "--deep",
+      "true",
+    ]);
+    expect(verified.status, verified.stderr).toBe(0);
+  });
+
+  it("rejects an explicitly supplied remote without its branch", () => {
+    const { root, sourceSha } = createRepository();
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
+    temporaryDirectories.push(runtimeHome);
+    fs.chmodSync(runtimeHome, 0o700);
+
+    const result = runHelper([
+      "import",
+      "--source",
+      root,
+      "--source-sha",
+      sourceSha,
+      "--runtime-home",
+      runtimeHome,
+      "--source-remote",
+      sourceRemote,
+    ]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("source remote and branch must be provided together");
+  });
+
+  it("rejects a remote branch that resolves to a different source SHA", () => {
+    const { root, sourceSha } = createRepository();
+    const remote = createRemote(root, sourceSha);
+    const other = createRepository();
+    fs.appendFileSync(path.join(other.root, "README.md"), "different\n");
+    runGit(other.root, ["add", "README.md"]);
+    runGit(other.root, ["commit", "-qm", "different provenance fixture"]);
+    const otherSha = runGit(other.root, ["rev-parse", "HEAD"]);
+    runGit(other.root, ["push", "--force", remote, `${otherSha}:refs/heads/${sourceRemoteBranch}`]);
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
+    temporaryDirectories.push(runtimeHome);
+    fs.chmodSync(runtimeHome, 0o700);
+
+    const result = runHelper([
+      "import",
+      "--source",
+      root,
+      "--source-sha",
+      sourceSha,
+      "--runtime-home",
+      runtimeHome,
+      "--source-remote",
+      remote,
+      "--source-remote-branch",
+      sourceRemoteBranch,
+    ]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("source remote branch does not resolve to the source SHA");
   });
 });

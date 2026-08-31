@@ -2121,6 +2121,11 @@ export const tr: TranslationMap = {
     runningVersion: "çalışan v{version}",
     updating: "Güncelleniyor…",
     updateNow: "Şimdi güncelle",
+    prepareVerifiedUpdate: "Doğrulanmış güncellemeyi hazırla",
+    preparingVerifiedUpdate: "Doğrulanmış güncelleme hazırlanıyor…",
+    installVerifiedUpdate: "Doğrulanmış güncellemeyi yükle",
+    exactShaApprovalRequired: "Tam SHA onayı gerekli",
+    updateProtectionIncomplete: "Güncelleme koruması ilgilenilmesini gerektiriyor.",
     dismissUpdateBanner: "Güncelleme başlığını kapat",
     switchedSession: "{session} oturumuna geçildi",
     splitView: {

@@ -15,6 +15,8 @@ export function assembleManagedRuntimePackage(params: {
   provenanceRecordPath?: string;
   provenanceRuntimeHome?: string;
   provenanceMigrationPath?: string;
+  sourceRemote?: string;
+  sourceRemoteBranch?: string;
 }): {
   releaseRoot: string;
   releaseId: string;

@@ -1,20 +1,167 @@
 #!/bin/sh
+# Read one effective Gateway config section through the immutable runtime's own
+# JSON5/include-aware loader. The child process keeps authored config parsing at
+# the same boundary as the Gateway and returns only the requested section.
+custom_runtime_is_regular_file() {
+  custom_runtime_regular_file_path=${1:-}
+  [ -n "$custom_runtime_regular_file_path" ] || return 1
+  python3 - "$custom_runtime_regular_file_path" <<'PY'
+import os
+import stat
+import sys
+
+try:
+    info = os.lstat(sys.argv[1])
+except OSError:
+    raise SystemExit(1) from None
+raise SystemExit(0 if stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode) else 1)
+PY
+}
+
+custom_runtime_read_effective_gateway_section() {
+  effective_config=${1:-}
+  effective_runtime_root=${2:-}
+  effective_section=${3:-}
+  custom_runtime_is_regular_file "$effective_config" || return 1
+  [ -n "$effective_runtime_root" ] || return 1
+  [ -n "${OPENCLAW_VERIFIED_RUNTIME_ROOT:-}" ] || return 1
+  python3 - "$effective_runtime_root" "$OPENCLAW_VERIFIED_RUNTIME_ROOT" <<'PY' || return 1
+import os
+import stat
+import sys
+
+requested, verified = sys.argv[1:]
+try:
+    requested_info = os.lstat(requested)
+    verified_info = os.lstat(verified)
+except OSError:
+    raise SystemExit(1) from None
+if (
+    not stat.S_ISDIR(requested_info.st_mode)
+    or stat.S_ISLNK(requested_info.st_mode)
+    or not stat.S_ISDIR(verified_info.st_mode)
+    or stat.S_ISLNK(verified_info.st_mode)
+    or os.path.realpath(requested) != os.path.realpath(verified)
+):
+    raise SystemExit(1)
+PY
+  [ -n "${OPENCLAW_NODE_BIN:-}" ] && [ -x "$OPENCLAW_NODE_BIN" ] || return 1
+  effective_config_module="$effective_runtime_root/dist/config/config.js"
+  custom_runtime_is_regular_file "$effective_config_module" || return 1
+  case "$effective_section" in auth|controlUi) ;; *) return 1 ;; esac
+
+  OPENCLAW_CONFIG_PATH="$effective_config" "$OPENCLAW_NODE_BIN" --input-type=module - \
+    "$effective_config_module" "$effective_section" <<'NODE'
+import { pathToFileURL } from "node:url";
+
+const modulePath = process.argv[2];
+const section = process.argv[3];
+const { readConfigFileSnapshot } = await import(pathToFileURL(modulePath).href);
+const snapshot = await readConfigFileSnapshot({
+  isolateEnv: true,
+  observe: false,
+  skipPluginValidation: true,
+});
+if (!snapshot.valid) {
+  throw new Error("managed OpenClaw config is invalid");
+}
+const config = snapshot.config;
+const gateway = config.gateway;
+const value = gateway && typeof gateway === "object" ? gateway[section] : undefined;
+const normalized = section === "controlUi" && value === undefined ? {} : (value ?? null);
+process.stdout.write(`${JSON.stringify(normalized)}\n`);
+NODE
+}
+
+# Update preparation and installation use the same stale-lock policy. Active
+# owners and fresh orphaned locks fail closed; only dead locks older than the
+# bounded recovery window are archived before the requested transition.
+custom_runtime_update_lock_transition() {
+  update_lock_mode=${1:-}
+  update_lock_path=${2:-}
+  update_lock_receipts=${3:-}
+  update_lock_stamp=${4:-}
+  update_lock_kind=${5:-}
+  update_lock_owner_pid=${6:-0}
+  case "$update_lock_mode" in check|acquire) ;; *) return 64 ;; esac
+  case "$update_lock_kind" in preparation|installation) ;; *) return 64 ;; esac
+  [ -n "$update_lock_path" ] && [ -n "$update_lock_receipts" ] && [ -n "$update_lock_stamp" ] || return 64
+  python3 - "$update_lock_mode" "$update_lock_path" "$update_lock_receipts" \
+    "$update_lock_stamp" "$update_lock_kind" "$update_lock_owner_pid" <<'PY'
+import datetime
+import json
+import os
+import stat
+import sys
+
+mode, lock, receipts, stamp, kind, owner_pid_raw = sys.argv[1:]
+try:
+    info = os.lstat(lock)
+except FileNotFoundError:
+    info = None
+if info is not None:
+    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise SystemExit(64)
+    age = max(0, datetime.datetime.now().timestamp() - info.st_mtime)
+    owner_alive = False
+    try:
+        with open(os.path.join(lock, "owner.json"), encoding="utf-8") as f:
+            owner = json.load(f)
+        pid = owner.get("pid") if isinstance(owner, dict) else None
+        if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+            os.kill(pid, 0)
+            owner_alive = True
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
+        owner_alive = False
+    if owner_alive or age < 30 * 60:
+        raise SystemExit(75)
+    recovered = os.path.join(receipts, f"stale-update-{kind}-lock-{stamp}")
+    os.replace(lock, recovered)
+if mode == "acquire":
+    try:
+        owner_pid = int(owner_pid_raw)
+    except ValueError:
+        raise SystemExit(64) from None
+    if owner_pid <= 0:
+        raise SystemExit(64)
+    os.mkdir(lock, 0o700)
+    with open(os.path.join(lock, "owner.json"), "x", encoding="utf-8") as f:
+        json.dump({"pid": owner_pid, "startedAt": stamp}, f, sort_keys=True)
+        f.write("\n")
+print("acquired" if mode == "acquire" else "clear")
+PY
+}
+
 # Resolve local Gateway verification credentials without exposing them in argv.
 
 custom_runtime_export_gateway_auth() {
   auth_config=${1:-}
+  auth_runtime_root=${2:-}
   if [ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ] || [ -n "${OPENCLAW_GATEWAY_PASSWORD:-}" ]; then
     return 0
   fi
-  [ -n "$auth_config" ] && [ -f "$auth_config" ] || return 1
+  custom_runtime_is_regular_file "$auth_config" || return 1
 
-  auth_record=$(python3 - "$auth_config" <<'PY'
+  if [ -n "$auth_runtime_root" ]; then
+    auth_json=$(custom_runtime_read_effective_gateway_section \
+      "$auth_config" "$auth_runtime_root" auth) || return 1
+  else
+    auth_json=$(python3 - "$auth_config" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as f:
     config = json.load(f)
-auth = config.get("gateway", {}).get("auth", {})
+print(json.dumps(config.get("gateway", {}).get("auth")))
+PY
+    ) || return 1
+  fi
+
+  auth_record=$(printf '%s' "$auth_json" | python3 -c '
+import json
+import sys
+
+auth = json.load(sys.stdin)
 if not isinstance(auth, dict):
     raise SystemExit("gateway.auth must be an object")
 mode = auth.get("mode")
@@ -26,8 +173,7 @@ if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
     raise SystemExit(f"gateway.auth.{field} must resolve to a direct single-line string")
 print(mode)
 print(value)
-PY
-  ) || return 1
+') || return 1
 
   auth_kind=$(printf '%s\n' "$auth_record" | sed -n '1p')
   auth_value=$(printf '%s\n' "$auth_record" | sed -n '2p')

@@ -18,9 +18,14 @@ export type PccUpdateSafety = {
   status: "protected" | "attention" | "unmanaged";
   standardUpdateBlocked: boolean;
   sourceDurable: boolean;
+  backupConfigured: boolean;
   brokerConfigured: boolean;
   runtimeGuardConfigured: boolean;
   approvalPending: boolean;
+  pendingCandidateSha: string | null;
+  preparationRunning: boolean;
+  preparationStatus: "blocked" | "idle" | "preparing" | "ready" | "installing" | "failed";
+  preparationReason: string | null;
   sourceSha: string | null;
   sourceBranch: string | null;
   activeRelease: string | null;
@@ -78,7 +83,7 @@ function latestReceipt(receiptsDir: string): PccUpdateSafetyReceipt | null {
   try {
     names = fs
       .readdirSync(receiptsDir)
-      .filter((name) => name.startsWith("update-") && name.endsWith(".json"));
+      .filter((name) => /^(?:update|update-approval)-\d{8}T\d{6}Z\.json$/u.test(name));
   } catch {
     return null;
   }
@@ -115,14 +120,38 @@ function isLaunchAgentLoaded(label: string): boolean {
   return result.status === 0;
 }
 
-export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUpdateSafety {
+function isRegularFile(filePath: string): boolean {
+  try {
+    const stat = fs.lstatSync(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+export async function readPccUpdateSafety(
+  options: PccUpdateSafetyOptions = {},
+): Promise<PccUpdateSafety> {
   const homedir = options.homedir ?? os.homedir();
   const runtimeHome = options.runtimeHome ?? path.join(homedir, ".openclaw-custom-runtime");
-  const policy = resolveCustomRuntimeUpdatePolicy({
+  const guardLaunchAgentPath =
+    options.guardLaunchAgentPath ??
+    options.runtimeGuardLaunchAgentPath ??
+    text(options.env?.OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST) ??
+    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist");
+  const guardLabel =
+    options.runtimeGuardLabel ??
+    text(options.env?.OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL) ??
+    RUNTIME_GUARD_LABEL;
+  const guardLoaded = options.guardLoaded ?? isLaunchAgentLoaded(guardLabel);
+  const policy = await resolveCustomRuntimeUpdatePolicy({
     ...(options.env ? { env: options.env } : {}),
     homedir,
     ...(options.argv ? { argv: options.argv } : {}),
     ...(options.pointerPath ? { pointerPath: options.pointerPath } : {}),
+    runtimeGuardLaunchAgentPath: guardLaunchAgentPath,
+    runtimeGuardLabel: guardLabel,
+    runtimeGuardLoaded: guardLoaded,
   });
   const pointer = readJson(policy.pointerPath);
   const launchAgentPath =
@@ -131,27 +160,31 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
   const brokerInstalled =
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh")) &&
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh")) &&
+    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs")) &&
+    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-github-proof.mjs")) &&
     fs.existsSync(launchAgentPath);
   const schedulerLoaded = options.schedulerLoaded ?? isLaunchAgentLoaded(UPDATE_SCHEDULER_LABEL);
   const brokerConfigured = brokerInstalled && schedulerLoaded;
-  const guardLaunchAgentPath =
-    options.guardLaunchAgentPath ??
-    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist");
   const runtimeGuardInstalled =
-    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-guard.sh")) &&
-    fs.existsSync(guardLaunchAgentPath);
-  const guardLoaded = options.guardLoaded ?? isLaunchAgentLoaded(RUNTIME_GUARD_LABEL);
+    isRegularFile(path.join(runtimeHome, "bin", "custom-runtime-guard.sh")) &&
+    isRegularFile(guardLaunchAgentPath);
   const runtimeGuardConfigured = runtimeGuardInstalled && guardLoaded;
-  const pending = readJson(path.join(runtimeHome, "pending-update.json"));
-  const approvalPending = pending?.result === "ready_for_approval";
+  const backupConfigured = policy.backupConfigured;
   const issues: string[] = [];
   if (policy.managedRuntime && !policy.standardUpdateBlocked) {
     issues.push("Generic update paths are not blocked for the active custom runtime.");
   }
   if (policy.managedRuntime && !policy.sourceDurable) {
-    issues.push(
-      "The active runtime is not bound to a durable Git commit, source repo, and branch.",
-    );
+    issues.push(policy.sourceDurabilityReason);
+  }
+  const runtimeGuardAgentIssue =
+    policy.runtimeGuardReason === "The recovery guard LaunchAgent is missing." ||
+    policy.runtimeGuardReason === "The recovery guard LaunchAgent is not loaded.";
+  if (policy.managedRuntime && !policy.runtimeGuardHealthy && !runtimeGuardAgentIssue) {
+    issues.push(policy.runtimeGuardReason);
+  }
+  if (policy.managedRuntime && !backupConfigured) {
+    issues.push("The encrypted external update-backup destination is unavailable.");
   }
   if (policy.managedRuntime && !brokerInstalled) {
     issues.push("The verified custom-runtime update broker is not fully installed.");
@@ -163,6 +196,11 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
   } else if (policy.managedRuntime && !guardLoaded) {
     issues.push("The verified custom-runtime recovery guard is installed but not scheduled.");
   }
+  if (policy.managedRuntime && policy.preparationStatus === "failed") {
+    issues.push(
+      `Verified update preparation failed: ${policy.preparationReason ?? "unknown failure"}.`,
+    );
+  }
   const status = !policy.managedRuntime
     ? "unmanaged"
     : issues.length === 0
@@ -172,9 +210,14 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     status,
     standardUpdateBlocked: policy.standardUpdateBlocked,
     sourceDurable: policy.sourceDurable,
+    backupConfigured,
     brokerConfigured,
     runtimeGuardConfigured,
-    approvalPending,
+    approvalPending: policy.approvalPending,
+    pendingCandidateSha: policy.pendingCandidateSha,
+    preparationRunning: policy.preparationRunning,
+    preparationStatus: policy.preparationStatus,
+    preparationReason: policy.preparationReason,
     sourceSha: policy.sourceSha,
     sourceBranch: policy.sourceBranch,
     activeRelease: text(pointer?.releaseId),

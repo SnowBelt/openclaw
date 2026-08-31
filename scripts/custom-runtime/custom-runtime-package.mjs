@@ -382,6 +382,8 @@ export function assembleManagedRuntimePackage({
   provenanceRuntimeHome,
   provenanceMigrationPath,
   provenanceRecordPath,
+  sourceRemote,
+  sourceRemoteBranch,
 }) {
   const candidateSourceRoot = fs.realpathSync(sourceRoot);
   let managedReleasesDir = path.resolve(releasesDir);
@@ -404,6 +406,8 @@ export function assembleManagedRuntimePackage({
       sourceSha,
       runtimeHome: provenanceRuntimeHome,
       historicalSourceSha: provenanceMigrationPath ? activeSha : undefined,
+      sourceRemote,
+      sourceRemoteBranch,
     });
   }
   const lineage = assertCandidateLineage({
@@ -489,6 +493,13 @@ export function assembleManagedRuntimePackage({
         objectFormat: sourceProvenance.objectFormat,
         recordPath: sourceProvenance.recordPath,
         recordSha256: sha256File(sourceProvenance.recordPath),
+        storePath: sourceProvenance.storePath,
+        bundlePath: sourceProvenance.bundlePath,
+        bundleSha256: sourceProvenance.bundleSha256,
+        ...(sourceProvenance.sourceRemote ? { sourceRemote: sourceProvenance.sourceRemote } : {}),
+        ...(sourceProvenance.sourceRemoteBranch
+          ? { sourceRemoteBranch: sourceProvenance.sourceRemoteBranch }
+          : {}),
         ...(sourceProvenance.historicalSourceSha
           ? { historicalSourceSha: sourceProvenance.historicalSourceSha }
           : {}),
@@ -606,6 +617,10 @@ if (isMainModule()) {
         : {}),
       ...(values.get("provenance-migration")
         ? { provenanceMigrationPath: values.get("provenance-migration") }
+        : {}),
+      ...(values.get("source-remote") ? { sourceRemote: values.get("source-remote") } : {}),
+      ...(values.get("source-remote-branch")
+        ? { sourceRemoteBranch: values.get("source-remote-branch") }
         : {}),
     });
     process.stdout.write(`${JSON.stringify({ result: "packaged", ...result })}\n`);
