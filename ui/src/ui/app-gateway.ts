@@ -1167,7 +1167,7 @@ async function loadAgentsThenRefreshActiveTab(host: GatewayHost) {
   try {
     const composerBeforeAgentResolution = {
       chatMessage: host.chatMessage,
-      chatQueue: [...host.chatQueue],
+      chatQueue: [...(host.chatQueue ?? [])],
       chatQueuePaused: host.chatQueuePaused === true,
     };
     await loadAgents(host as unknown as AgentsState);
@@ -1175,7 +1175,7 @@ async function loadAgentsThenRefreshActiveTab(host: GatewayHost) {
     if (sessionFallbackChanged) {
       const composerChangedDuringAgentResolution =
         host.chatMessage !== composerBeforeAgentResolution.chatMessage ||
-        !chatQueueMatches(host.chatQueue, composerBeforeAgentResolution.chatQueue) ||
+        !chatQueueMatches(host.chatQueue ?? [], composerBeforeAgentResolution.chatQueue) ||
         (host.chatQueuePaused === true) !== composerBeforeAgentResolution.chatQueuePaused;
       if (!composerChangedDuringAgentResolution) {
         // Agent fallback changes the storage scope. Restore the target scope
