@@ -825,9 +825,11 @@ export function executeOwnedProcess(params: {
     let contentionSnapshot: LocalModelResourceSnapshot | null = null;
     let monitorError: string | null = null;
     let settled = false;
-    let monitor: NodeJS.Timeout | undefined;
+    const timerHandles: {
+      monitor?: NodeJS.Timeout;
+      timeout?: NodeJS.Timeout;
+    } = {};
     let monitorRunning = false;
-    let timeout: NodeJS.Timeout | undefined;
     const complete = async (
       childPid: number | undefined,
       status: number | null,
@@ -841,11 +843,11 @@ export function executeOwnedProcess(params: {
         return;
       }
       settled = true;
-      if (timeout) {
-        clearTimeout(timeout);
+      if (timerHandles.timeout) {
+        clearTimeout(timerHandles.timeout);
       }
-      if (monitor) {
-        clearInterval(monitor);
+      if (timerHandles.monitor) {
+        clearInterval(timerHandles.monitor);
       }
       const ownedProcessCleanup =
         childPid === undefined ? true : await terminateOwnedProcessGroup(childPid);
@@ -943,7 +945,7 @@ export function executeOwnedProcess(params: {
         void complete(child.pid, null, "SIGTERM", child);
         return;
       }
-      monitor = setInterval(() => {
+      timerHandles.monitor = setInterval(() => {
         if (settled || monitorRunning) {
           return;
         }
@@ -965,7 +967,7 @@ export function executeOwnedProcess(params: {
           });
       }, params.monitorIntervalMs ?? EXECUTION_MONITOR_INTERVAL_MS);
     }
-    timeout = setTimeout(() => {
+    timerHandles.timeout = setTimeout(() => {
       timedOut = true;
       void complete(child.pid, null, "SIGTERM", child);
     }, params.timeoutMs);

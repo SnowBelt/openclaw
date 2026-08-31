@@ -110,6 +110,8 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H1: Custom runtime update safety
   - H2: Source of truth
   - H2: Durable source requirement
+  - H2: Verified recovery backup
+  - H3: One-time bootstrap from a sealed successor
   - H2: Canonical production package
   - H2: Prepare, review, approve
   - H2: Dashboard customization rule
@@ -230,6 +232,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Task Admission And Coordination
   - H2: Stop, Fan-In, And Proof
   - H2: Learning Boundary
+  - H2: Legacy Metadata Repair
 
 ## automation/pcc-learning-loop.md
 

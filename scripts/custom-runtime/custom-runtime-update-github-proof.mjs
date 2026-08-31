@@ -27,6 +27,8 @@ const DEFAULT_POLL_MS = 15_000;
 const RUN_DISCOVERY_TIMEOUT_MS = 2 * 60 * 1000;
 const RUN_DISCOVERY_POLL_MS = 5_000;
 const MAX_RECEIPT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const ANSI_ESCAPE = String.fromCharCode(0x1b);
+const ANSI_CSI_PATTERN = new RegExp(`${ANSI_ESCAPE}\\[[0-?]*[ -/]*[@-~]`, "gu");
 
 function fail(message) {
   throw new Error(`custom runtime GitHub proof blocked: ${message}`);
@@ -220,7 +222,7 @@ function preflightJobId(runInfo) {
 }
 
 function assertExactTargetCheckoutLog(log, sha) {
-  const normalized = String(log).replaceAll(/\u001b\[[0-?]*[ -/]*[@-~]/gu, "");
+  const normalized = String(log).replaceAll(ANSI_CSI_PATTERN, "");
   if (/target_ref .* unavailable; falling back to head SHA/iu.test(normalized)) {
     fail("trusted workflow fell back from the requested candidate target");
   }

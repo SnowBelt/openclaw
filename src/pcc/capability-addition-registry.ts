@@ -106,7 +106,6 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     tests: [
       "extensions/research-manager/index.test.ts",
       "extensions/research-manager/manifest.test.ts",
-      "extensions/research-manager/src/runtime.test.ts",
     ],
     proofSurfaces: [
       "pnpm test extensions/research-manager",
