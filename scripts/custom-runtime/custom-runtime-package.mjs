@@ -361,7 +361,7 @@ export function resolveDefaultDeployInvocation({ stagingRoot, env = process.env 
   return {
     command: "pnpm",
     args: [
-      ...(offline ? ["--offline"] : []),
+      ...(offline ? ["--config.offline=true"] : []),
       "--config.inject-workspace-packages=true",
       "--filter",
       "openclaw",

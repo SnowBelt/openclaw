@@ -70,8 +70,8 @@ export function resolvePnpmSpawnCall(pnpmArgs, envOverride, params = {}) {
   const platform = params.platform ?? process.platform;
   const cwd = params.cwd ?? uiDir;
   const resolvedPnpmArgs =
-    env.OPENCLAW_BUILD_OFFLINE === "1" && !pnpmArgs.includes("--offline")
-      ? ["--offline", ...pnpmArgs]
+    env.OPENCLAW_BUILD_OFFLINE === "1" && !pnpmArgs.includes("--config.offline=true")
+      ? ["--config.offline=true", ...pnpmArgs]
       : pnpmArgs;
   const runner = resolvePnpmRunner({
     cwd,

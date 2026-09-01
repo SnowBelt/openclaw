@@ -176,7 +176,7 @@ describe("scripts/ui windows spawn behavior", () => {
       );
 
       expect(result.command).toBe("/usr/bin/node");
-      expect(result.args).toEqual([npmExecPath, "--offline", "run", "build"]);
+      expect(result.args).toEqual([npmExecPath, "--config.offline=true", "run", "build"]);
     } finally {
       fs.rmSync(tempDir, { force: true, recursive: true });
     }

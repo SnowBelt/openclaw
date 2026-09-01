@@ -157,7 +157,7 @@ describe("custom managed-runtime packaging", () => {
     expect(result).toEqual({
       command: "pnpm",
       args: [
-        "--offline",
+        "--config.offline=true",
         "--config.inject-workspace-packages=true",
         "--filter",
         "openclaw",
