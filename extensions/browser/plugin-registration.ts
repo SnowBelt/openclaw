@@ -54,6 +54,7 @@ import {
   evaluateBrowserStewardRuntimeGuard,
   BROWSER_STEWARD_AGENT_ID,
   redactBrowserStewardCredentialMaterial,
+  redactBrowserStewardDiagnosticResult,
   shouldApplyBrowserStewardRuntimeGuard,
 } from "./src/browser/browser-steward-runtime-guard.js";
 import { resolveBrowserConfig, resolveProfile } from "./src/browser/config.js";
@@ -213,6 +214,8 @@ function createLazyBrowserTool(
     description: describeBrowserTool({ targetDefault, hostHint, capabilities }),
     parameters: createBrowserToolSchema(capabilities),
     outputSchema: BrowserToolOutputSchema,
+    redactBeforeToolCallDiagnosticParams: redactBrowserStewardCredentialMaterial,
+    redactBeforeToolCallDiagnosticResult: redactBrowserStewardDiagnosticResult,
     prepareBeforeToolCallParams: async (params, context) => {
       const { prepareBrowserStewardToolParams } = await loadBrowserRegistrationRuntimeModule();
       return await prepareBrowserStewardToolParams({

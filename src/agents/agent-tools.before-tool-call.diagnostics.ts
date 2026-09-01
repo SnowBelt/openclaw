@@ -519,17 +519,35 @@ export function emitToolBlockedSecurityEvent(params: {
 
 export function buildToolContentPrivateData(
   policy: DiagnosticModelContentCapturePolicy,
-  args: { input: unknown; output?: unknown; includeOutput: boolean },
+  args: {
+    input: unknown;
+    output?: unknown;
+    includeOutput: boolean;
+    redactInput?: (value: unknown) => unknown;
+    redactOutput?: (value: unknown) => unknown;
+  },
 ): DiagnosticEventPrivateData | undefined {
   if (!policy.toolInputs && !policy.toolOutputs) {
     return undefined;
   }
   const toolContent: { toolInput?: unknown; toolOutput?: unknown } = {};
   if (policy.toolInputs) {
-    toolContent.toolInput = cloneDiagnosticContentValue(args.input);
+    try {
+      toolContent.toolInput = args.redactInput
+        ? args.redactInput(cloneDiagnosticContentValue(args.input))
+        : cloneDiagnosticContentValue(args.input);
+    } catch {
+      toolContent.toolInput = { redacted: true };
+    }
   }
   if (args.includeOutput && policy.toolOutputs) {
-    toolContent.toolOutput = cloneDiagnosticContentValue(args.output);
+    try {
+      toolContent.toolOutput = args.redactOutput
+        ? args.redactOutput(cloneDiagnosticContentValue(args.output))
+        : cloneDiagnosticContentValue(args.output);
+    } catch {
+      toolContent.toolOutput = { redacted: true };
+    }
   }
   return Object.keys(toolContent).length > 0 ? { toolContent } : undefined;
 }

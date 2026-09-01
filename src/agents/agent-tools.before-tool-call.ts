@@ -33,9 +33,11 @@ export {
 } from "./agent-tools.before-tool-call.policy.js";
 export {
   buildBlockedToolResult,
+  finalizeBeforeToolCallExecutionParams,
   getBeforeToolCallFailureDisposition,
   isBeforeToolCallBlockedError,
   isPreExecutionBlockedToolResult,
+  prepareBeforeToolCallExecutionParams,
   recordAdjustedParamsForToolCall,
   recordStructuredReplayTrustForToolCall,
   rewrapToolWithBeforeToolCallHook,

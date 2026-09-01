@@ -15,6 +15,7 @@ import {
 import { resolveSqliteTargetFromSessionStorePath } from "../../config/sessions/session-sqlite-target.js";
 import { closeOpenClawAgentDatabaseByPath } from "../../state/openclaw-agent-db.js";
 import { steerActiveSessionWithOptionalDeliveryWait } from "../embedded-agent-runner/run/attempt-queue-message.js";
+import type { AgentEvent } from "../runtime/index.js";
 import { agentSessionAutomaticCompaction } from "./agent-session-compaction.js";
 import {
   appendHistory,
@@ -278,6 +279,95 @@ describe("AgentSession loop correctness", () => {
     await session.prompt("first prompt");
 
     expect(observed).toEqual(["first", "second"]);
+  });
+
+  it("redacts Browser lifecycle payloads for extensions without changing user events", async () => {
+    const extensionEvents: unknown[] = [];
+    const handlers = new Map<string, Array<(...args: unknown[]) => Promise<unknown>>>([
+      ["tool_execution_start", [async (event: unknown) => void extensionEvents.push(event)]],
+      ["tool_execution_update", [async (event: unknown) => void extensionEvents.push(event)]],
+      ["tool_execution_end", [async (event: unknown) => void extensionEvents.push(event)]],
+    ]);
+    const browserDefinition: ToolDefinition = {
+      name: "browser",
+      label: "Browser",
+      description: "test browser tool",
+      parameters: Type.Object({}),
+      redactBeforeToolCallDiagnosticParams: () => ({ redacted: true }),
+      redactBeforeToolCallDiagnosticResult: () => ({ redacted: true }),
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const { session } = await createTestSession({
+      customTools: [browserDefinition],
+      resourceLoader: createResourceLoader(handlers),
+    });
+    const userEvents: AgentEvent[] = [];
+    session.subscribe((event) => {
+      if (
+        event.type === "tool_execution_start" ||
+        event.type === "tool_execution_update" ||
+        event.type === "tool_execution_end"
+      ) {
+        userEvents.push(event);
+      }
+    });
+    const handleAgentEvent = Reflect.get(session, "handleAgentEvent") as (
+      event: AgentEvent,
+    ) => Promise<void>;
+    const rawArgs = { page: "private-page-content" };
+    const rawPartialResult = { text: "private-partial-page-content" };
+    const rawResult = { text: "private-page-content", token: "private-token" };
+
+    await handleAgentEvent({
+      type: "tool_execution_start",
+      toolCallId: "call-1",
+      toolName: "browser",
+      args: rawArgs,
+    });
+    await handleAgentEvent({
+      type: "tool_execution_update",
+      toolCallId: "call-1",
+      toolName: "browser",
+      args: rawArgs,
+      partialResult: rawPartialResult,
+    });
+    await handleAgentEvent({
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: "browser",
+      result: rawResult,
+      isError: false,
+    });
+
+    expect(extensionEvents).toEqual([
+      {
+        type: "tool_execution_start",
+        toolCallId: "call-1",
+        toolName: "browser",
+        args: { redacted: true },
+      },
+      {
+        type: "tool_execution_update",
+        toolCallId: "call-1",
+        toolName: "browser",
+        args: { redacted: true },
+        partialResult: { redacted: true },
+      },
+      {
+        type: "tool_execution_end",
+        toolCallId: "call-1",
+        toolName: "browser",
+        result: { redacted: true },
+        isError: false,
+      },
+    ]);
+    expect(userEvents).toEqual([
+      expect.objectContaining({ type: "tool_execution_start", args: rawArgs }),
+      expect.objectContaining({ type: "tool_execution_update", args: rawArgs }),
+      expect.objectContaining({ type: "tool_execution_end", result: rawResult }),
+    ]);
+    expect(JSON.stringify(extensionEvents)).not.toContain("private-page-content");
+    expect(JSON.stringify(extensionEvents)).not.toContain("private-token");
   });
 
   it("carries the canonical assistant entry id through ordered terminal listeners", async () => {

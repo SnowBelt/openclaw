@@ -7,6 +7,7 @@ import type { TSchema } from "typebox";
 import { copyCodeModeControlToolIdentity } from "../../code-mode-control-tools.js";
 import type { AgentTool } from "../../runtime/index.js";
 import { copyInternalToolExecutionPreparer } from "../../runtime/internal-hooks.js";
+import type { AgentToolWithMeta } from "../../tools/common.js";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.js";
 
 /** Wrap a ToolDefinition into an AgentTool for the core runtime. */
@@ -17,8 +18,8 @@ export function wrapToolDefinition<
 >(
   definition: ToolDefinition<TParams, TDetails, TState>,
   ctxFactory?: () => ExtensionContext,
-): AgentTool<TParams, TDetails> {
-  const tool: AgentTool<TParams, TDetails> = {
+): AgentToolWithMeta<TParams, TDetails> {
+  const tool: AgentToolWithMeta<TParams, TDetails> = {
     name: definition.name,
     label: definition.label,
     ...(definition.hideFromChannelProgress === true ? { hideFromChannelProgress: true } : {}),
@@ -29,6 +30,8 @@ export function wrapToolDefinition<
     parameters: definition.parameters,
     ...(definition.outputSchema ? { outputSchema: definition.outputSchema } : {}),
     prepareArguments: definition.prepareArguments,
+    redactBeforeToolCallDiagnosticParams: definition.redactBeforeToolCallDiagnosticParams,
+    redactBeforeToolCallDiagnosticResult: definition.redactBeforeToolCallDiagnosticResult,
     executionMode: definition.executionMode,
     execute: (toolCallId, params, signal, onUpdate) =>
       definition.execute(toolCallId, params, signal, onUpdate, ctxFactory?.() as ExtensionContext),
@@ -52,6 +55,10 @@ export function wrapToolDefinitions(
  * provides plain AgentTool overrides that do not include prompt metadata or renderers.
  */
 export function createToolDefinitionFromAgentTool(tool: AgentTool): ToolDefinition {
+  const diagnosticTool = tool as AgentTool & {
+    redactBeforeToolCallDiagnosticParams?: (params: unknown) => unknown;
+    redactBeforeToolCallDiagnosticResult?: (result: unknown) => unknown;
+  };
   const definition: ToolDefinition = {
     name: tool.name,
     label: tool.label,
@@ -61,6 +68,8 @@ export function createToolDefinitionFromAgentTool(tool: AgentTool): ToolDefiniti
     parameters: tool.parameters,
     ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
     prepareArguments: tool.prepareArguments,
+    redactBeforeToolCallDiagnosticParams: diagnosticTool.redactBeforeToolCallDiagnosticParams,
+    redactBeforeToolCallDiagnosticResult: diagnosticTool.redactBeforeToolCallDiagnosticResult,
     executionMode: tool.executionMode,
     execute: async (toolCallId, params, signal, onUpdate) =>
       tool.execute(toolCallId, params, signal, onUpdate),

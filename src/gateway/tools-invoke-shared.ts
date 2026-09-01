@@ -5,8 +5,16 @@ import {
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import { runBeforeToolCallHook } from "../agents/agent-tools.before-tool-call.js";
+import {
+  finalizeBeforeToolCallExecutionParams,
+  prepareBeforeToolCallExecutionParams,
+} from "../agents/agent-tools.before-tool-call.wrapper.js";
 import { resolveToolLoopDetectionConfig } from "../agents/agent-tools.js";
 import { getChannelAgentToolMeta } from "../agents/channel-tools.js";
+import {
+  getCodeModeExecBeforeHookMetadata,
+  normalizeCodeModeExecBeforeHookParams,
+} from "../agents/code-mode-control-tools.js";
 import { isKnownCoreToolId } from "../agents/tool-catalog.js";
 import {
   AUTOMATIONS_TOOL_NAME,
@@ -419,17 +427,34 @@ async function invokeGatewayToolWithSignal(
       action,
       args,
     });
-    const hookResult = await runBeforeToolCallHook({
-      toolName,
+    const hookContext = {
+      agentId,
+      config: params.cfg,
+      sessionKey,
+      workspaceDir,
+      loopDetection: resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId }),
+    };
+    const preparedParams = await prepareBeforeToolCallExecutionParams({
+      tool: gatewayTool,
       params: toolArgs,
       toolCallId,
-      ctx: {
-        agentId,
-        config: params.cfg,
-        sessionKey,
-        workspaceDir,
-        loopDetection: resolveToolLoopDetectionConfig({ cfg: params.cfg, agentId }),
-      },
+      ctx: hookContext,
+      signal: params.signal,
+    });
+    const hookParams = normalizeCodeModeExecBeforeHookParams({
+      tool: gatewayTool,
+      params: preparedParams,
+    });
+    const hookMetadata = getCodeModeExecBeforeHookMetadata({
+      tool: gatewayTool,
+      params: preparedParams,
+    });
+    const hookResult = await runBeforeToolCallHook({
+      toolName,
+      params: hookParams,
+      ...hookMetadata,
+      toolCallId,
+      ctx: hookContext,
       signal: params.signal,
       approvalMode: params.approvalMode,
     });
@@ -446,8 +471,15 @@ async function invokeGatewayToolWithSignal(
       };
     }
     params.signal?.throwIfAborted();
+    const executeParams = finalizeBeforeToolCallExecutionParams({
+      tool: gatewayTool,
+      preparedParams,
+      hookParams,
+      adjustedParams: hookResult.params,
+      finalizerMode: "wrapped",
+    });
     const executeTool = async () =>
-      await gatewayTool.execute?.(toolCallId, hookResult.params, params.signal);
+      await gatewayTool.execute?.(toolCallId, executeParams, params.signal);
     const result = authenticatedUserProfile
       ? await withOperatorToolGatewayAuthority(
           { authenticatedUserProfile, scopes: params.operatorScopes ?? [] },

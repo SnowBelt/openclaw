@@ -1,5 +1,6 @@
 import { cleanupSessionResources } from "@openclaw/ai/internal/runtime";
 import { applyAssistantDeliveryDirectives } from "../../config/sessions/transcript-assistant-delivery.js";
+import { cloneDiagnosticContentValue } from "../../infra/diagnostic-llm-content.js";
 import { getStreamLlmRuntime } from "../../llm/model-runtime-binding.js";
 import type { AssistantMessage, Model } from "../../llm/types.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -380,7 +381,8 @@ export abstract class AgentSessionBase {
 
     const sourceSlots =
       event.type === "message_end" ? takeCodeModeResponseSource(event.message) : undefined;
-    // Emit to extensions first
+    // Session subscribers retain the original event for user-visible delivery;
+    // tool-owned diagnostic redaction is applied inside extension-facing paths.
     const messageChanged = await this.emitExtensionEvent(event);
     const publishAfterPersistence = event.type === "message_end" && event.message.role === "user";
 
@@ -491,6 +493,31 @@ export abstract class AgentSessionBase {
     return undefined;
   }
 
+  private redactExtensionToolValue(
+    toolName: string,
+    value: unknown,
+    kind: "params" | "result",
+  ): unknown {
+    const definition = this.toolDefinitions.get(toolName)?.definition;
+    const redactor =
+      kind === "params"
+        ? definition?.redactBeforeToolCallDiagnosticParams
+        : definition?.redactBeforeToolCallDiagnosticResult;
+    if (redactor) {
+      try {
+        return redactor(cloneDiagnosticContentValue(value));
+      } catch {
+        return { redacted: true };
+      }
+    }
+    // Browser output is opaque page data. Fail closed if an extension event is
+    // emitted before the tool definition is registered or after a reload.
+    if (toolName === "browser") {
+      return { redacted: true };
+    }
+    return value;
+  }
+
   /** Emit extension events based on agent events */
   private async emitExtensionEvent(event: AgentEvent): Promise<boolean> {
     if (event.type === "agent_start") {
@@ -542,7 +569,7 @@ export abstract class AgentSessionBase {
         type: "tool_execution_start",
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args: event.args,
+        args: this.redactExtensionToolValue(event.toolName, event.args, "params"),
       };
       await this.currentExtensionRunner.emit(extensionEvent);
     } else if (event.type === "tool_execution_update") {
@@ -550,8 +577,8 @@ export abstract class AgentSessionBase {
         type: "tool_execution_update",
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args: event.args,
-        partialResult: event.partialResult,
+        args: this.redactExtensionToolValue(event.toolName, event.args, "params"),
+        partialResult: this.redactExtensionToolValue(event.toolName, event.partialResult, "result"),
       };
       await this.currentExtensionRunner.emit(extensionEvent);
     } else if (event.type === "tool_execution_end") {
@@ -559,7 +586,7 @@ export abstract class AgentSessionBase {
         type: "tool_execution_end",
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        result: event.result,
+        result: this.redactExtensionToolValue(event.toolName, event.result, "result"),
         isError: event.isError,
       };
       await this.currentExtensionRunner.emit(extensionEvent);

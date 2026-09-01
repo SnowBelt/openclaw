@@ -679,6 +679,98 @@ describe("resolvePluginTools optional tools", () => {
     ]);
   });
 
+  it("runs lifecycle and diagnostic callbacks under the owning plugin scope", async () => {
+    const context = createContext();
+    const observed: Array<{ phase: string; pluginId?: string; pluginSource?: string }> = [];
+    setRegistry([
+      {
+        pluginId: "boundary-owner",
+        optional: false,
+        source: "/tmp/boundary-owner.js",
+        names: ["boundary_tool"],
+        factory: () => ({
+          ...makeTool("boundary_tool"),
+          prepareBeforeToolCallParams(params: unknown) {
+            const scope = getPluginRuntimeGatewayRequestScope();
+            observed.push({
+              phase: "prepare",
+              pluginId: scope?.pluginId,
+              pluginSource: scope?.pluginSource,
+            });
+            return params;
+          },
+          finalizeBeforeToolCallParams(params: unknown) {
+            const scope = getPluginRuntimeGatewayRequestScope();
+            observed.push({
+              phase: "finalize",
+              pluginId: scope?.pluginId,
+              pluginSource: scope?.pluginSource,
+            });
+            return params;
+          },
+          redactBeforeToolCallDiagnosticParams(params: unknown) {
+            const scope = getPluginRuntimeGatewayRequestScope();
+            observed.push({
+              phase: "redact-params",
+              pluginId: scope?.pluginId,
+              pluginSource: scope?.pluginSource,
+            });
+            return params;
+          },
+          redactBeforeToolCallDiagnosticResult(result: unknown) {
+            const scope = getPluginRuntimeGatewayRequestScope();
+            observed.push({
+              phase: "redact-result",
+              pluginId: scope?.pluginId,
+              pluginSource: scope?.pluginSource,
+            });
+            return result;
+          },
+        }),
+      },
+    ]);
+
+    await withPluginRuntimeGatewayRequestScope(
+      {
+        pluginId: "outer",
+        pluginSource: "/tmp/outer.js",
+        isWebchatConnect: () => false,
+      },
+      async () => {
+        const [tool] = resolvePluginTools(
+          createResolveToolsParams({ context, toolAllowlist: ["boundary_tool"] }),
+        );
+        if (!tool) {
+          throw new Error("boundary tool was not resolved");
+        }
+        const prepared = await tool.prepareBeforeToolCallParams?.({}, {});
+        tool.finalizeBeforeToolCallParams?.({}, prepared);
+        tool.redactBeforeToolCallDiagnosticParams?.({});
+        tool.redactBeforeToolCallDiagnosticResult?.({});
+        expect(getPluginRuntimeGatewayRequestScope()).toMatchObject({
+          pluginId: "outer",
+          pluginSource: "/tmp/outer.js",
+        });
+      },
+    );
+
+    expect(getPluginRuntimeGatewayRequestScope()).toBeUndefined();
+    expect(observed).toEqual([
+      { phase: "prepare", pluginId: "boundary-owner", pluginSource: "/tmp/boundary-owner.js" },
+      { phase: "finalize", pluginId: "boundary-owner", pluginSource: "/tmp/boundary-owner.js" },
+      {
+        phase: "redact-params",
+        pluginId: "boundary-owner",
+        pluginSource: "/tmp/boundary-owner.js",
+      },
+      {
+        phase: "redact-result",
+        pluginId: "boundary-owner",
+        pluginSource: "/tmp/boundary-owner.js",
+      },
+    ]);
+  });
+
   it("wraps every array tool callback and restores caller scope after errors", async () => {
     const context = createContext();
     const observed: Array<{ name: string; pluginId?: string; pluginSource?: string }> = [];
@@ -2847,6 +2939,75 @@ describe("resolvePluginTools optional tools", () => {
     expect(getActivePluginRegistry?.()?.tools.map((entry) => entry.pluginId)).toContain(
       "unrelated-live",
     );
+  });
+
+  it("retains lifecycle and diagnostic redaction callbacks for cached plugin tools", async () => {
+    const lifecycle = {
+      prepared: [] as unknown[],
+      finalized: [] as unknown[],
+      redactedParams: [] as unknown[],
+      redactedResults: [] as unknown[],
+    };
+    const factory = vi.fn(() => ({
+      ...makeTool("cached_boundary_tool"),
+      prepareBeforeToolCallParams: (params: unknown) => {
+        lifecycle.prepared.push(params);
+        return { ...(params as Record<string, unknown>), prepared: true };
+      },
+      finalizeBeforeToolCallParams: (params: unknown, prepared: unknown) => {
+        lifecycle.finalized.push({ params, prepared });
+        return { ...(params as Record<string, unknown>), finalized: true };
+      },
+      redactBeforeToolCallDiagnosticParams: (params: unknown) => {
+        lifecycle.redactedParams.push(params);
+        return { redacted: true };
+      },
+      redactBeforeToolCallDiagnosticResult: (result: unknown) => {
+        lifecycle.redactedResults.push(result);
+        return { redacted: true };
+      },
+    }));
+    setRegistry([
+      {
+        pluginId: "cached-boundary-owner",
+        optional: false,
+        source: "/tmp/cached-boundary-owner.js",
+        names: ["cached_boundary_tool"],
+        factory,
+      },
+    ]);
+
+    resolvePluginTools(
+      createResolveToolsParams({
+        toolAllowlist: ["cached_boundary_tool"],
+        allowGatewaySubagentBinding: true,
+      }),
+    );
+    const [cachedTool] = resolvePluginTools(
+      createResolveToolsParams({
+        toolAllowlist: ["cached_boundary_tool"],
+        allowGatewaySubagentBinding: true,
+      }),
+    );
+
+    const prepared = await cachedTool?.prepareBeforeToolCallParams?.({ marker: "raw" }, {});
+    const finalized = cachedTool?.finalizeBeforeToolCallParams?.(prepared, prepared);
+    const redactedParams = cachedTool?.redactBeforeToolCallDiagnosticParams?.({ marker: "raw" });
+    const redactedResult = cachedTool?.redactBeforeToolCallDiagnosticResult?.({ value: "raw" });
+
+    expect(prepared).toEqual({ marker: "raw", prepared: true });
+    expect(finalized).toEqual({ marker: "raw", prepared: true, finalized: true });
+    expect(redactedParams).toEqual({ redacted: true });
+    expect(redactedResult).toEqual({ redacted: true });
+    expect(lifecycle.prepared).toEqual([{ marker: "raw" }]);
+    expect(lifecycle.finalized).toEqual([
+      {
+        params: { marker: "raw", prepared: true },
+        prepared: { marker: "raw", prepared: true },
+      },
+    ]);
+    expect(lifecycle.redactedParams).toEqual([{ marker: "raw" }]);
+    expect(lifecycle.redactedResults).toEqual([{ value: "raw" }]);
   });
 
   it("does not reuse cached plugin tool descriptors across sandbox context changes", () => {

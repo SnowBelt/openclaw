@@ -56,6 +56,7 @@ describe("Browser Steward runtime guard", () => {
     expect(boundaryKind("agent:browser-session-credential-steward:abc")).toBe("browser_steward");
     expect(boundaryKind("agent:browser-session-credential-steward")).toBe("browser_steward");
     expect(boundaryKind("Agent:Browser-Session-Credential-Steward:Main")).toBe("browser_steward");
+    expect(boundaryKind("agent:browser-session-credential-steward::main")).toBe("unknown");
     expect(boundaryKind("agent:main:abc")).toBe("other_agent");
     expect(boundaryKind("agent:not-browser-session-credential-steward:main")).toBe("other_agent");
     expect(boundaryKind("agent:browser-session-credential-stewardish:main")).toBe("other_agent");

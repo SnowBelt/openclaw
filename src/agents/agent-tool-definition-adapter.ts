@@ -4,6 +4,7 @@
  * logging for failed tool calls.
  */
 import { createHash } from "node:crypto";
+import { cloneDiagnosticContentValue } from "../infra/diagnostic-llm-content.js";
 import { logDebug, logError } from "../logger.js";
 import { redactToolDetail } from "../logging/redact.js";
 import { isPlainObject } from "../utils.js";
@@ -32,16 +33,19 @@ import {
 } from "./code-mode-control-tools.js";
 import { sanitizeForConsole } from "./console-sanitize.js";
 import type { ClientToolDefinition } from "./embedded-agent-runner/run/params.js";
-import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "./runtime/index.js";
+import type { AgentToolResult, AgentToolUpdateCallback } from "./runtime/index.js";
 import {
   attachInternalToolExecutionPreparer,
   getInternalToolExecutionPreparer,
 } from "./runtime/internal-hooks.js";
 import type { ToolDefinition } from "./sessions/index.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
-import { jsonResult, payloadTextResult, ToolInputError } from "./tools/common.js";
-
-type AnyAgentTool = AgentTool;
+import {
+  jsonResult,
+  payloadTextResult,
+  type AnyAgentTool,
+  ToolInputError,
+} from "./tools/common.js";
 
 type ToolExecuteArgsCurrent = [
   string,
@@ -214,7 +218,18 @@ function sanitizeExecFailureParamsForLog(value: unknown): unknown {
   return sanitized;
 }
 
-function sanitizeToolFailureParamsForLog(toolName: string, value: unknown): unknown {
+function sanitizeToolFailureParamsForLog(
+  toolName: string,
+  value: unknown,
+  redactParams?: (value: unknown) => unknown,
+): unknown {
+  if (redactParams) {
+    try {
+      return redactParams(cloneDiagnosticContentValue(value));
+    } catch {
+      return { redacted: true };
+    }
+  }
   return toolName === "exec" ? sanitizeExecFailureParamsForLog(value) : value;
 }
 
@@ -222,9 +237,18 @@ function describeToolFailureInputs(params: {
   toolName: string;
   rawParams: unknown;
   effectiveParams: unknown;
+  redactParams?: (value: unknown) => unknown;
 }): string {
-  const rawParams = sanitizeToolFailureParamsForLog(params.toolName, params.rawParams);
-  const effectiveParams = sanitizeToolFailureParamsForLog(params.toolName, params.effectiveParams);
+  const rawParams = sanitizeToolFailureParamsForLog(
+    params.toolName,
+    params.rawParams,
+    params.redactParams,
+  );
+  const effectiveParams = sanitizeToolFailureParamsForLog(
+    params.toolName,
+    params.effectiveParams,
+    params.redactParams,
+  );
   const parts = [formatToolParamPreview("raw_params", rawParams)];
   const rawSerialized = serializeToolParams(rawParams);
   const effectiveSerialized = serializeToolParams(effectiveParams);
@@ -270,6 +294,7 @@ async function executeAdaptedToolOperation(params: {
   rawParams: unknown;
   getEffectiveParams: () => unknown;
   signal: AbortSignal | undefined;
+  redactParams?: (value: unknown) => unknown;
   run: () => Promise<unknown>;
   hookContext: HookContext | undefined;
 }): Promise<AgentToolResult<unknown>> {
@@ -298,6 +323,7 @@ async function executeAdaptedToolOperation(params: {
       toolName: params.normalizedToolName,
       rawParams: params.rawParams,
       effectiveParams: params.getEffectiveParams(),
+      redactParams: params.redactParams,
     });
     logError(`[tools] ${params.normalizedToolName} failed: ${described.message} ${inputPreview}`);
     return buildToolExecutionErrorResult({
@@ -411,6 +437,8 @@ export function toToolDefinitions(
       description: tool.description ?? "",
       parameters: tool.parameters,
       prepareArguments: tool.prepareArguments,
+      redactBeforeToolCallDiagnosticParams: tool.redactBeforeToolCallDiagnosticParams,
+      redactBeforeToolCallDiagnosticResult: tool.redactBeforeToolCallDiagnosticResult,
       executionMode: tool.executionMode,
       execute: async (...args: ToolExecuteArgs): Promise<AgentToolResult<unknown>> => {
         const { toolCallId, params, onUpdate, signal } = splitToolExecuteArgs(args);
@@ -423,6 +451,7 @@ export function toToolDefinitions(
           rawParams: params,
           getEffectiveParams: () => executeParams,
           signal,
+          redactParams: tool.redactBeforeToolCallDiagnosticParams,
           hookContext,
           run: async () => {
             if (!beforeHookWrapped) {
@@ -507,6 +536,7 @@ export function toToolDefinitions(
           rawParams: params.args,
           getEffectiveParams: () => params.args,
           signal: params.signal,
+          redactParams: tool.redactBeforeToolCallDiagnosticParams,
           hookContext,
           run,
         });

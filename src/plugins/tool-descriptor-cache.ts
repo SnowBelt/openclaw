@@ -8,7 +8,7 @@ import { registerPluginMetadataProcessMemoLifecycleClear } from "./plugin-metada
 import type { PluginRegistry } from "./registry-types.js";
 import type { OpenClawPluginToolContext } from "./types.js";
 
-const PLUGIN_TOOL_DESCRIPTOR_CACHE_VERSION = 3;
+const PLUGIN_TOOL_DESCRIPTOR_CACHE_VERSION = 4;
 const PLUGIN_TOOL_DESCRIPTOR_CACHE_LIMIT = 256;
 
 /** Cached display descriptor for one plugin-created tool. */
@@ -18,6 +18,10 @@ export type CachedPluginToolDescriptor = {
   requiredClientCaps?: string[];
   resultContentSource?: AnyAgentTool["resultContentSource"];
   optional: boolean;
+  hasBeforeToolCallParamsPreparer?: boolean;
+  hasBeforeToolCallParamsFinalizer?: boolean;
+  hasBeforeToolCallDiagnosticParamsRedactor?: boolean;
+  hasBeforeToolCallDiagnosticResultRedactor?: boolean;
 };
 
 export const pluginToolDescriptorCacheState = {
@@ -166,6 +170,14 @@ export function capturePluginToolDescriptor(params: {
       ? { resultContentSource: params.tool.resultContentSource }
       : {}),
     optional: params.optional,
+    ...(params.tool.prepareBeforeToolCallParams ? { hasBeforeToolCallParamsPreparer: true } : {}),
+    ...(params.tool.finalizeBeforeToolCallParams ? { hasBeforeToolCallParamsFinalizer: true } : {}),
+    ...(params.tool.redactBeforeToolCallDiagnosticParams
+      ? { hasBeforeToolCallDiagnosticParamsRedactor: true }
+      : {}),
+    ...(params.tool.redactBeforeToolCallDiagnosticResult
+      ? { hasBeforeToolCallDiagnosticResultRedactor: true }
+      : {}),
     descriptor: {
       name: params.tool.name,
       ...(title ? { title } : {}),

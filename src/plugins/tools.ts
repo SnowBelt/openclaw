@@ -180,6 +180,34 @@ function wrapPluginToolCallbacks(
           Reflect.apply(prepareArguments, tool, [args]),
         )
     : undefined;
+  const prepareBeforeToolCallParams = tool.prepareBeforeToolCallParams;
+  const scopedPrepareBeforeToolCallParams = prepareBeforeToolCallParams
+    ? (params: unknown, context: Parameters<typeof prepareBeforeToolCallParams>[1]) =>
+        runWithPluginToolScope(entry, pluginRegistry, () =>
+          Reflect.apply(prepareBeforeToolCallParams, tool, [params, context]),
+        )
+    : undefined;
+  const finalizeBeforeToolCallParams = tool.finalizeBeforeToolCallParams;
+  const scopedFinalizeBeforeToolCallParams = finalizeBeforeToolCallParams
+    ? (params: unknown, preparedParams: unknown) =>
+        runWithPluginToolScope(entry, pluginRegistry, () =>
+          Reflect.apply(finalizeBeforeToolCallParams, tool, [params, preparedParams]),
+        )
+    : undefined;
+  const redactBeforeToolCallDiagnosticParams = tool.redactBeforeToolCallDiagnosticParams;
+  const scopedRedactBeforeToolCallDiagnosticParams = redactBeforeToolCallDiagnosticParams
+    ? (params: unknown) =>
+        runWithPluginToolScope(entry, pluginRegistry, () =>
+          Reflect.apply(redactBeforeToolCallDiagnosticParams, tool, [params]),
+        )
+    : undefined;
+  const redactBeforeToolCallDiagnosticResult = tool.redactBeforeToolCallDiagnosticResult;
+  const scopedRedactBeforeToolCallDiagnosticResult = redactBeforeToolCallDiagnosticResult
+    ? (result: unknown) =>
+        runWithPluginToolScope(entry, pluginRegistry, () =>
+          Reflect.apply(redactBeforeToolCallDiagnosticResult, tool, [result]),
+        )
+    : undefined;
   const scopedExecute = (
     toolCallId: string,
     params: unknown,
@@ -199,6 +227,24 @@ function wrapPluginToolCallbacks(
       if (prop === "prepareArguments" && scopedPrepareArguments) {
         return scopedPrepareArguments;
       }
+      if (prop === "prepareBeforeToolCallParams" && scopedPrepareBeforeToolCallParams) {
+        return scopedPrepareBeforeToolCallParams;
+      }
+      if (prop === "finalizeBeforeToolCallParams" && scopedFinalizeBeforeToolCallParams) {
+        return scopedFinalizeBeforeToolCallParams;
+      }
+      if (
+        prop === "redactBeforeToolCallDiagnosticParams" &&
+        scopedRedactBeforeToolCallDiagnosticParams
+      ) {
+        return scopedRedactBeforeToolCallDiagnosticParams;
+      }
+      if (
+        prop === "redactBeforeToolCallDiagnosticResult" &&
+        scopedRedactBeforeToolCallDiagnosticResult
+      ) {
+        return scopedRedactBeforeToolCallDiagnosticResult;
+      }
       if (prop === "execute") {
         return scopedExecute;
       }
@@ -210,6 +256,44 @@ function wrapPluginToolCallbacks(
           configurable: true,
           enumerable: Object.prototype.propertyIsEnumerable.call(target, prop),
           value: scopedPrepareArguments,
+          writable: true,
+        };
+      }
+      if (prop === "prepareBeforeToolCallParams" && scopedPrepareBeforeToolCallParams) {
+        return {
+          configurable: true,
+          enumerable: Object.prototype.propertyIsEnumerable.call(target, prop),
+          value: scopedPrepareBeforeToolCallParams,
+          writable: true,
+        };
+      }
+      if (prop === "finalizeBeforeToolCallParams" && scopedFinalizeBeforeToolCallParams) {
+        return {
+          configurable: true,
+          enumerable: Object.prototype.propertyIsEnumerable.call(target, prop),
+          value: scopedFinalizeBeforeToolCallParams,
+          writable: true,
+        };
+      }
+      if (
+        prop === "redactBeforeToolCallDiagnosticParams" &&
+        scopedRedactBeforeToolCallDiagnosticParams
+      ) {
+        return {
+          configurable: true,
+          enumerable: Object.prototype.propertyIsEnumerable.call(target, prop),
+          value: scopedRedactBeforeToolCallDiagnosticParams,
+          writable: true,
+        };
+      }
+      if (
+        prop === "redactBeforeToolCallDiagnosticResult" &&
+        scopedRedactBeforeToolCallDiagnosticResult
+      ) {
+        return {
+          configurable: true,
+          enumerable: Object.prototype.propertyIsEnumerable.call(target, prop),
+          value: scopedRedactBeforeToolCallDiagnosticResult,
           writable: true,
         };
       }
@@ -810,19 +894,13 @@ function createCachedDescriptorPluginTool(params: {
   const { descriptor } = params.descriptor;
   const pluginId = descriptor.owner.kind === "plugin" ? descriptor.owner.pluginId : "";
   const toolName = descriptor.name;
-  const tool: AnyAgentTool = {
-    name: descriptor.name,
-    label: descriptor.title ?? descriptor.name,
-    description: descriptor.description,
-    parameters: descriptor.inputSchema as never,
-    ...(descriptor.outputSchema ? { outputSchema: descriptor.outputSchema as never } : {}),
-    ...(params.descriptor.requiredClientCaps
-      ? { requiredClientCaps: [...params.descriptor.requiredClientCaps] }
-      : {}),
-    ...(params.descriptor.resultContentSource
-      ? { resultContentSource: params.descriptor.resultContentSource }
-      : {}),
-    async execute(toolCallId, executeParams, signal, onUpdate) {
+  let runtimeToolPromise: Promise<AnyAgentTool> | undefined;
+  let resolvedRuntimeTool: AnyAgentTool | undefined;
+  const resolveRuntimeTool = async (): Promise<AnyAgentTool> => {
+    if (runtimeToolPromise) {
+      return runtimeToolPromise;
+    }
+    runtimeToolPromise = (async () => {
       const loadOptions = buildPluginRuntimeLoadOptions(params.loadContext, {
         activate: false,
         toolDiscovery: true,
@@ -842,25 +920,18 @@ function createCachedDescriptorPluginTool(params: {
         throw new Error(`plugin tool runtime unavailable (${pluginId}): ${toolName}`);
       }
       const requestedToolName = normalizeToolPolicyName(toolName);
-      const matchingNamedCandidates: PluginToolRegistration[] = [];
-      const unnamedCandidates: PluginToolRegistration[] = [];
-      for (const candidate of candidates) {
-        if (candidate.names.length === 0) {
-          unnamedCandidates.push(candidate);
-          continue;
-        }
-        if (candidate.names.some((name) => normalizeToolPolicyName(name) === requestedToolName)) {
-          matchingNamedCandidates.push(candidate);
-        }
-      }
-      const resolveCandidateTool = (
-        candidate: PluginToolRegistration,
-      ): AnyAgentTool | undefined => {
-        const manifestPlugin = resolvePluginMetadataSnapshot({
-          config: params.loadContext.config,
-          workspaceDir: params.loadContext.workspaceDir,
-          env: params.loadContext.env,
-        }).byPluginId.get(pluginId);
+      const matchingNamedCandidates = candidates.filter(
+        (candidate) =>
+          candidate.names.length > 0 &&
+          candidate.names.some((name) => normalizeToolPolicyName(name) === requestedToolName),
+      );
+      const unnamedCandidates = candidates.filter((candidate) => candidate.names.length === 0);
+      const manifestPlugin = resolvePluginMetadataSnapshot({
+        config: params.loadContext.config,
+        workspaceDir: params.loadContext.workspaceDir,
+        env: params.loadContext.env,
+      }).byPluginId.get(pluginId);
+      for (const candidate of [...matchingNamedCandidates, ...unnamedCandidates]) {
         if (
           blocksHostRestrictedConversationReadRegistration({
             entry: candidate,
@@ -868,36 +939,92 @@ function createCachedDescriptorPluginTool(params: {
             ctx: params.ctx,
           })
         ) {
-          return undefined;
-        }
-        const resolved = resolvePluginToolFactory(candidate, registry, params.ctx);
-        const listRaw: unknown[] = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
-        for (const toolRaw of listRaw) {
-          const malformedReason = describeMalformedPluginTool(toolRaw);
-          if (malformedReason) {
-            continue;
-          }
-          const runtimeTool = toolRaw as AnyAgentTool;
-          if (normalizeToolPolicyName(readPluginToolName(runtimeTool)) === requestedToolName) {
-            return runtimeTool;
-          }
-        }
-        return undefined;
-      };
-      for (const candidate of [...matchingNamedCandidates, ...unnamedCandidates]) {
-        let matchedTool: AnyAgentTool | undefined;
-        try {
-          matchedTool = resolveCandidateTool(candidate);
-        } catch {
           continue;
         }
-        if (matchedTool) {
-          return matchedTool.execute(toolCallId, executeParams, signal, onUpdate);
+        try {
+          const resolved = resolvePluginToolFactory(candidate, registry, params.ctx);
+          const listRaw: unknown[] = Array.isArray(resolved)
+            ? resolved
+            : resolved
+              ? [resolved]
+              : [];
+          for (const toolRaw of listRaw) {
+            if (describeMalformedPluginTool(toolRaw)) {
+              continue;
+            }
+            const runtimeTool = toolRaw as AnyAgentTool;
+            if (normalizeToolPolicyName(readPluginToolName(runtimeTool)) === requestedToolName) {
+              resolvedRuntimeTool = runtimeTool;
+              return runtimeTool;
+            }
+          }
+        } catch {
+          // Try the next matching registration; the final error is bounded and generic.
         }
       }
       throw new Error(`plugin tool runtime missing (${pluginId}): ${toolName}`);
+    })().catch((error: unknown) => {
+      // A transient runtime lookup must not permanently disable a cached descriptor.
+      runtimeToolPromise = undefined;
+      throw error;
+    });
+    return runtimeToolPromise;
+  };
+  const tool: AnyAgentTool = {
+    name: descriptor.name,
+    label: descriptor.title ?? descriptor.name,
+    description: descriptor.description,
+    parameters: descriptor.inputSchema as never,
+    ...(descriptor.outputSchema ? { outputSchema: descriptor.outputSchema as never } : {}),
+    ...(params.descriptor.requiredClientCaps
+      ? { requiredClientCaps: [...params.descriptor.requiredClientCaps] }
+      : {}),
+    ...(params.descriptor.resultContentSource
+      ? { resultContentSource: params.descriptor.resultContentSource }
+      : {}),
+    async execute(toolCallId, executeParams, signal, onUpdate) {
+      const runtimeTool = await resolveRuntimeTool();
+      return runtimeTool.execute(toolCallId, executeParams, signal, onUpdate);
     },
   };
+  if (params.descriptor.hasBeforeToolCallParamsPreparer) {
+    tool.prepareBeforeToolCallParams = async (value, context) => {
+      const runtimeTool = await resolveRuntimeTool();
+      if (!runtimeTool.prepareBeforeToolCallParams) {
+        throw new Error(`plugin tool preparation unavailable (${pluginId}): ${toolName}`);
+      }
+      return runtimeTool.prepareBeforeToolCallParams(value, context);
+    };
+  }
+  if (params.descriptor.hasBeforeToolCallParamsFinalizer) {
+    tool.finalizeBeforeToolCallParams = (value, prepared) => {
+      if (!resolvedRuntimeTool) {
+        throw new Error(`plugin tool runtime unavailable before finalization (${pluginId})`);
+      }
+      if (!resolvedRuntimeTool.finalizeBeforeToolCallParams) {
+        throw new Error(`plugin tool finalization unavailable (${pluginId}): ${toolName}`);
+      }
+      return resolvedRuntimeTool.finalizeBeforeToolCallParams(value, prepared);
+    };
+  }
+  if (params.descriptor.hasBeforeToolCallDiagnosticParamsRedactor) {
+    tool.redactBeforeToolCallDiagnosticParams = (value) => {
+      const runtimeTool = resolvedRuntimeTool;
+      if (!runtimeTool?.redactBeforeToolCallDiagnosticParams) {
+        throw new Error(`plugin tool input redactor unavailable (${pluginId}): ${toolName}`);
+      }
+      return runtimeTool.redactBeforeToolCallDiagnosticParams(value);
+    };
+  }
+  if (params.descriptor.hasBeforeToolCallDiagnosticResultRedactor) {
+    tool.redactBeforeToolCallDiagnosticResult = (value) => {
+      const runtimeTool = resolvedRuntimeTool;
+      if (!runtimeTool?.redactBeforeToolCallDiagnosticResult) {
+        throw new Error(`plugin tool output redactor unavailable (${pluginId}): ${toolName}`);
+      }
+      return runtimeTool.redactBeforeToolCallDiagnosticResult(value);
+    };
+  }
   if (params.descriptor.displaySummary) {
     tool.displaySummary = params.descriptor.displaySummary;
   }

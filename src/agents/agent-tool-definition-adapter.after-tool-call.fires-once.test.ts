@@ -10,6 +10,7 @@ import type { AgentTool } from "openclaw/plugin-sdk/agent-core";
 import { Type } from "typebox";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBaseToolHandlerState } from "./agent-tool-handler-state.test-helpers.js";
+import type { AnyAgentTool } from "./tools/common.js";
 
 const hookMocks = vi.hoisted(() => ({
   runner: {
@@ -62,6 +63,14 @@ function createFailingTool(name: string) {
       throw new Error("tool failed");
     }),
   } satisfies AgentTool;
+}
+
+function createRedactedBrowserTool(): AnyAgentTool {
+  return {
+    ...createTestTool("browser"),
+    redactBeforeToolCallDiagnosticParams: () => ({ redacted: true }),
+    redactBeforeToolCallDiagnosticResult: () => ({ redacted: true }),
+  };
 }
 
 function createToolHandlerCtx() {
@@ -300,5 +309,45 @@ describe("after_tool_call fires exactly once in embedded runs", () => {
     }
 
     expect(hookMocks.runner.runAfterToolCall).toHaveBeenCalledTimes(3);
+  });
+
+  it("redacts Browser after_tool_call payloads without changing execution output", async () => {
+    const browser = createRedactedBrowserTool();
+    const { def, extensionContext } = resolveAdapterDefinition(browser);
+    const rawPeer = "browser-private-peer";
+    const rawResult = `page content for ${rawPeer}`;
+    const args = { action: "navigate", url: `https://${rawPeer}.invalid` };
+    const ctx = createToolHandlerCtx();
+    ctx.params.agentId = "main";
+    ctx.params.sessionKey = `agent:main:direct:${rawPeer}`;
+    ctx.params.session = { getToolDefinition: () => def };
+
+    await emitToolExecutionStartEvent({
+      ctx,
+      toolName: "browser",
+      toolCallId: "browser-redaction",
+      args,
+    });
+    await expect(
+      def.execute("browser-redaction", args, undefined, undefined, extensionContext),
+    ).resolves.toMatchObject({
+      content: [{ text: "ok" }],
+    });
+    await emitToolExecutionEndEvent({
+      ctx,
+      toolName: "browser",
+      toolCallId: "browser-redaction",
+      isError: false,
+      result: { content: [{ type: "text", text: rawResult }] },
+    });
+
+    const call = (hookMocks.runner.runAfterToolCall as ReturnType<typeof vi.fn>).mock.calls.at(-1);
+    const hookEvent = call?.[0] as { params?: unknown; result?: unknown } | undefined;
+    const hookContext = call?.[1] as { sessionKey?: unknown } | undefined;
+    expect(hookEvent?.params).toEqual({ redacted: true });
+    expect(hookEvent?.result).toEqual({ redacted: true });
+    expect(hookContext?.sessionKey).toBe("agent:main:REDACTED");
+    expect(JSON.stringify(call)).not.toContain(rawPeer);
+    expect(JSON.stringify(call)).not.toContain(rawResult);
   });
 });
