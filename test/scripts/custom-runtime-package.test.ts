@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assembleManagedRuntimePackage,
   assertCandidateLineage,
+  resolveDefaultDeployInvocation,
 } from "../../scripts/custom-runtime/custom-runtime-package.mjs";
 import { importSourceProvenance } from "../../scripts/custom-runtime/custom-runtime-source-provenance.mjs";
 import { hashBuildArtifactTree } from "../../scripts/custom-runtime/runtime-package-integrity.mjs";
@@ -147,6 +148,27 @@ afterEach(() => {
 });
 
 describe("custom managed-runtime packaging", () => {
+  it("makes the default dependency deployment explicitly offline when requested", () => {
+    const result = resolveDefaultDeployInvocation({
+      stagingRoot: "/tmp/runtime-staging",
+      env: { OPENCLAW_BUILD_OFFLINE: "1", PATH: "/bin" },
+    });
+
+    expect(result).toEqual({
+      command: "pnpm",
+      args: [
+        "--offline",
+        "--config.inject-workspace-packages=true",
+        "--filter",
+        "openclaw",
+        "deploy",
+        "--prod",
+        "/tmp/runtime-staging",
+      ],
+      env: { OPENCLAW_BUILD_OFFLINE: "1", PATH: "/bin", npm_config_offline: "true" },
+    });
+  });
+
   it("accepts an indirect active ancestor and rejects unrelated lineage", () => {
     const { root, activeSha, candidateSha } = createRepository();
 

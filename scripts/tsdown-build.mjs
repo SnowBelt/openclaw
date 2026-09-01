@@ -565,7 +565,7 @@ export function resolveTsdownBuildInvocation(params = {}) {
     "--no-clean",
     ...forwardedArgs,
   ];
-  if (env.OPENCLAW_BUILD_ALL_NO_PNPM === "1") {
+  if (env.OPENCLAW_BUILD_ALL_NO_PNPM === "1" || env.OPENCLAW_BUILD_OFFLINE === "1") {
     return {
       command: params.nodeExecPath ?? process.execPath,
       args: ["node_modules/tsdown/dist/run.mjs", ...tsdownArgs],

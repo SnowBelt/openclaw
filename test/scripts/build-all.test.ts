@@ -183,6 +183,33 @@ describe("resolveBuildAllStep", () => {
     });
   });
 
+  it("uses package-manager-free fallbacks for explicit offline builds", () => {
+    const step = getBuildAllStep("plugins:assets:build");
+
+    const result = resolveBuildAllStep(step, {
+      nodeExecPath: "/custom/node",
+      env: { OPENCLAW_BUILD_OFFLINE: "1" },
+    });
+
+    expect(result).toEqual({
+      command: "/custom/node",
+      args: ["scripts/bundled-plugin-assets.mjs", "--phase", "build"],
+      options: {
+        stdio: "inherit",
+        env: { OPENCLAW_BUILD_OFFLINE: "1" },
+      },
+    });
+  });
+
+  it("fails closed instead of invoking a package manager without an offline fallback", () => {
+    expect(() =>
+      resolveBuildAllStep(
+        { label: "future-pnpm-step", kind: "pnpm", pnpmArgs: ["future:build"] },
+        { env: { OPENCLAW_BUILD_OFFLINE: "1" } },
+      ),
+    ).toThrow("Offline build has no package-manager-free fallback");
+  });
+
   it("keeps export-html build output aligned with runtime template lookup", () => {
     const step = getBuildAllStep("copy-export-html-templates");
 

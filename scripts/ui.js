@@ -69,10 +69,14 @@ export function resolvePnpmSpawnCall(pnpmArgs, envOverride, params = {}) {
   const env = envOverride ?? process.env;
   const platform = params.platform ?? process.platform;
   const cwd = params.cwd ?? uiDir;
+  const resolvedPnpmArgs =
+    env.OPENCLAW_BUILD_OFFLINE === "1" && !pnpmArgs.includes("--offline")
+      ? ["--offline", ...pnpmArgs]
+      : pnpmArgs;
   const runner = resolvePnpmRunner({
     cwd,
     env,
-    pnpmArgs,
+    pnpmArgs: resolvedPnpmArgs,
     nodeExecPath: params.nodeExecPath ?? process.execPath,
     npmExecPath: params.npmExecPath ?? env.npm_execpath,
     comSpec: params.comSpec,
@@ -314,7 +318,11 @@ export function main(argv = process.argv.slice(2)) {
     process.exit(2);
   }
 
-  if (process.env.OPENCLAW_BUILD_ALL_NO_PNPM === "1" && action === "build") {
+  if (
+    (process.env.OPENCLAW_BUILD_ALL_NO_PNPM === "1" ||
+      process.env.OPENCLAW_BUILD_OFFLINE === "1") &&
+    action === "build"
+  ) {
     run(process.execPath, [path.join(repoRoot, "node_modules/vite/bin/vite.js"), "build", ...rest]);
     return;
   }

@@ -163,6 +163,25 @@ describe("scripts/ui windows spawn behavior", () => {
     }
   });
 
+  it("adds pnpm offline mode to package-manager-backed UI commands", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-pnpm-offline-"));
+    const npmExecPath = path.join(tempDir, "pnpm.cjs");
+    fs.writeFileSync(npmExecPath, "console.log('pnpm');\n");
+
+    try {
+      const result = resolvePnpmSpawnCall(
+        ["run", "build"],
+        { OPENCLAW_BUILD_OFFLINE: "1", npm_execpath: npmExecPath },
+        { cwd: "/repo/ui", nodeExecPath: "/usr/bin/node", platform: "linux" },
+      );
+
+      expect(result.command).toBe("/usr/bin/node");
+      expect(result.args).toEqual([npmExecPath, "--offline", "run", "build"]);
+    } finally {
+      fs.rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("keeps non-Windows launches direct even with shell metacharacters", () => {
     expect(
       resolveSpawnCall(

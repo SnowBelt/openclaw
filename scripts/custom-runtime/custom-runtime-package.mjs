@@ -356,10 +356,12 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function defaultDeploy({ sourceRoot, stagingRoot }) {
-  run(
-    "pnpm",
-    [
+export function resolveDefaultDeployInvocation({ stagingRoot, env = process.env }) {
+  const offline = env.OPENCLAW_BUILD_OFFLINE === "1";
+  return {
+    command: "pnpm",
+    args: [
+      ...(offline ? ["--offline"] : []),
       "--config.inject-workspace-packages=true",
       "--filter",
       "openclaw",
@@ -367,8 +369,17 @@ function defaultDeploy({ sourceRoot, stagingRoot }) {
       "--prod",
       stagingRoot,
     ],
-    { cwd: sourceRoot, inherit: true },
-  );
+    env: offline ? { ...env, npm_config_offline: "true" } : env,
+  };
+}
+
+function defaultDeploy({ sourceRoot, stagingRoot }) {
+  const invocation = resolveDefaultDeployInvocation({ stagingRoot });
+  run(invocation.command, invocation.args, {
+    cwd: sourceRoot,
+    env: invocation.env,
+    inherit: true,
+  });
 }
 
 export function assembleManagedRuntimePackage({
