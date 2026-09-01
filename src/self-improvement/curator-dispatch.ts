@@ -136,7 +136,7 @@ export function createSelfImprovementCuratorDispatch(params: {
         activeRuns.delete(proposalId);
       }
     };
-    void completion.then(settle, (error) => {
+    void completion.then(settle, (error: unknown) => {
       settle();
       params.log?.error(`curator run failed for ${proposalId}: ${formatErrorMessage(error)}`);
     });

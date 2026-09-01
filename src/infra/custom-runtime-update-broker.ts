@@ -17,8 +17,7 @@ export const CUSTOM_RUNTIME_UPDATE_PREPARATION_RUNNING_REASON =
 export const CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON = "custom-runtime-update-safety-blocked";
 
 export function assertCustomRuntimeUpdateCanPrepare(policy: CustomRuntimeUpdatePolicy): void {
-  const backupCanBeRefreshed =
-    policy.backupStatus === "ready" || policy.backupStatus === "stale";
+  const backupCanBeRefreshed = policy.backupStatus === "ready" || policy.backupStatus === "stale";
   if (
     !policy.managedRuntime ||
     !policy.standardUpdateBlocked ||

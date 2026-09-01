@@ -199,7 +199,7 @@ export function startGatewayMaintenanceTimers(params: {
       }
     : null;
   if (backgroundSelfImprovement) {
-    void params.curatorDispatch?.reconcile().catch((error) => {
+    void params.curatorDispatch?.reconcile().catch((error: unknown) => {
       params.logHealth.error(
         `self-improvement curator reconciliation failed: ${formatError(error)}`,
       );
