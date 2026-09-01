@@ -28,6 +28,8 @@ const controlPlaneFiles = [
   "custom-runtime-tailscale-primary.sh",
   "custom-runtime-updater.sh",
   "custom-runtime-update-approve.sh",
+  "custom-runtime-update-backup.mjs",
+  "custom-runtime-update-github-proof.mjs",
   "custom-runtime-source-provenance.mjs",
   "custom-runtime-signature.mjs",
   "control-director-role-config.py",

@@ -1,5 +1,7 @@
 name: Control Director Reliability
 
+run-name: Control Director Reliability / ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }} / ${{ inputs.candidate_branch || github.event.pull_request.head.ref || github.ref_name }}
+
 on:
   pull_request:
     paths:
@@ -15,6 +17,15 @@ on:
       - "ui/src/**/control-director-**"
       - "work/control-director/reliability-v1/**"
   workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact candidate commit to check out and prove
+        required: true
+        type: string
+      candidate_branch:
+        description: Candidate branch associated with the exact commit
+        required: true
+        type: string
 
 concurrency:
   group: control-director-reliability-${{ github.event.pull_request.number || github.ref }}
@@ -29,20 +40,44 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha || github.event.pull_request.head.sha || github.sha }}
+      CANDIDATE_BRANCH: ${{ inputs.candidate_branch || github.event.pull_request.head.ref || github.ref_name }}
     steps:
+      - name: Validate exact candidate input
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -n "$CANDIDATE_BRANCH" ]]
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            [[ "$CANDIDATE_BRANCH" =~ ^codex/runtime-update-[0-9]{8}T[0-9]{6}Z$ ]]
+            git check-ref-format --branch "$CANDIDATE_BRANCH"
+          fi
+
       - name: Checkout exact candidate
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           ref: ${{ env.CANDIDATE_SHA }}
 
-      - name: Setup Node and pnpm
-        uses: ./.github/actions/setup-node-env
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: "24.x"
-          install-bun: "false"
-          frozen-lockfile: "true"
+
+      - name: Setup pnpm and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --no-fund --no-audit pnpm@11.2.2
+          test "$(pnpm --version)" = "11.2.2"
+          pnpm install \
+            --frozen-lockfile \
+            --prefer-offline \
+            --ignore-scripts=false \
+            --config.engine-strict=false \
+            --config.enable-pre-post-scripts=true \
+            --config.side-effects-cache=true
 
       - name: Verify immutable source identity
         shell: bash
@@ -50,6 +85,31 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            test "$(git ls-remote origin "refs/heads/$CANDIDATE_BRANCH" | awk '{print $1}')" = "$CANDIDATE_SHA"
+          fi
+          mkdir -p .artifacts/control-director
+          python - "$CANDIDATE_SHA" "$CANDIDATE_BRANCH" "$GITHUB_REF_NAME" "$GITHUB_SHA" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path('.artifacts/control-director/exact-source-identity.json')
+          path.write_text(json.dumps({
+              'schema': 'openclaw.custom-runtime-github-proof-identity.v1',
+              'candidateSha': sys.argv[1],
+              'candidateBranch': sys.argv[2],
+              'trustedWorkflowRef': sys.argv[3],
+              'trustedWorkflowSha': sys.argv[4],
+          }, sort_keys=True) + '\n', encoding='utf-8')
+          PY
+          {
+            echo '### Exact-source identity'
+            echo "- candidate SHA: $CANDIDATE_SHA"
+            echo "- candidate branch: $CANDIDATE_BRANCH"
+            echo "- trusted workflow ref: $GITHUB_REF_NAME"
+            echo "- trusted workflow SHA: $GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify update-survival contract
         run: pnpm custom-runtime:update-survival

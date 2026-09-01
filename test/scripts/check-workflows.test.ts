@@ -50,6 +50,7 @@ describe("check-workflows", () => {
         "#!/bin/sh",
         'if [ "$1" = "--version" ]; then exit 0; fi',
         'printf "%s\\n" "$*" >> "$PRE_COMMIT_MARKER"',
+        'printf "PRE_COMMIT_HOME=%s\\n" "$PRE_COMMIT_HOME" >> "$PRE_COMMIT_MARKER"',
         "exit 0",
         "",
       ].join("\n"),
@@ -77,6 +78,9 @@ describe("check-workflows", () => {
     expect(preCommitArgs).toContain("run --config .pre-commit-config.yaml zizmor --files");
     expect(preCommitArgs).toContain(".github/workflows/ci.yml");
     expect(preCommitArgs).toContain(".github/workflows/windows-testbox-probe.yml");
+    const isolatedHome = preCommitArgs.match(/PRE_COMMIT_HOME=(.*)/)?.[1]?.trim();
+    expect(isolatedHome).toBeTruthy();
+    expect(existsSync(isolatedHome!)).toBe(false);
   });
 
   it("bootstraps pinned pre-commit in a temporary Python venv when needed", () => {

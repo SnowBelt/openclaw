@@ -1435,6 +1435,18 @@ export const PccSummaryGetResultSchema = Type.Object(
           ]),
           standardUpdateBlocked: Type.Boolean(),
           sourceDurable: Type.Boolean(),
+          backupConfigured: Type.Optional(Type.Boolean()),
+          backupStatus: Type.Optional(
+            Type.Union([
+              Type.Literal("unconfigured"),
+              Type.Literal("offline"),
+              Type.Literal("locked"),
+              Type.Literal("ready"),
+              Type.Literal("stale"),
+              Type.Literal("failed"),
+            ]),
+          ),
+          backupStatusReason: Type.Optional(Type.String()),
           brokerConfigured: Type.Boolean(),
           approvalPending: Type.Boolean(),
           sourceSha: Type.Union([Type.String(), Type.Null()]),

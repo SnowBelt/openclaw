@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { formatErrorMessage } from "../infra/errors.js";
 
 export const LOCAL_MODEL_ADMISSION_SCHEMA = "openclaw.local-model-admission.v1" as const;
 export const LOCAL_MODEL_ADMISSION_ENV = "OPENCLAW_LOCAL_MODEL_ADMISSION_PATH" as const;
@@ -94,7 +95,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   }
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
     const cleanup = () => {
       if (timer) {
         clearTimeout(timer);
@@ -119,7 +119,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
         admissionError("resource_contention", "blocked_resource_contention:admission aborted"),
       );
     };
-    timer = setTimeout(complete, ms);
+    const timer = setTimeout(complete, ms);
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) {
       abort();
@@ -307,7 +307,6 @@ async function withCoordinatorLock<T>(statePath: string, operation: () => Promis
         } catch {
           // Preserve the lock acquisition error.
         }
-        descriptor = undefined;
         try {
           fs.rmSync(lockPath, { force: true });
         } catch {
@@ -467,7 +466,9 @@ function makeLease(params: {
     samples: params.samples,
     renew: async () => {
       if (renewalError) {
-        throw renewalError;
+        throw renewalError instanceof Error
+          ? renewalError
+          : new Error(formatErrorMessage(renewalError));
       }
       await renew();
     },
@@ -485,7 +486,9 @@ function makeLease(params: {
         } catch {
           // Preserve the renewal error as the primary failure.
         }
-        throw renewalError;
+        throw renewalError instanceof Error
+          ? renewalError
+          : new Error(formatErrorMessage(renewalError));
       }
       await releaseLease(params.statePath, params.stored.token);
     },
@@ -531,20 +534,20 @@ export async function acquireLocalModelAdmission(
 
   const deadline = Date.now() + waitMs;
   const token = crypto.randomUUID().replaceAll("-", "");
-  let stored: StoredLocalModelLease | undefined;
-  while (!stored) {
+  let stored: StoredLocalModelLease;
+  while (true) {
     if (params.signal?.aborted) {
       throw admissionError("resource_contention", "blocked_resource_contention:admission aborted");
     }
     const now = Date.now();
-    await withCoordinatorLock(statePath, async () => {
+    const acquired = await withCoordinatorLock(statePath, async () => {
       const state = pruneState(readState(statePath), now);
       const conflict =
         params.mode === "exclusive"
           ? state.leases.length > 0
           : state.leases.some((lease) => lease.mode === "exclusive");
       if (!conflict) {
-        stored = {
+        const next: StoredLocalModelLease = {
           token,
           owner: params.owner.trim(),
           mode: params.mode,
@@ -552,19 +555,23 @@ export async function acquireLocalModelAdmission(
           acquiredAt: now,
           expiresAt: now + ttlMs,
         };
-        state.leases.push(stored);
+        state.leases.push(next);
         writeState(statePath, state);
+        return next;
       }
+      return undefined;
     });
-    if (!stored) {
-      if (Date.now() >= deadline) {
-        throw admissionError(
-          "resource_contention",
-          "blocked_resource_contention:local-model admission is busy",
-        );
-      }
-      await sleep(Math.min(250, Math.max(10, deadline - Date.now())), params.signal);
+    if (acquired) {
+      stored = acquired;
+      break;
     }
+    if (Date.now() >= deadline) {
+      throw admissionError(
+        "resource_contention",
+        "blocked_resource_contention:local-model admission is busy",
+      );
+    }
+    await sleep(Math.min(250, Math.max(10, deadline - Date.now())), params.signal);
   }
 
   const samples: LocalModelResourceSnapshot[] = [];

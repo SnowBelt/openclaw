@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeCustomRuntimeCompletenessManifest } from "../../scripts/custom-runtime/custom-runtime-completeness.mjs";
 import {
   promoteGatewayRuntimeSnapshot,
   resolveGatewayRuntimeSnapshotPromotionPolicy,
@@ -9,15 +11,35 @@ import {
 
 const temporaryDirectories: string[] = [];
 
+function runGit(root: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "OpenClaw Test",
+      GIT_AUTHOR_EMAIL: "openclaw-test@local",
+      GIT_COMMITTER_NAME: "OpenClaw Test",
+      GIT_COMMITTER_EMAIL: "openclaw-test@local",
+    },
+  }).trim();
+}
+
 function fixtureRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "gateway-snapshot-promotion-"));
   temporaryDirectories.push(root);
-  const write = (relativePath: string, value: string) => {
+  const write = (relativePath: string, value = `${relativePath}\n`) => {
     const filePath = path.join(root, relativePath);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, value, "utf8");
   };
   write("package.json", `${JSON.stringify({ name: "openclaw", version: "2026.7.13" })}\n`);
+  write("ui/src/app/theme.ts", 'export type ThemeMode = "system" | "light" | "dark";\n');
+  runGit(root, ["init", "-q"]);
+  runGit(root, ["add", "package.json", "ui"]);
+  runGit(root, ["commit", "-qm", "fixture source"]);
+  const sourceSha = runGit(root, ["rev-parse", "HEAD"]);
+  const buildId = "2026.7.13-test";
   write("dist/index.js", "console.log('index');\n");
   write("dist/entry.js", "console.log('entry');\n");
   write("dist/control-ui/index.html", "<!doctype html>\n");
@@ -25,18 +47,50 @@ function fixtureRoot() {
     "dist/build-info.json",
     `${JSON.stringify({
       version: "2026.7.13",
-      commit: "a".repeat(40),
+      commit: sourceSha,
       builtAt: "2026-07-13T12:34:56.000Z",
     })}\n`,
   );
-  write("dist/.buildstamp", `${JSON.stringify({ head: "a".repeat(40) })}\n`);
-  write("dist/.runtime-postbuildstamp", `${JSON.stringify({ head: "a".repeat(40) })}\n`);
+  write(
+    "dist/control-ui/dashboard-surfaces.json",
+    `${JSON.stringify({
+      buildId,
+      surfaces: [
+        {
+          id: "example",
+          path: "/example",
+          label: "Example",
+          aliases: [],
+          assets: ["assets/example.js"],
+        },
+      ],
+    })}\n`,
+  );
+  write("dist/control-ui/assets/example.js");
+  write("dist/control-ui/sw.js", `const BUILD_ID = ${JSON.stringify(buildId)};\n`);
+  for (const template of [
+    "AGENTS.md",
+    "SOUL.md",
+    "TOOLS.md",
+    "IDENTITY.md",
+    "USER.md",
+    "HEARTBEAT.md",
+    "BOOTSTRAP.md",
+  ]) {
+    write(`dist/templates/${template}`);
+  }
+  write("dist/.buildstamp", `${JSON.stringify({ head: sourceSha })}\n`);
+  write("dist/.runtime-postbuildstamp", `${JSON.stringify({ head: sourceSha })}\n`);
   write("dist/extensions/example/index.d.ts", "export {}\n");
+  write("dist/extensions/example/package.json", "{}\n");
+  write("dist/extensions/node_modules/openclaw/plugin-sdk/runtime.js");
   write("dist-runtime/extensions/example/package.json", "{}\n");
+  write("dist-runtime/extensions/example/index.js", "export {}\n");
   fs.symlinkSync(
     "../../../dist/extensions/example/index.d.ts",
     path.join(root, "dist-runtime/extensions/example/index.d.ts"),
   );
+  writeCustomRuntimeCompletenessManifest(root);
   return root;
 }
 
@@ -88,9 +142,10 @@ describe("Gateway runtime snapshot promotion", () => {
     ) as Record<string, unknown>;
     expect(manifest).toMatchObject({
       version: 2,
+      completenessVersion: 1,
       packageVersion: "2026.7.13",
       artifactHash: result.artifactHash,
-      source: { commit: "a".repeat(40) },
+      source: { commit: expect.stringMatching(/^[a-f0-9]{40}$/u) },
       schemas: {
         selfImprovementLedger: 1,
         selfImprovementRecommendationStore: 3,

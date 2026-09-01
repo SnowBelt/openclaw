@@ -255,6 +255,8 @@ describe("resolveBuildAllSteps", () => {
       "write-build-info",
       "write-cli-startup-metadata",
       "write-cli-compat",
+      "prepare-extension-package-boundary-artifacts",
+      "write-custom-runtime-completeness",
       "promote-gateway-runtime-snapshot",
     ]);
   });
@@ -418,6 +420,18 @@ describe("resolveBuildAllSteps", () => {
       expect(labels.at(-1)).toBe("promote-gateway-runtime-snapshot");
       expect(labels.indexOf("promote-gateway-runtime-snapshot")).toBeGreaterThan(
         labels.indexOf("write-cli-compat"),
+      );
+    }
+  });
+
+  it("prepares package-boundary artifacts before completeness is sealed", () => {
+    for (const profile of ["full", "ciArtifacts"]) {
+      const labels = resolveBuildAllSteps(profile).map((step) => step.label);
+      expect(labels.indexOf("prepare-extension-package-boundary-artifacts")).toBeGreaterThan(
+        labels.indexOf("write-cli-compat"),
+      );
+      expect(labels.indexOf("prepare-extension-package-boundary-artifacts")).toBeLessThan(
+        labels.indexOf("write-custom-runtime-completeness"),
       );
     }
   });

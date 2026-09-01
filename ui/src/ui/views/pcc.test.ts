@@ -3213,9 +3213,14 @@ describe("renderPccDashboard", () => {
           status: "protected",
           standardUpdateBlocked: true,
           sourceDurable: true,
+          backupConfigured: true,
           brokerConfigured: true,
           runtimeGuardConfigured: true,
           approvalPending: true,
+          pendingCandidateSha: "b".repeat(40),
+          preparationRunning: false,
+          preparationStatus: "ready",
+          preparationReason: "ready-for-approval",
           sourceSha: "a".repeat(40),
           sourceBranch: "codex/custom-runtime",
           activeRelease: "release-1",
@@ -3232,6 +3237,7 @@ describe("renderPccDashboard", () => {
     const safety = container.querySelector("[data-pcc-update-safety]");
     expect(safety?.textContent).toContain("Update ready for approval");
     expect(safety?.textContent).toContain("Blocked safely");
+    expect(safety?.textContent).toContain("b".repeat(12));
     expect(safety?.textContent).toContain("Durable source");
     expect(safety?.textContent).toContain("Scheduled");
     expect(safety?.textContent).toContain("Runtime guard");

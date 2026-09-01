@@ -54,6 +54,8 @@ describeControlUiE2e("Control UI coalesced update E2E", () => {
 
     try {
       expect((await page.goto(`${server.baseUrl}chat`))?.status()).toBe(200);
+      await gateway.waitForRequest("connect");
+      await page.getByRole("button", { name: "Chat settings" }).waitFor();
       await gateway.emitGatewayEvent("update.available", {
         updateAvailable: {
           channel: "stable",

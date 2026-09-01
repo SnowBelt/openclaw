@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeCustomRuntimeCompletenessManifest } from "../../scripts/custom-runtime/custom-runtime-completeness.mjs";
 import {
   hashBuildArtifactTree,
   hashRuntimeClosure,
@@ -9,13 +11,26 @@ import {
   verifyRuntimePackage,
 } from "../../scripts/custom-runtime/runtime-package-integrity.mjs";
 
-const SOURCE_SHA = "a".repeat(40);
 const roots: string[] = [];
 
 function writeFile(root: string, relativePath: string, contents = `${relativePath}\n`): void {
   const target = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, contents);
+}
+
+function runGit(root: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "OpenClaw Test",
+      GIT_AUTHOR_EMAIL: "openclaw-test@local",
+      GIT_COMMITTER_NAME: "OpenClaw Test",
+      GIT_COMMITTER_EMAIL: "openclaw-test@local",
+    },
+  }).trim();
 }
 
 function createRuntime(options: { missingDependency?: string } = {}): string {
@@ -62,11 +77,53 @@ function createRuntime(options: { missingDependency?: string } = {}): string {
       ],
     })}\n`,
   );
-  writeFile(root, ".openclaw-production-sha", `${SOURCE_SHA}\n`);
+  writeFile(root, "ui/src/app/theme.ts", 'export type ThemeMode = "system" | "light" | "dark";\n');
+  runGit(root, ["init", "-q"]);
+  runGit(root, ["add", "package.json", "config", "extensions", "src", "ui"]);
+  runGit(root, ["commit", "-qm", "fixture source"]);
+  const sourceCommit = runGit(root, ["rev-parse", "HEAD"]);
+  const buildId = "2026.7.13-test";
+  writeFile(
+    root,
+    "dist/build-info.json",
+    `${JSON.stringify({ version: "1.0.0", commit: sourceCommit, builtAt: "2026-07-13T12:34:56.000Z" })}\n`,
+  );
+  writeFile(
+    root,
+    "dist/control-ui/dashboard-surfaces.json",
+    `${JSON.stringify({
+      buildId,
+      surfaces: [{ id: "pcc", path: "/pcc", label: "PCC", aliases: [], assets: ["assets/pcc.js"] }],
+    })}\n`,
+  );
+  writeFile(root, "dist/control-ui/assets/pcc.js");
+  writeFile(root, "dist/control-ui/sw.js", `const BUILD_ID = ${JSON.stringify(buildId)};\n`);
+  for (const template of [
+    "AGENTS.md",
+    "SOUL.md",
+    "TOOLS.md",
+    "IDENTITY.md",
+    "USER.md",
+    "HEARTBEAT.md",
+    "BOOTSTRAP.md",
+  ]) {
+    writeFile(root, `dist/templates/${template}`);
+  }
+  writeFile(root, "dist/extensions/research-manager/index.js");
+  writeFile(root, "dist/extensions/research-manager/openclaw.plugin.json", "{}\n");
+  writeFile(root, "dist/extensions/research-manager/package.json", "{}\n");
+  writeFile(root, "dist/extensions/node_modules/openclaw/plugin-sdk/runtime.js");
+  writeFile(root, "dist-runtime/extensions/research-manager/index.js");
+  writeFile(root, "dist-runtime/extensions/research-manager/package.json", "{}\n");
+  writeCustomRuntimeCompletenessManifest(root);
+  fs.rmSync(path.join(root, "ui"), { recursive: true, force: true });
+  fs.rmSync(path.join(root, ".git"), { recursive: true, force: true });
+  writeFile(root, ".openclaw-production-sha", `${sourceCommit}\n`);
   return root;
 }
 
 function sealSnapshot(root: string): void {
+  const sourceSha = fs.readFileSync(path.join(root, ".openclaw-production-sha"), "utf8").trim();
   const runtimeClosurePaths = listRuntimeClosurePaths(root);
   const snapshot = {
     version: 2,
@@ -76,7 +133,7 @@ function sealSnapshot(root: string): void {
     runtimeClosureVersion: 1,
     runtimeClosurePaths,
     runtimeClosureHash: hashRuntimeClosure(root, runtimeClosurePaths),
-    source: { commit: SOURCE_SHA },
+    source: { commit: sourceSha },
   };
   writeFile(root, "snapshot.json", `${JSON.stringify(snapshot)}\n`);
 }
@@ -173,6 +230,19 @@ describe("managed runtime package integrity", () => {
 
     expect(verifyRuntimePackage({ releaseRoot: root })).toContain(
       "Runtime package contains a prohibited sensitive file: config/release-signing.pem",
+    );
+  });
+
+  it("rejects an unsupported completeness contract version", () => {
+    const root = createRuntime();
+    sealSnapshot(root);
+    const snapshotPath = path.join(root, "snapshot.json");
+    const snapshot = JSON.parse(fs.readFileSync(snapshotPath, "utf8")) as Record<string, unknown>;
+    snapshot.completenessVersion = 2;
+    fs.writeFileSync(snapshotPath, `${JSON.stringify(snapshot)}\n`);
+
+    expect(verifyRuntimePackage({ releaseRoot: root })).toContain(
+      "Runtime package completeness version must be 1.",
     );
   });
 });

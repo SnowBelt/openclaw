@@ -8,22 +8,29 @@ pending=${OPENCLAW_CUSTOM_RUNTIME_PENDING_UPDATE:-"$runtime_home/pending-update.
 mkdir -p "$runtime_home/receipts"
 
 usage() {
-  printf '%s\n' 'usage: custom-runtime-update-approve.sh [--receipt PATH]' >&2
+  printf '%s\n' 'usage: custom-runtime-update-approve.sh --sha EXACT_SHA [--receipt PATH]' >&2
   exit 64
 }
 receipt=$pending
+expected_sha=
 while [ $# -gt 0 ]; do
   case "$1" in
     --receipt) receipt=${2:-}; shift 2 ;;
+    --sha) expected_sha=${2:-}; shift 2 ;;
     *) usage ;;
   esac
 done
+[ -n "$expected_sha" ] || usage
+case "$expected_sha" in
+  *[!0-9a-f]*|'') usage ;;
+esac
+[ "${#expected_sha}" -eq 40 ] || usage
 [ -f "$receipt" ] || { printf '%s\n' 'prepared update receipt is missing' >&2; exit 64; }
 [ -f "$runtime_home/active-runtime.json" ] || { printf '%s\n' 'active runtime pointer is missing' >&2; exit 64; }
 
-fields=$(python3 - "$receipt" "$runtime_home/active-runtime.json" "$releases_dir" "$runtime_home" <<'PY'
+fields=$(python3 - "$receipt" "$runtime_home/active-runtime.json" "$releases_dir" "$runtime_home" "$expected_sha" <<'PY'
 import datetime, hashlib, json, os, re, sys
-receipt_path, active_path, releases_dir, runtime_home = sys.argv[1:]
+receipt_path, active_path, releases_dir, runtime_home, expected_sha = sys.argv[1:]
 with open(receipt_path, encoding="utf-8") as f:
     receipt = json.load(f)
 with open(active_path, encoding="utf-8") as f:
@@ -38,9 +45,11 @@ if not release.startswith(root + os.sep):
     raise SystemExit("prepared update release is outside immutable releases")
 source_sha = str(receipt.get("sourceSha", ""))
 base_sha = str(receipt.get("baseSha", ""))
-if not re.fullmatch(r"[0-9a-fA-F]{40}", source_sha):
+if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
     raise SystemExit("prepared update source SHA is invalid")
-if not re.fullmatch(r"[0-9a-fA-F]{40}", base_sha):
+if source_sha != expected_sha:
+    raise SystemExit("prepared update does not match the explicitly approved SHA")
+if not re.fullmatch(r"[0-9a-f]{40}", base_sha):
     raise SystemExit("prepared update base SHA is invalid")
 if active.get("sourceSha") != base_sha:
     raise SystemExit("prepared update is stale because the active runtime changed")
@@ -105,7 +114,31 @@ except ValueError:
 official_sha = str(proof.get("officialSha", ""))
 if not re.fullmatch(r"[0-9a-f]{40}", official_sha) or proof.get("mergeParents") != [base_sha, official_sha]:
     raise SystemExit("prepared update preservation proof parents are invalid")
-for value in (release, source_sha, str(receipt.get("sourceRepo", "")), str(receipt.get("sourceBranch", "")), proof_path, proof_sha):
+backup_binding = receipt.get("verifiedBackup")
+if not isinstance(backup_binding, dict) or backup_binding.get("schema") != "openclaw.custom-runtime-update-backup.v1" or backup_binding.get("sourceSha") != base_sha:
+    raise SystemExit("prepared update verified backup binding is invalid")
+backup_path = os.path.realpath(str(backup_binding.get("path", "")))
+if not backup_path.startswith(proof_root + os.sep) or not os.path.isfile(backup_path):
+    raise SystemExit("prepared update verified backup receipt is outside runtime receipts")
+backup_sha = str(backup_binding.get("sha256", "")).lower()
+if not re.fullmatch(r"[0-9a-f]{64}", backup_sha):
+    raise SystemExit("prepared update verified backup digest is invalid")
+with open(backup_path, "rb") as f:
+    if hashlib.sha256(f.read()).hexdigest() != backup_sha:
+        raise SystemExit("prepared update verified backup digest changed after preparation")
+github_binding = receipt.get("repositoryProof")
+if not isinstance(github_binding, dict) or github_binding.get("schema") != "openclaw.custom-runtime-github-proof.v1" or github_binding.get("sourceSha") != source_sha:
+    raise SystemExit("prepared update repository proof binding is invalid")
+github_path = os.path.realpath(str(github_binding.get("path", "")))
+if not github_path.startswith(proof_root + os.sep) or not os.path.isfile(github_path):
+    raise SystemExit("prepared update repository proof receipt is outside runtime receipts")
+github_sha = str(github_binding.get("sha256", "")).lower()
+if not re.fullmatch(r"[0-9a-f]{64}", github_sha):
+    raise SystemExit("prepared update repository proof digest is invalid")
+with open(github_path, "rb") as f:
+    if hashlib.sha256(f.read()).hexdigest() != github_sha:
+        raise SystemExit("prepared update repository proof digest changed after preparation")
+for value in (release, source_sha, str(receipt.get("sourceRepo", "")), str(receipt.get("sourceBranch", "")), proof_path, proof_sha, backup_path, backup_sha, github_path, github_sha):
     print(value)
 PY
 ) || exit 64
@@ -115,14 +148,61 @@ source_repo=$(printf '%s\n' "$fields" | sed -n '3p')
 source_branch=$(printf '%s\n' "$fields" | sed -n '4p')
 preservation_proof=$(printf '%s\n' "$fields" | sed -n '5p')
 preservation_proof_sha=$(printf '%s\n' "$fields" | sed -n '6p')
+backup_receipt=$(printf '%s\n' "$fields" | sed -n '7p')
+backup_receipt_sha=$(printf '%s\n' "$fields" | sed -n '8p')
+github_proof_receipt=$(printf '%s\n' "$fields" | sed -n '9p')
+github_proof_receipt_sha=$(printf '%s\n' "$fields" | sed -n '10p')
+backup_verifier="$runtime_home/bin/custom-runtime-update-backup.mjs"
+[ -f "$backup_verifier" ] && [ ! -L "$backup_verifier" ] || {
+  printf '%s\n' 'verified backup tool is unavailable' >&2
+  exit 64
+}
+"${OPENCLAW_NODE_BIN:-node}" "$backup_verifier" verify --runtime-home "$runtime_home" \
+  --receipt "$backup_receipt" --expected-sha "$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8")).get("sourceSha", ""))
+PY
+)" >/dev/null || {
+  printf '%s\n' 'prepared update verified backup is stale or unavailable' >&2
+  exit 64
+}
+github_proof_verifier="$runtime_home/bin/custom-runtime-update-github-proof.mjs"
+[ -f "$github_proof_verifier" ] && [ ! -L "$github_proof_verifier" ] || {
+  printf '%s\n' 'repository-native proof verifier is unavailable' >&2
+  exit 64
+}
+"${OPENCLAW_NODE_BIN:-node}" "$github_proof_verifier" verify \
+  --receipt "$github_proof_receipt" --expected-sha "$source_sha" >/dev/null || {
+  printf '%s\n' 'repository-native exact-SHA proof is stale or unavailable' >&2
+  exit 64
+}
 [ -d "$source_repo/.git" ] || git -C "$source_repo" rev-parse --git-dir >/dev/null 2>&1 || {
   printf '%s\n' 'prepared update source repository is unavailable' >&2
   exit 64
 }
-[ -z "$(git -C "$source_repo" status --porcelain)" ] || {
-  printf '%s\n' 'prepared update source repository is dirty' >&2
+source_is_bare=$(git -C "$source_repo" rev-parse --is-bare-repository 2>/dev/null) || {
+  printf '%s\n' 'prepared update source repository type is unavailable' >&2
   exit 64
 }
+if [ "$source_is_bare" = true ]; then
+  source_alternates=$(git -C "$source_repo" rev-parse --git-path objects/info/alternates 2>/dev/null) || {
+    printf '%s\n' 'prepared update source alternates path is unavailable' >&2
+    exit 64
+  }
+  [ ! -s "$source_alternates" ] || {
+    printf '%s\n' 'prepared update source repository uses Git alternates' >&2
+    exit 64
+  }
+  [ "$(git -C "$source_repo" rev-parse --is-shallow-repository 2>/dev/null)" = false ] || {
+    printf '%s\n' 'prepared update source repository is shallow' >&2
+    exit 64
+  }
+else
+  [ -z "$(git -C "$source_repo" status --porcelain --untracked-files=all)" ] || {
+    printf '%s\n' 'prepared update source repository is dirty' >&2
+    exit 64
+  }
+fi
 git -C "$source_repo" cat-file -e "$source_sha^{commit}" 2>/dev/null || {
   printf '%s\n' 'prepared update source commit is unavailable' >&2
   exit 64
@@ -150,16 +230,86 @@ seal_verifier="$runtime_home/bin/custom-runtime-seal.sh"
   exit 64
 }
 
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+approval_receipt="$runtime_home/receipts/update-approval-$stamp.json"
+installation_lock="$runtime_home/update-installation.lock"
+acquire_result=$(python3 - "$installation_lock" "$runtime_home/receipts" "$stamp" <<'PY'
+import datetime, json, os, stat, sys
+
+lock, receipts, stamp = sys.argv[1:]
+try:
+    os.mkdir(lock, 0o700)
+except FileExistsError:
+    info = os.lstat(lock)
+    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise SystemExit("unsafe")
+    age = max(0, datetime.datetime.now().timestamp() - info.st_mtime)
+    owner_alive = False
+    try:
+        with open(os.path.join(lock, "owner.json"), encoding="utf-8") as f:
+            owner = json.load(f)
+        pid = owner.get("pid") if isinstance(owner, dict) else None
+        if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+            os.kill(pid, 0)
+            owner_alive = True
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
+        owner_alive = False
+    if owner_alive or age < 30 * 60:
+        raise SystemExit("running")
+    recovered = os.path.join(receipts, f"stale-update-installation-lock-{stamp}")
+    os.replace(lock, recovered)
+    os.mkdir(lock, 0o700)
+with open(os.path.join(lock, "owner.json"), "x", encoding="utf-8") as f:
+    json.dump({"pid": os.getppid(), "startedAt": stamp}, f, sort_keys=True)
+    f.write("\n")
+print("acquired")
+PY
+) || { printf '%s\n' 'verified update installation is already running or locked' >&2; exit 64; }
+[ "$acquire_result" = acquired ] || exit 64
+approval_completed=false
+activation_completed=false
+finish_installation() {
+  code=$?
+  trap - EXIT
+  rm -f "$installation_lock/owner.json"
+  rmdir "$installation_lock" 2>/dev/null || true
+  if [ "$approval_completed" != true ]; then
+    if [ "$activation_completed" = true ]; then
+      failure_stage=installation-finalization-failed
+    else
+      failure_stage=activation-failed
+    fi
+    python3 - "$approval_receipt" "$stamp" "$failure_stage" "$release" "$source_sha" <<'PY' || true
+import json, os, sys
+
+target, at, stage, release, source_sha = sys.argv[1:]
+with open(target + ".tmp", "w", encoding="utf-8") as f:
+    json.dump({
+        "schema": "openclaw.custom-runtime-update-approval.v1",
+        "at": at,
+        "result": "failed",
+        "stage": stage,
+        "release": release,
+        "sourceSha": source_sha,
+    }, f, indent=2, sort_keys=True)
+    f.write("\n")
+os.replace(target + ".tmp", target)
+PY
+  fi
+  exit "$code"
+}
+trap finish_installation EXIT
+
 "$release/scripts/custom-runtime/custom-runtime-activate.sh" \
   --release "$release" --source-sha "$source_sha" --source-repo "$source_repo" \
   --source-branch "$source_branch" --stage-port 18790 --port 18789
+activation_completed=true
 
-stamp=$(date -u +%Y%m%dT%H%M%SZ)
-approval_receipt="$runtime_home/receipts/update-approval-$stamp.json"
 python3 - "$approval_receipt" "$receipt" "$stamp" "$release" "$source_sha" \
-  "$preservation_proof" "$preservation_proof_sha" <<'PY'
+  "$preservation_proof" "$preservation_proof_sha" "$backup_receipt" \
+  "$backup_receipt_sha" "$github_proof_receipt" "$github_proof_receipt_sha" <<'PY'
 import json, os, sys
-target, prepared, at, release, source_sha, proof_path, proof_sha = sys.argv[1:]
+target, prepared, at, release, source_sha, proof_path, proof_sha, backup_path, backup_sha, github_path, github_sha = sys.argv[1:]
 with open(target + ".tmp", "w", encoding="utf-8") as f:
     json.dump({
         "schema": "openclaw.custom-runtime-update-approval.v1",
@@ -173,9 +323,20 @@ with open(target + ".tmp", "w", encoding="utf-8") as f:
             "sha256": proof_sha,
             "schema": "openclaw.custom-runtime-update-survival.v1",
         },
+        "verifiedBackup": {
+            "path": backup_path,
+            "sha256": backup_sha,
+            "schema": "openclaw.custom-runtime-update-backup.v1",
+        },
+        "repositoryProof": {
+            "path": github_path,
+            "sha256": github_sha,
+            "schema": "openclaw.custom-runtime-github-proof.v1",
+        },
     }, f, indent=2, sort_keys=True)
     f.write("\n")
 os.replace(target + ".tmp", target)
 PY
 rm -f "$pending"
+approval_completed=true
 printf '%s\n' "CUSTOM_RUNTIME_UPDATE_APPROVED release=$(basename "$release") sourceSha=$source_sha"

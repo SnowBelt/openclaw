@@ -140,15 +140,20 @@ function parsePlist(filePath: string): unknown {
   return JSON.parse(result.stdout) as unknown;
 }
 
-function writePlist(filePath: string, programArguments: string[]): void {
+function writePlist(filePath: string, programArguments: string[], workingDirectory?: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const plist = {
+    Label: "test.gateway",
+    ProgramArguments: programArguments,
+    ...(workingDirectory ? { WorkingDirectory: workingDirectory } : {}),
+  };
   const result = spawnSync(
     "python3",
     [
       "-c",
-      "import plistlib, sys; plistlib.dump({'Label': 'test.gateway', 'ProgramArguments': sys.argv[2:]}, open(sys.argv[1], 'wb'))",
+      "import json, plistlib, sys; plistlib.dump(json.loads(sys.argv[2]), open(sys.argv[1], 'wb'))",
       filePath,
-      ...programArguments,
+      JSON.stringify(plist),
     ],
     { encoding: "utf8" },
   );
@@ -225,6 +230,7 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     expect(status.status, status.stderr).toBe(0);
     expect(JSON.parse(status.stdout)).toEqual({
       configured: true,
+      dnsName: "primary.example.ts.net.",
       healthy: true,
       plistMatches: true,
       serveConfigured: true,
@@ -270,19 +276,52 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     );
     const fakeBin = path.join(fixture.root, "guard-bin");
     const gatewayPlist = path.join(fixture.root, "gateway.plist");
+    const runtimeRoot = path.join(fixture.root, "immutable", "openclaw-release");
+    const dashboardManifest = path.join(
+      runtimeRoot,
+      "dist",
+      "control-ui",
+      "dashboard-surfaces.json",
+    );
     writeFile(launcher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n', 0o755);
     writeFile(primaryGuard, "#!/bin/sh\nexit 1\n", 0o755);
-    writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o755);
+    const lsof = path.join(fakeBin, "lsof");
+    const ps = path.join(fakeBin, "ps");
+    const pgrep = path.join(fakeBin, "pgrep");
+    writeFile(lsof, "#!/bin/sh\nprintf '%s\\n' 4242\n", 0o755);
+    writeFile(
+      ps,
+      `#!/bin/sh\nprintf '%s\\n' '${runtimeRoot}/dist/index.js gateway --port 18789'\n`,
+      0o755,
+    );
+    writeFile(pgrep, "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(dashboardManifest, '{"buildId":"test-build","surfaces":[]}\n');
+    writeFile(
+      path.join(fakeBin, "curl"),
+      [
+        "#!/bin/sh",
+        'case "$*" in',
+        `  *control-ui-config.json*) printf '%s\\n' '${JSON.stringify({ runtimeIdentity: { runtimeRoot, dashboardBuildId: "test-build" } })}' ;;`,
+        `  *sw.js*) printf '%s\\n' 'const BUILD = "test-build";' ;;`,
+        "  *) exit 1 ;;",
+        "esac",
+        "",
+      ].join("\n"),
+      0o755,
+    );
     writeFile(
       path.join(fixture.runtimeHome, "active-runtime.json"),
-      `${JSON.stringify({ runtimeRoot: "/immutable/openclaw-release" })}\n`,
+      `${JSON.stringify({ runtimeRoot })}\n`,
     );
-    writePlist(gatewayPlist, [launcher, "gateway"]);
+    writePlist(gatewayPlist, [launcher, "gateway"], runtimeRoot);
     const env = {
       ...process.env,
       HOME: fixture.home,
       OPENCLAW_CUSTOM_RUNTIME_HOME: fixture.runtimeHome,
       OPENCLAW_GATEWAY_PLIST: gatewayPlist,
+      OPENCLAW_LSOF_BIN: lsof,
+      OPENCLAW_PGREP_BIN: pgrep,
+      OPENCLAW_PS_BIN: ps,
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
     };
 
@@ -293,7 +332,24 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     });
     expect(failed.status, failed.stderr).toBe(1);
 
-    writeFile(primaryGuard, "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(
+      primaryGuard,
+      '#!/bin/sh\n[ "${1:-}" != status ] || printf \'%s\\n\' \'{"configured":true,"dnsName":"primary.example.ts.net."}\'\nexit 0\n',
+      0o755,
+    );
+    const missingOrigin = spawnSync("sh", [runtimeGuardScript], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(missingOrigin.status, missingOrigin.stderr).toBe(1);
+
+    writeFile(
+      path.join(fixture.home, ".openclaw", "openclaw.director.json"),
+      `${JSON.stringify({
+        gateway: { controlUi: { allowedOrigins: ["https://primary.example.ts.net"] } },
+      })}\n`,
+    );
     const healthy = spawnSync("sh", [runtimeGuardScript], {
       cwd: process.cwd(),
       encoding: "utf8",

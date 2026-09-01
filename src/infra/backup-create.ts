@@ -52,7 +52,10 @@ const VOLATILE_BACKUP_SYNTHETIC_STAT = {
 } as unknown as Stats;
 
 class BackupVolatileStatCache extends Map<string, Stats> {
-  constructor(private readonly volatilePlan: VolatileFilterPlan) {
+  constructor(
+    private readonly volatilePlan: VolatileFilterPlan,
+    private readonly excludedPaths: ReadonlySet<string>,
+  ) {
     super();
   }
 
@@ -63,14 +66,17 @@ class BackupVolatileStatCache extends Map<string, Stats> {
     }
     // node-tar checks this cache before lstat and applies the filter to a hit.
     // A synthetic hit lets known volatile paths disappear without aborting the archive.
-    return isVolatileBackupPath(key, this.volatilePlan)
+    return this.excludedPaths.has(path.resolve(key)) || isVolatileBackupPath(key, this.volatilePlan)
       ? VOLATILE_BACKUP_SYNTHETIC_STAT
       : undefined;
   }
 }
 
-function createBackupVolatileStatCache(volatilePlan: VolatileFilterPlan): Map<string, Stats> {
-  return new BackupVolatileStatCache(volatilePlan);
+function createBackupVolatileStatCache(
+  volatilePlan: VolatileFilterPlan,
+  excludedPaths: ReadonlySet<string> = new Set(),
+): Map<string, Stats> {
+  return new BackupVolatileStatCache(volatilePlan, excludedPaths);
 }
 
 export type BackupCreateOptions = {
@@ -597,9 +603,43 @@ function tableExistsSql(db: DatabaseSync, tableName: string): boolean {
   return row?.ok === 1;
 }
 
+function listTablesReferencingSql(db: DatabaseSync, parentTable: string): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT child.name AS name
+         FROM sqlite_master AS child, pragma_foreign_key_list(child.name) AS foreign_key
+         WHERE child.type = 'table' AND foreign_key."table" = ?
+         ORDER BY child.name`,
+      )
+      .all(parentTable) as Array<{ name: string }>
+  ).map((row) => row.name);
+}
+
 function sanitizeGlobalStateSqliteSnapshot(db: DatabaseSync): void {
   if (tableExistsSql(db, "delivery_queue_entries")) {
-    db.prepare("DELETE FROM delivery_queue_entries").run();
+    const referencingTables = listTablesReferencingSql(db, "delivery_queue_entries");
+    const unexpectedTables = referencingTables.filter(
+      (tableName) => tableName !== "delivery_queue_quarantines",
+    );
+    if (unexpectedTables.length > 0) {
+      throw new Error(
+        `Backup sanitizer found unregistered delivery queue dependents: ${unexpectedTables.join(", ")}`,
+      );
+    }
+    db.exec("BEGIN IMMEDIATE; PRAGMA defer_foreign_keys = ON;");
+    try {
+      // Quarantine metadata is transient and FK-owned by the queue rows. Keep
+      // this allowlist explicit so a new data owner blocks rather than being erased.
+      if (tableExistsSql(db, "delivery_queue_quarantines")) {
+        db.exec("DELETE FROM delivery_queue_quarantines;");
+      }
+      db.exec("DELETE FROM delivery_queue_entries;");
+      db.exec("COMMIT;");
+    } catch (error) {
+      db.exec("ROLLBACK;");
+      throw error;
+    }
     db.exec("VACUUM;");
   }
 }
@@ -907,7 +947,7 @@ export async function createBackupArchive(
               portable: true,
               preservePaths: true,
               linkCache: new BackupLinkCache(),
-              statCache: createBackupVolatileStatCache(volatilePlan),
+              statCache: createBackupVolatileStatCache(volatilePlan, skippedSqliteSourcePaths),
               filter: tarFilter,
               onWriteEntry: (entry) => {
                 entry.path = remapArchiveEntryPath({

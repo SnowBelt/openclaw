@@ -14,6 +14,7 @@ import { DEFAULT_PCC_PLANNING_POLICY, type PccPlanningPolicy } from "../../../sr
 import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
+import type { CustomRuntimeUpdatePolicy } from "../api/types.ts";
 import {
   normalizeGatewayComposerScope,
   normalizeGatewayCredentialScope,
@@ -540,6 +541,7 @@ export class OpenClawApp extends LitElement {
   @state() pccRecentProjectIds: string[] = [];
   @state() pccAttentionRecordId: string | null = null;
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
+  @state() customRuntimeUpdatePolicy: CustomRuntimeUpdatePolicy | null = null;
   @state() pccUpdateSafety: PccUpdateSafety | null = null;
   @state() pccReleaseGovernance: ReleaseGovernanceStatus | null = null;
   @state() pccExecutionCapacity: PccExecutionCapacitySnapshot | null = null;

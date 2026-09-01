@@ -18,9 +18,14 @@ export type PccUpdateSafety = {
   status: "protected" | "attention" | "unmanaged";
   standardUpdateBlocked: boolean;
   sourceDurable: boolean;
+  backupConfigured: boolean;
   brokerConfigured: boolean;
   runtimeGuardConfigured: boolean;
   approvalPending: boolean;
+  pendingCandidateSha: string | null;
+  preparationRunning: boolean;
+  preparationStatus: "blocked" | "idle" | "preparing" | "ready" | "installing" | "failed";
+  preparationReason: string | null;
   sourceSha: string | null;
   sourceBranch: string | null;
   activeRelease: string | null;
@@ -78,7 +83,12 @@ function latestReceipt(receiptsDir: string): PccUpdateSafetyReceipt | null {
   try {
     names = fs
       .readdirSync(receiptsDir)
-      .filter((name) => name.startsWith("update-") && name.endsWith(".json"));
+      .filter(
+        (name) =>
+          name.startsWith("update-") &&
+          !name.startsWith("update-backup-") &&
+          name.endsWith(".json"),
+      );
   } catch {
     return null;
   }
@@ -131,6 +141,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
   const brokerInstalled =
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh")) &&
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh")) &&
+    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs")) &&
     fs.existsSync(launchAgentPath);
   const schedulerLoaded = options.schedulerLoaded ?? isLaunchAgentLoaded(UPDATE_SCHEDULER_LABEL);
   const brokerConfigured = brokerInstalled && schedulerLoaded;
@@ -142,6 +153,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     fs.existsSync(guardLaunchAgentPath);
   const guardLoaded = options.guardLoaded ?? isLaunchAgentLoaded(RUNTIME_GUARD_LABEL);
   const runtimeGuardConfigured = runtimeGuardInstalled && guardLoaded;
+  const backupConfigured = policy.backupConfigured;
   const pending = readJson(path.join(runtimeHome, "pending-update.json"));
   const approvalPending = pending?.result === "ready_for_approval";
   const issues: string[] = [];
@@ -149,9 +161,10 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     issues.push("Generic update paths are not blocked for the active custom runtime.");
   }
   if (policy.managedRuntime && !policy.sourceDurable) {
-    issues.push(
-      "The active runtime is not bound to a durable Git commit, source repo, and branch.",
-    );
+    issues.push(policy.sourceDurabilityReason);
+  }
+  if (policy.managedRuntime && !backupConfigured) {
+    issues.push("The encrypted external update-backup destination is unavailable.");
   }
   if (policy.managedRuntime && !brokerInstalled) {
     issues.push("The verified custom-runtime update broker is not fully installed.");
@@ -172,9 +185,14 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     status,
     standardUpdateBlocked: policy.standardUpdateBlocked,
     sourceDurable: policy.sourceDurable,
+    backupConfigured,
     brokerConfigured,
     runtimeGuardConfigured,
     approvalPending,
+    pendingCandidateSha: policy.pendingCandidateSha,
+    preparationRunning: policy.preparationRunning,
+    preparationStatus: policy.preparationStatus,
+    preparationReason: policy.preparationReason,
     sourceSha: policy.sourceSha,
     sourceBranch: policy.sourceBranch,
     activeRelease: text(pointer?.releaseId),

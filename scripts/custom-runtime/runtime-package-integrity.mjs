@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { verifyCustomRuntimeCompleteness } from "./custom-runtime-completeness.mjs";
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SOURCE_SHA_PATTERN = /^[a-f0-9]{40}$/u;
@@ -322,6 +323,19 @@ export function verifyRuntimePackage({ releaseRoot, expectedRoot = releaseRoot }
   errors.push(...verifyTreeShape(root));
   errors.push(...verifyCapabilityClosure(root));
   errors.push(...verifyResearchManagerDependencies(root));
+  const completenessPath = path.join(root, "dist", "custom-runtime-completeness.json");
+  if (snapshot.completenessVersion !== undefined && snapshot.completenessVersion !== 1) {
+    errors.push("Runtime package completeness version must be 1.");
+  }
+  if (snapshot.completenessVersion !== undefined || fs.existsSync(completenessPath)) {
+    errors.push(
+      ...verifyCustomRuntimeCompleteness({
+        rootDir: root,
+        expectedSourceSha: sourceSha,
+        verifySourceContract: false,
+      }),
+    );
+  }
   return errors;
 }
 

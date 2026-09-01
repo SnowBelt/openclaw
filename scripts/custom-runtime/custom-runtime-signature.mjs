@@ -11,6 +11,7 @@ export const SIGNATURE_SCHEMA = "openclaw.custom-runtime-signature.v1";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const DEVICE_ID_PATTERN = /^[a-f0-9]{64}$/u;
 
+/** @returns {never} */
 function fail(message) {
   throw new Error(`signature verification blocked: ${message}`);
 }
@@ -65,7 +66,7 @@ function readPrivateJson(filePath, label) {
     if (error?.message?.startsWith("signature verification blocked:")) {
       throw error;
     }
-    fail(`${label} is malformed`);
+    return fail(`${label} is malformed`);
   }
 }
 

@@ -2118,6 +2118,11 @@ export const id: TranslationMap = {
     runningVersion: "menjalankan v{version}",
     updating: "Memperbarui…",
     updateNow: "Perbarui sekarang",
+    prepareVerifiedUpdate: "Siapkan pembaruan terverifikasi",
+    preparingVerifiedUpdate: "Menyiapkan pembaruan terverifikasi…",
+    installVerifiedUpdate: "Instal pembaruan terverifikasi",
+    exactShaApprovalRequired: "Persetujuan SHA yang tepat diperlukan",
+    updateProtectionIncomplete: "Perlindungan pembaruan memerlukan perhatian.",
     dismissUpdateBanner: "Tutup banner pembaruan",
     switchedSession: "Beralih ke {session}",
     splitView: {

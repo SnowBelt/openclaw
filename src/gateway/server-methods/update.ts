@@ -13,9 +13,14 @@ import { extractDeliveryInfo } from "../../config/sessions.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { GATEWAY_SERVICE_KIND, GATEWAY_SERVICE_MARKER } from "../../daemon/constants.js";
 import {
-  CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON,
-  resolveCustomRuntimeUpdatePolicy,
-} from "../../infra/custom-runtime-update-policy.js";
+  CUSTOM_RUNTIME_UPDATE_APPROVAL_STARTED_REASON,
+  CUSTOM_RUNTIME_UPDATE_EXACT_SHA_APPROVAL_REQUIRED_REASON,
+  CUSTOM_RUNTIME_UPDATE_PREPARATION_RUNNING_REASON,
+  CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON,
+  startCustomRuntimeUpdateApproval,
+  startCustomRuntimeUpdateBroker,
+} from "../../infra/custom-runtime-update-broker.js";
+import { resolveCustomRuntimeUpdatePolicy } from "../../infra/custom-runtime-update-policy.js";
 import { resolveOpenClawPackageRoot } from "../../infra/openclaw-root.js";
 import { readPackageVersion } from "../../infra/package-json.js";
 import { type RestartSentinelPayload, writeRestartSentinel } from "../../infra/restart-sentinel.js";
@@ -161,6 +166,7 @@ export const updateHandlers: GatewayRequestHandlers = {
     const deliveryContext = requestedDeliveryContext ?? sessionDeliveryContext;
     const threadId = requestedThreadId ?? sessionThreadId;
     const timeoutMsRaw = (params as { timeoutMs?: unknown }).timeoutMs;
+    const approvalSha = (params as { approvalSha?: string }).approvalSha;
     const timeoutMs =
       typeof timeoutMsRaw === "number" && Number.isFinite(timeoutMsRaw)
         ? Math.max(1000, Math.floor(timeoutMsRaw))
@@ -182,14 +188,51 @@ export const updateHandlers: GatewayRequestHandlers = {
     try {
       const updateSafety = resolveCustomRuntimeUpdatePolicy();
       if (updateSafety.standardUpdateBlocked) {
-        result = {
-          status: "skipped",
-          mode: "unknown",
-          ...(updateSafety.runtimeRoot ? { root: updateSafety.runtimeRoot } : {}),
-          reason: CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON,
-          steps: [],
-          durationMs: 0,
-        };
+        try {
+          const startedAt = Date.now();
+          const started = approvalSha
+            ? startCustomRuntimeUpdateApproval({ policy: updateSafety, approvalSha })
+            : startCustomRuntimeUpdateBroker({ policy: updateSafety });
+          const approvalStarted = started.action === "install";
+          handoff = {
+            status: "started",
+            pid: started.pid,
+            command: approvalStarted ? "Install verified update" : "Prepare verified update",
+          };
+          result = {
+            status: "skipped",
+            mode: "unknown",
+            ...(updateSafety.runtimeRoot ? { root: updateSafety.runtimeRoot } : {}),
+            reason: started.reason,
+            steps: [
+              {
+                name: approvalStarted
+                  ? "custom runtime verified update installation"
+                  : "custom runtime update preparation",
+                command: approvalStarted ? "Install verified update" : "Prepare verified update",
+                cwd: updateSafety.runtimeRoot ?? os.homedir(),
+                durationMs: Date.now() - startedAt,
+                exitCode: null,
+              },
+            ],
+            durationMs: Date.now() - startedAt,
+          };
+        } catch (error) {
+          const reason = formatUpdateRunErrorMessage(error);
+          const knownReason =
+            reason === CUSTOM_RUNTIME_UPDATE_APPROVAL_STARTED_REASON ||
+            reason === CUSTOM_RUNTIME_UPDATE_EXACT_SHA_APPROVAL_REQUIRED_REASON ||
+            reason === CUSTOM_RUNTIME_UPDATE_PREPARATION_RUNNING_REASON ||
+            reason === CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON;
+          result = {
+            status: "skipped",
+            mode: "unknown",
+            ...(updateSafety.runtimeRoot ? { root: updateSafety.runtimeRoot } : {}),
+            reason: knownReason ? reason : CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON,
+            steps: [],
+            durationMs: 0,
+          };
+        }
       } else {
         const config = context.getRuntimeConfig();
         const configChannel = normalizeUpdateChannel(config.update?.channel);

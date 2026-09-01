@@ -335,7 +335,12 @@ async function assertNoPccError(page: Page, phase: string) {
 
 async function runProjectsAliasFlow(page: Page, artifactDir: string) {
   await waitForProjectsAlias(page);
-  await page.getByRole("heading", { name: "Project Command Center", exact: true }).waitFor({
+  const shell = page.locator('[data-pcc-shell][data-pcc-ready="ready"]');
+  await shell.waitFor({ timeout: 45_000 });
+  await shell.getByRole("heading", { name: "Your work", exact: true }).waitFor({
+    timeout: 45_000,
+  });
+  await shell.getByText("Project Command Center", { exact: true }).first().waitFor({
     timeout: 45_000,
   });
   await assertNoPccError(page, "PCC alias load");

@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 // Detect an active immutable custom runtime so generic self-update paths fail closed.
 import fs from "node:fs";
 import os from "node:os";
@@ -5,10 +7,27 @@ import path from "node:path";
 
 export const CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON = "custom-runtime-update-broker-required";
 
+export type CustomRuntimeBackupStatus =
+  | "unconfigured"
+  | "offline"
+  | "locked"
+  | "ready"
+  | "stale"
+  | "failed";
+
 export type CustomRuntimeUpdatePolicy = {
   managedRuntime: boolean;
   standardUpdateBlocked: boolean;
   sourceDurable: boolean;
+  sourceDurabilityReason: string;
+  backupConfigured: boolean;
+  backupStatus: CustomRuntimeBackupStatus;
+  backupStatusReason: string;
+  approvalPending: boolean;
+  pendingCandidateSha: string | null;
+  preparationRunning: boolean;
+  preparationStatus: "blocked" | "idle" | "preparing" | "ready" | "installing" | "failed";
+  preparationReason: string | null;
   sourceSha: string | null;
   sourceRepo: string | null;
   sourceBranch: string | null;
@@ -30,10 +49,75 @@ type RuntimePointer = {
   sourceSha: string;
   sourceRepo: string | null;
   sourceBranch: string | null;
+  sourceProvenance: RuntimeSourceProvenance | null;
 };
+
+type RuntimeSourceProvenance = {
+  sourceSha: string;
+  treeSha: string;
+  objectFormat: string;
+  recordPath: string;
+  recordSha256: string;
+  storePath: string;
+  bundlePath: string;
+  bundleSha256: string;
+  sourceRemote: string;
+  sourceRemoteBranch: string;
+};
+
+type SourceDurability = { durable: boolean; reason: string };
+
+let sourceDurabilityCache: { key: string; value: SourceDurability } | undefined;
+
+const UPDATE_SAFETY_CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v1";
+const UPDATE_BACKUP_RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v1";
+const UPDATE_BACKUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function runtimeSourceProvenance(value: unknown): RuntimeSourceProvenance | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const sourceSha = nonEmptyString(record.sourceSha);
+  const treeSha = nonEmptyString(record.treeSha);
+  const objectFormat = nonEmptyString(record.objectFormat);
+  const recordPath = nonEmptyString(record.recordPath);
+  const recordSha256 = nonEmptyString(record.recordSha256);
+  const storePath = nonEmptyString(record.storePath);
+  const bundlePath = nonEmptyString(record.bundlePath);
+  const bundleSha256 = nonEmptyString(record.bundleSha256);
+  const sourceRemote = nonEmptyString(record.sourceRemote);
+  const sourceRemoteBranch = nonEmptyString(record.sourceRemoteBranch);
+  if (
+    !sourceSha ||
+    !treeSha ||
+    !objectFormat ||
+    !recordPath ||
+    !recordSha256 ||
+    !storePath ||
+    !bundlePath ||
+    !bundleSha256 ||
+    !sourceRemote ||
+    !sourceRemoteBranch
+  ) {
+    return null;
+  }
+  return {
+    sourceSha,
+    treeSha,
+    objectFormat,
+    recordPath: path.resolve(recordPath),
+    recordSha256,
+    storePath: path.resolve(storePath),
+    bundlePath: path.resolve(bundlePath),
+    bundleSha256,
+    sourceRemote,
+    sourceRemoteBranch,
+  };
 }
 
 function readRuntimePointer(pointerPath: string): RuntimePointer | null {
@@ -59,10 +143,575 @@ function readRuntimePointer(pointerPath: string): RuntimePointer | null {
       sourceSha,
       sourceRepo: nonEmptyString(record.sourceRepo),
       sourceBranch: nonEmptyString(record.sourceBranch),
+      sourceProvenance: runtimeSourceProvenance(record.sourceProvenance),
     };
   } catch {
     return null;
   }
+}
+
+function readPreparationState(pointerPath: string): {
+  approvalPending: boolean;
+  pendingCandidateSha: string | null;
+  preparationRunning: boolean;
+  preparationStatus: "idle" | "preparing" | "ready" | "installing" | "failed";
+  preparationReason: string | null;
+} {
+  const runtimeHome = path.dirname(path.resolve(pointerPath));
+  let approvalPending = false;
+  let pendingCandidateSha: string | null = null;
+  try {
+    const pending: unknown = JSON.parse(
+      fs.readFileSync(path.join(runtimeHome, "pending-update.json"), "utf8"),
+    );
+    if (pending && typeof pending === "object" && !Array.isArray(pending)) {
+      const pendingRecord = pending as Record<string, unknown>;
+      approvalPending = pendingRecord.result === "ready_for_approval";
+      const candidateSha = nonEmptyString(pendingRecord.sourceSha);
+      pendingCandidateSha =
+        approvalPending && candidateSha && /^[0-9a-f]{40}$/u.test(candidateSha)
+          ? candidateSha
+          : null;
+    }
+  } catch {
+    // Missing or malformed pending state cannot authorize installation.
+  }
+  const lockIsActive = (lockName: string): boolean => {
+    try {
+      const lockPath = path.join(runtimeHome, lockName);
+      const lock = fs.lstatSync(lockPath);
+      if (lock.isDirectory() && !lock.isSymbolicLink()) {
+        const ageMs = Math.max(0, Date.now() - lock.mtimeMs);
+        let ownerAlive = false;
+        try {
+          const owner: unknown = JSON.parse(
+            fs.readFileSync(path.join(lockPath, "owner.json"), "utf8"),
+          );
+          const pid =
+            owner && typeof owner === "object" && !Array.isArray(owner)
+              ? (owner as Record<string, unknown>).pid
+              : null;
+          if (typeof pid === "number" && Number.isInteger(pid) && pid > 0) {
+            try {
+              process.kill(pid, 0);
+              ownerAlive = true;
+            } catch {
+              ownerAlive = false;
+            }
+          }
+        } catch {
+          // A malformed recent lock remains protected by the recovery grace period.
+        }
+        return ownerAlive || ageMs < 30 * 60 * 1000;
+      }
+    } catch {
+      // No lock means this operation is not currently recorded.
+    }
+    return false;
+  };
+  const preparationRunning = lockIsActive("update-preparation.lock");
+  const installationRunning = lockIsActive("update-installation.lock");
+  let preparationReason: string | null = null;
+  let lastResult: string | null = null;
+  try {
+    const receiptsRoot = path.join(runtimeHome, "receipts");
+    const latest = fs
+      .readdirSync(receiptsRoot)
+      .flatMap((name) => {
+        const match = /^(?:update|update-approval)-(\d{8}T\d{6}Z)\.json$/u.exec(name);
+        return match ? [{ name, stamp: match[1] }] : [];
+      })
+      .toSorted((left, right) => right.stamp.localeCompare(left.stamp))[0];
+    if (latest) {
+      const value: unknown = JSON.parse(
+        fs.readFileSync(path.join(receiptsRoot, latest.name), "utf8"),
+      );
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const record = value as Record<string, unknown>;
+        lastResult = nonEmptyString(record.result);
+        preparationReason = nonEmptyString(record.stage) ?? nonEmptyString(record.reason);
+      }
+    }
+  } catch {
+    // Immutable receipts are supplementary status; locks and pending proof remain authoritative.
+  }
+  const preparationStatus = preparationRunning
+    ? "preparing"
+    : installationRunning
+      ? "installing"
+      : approvalPending
+        ? "ready"
+        : lastResult === "failed"
+          ? "failed"
+          : "idle";
+  return {
+    approvalPending,
+    pendingCandidateSha,
+    preparationRunning,
+    preparationStatus,
+    preparationReason,
+  };
+}
+
+type BackupState = {
+  configured: boolean;
+  status: CustomRuntimeBackupStatus;
+  reason: string;
+};
+
+function backupReceiptBindingReason(
+  value: unknown,
+  label: string,
+  allowedRoot: string,
+): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return `The latest backup receipt has no valid ${label} binding.`;
+  }
+  const binding = value as Record<string, unknown>;
+  const rawPath = nonEmptyString(binding.path);
+  const digest = nonEmptyString(binding.sha256);
+  if (!rawPath || !path.isAbsolute(rawPath) || !digest || !/^[0-9a-f]{64}$/u.test(digest)) {
+    return `The latest backup receipt has an invalid ${label} binding.`;
+  }
+  const filePath = path.resolve(rawPath);
+  if (!isSameOrChild(filePath, allowedRoot)) {
+    return `The latest backup receipt points its ${label} outside the managed destination.`;
+  }
+  try {
+    const info = fs.lstatSync(filePath);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      return `The latest backup receipt ${label} is not a regular file.`;
+    }
+    const realRoot = fs.realpathSync(allowedRoot);
+    const realFile = fs.realpathSync(filePath);
+    if (!isSameOrChild(realFile, realRoot)) {
+      return `The latest backup receipt points its ${label} through a managed-path symlink.`;
+    }
+  } catch {
+    return `The latest verified ${label} is not currently available.`;
+  }
+  return null;
+}
+
+function backupReceiptTimestamp(value: unknown, filePath: string): number {
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function latestBackupReceipt(runtimeHome: string): string | null {
+  const receiptsRoot = path.join(runtimeHome, "receipts");
+  let names: string[];
+  try {
+    names = fs.readdirSync(receiptsRoot).filter((name) => /^update-backup-.*\.json$/u.test(name));
+  } catch {
+    return null;
+  }
+  const candidates = names
+    .map((name) => {
+      const filePath = path.join(receiptsRoot, name);
+      try {
+        const info = fs.lstatSync(filePath);
+        return {
+          filePath,
+          timestamp: info.mtimeMs,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter((value): value is { filePath: string; timestamp: number } => value !== null)
+    .toSorted(
+      (left, right) =>
+        right.timestamp - left.timestamp || right.filePath.localeCompare(left.filePath),
+    );
+  return candidates[0]?.filePath ?? null;
+}
+
+function readBackupState(
+  pointerPath: string,
+  env: NodeJS.ProcessEnv,
+  sourceSha: string,
+): BackupState {
+  const runtimeHome = path.dirname(path.resolve(pointerPath));
+  const configPath = path.join(runtimeHome, "update-safety.json");
+  let config: unknown;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    return {
+      configured: false,
+      status: "unconfigured",
+      reason: "No encrypted external backup destination has been configured.",
+    };
+  }
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return {
+      configured: false,
+      status: "failed",
+      reason: "The update-safety backup configuration is malformed.",
+    };
+  }
+  const record = config as Record<string, unknown>;
+  if (record.schema !== UPDATE_SAFETY_CONFIG_SCHEMA) {
+    return {
+      configured: false,
+      status: "failed",
+      reason: "The update-safety backup configuration has an unsupported schema.",
+    };
+  }
+  const backupRoot = nonEmptyString(record.backupRoot);
+  if (!backupRoot) {
+    return {
+      configured: false,
+      status: "unconfigured",
+      reason: "No encrypted external backup destination has been configured.",
+    };
+  }
+
+  const environmentRoot = nonEmptyString(env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT);
+  if (environmentRoot && path.resolve(environmentRoot) !== path.resolve(backupRoot)) {
+    return {
+      configured: true,
+      status: "failed",
+      reason:
+        "The backup destination in the runtime environment conflicts with its canonical configuration.",
+    };
+  }
+
+  const resolvedRoot = path.resolve(backupRoot);
+  let rootInfo: fs.Stats;
+  try {
+    rootInfo = fs.lstatSync(resolvedRoot);
+  } catch (error) {
+    const code = error && typeof error === "object" ? (error as NodeJS.ErrnoException).code : null;
+    return {
+      configured: true,
+      status: code === "EACCES" ? "locked" : "offline",
+      reason:
+        code === "EACCES"
+          ? "The configured backup destination is present but access is denied or locked."
+          : "The configured backup destination is not currently mounted or available.",
+    };
+  }
+  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
+    return {
+      configured: true,
+      status: "failed",
+      reason: "The configured backup destination is not a regular directory.",
+    };
+  }
+  try {
+    fs.accessSync(resolvedRoot, fs.constants.R_OK | fs.constants.W_OK);
+  } catch (error) {
+    const code = error && typeof error === "object" ? (error as NodeJS.ErrnoException).code : null;
+    return {
+      configured: true,
+      status: code === "EACCES" ? "locked" : "failed",
+      reason:
+        code === "EACCES"
+          ? "The configured backup destination is present but access is denied or locked."
+          : "The configured backup destination cannot be read and written safely.",
+    };
+  }
+
+  const receiptPath = latestBackupReceipt(runtimeHome);
+  if (!receiptPath) {
+    return {
+      configured: true,
+      status: "stale",
+      reason: "The backup destination is available, but no verified recovery receipt exists.",
+    };
+  }
+  try {
+    const receiptInfo = fs.lstatSync(receiptPath);
+    if (!receiptInfo.isFile() || receiptInfo.isSymbolicLink() || receiptInfo.mode & 0o077) {
+      return {
+        configured: true,
+        status: "failed",
+        reason: "The latest backup receipt is not a private regular file.",
+      };
+    }
+  } catch {
+    return {
+      configured: true,
+      status: "failed",
+      reason: "The latest backup receipt is unavailable.",
+    };
+  }
+  let receipt: Record<string, unknown>;
+  try {
+    const value: unknown = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("receipt is not an object");
+    }
+    receipt = value as Record<string, unknown>;
+  } catch {
+    return {
+      configured: true,
+      status: "failed",
+      reason: "The latest backup receipt is malformed.",
+    };
+  }
+  if (
+    receipt.schema !== UPDATE_BACKUP_RECEIPT_SCHEMA ||
+    receipt.result !== "passed" ||
+    receipt.backupVerified !== true ||
+    !receipt.restoreDrill ||
+    typeof receipt.restoreDrill !== "object" ||
+    Array.isArray(receipt.restoreDrill) ||
+    (receipt.restoreDrill as Record<string, unknown>).result !== "passed"
+  ) {
+    return {
+      configured: true,
+      status: "failed",
+      reason: "The latest backup receipt did not prove a verified restore rehearsal.",
+    };
+  }
+  if (receipt.sourceSha !== sourceSha) {
+    return {
+      configured: true,
+      status: "stale",
+      reason: "The latest verified backup belongs to a different active source SHA.",
+    };
+  }
+  const createdAt = backupReceiptTimestamp(receipt.createdAt, receiptPath);
+  if (
+    !Number.isFinite(createdAt) ||
+    createdAt > Date.now() + 60_000 ||
+    Date.now() - createdAt > UPDATE_BACKUP_MAX_AGE_MS
+  ) {
+    return {
+      configured: true,
+      status: "stale",
+      reason: "The latest verified backup is older than the permitted recovery window.",
+    };
+  }
+  // Status reads validate binding shape and containment without hashing large
+  // archives. The official verifier re-hashes every binding before prepare or
+  // install, so a changed archive cannot pass an operational gate.
+  for (const [label, allowedRoot] of [
+    ["localArchive", path.join(runtimeHome, "data-backups")],
+    ["externalArchive", resolvedRoot],
+    ["controlPlane", resolvedRoot],
+  ] as const) {
+    const reason = backupReceiptBindingReason(receipt[label], label, allowedRoot);
+    if (reason) {
+      return { configured: true, status: "failed", reason };
+    }
+  }
+  return {
+    configured: true,
+    status: "ready",
+    reason: "The encrypted backup destination and recent verified restore rehearsal are ready.",
+  };
+}
+
+function isRegularPath(target: string, kind: "file" | "directory"): boolean {
+  try {
+    const stat = fs.lstatSync(target);
+    return !stat.isSymbolicLink() && (kind === "file" ? stat.isFile() : stat.isDirectory());
+  } catch {
+    return false;
+  }
+}
+
+function gitStoreValue(storePath: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", ["--git-dir", storePath, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: 8 * 1024 * 1024,
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function verifyProvenanceGitIdentity(
+  provenance: RuntimeSourceProvenance,
+  sourceBranch: string | null,
+): boolean {
+  if (
+    gitStoreValue(provenance.storePath, ["rev-parse", "--is-bare-repository"]) !== "true" ||
+    gitStoreValue(provenance.storePath, ["rev-parse", "--is-shallow-repository"]) !== "false" ||
+    gitStoreValue(provenance.storePath, ["rev-parse", "--show-object-format"]) !==
+      provenance.objectFormat ||
+    gitStoreValue(provenance.storePath, ["rev-parse", `${provenance.sourceSha}^{commit}`]) !==
+      provenance.sourceSha ||
+    gitStoreValue(provenance.storePath, ["rev-parse", `${provenance.sourceSha}^{tree}`]) !==
+      provenance.treeSha ||
+    !sourceBranch ||
+    gitStoreValue(provenance.storePath, ["rev-parse", `${sourceBranch}^{commit}`]) !==
+      provenance.sourceSha ||
+    gitStoreValue(provenance.storePath, ["remote", "get-url", "origin"]) !==
+      provenance.sourceRemote ||
+    gitStoreValue(provenance.storePath, [
+      "rev-parse",
+      `refs/remotes/origin/${provenance.sourceRemoteBranch}^{commit}`,
+    ]) !== provenance.sourceSha
+  ) {
+    return false;
+  }
+  const alternatesValue = gitStoreValue(provenance.storePath, [
+    "rev-parse",
+    "--git-path",
+    "objects/info/alternates",
+  ]);
+  if (!alternatesValue) {
+    return false;
+  }
+  const alternatesPath = path.isAbsolute(alternatesValue)
+    ? alternatesValue
+    : path.resolve(provenance.storePath, alternatesValue);
+  try {
+    return !fs.existsSync(alternatesPath) || !fs.readFileSync(alternatesPath, "utf8").trim();
+  } catch {
+    return false;
+  }
+}
+
+function resolveSourceDurability(pointer: RuntimePointer, pointerPath: string): SourceDurability {
+  const cacheKey = JSON.stringify({
+    pointerPath: path.resolve(pointerPath),
+    sourceSha: pointer.sourceSha,
+    sourceRepo: pointer.sourceRepo,
+    sourceBranch: pointer.sourceBranch,
+    sourceProvenance: pointer.sourceProvenance,
+  });
+  if (sourceDurabilityCache?.key === cacheKey) {
+    return sourceDurabilityCache.value;
+  }
+  const resolved = resolveSourceDurabilityUncached(pointer, pointerPath);
+  // Source provenance is process-stable. Cache the deep Git and bundle proof so
+  // Dashboard status polling cannot repeatedly hash the recovery bundle.
+  sourceDurabilityCache = { key: cacheKey, value: resolved };
+  return resolved;
+}
+
+function resolveSourceDurabilityUncached(
+  pointer: RuntimePointer,
+  pointerPath: string,
+): SourceDurability {
+  const shaPattern = /^[0-9a-f]{40}$/u;
+  const digestPattern = /^[0-9a-f]{64}$/u;
+  if (!shaPattern.test(pointer.sourceSha)) {
+    return { durable: false, reason: "The active source SHA is not an exact Git commit." };
+  }
+  const provenance = pointer.sourceProvenance;
+  if (!provenance) {
+    return {
+      durable: false,
+      reason: "The active pointer has no complete source-provenance binding.",
+    };
+  }
+  if (
+    provenance.sourceSha !== pointer.sourceSha ||
+    !shaPattern.test(provenance.treeSha) ||
+    provenance.objectFormat !== "sha1" ||
+    !digestPattern.test(provenance.recordSha256) ||
+    !digestPattern.test(provenance.bundleSha256)
+  ) {
+    return { durable: false, reason: "The active source-provenance identity is invalid." };
+  }
+  const provenanceRoot = path.join(path.dirname(path.resolve(pointerPath)), "source-provenance");
+  if (!isSameOrChild(provenance.recordPath, provenanceRoot)) {
+    return {
+      durable: false,
+      reason: "The source-provenance record is outside the managed runtime home.",
+    };
+  }
+  if (
+    !isRegularPath(provenance.recordPath, "file") ||
+    !isRegularPath(provenance.storePath, "directory") ||
+    !isRegularPath(provenance.bundlePath, "file")
+  ) {
+    return {
+      durable: false,
+      reason: "The source-provenance record, store, or recovery bundle is unavailable.",
+    };
+  }
+  try {
+    if (
+      crypto.createHash("sha256").update(fs.readFileSync(provenance.bundlePath)).digest("hex") !==
+      provenance.bundleSha256
+    ) {
+      return { durable: false, reason: "The source-provenance recovery bundle hash is invalid." };
+    }
+  } catch {
+    return { durable: false, reason: "The source-provenance recovery bundle is unreadable." };
+  }
+  let recordBytes: Buffer;
+  let record: Record<string, unknown>;
+  try {
+    recordBytes = fs.readFileSync(provenance.recordPath);
+    const parsed: unknown = JSON.parse(recordBytes.toString("utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("invalid record");
+    }
+    record = parsed as Record<string, unknown>;
+  } catch {
+    return { durable: false, reason: "The source-provenance record is unreadable or malformed." };
+  }
+  if (crypto.createHash("sha256").update(recordBytes).digest("hex") !== provenance.recordSha256) {
+    return {
+      durable: false,
+      reason: "The source-provenance record hash does not match the active pointer.",
+    };
+  }
+  const recordPath = nonEmptyString(record.recordPath);
+  const recordStorePath = nonEmptyString(record.storePath);
+  const recordBundlePath = nonEmptyString(record.bundlePath);
+  if (
+    record.schema !== "openclaw.custom-runtime-source-provenance.v1" ||
+    record.version !== 1 ||
+    record.sourceSha !== pointer.sourceSha ||
+    record.treeSha !== provenance.treeSha ||
+    record.objectFormat !== provenance.objectFormat ||
+    !recordPath ||
+    path.resolve(recordPath) !== provenance.recordPath ||
+    !recordStorePath ||
+    path.resolve(recordStorePath) !== provenance.storePath ||
+    !recordBundlePath ||
+    path.resolve(recordBundlePath) !== provenance.bundlePath ||
+    record.bundleSha256 !== provenance.bundleSha256 ||
+    record.sourceRemote !== provenance.sourceRemote ||
+    record.sourceRemoteBranch !== provenance.sourceRemoteBranch
+  ) {
+    return {
+      durable: false,
+      reason: "The source-provenance record does not match the active pointer.",
+    };
+  }
+  if (
+    path.resolve(pointer.sourceRepo ?? "") !== provenance.storePath ||
+    pointer.sourceBranch !== `refs/provenance/${pointer.sourceSha}` ||
+    provenance.sourceRemote !== "https://github.com/SnowBelt/openclaw.git"
+  ) {
+    return {
+      durable: false,
+      reason: "The active source repository or branch is not provenance-bound.",
+    };
+  }
+  if (!verifyProvenanceGitIdentity(provenance, pointer.sourceBranch)) {
+    return {
+      durable: false,
+      reason:
+        "The source-provenance Git store is not standalone or does not contain the bound source identity.",
+    };
+  }
+  return {
+    durable: true,
+    reason: "The active source is bound to a private standalone Git store and recovery bundle.",
+  };
 }
 
 function isSameOrChild(candidate: string, parent: string): boolean {
@@ -90,6 +739,15 @@ export function resolveCustomRuntimeUpdatePolicy(
       managedRuntime: false,
       standardUpdateBlocked: false,
       sourceDurable: false,
+      sourceDurabilityReason: "The immutable custom-runtime pointer is missing or invalid.",
+      backupConfigured: false,
+      backupStatus: "unconfigured",
+      backupStatusReason: "No encrypted external backup destination has been configured.",
+      approvalPending: false,
+      pendingCandidateSha: null,
+      preparationRunning: false,
+      preparationStatus: "blocked",
+      preparationReason: "invalid-active-runtime-pointer",
       sourceSha: null,
       sourceRepo: null,
       sourceBranch: null,
@@ -106,14 +764,29 @@ export function resolveCustomRuntimeUpdatePolicy(
     (snapshotRoot !== null && path.resolve(snapshotRoot) === pointer.runtimeRoot) ||
     (entrypoint !== null && isSameOrChild(entrypoint, pointer.runtimeRoot)) ||
     (wrapper !== null && path.basename(wrapper) === "custom-runtime-launcher.sh");
-  const sourceDurable =
-    /^[0-9a-f]{40}$/iu.test(pointer.sourceSha) &&
-    pointer.sourceRepo !== null &&
-    pointer.sourceBranch !== null;
+  const sourceDurability = resolveSourceDurability(pointer, pointerPath);
+  const preparation = readPreparationState(pointerPath);
+  const backup = readBackupState(pointerPath, env, pointer.sourceSha);
+  const backupConfigured =
+    backup.configured && (backup.status === "ready" || backup.status === "stale");
+  const preparationBlocked = !sourceDurability.durable || !backupConfigured;
   return {
     managedRuntime,
     standardUpdateBlocked: managedRuntime,
-    sourceDurable,
+    sourceDurable: sourceDurability.durable,
+    sourceDurabilityReason: sourceDurability.reason,
+    backupConfigured,
+    backupStatus: backup.status,
+    backupStatusReason: backup.reason,
+    approvalPending: preparation.approvalPending,
+    pendingCandidateSha: preparation.pendingCandidateSha,
+    preparationRunning: preparation.preparationRunning,
+    preparationStatus: preparationBlocked ? "blocked" : preparation.preparationStatus,
+    preparationReason: preparationBlocked
+      ? !sourceDurability.durable
+        ? "source-provenance-unavailable"
+        : "verified-backup-unavailable"
+      : preparation.preparationReason,
     sourceSha: pointer.sourceSha,
     sourceRepo: pointer.sourceRepo,
     sourceBranch: pointer.sourceBranch,

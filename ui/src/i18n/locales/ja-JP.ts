@@ -2126,6 +2126,11 @@ export const ja_JP: TranslationMap = {
     runningVersion: "実行中 v{version}",
     updating: "更新中…",
     updateNow: "今すぐ更新",
+    prepareVerifiedUpdate: "検証済みアップデートを準備",
+    preparingVerifiedUpdate: "検証済みアップデートを準備中…",
+    installVerifiedUpdate: "検証済みアップデートをインストール",
+    exactShaApprovalRequired: "正確な SHA の承認が必要です",
+    updateProtectionIncomplete: "アップデート保護を確認してください。",
     dismissUpdateBanner: "更新バナーを閉じる",
     switchedSession: "{session} に切り替えました",
     splitView: {

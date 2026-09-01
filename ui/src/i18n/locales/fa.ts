@@ -2110,6 +2110,11 @@ export const fa: TranslationMap = {
     runningVersion: "در حال اجرای v{version}",
     updating: "در حال به‌روزرسانی…",
     updateNow: "اکنون به‌روزرسانی کن",
+    prepareVerifiedUpdate: "آماده‌سازی به‌روزرسانی تأییدشده",
+    preparingVerifiedUpdate: "در حال آماده‌سازی به‌روزرسانی تأییدشده…",
+    installVerifiedUpdate: "نصب به‌روزرسانی تأییدشده",
+    exactShaApprovalRequired: "تأیید SHA دقیق لازم است",
+    updateProtectionIncomplete: "محافظت از به‌روزرسانی نیاز به توجه دارد.",
     dismissUpdateBanner: "بستن بنر به‌روزرسانی",
     switchedSession: "به {session} جابه‌جا شد",
     splitView: {
