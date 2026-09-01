@@ -110,6 +110,7 @@ export async function prepareEmbeddedAttemptAgentSession(input: {
   applyAgentAutoCompactionGuard(autoCompactionGuardArgs);
 
   // These factories carry compaction/pruning runtime state into the resource loader.
+  const toolResultMiddlewareSkippedNames = new Set<string>();
   const extensionFactories = buildEmbeddedExtensionFactories({
     cfg: attempt.config,
     sessionManager: input.sessionManager,
@@ -121,6 +122,7 @@ export async function prepareEmbeddedAttemptAgentSession(input: {
     sessionId: attempt.sessionId,
     sessionKey: attempt.sessionKey ?? attempt.sandboxSessionKey,
     runId: attempt.runId,
+    shouldSkipToolResultMiddleware: (toolName) => toolResultMiddlewareSkippedNames.has(toolName),
   });
   const resourceLoader = createEmbeddedAgentResourceLoader({
     cwd: input.effectiveCwd,
@@ -146,6 +148,13 @@ export async function prepareEmbeddedAttemptAgentSession(input: {
     ...input.clientToolPreparation,
   });
   const { allCustomTools, sessionToolAllowlist, ...clientToolRuntime } = preparedClientTools;
+  for (const tool of allCustomTools) {
+    if (tool.redactBeforeToolCallDiagnosticResult) {
+      // The resource loader installs factories before tools are prepared; the
+      // mutable set carries the prepared privacy boundary into that handler.
+      toolResultMiddlewareSkippedNames.add(tool.name);
+    }
+  }
 
   const sessionOptions: CreateAgentSessionOptions = {
     cwd: input.effectiveCwd,

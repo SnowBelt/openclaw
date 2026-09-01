@@ -209,9 +209,15 @@ export async function handleToolExecutionEnd(
     }
   }
   try {
+    const observerResult = redactAfterToolCallValue({
+      ctx,
+      toolName,
+      value: sanitizedResult,
+      kind: "result",
+    });
     ctx.params.onAgentToolResult?.({
       toolName,
-      result: sanitizedResult,
+      result: observerResult,
       isError: observerIsError,
     });
   } catch (error) {

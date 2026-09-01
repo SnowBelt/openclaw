@@ -1310,6 +1310,30 @@ describe("handleToolExecutionEnd private result observer", () => {
       isError: false,
     });
   });
+
+  it("redacts Browser results for the private observer without a session definition", async () => {
+    const { ctx } = createTestContext();
+    const onAgentToolResult = vi.fn();
+    ctx.params.onAgentToolResult = onAgentToolResult;
+
+    await endTool(ctx, {
+      toolName: "browser",
+      toolCallId: "tool-browser-private-observer",
+      isError: false,
+      result: {
+        content: [{ type: "text", text: "private-page-content" }],
+        details: { token: "private-token" },
+      },
+    });
+
+    expect(onAgentToolResult).toHaveBeenCalledWith({
+      toolName: "browser",
+      result: { redacted: true },
+      isError: false,
+    });
+    expect(JSON.stringify(onAgentToolResult.mock.calls)).not.toContain("private-page-content");
+    expect(JSON.stringify(onAgentToolResult.mock.calls)).not.toContain("private-token");
+  });
 });
 
 describe("handleToolExecutionEnd MCP App channel view tracking", () => {

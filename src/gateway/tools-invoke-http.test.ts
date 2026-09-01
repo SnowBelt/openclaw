@@ -1452,7 +1452,10 @@ describe("POST /tools/invoke", () => {
     });
 
     const body = await expectOkInvokeResponse(res);
-    expect(body.result).toEqual({ ok: true, result: "browser" });
+    expect(body.result).toEqual({
+      ok: true,
+      result: { preparedByBrowser: true, finalizedByBrowser: true },
+    });
     expect(lastCreateOpenClawToolsContext?.disablePluginTools).toBe(false);
   });
 });

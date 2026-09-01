@@ -370,6 +370,58 @@ describe("AgentSession loop correctness", () => {
     expect(JSON.stringify(extensionEvents)).not.toContain("private-token");
   });
 
+  it("redacts Browser tool_result payloads before extension handlers observe them", async () => {
+    const extensionEvents: unknown[] = [];
+    const browserDefinition: ToolDefinition = {
+      name: "browser",
+      label: "Browser",
+      description: "test browser tool",
+      parameters: Type.Object({}),
+      redactBeforeToolCallDiagnosticParams: () => ({ redacted: true }),
+      redactBeforeToolCallDiagnosticResult: () => ({ redacted: true }),
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const resourceLoader = createResourceLoader(
+      new Map([["tool_result", [async (event: unknown) => void extensionEvents.push(event)]]]),
+    );
+    const { session } = await createTestSession({
+      customTools: [browserDefinition],
+      resourceLoader,
+    });
+    const afterToolCall = session.agent.afterToolCall;
+    if (!afterToolCall) {
+      throw new Error("Expected AgentSession to install afterToolCall");
+    }
+
+    await afterToolCall({
+      assistantMessage: createAssistant(testModel, [
+        { type: "toolCall", id: "call-browser", name: "browser", arguments: {} },
+      ]),
+      toolCall: { type: "toolCall", id: "call-browser", name: "browser", arguments: {} },
+      args: { page: "private-page-content" },
+      result: {
+        content: [{ type: "text", text: "private-page-content" }],
+        details: { token: "private-token" },
+      },
+      isError: false,
+      context: {} as Parameters<typeof afterToolCall>[0]["context"],
+    });
+
+    expect(extensionEvents).toEqual([
+      {
+        type: "tool_result",
+        toolName: "browser",
+        toolCallId: "call-browser",
+        input: { redacted: true },
+        content: [{ type: "text", text: "[redacted]" }],
+        details: { redacted: true },
+        isError: false,
+      },
+    ]);
+    expect(JSON.stringify(extensionEvents)).not.toContain("private-page-content");
+    expect(JSON.stringify(extensionEvents)).not.toContain("private-token");
+  });
+
   it("carries the canonical assistant entry id through ordered terminal listeners", async () => {
     const assistant = createAssistant(testModel, [{ type: "text", text: "same answer" }]);
     const sessionManager = SessionManager.inMemory();

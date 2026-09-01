@@ -10,6 +10,7 @@ import type {
   AgentMessage,
   AgentState,
   AgentTool,
+  AgentToolResult,
   ThinkingLevel,
 } from "../runtime/index.js";
 import {
@@ -39,6 +40,7 @@ import {
   type ToolExecutionStartEvent,
   type ToolExecutionUpdateEvent,
   type ToolInfo,
+  type ToolResultEvent,
   type TurnEndEvent,
   type TurnStartEvent,
 } from "./extensions/index.js";
@@ -264,15 +266,9 @@ export abstract class AgentSessionBase {
 
       const hookResult = await this.runWithSessionWriteSettlement(
         async () =>
-          await runner.emitToolResult({
-            type: "tool_result",
-            toolName: toolCall.name,
-            toolCallId: toolCall.id,
-            input: args as Record<string, unknown>,
-            content: result.content,
-            details: result.details,
-            isError,
-          }),
+          await runner.emitToolResult(
+            this.redactExtensionToolResult(toolCall.name, toolCall.id, args, result, isError),
+          ),
       );
 
       if (!hookResult) {
@@ -516,6 +512,45 @@ export abstract class AgentSessionBase {
       return { redacted: true };
     }
     return value;
+  }
+
+  private redactExtensionToolResult(
+    toolName: string,
+    toolCallId: string,
+    args: unknown,
+    result: AgentToolResult<unknown>,
+    isError: boolean,
+  ): ToolResultEvent {
+    const redactedInput = this.redactExtensionToolValue(toolName, args, "params");
+    const redactedResult = this.redactExtensionToolValue(toolName, result, "result");
+    const resultRecord =
+      redactedResult && typeof redactedResult === "object" && !Array.isArray(redactedResult)
+        ? (redactedResult as Record<string, unknown>)
+        : undefined;
+    const content = Array.isArray(resultRecord?.content)
+      ? (resultRecord.content as ToolResultEvent["content"])
+      : toolName === "browser"
+        ? [{ type: "text" as const, text: "[redacted]" }]
+        : result.content;
+    const details =
+      resultRecord && "details" in resultRecord
+        ? resultRecord.details
+        : toolName === "browser"
+          ? { redacted: true }
+          : result.details;
+    const input =
+      redactedInput && typeof redactedInput === "object" && !Array.isArray(redactedInput)
+        ? (redactedInput as Record<string, unknown>)
+        : { redacted: true };
+    return {
+      type: "tool_result",
+      toolName,
+      toolCallId,
+      input,
+      content,
+      details,
+      isError,
+    };
   }
 
   /** Emit extension events based on agent events */
