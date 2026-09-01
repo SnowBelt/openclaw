@@ -23,6 +23,10 @@ import {
   resolveProfile,
 } from "./browser-tool.runtime.js";
 import { finalizeBrowserStewardRuntimeParams } from "./browser/browser-steward-approval.js";
+import {
+  redactBrowserStewardCredentialMaterial,
+  redactBrowserStewardDiagnosticResult,
+} from "./browser/browser-steward-runtime-guard.js";
 import { prepareBrowserStewardToolParams } from "./browser/browser-steward-tool-params.js";
 import { readActRequestParam } from "./browser/browser-tool-input.js";
 
@@ -105,6 +109,8 @@ export function createBrowserTool(opts?: BrowserToolOptions): AnyAgentTool {
     description: describeBrowserTool({ targetDefault, hostHint, capabilities }),
     parameters: createBrowserToolSchema(capabilities),
     outputSchema: BrowserToolOutputSchema,
+    redactBeforeToolCallDiagnosticParams: redactBrowserStewardCredentialMaterial,
+    redactBeforeToolCallDiagnosticResult: redactBrowserStewardDiagnosticResult,
     prepareBeforeToolCallParams: async (params, context) =>
       await prepareBrowserStewardToolParams({
         input: params,

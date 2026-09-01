@@ -59,6 +59,7 @@ function buildAgentToolResultMiddlewareFactory(
     sessionId?: string;
     sessionKey?: string;
     runId?: string;
+    shouldSkipToolResultMiddleware?: (toolName: string) => boolean;
   },
 ): ExtensionFactory {
   const { agentId, sessionKey, runId } = context;
@@ -76,6 +77,11 @@ function buildAgentToolResultMiddlewareFactory(
     agent.on("tool_result", async (rawEvent: unknown, ctx: { cwd?: string }) => {
       const event = (asOptionalRecord(rawEvent) ?? {}) as AgentToolResultEvent;
       if (!event.toolName) {
+        return undefined;
+      }
+      if (context.shouldSkipToolResultMiddleware?.(event.toolName)) {
+        // Opaque tool results must not enter generic middleware: returning a
+        // redacted value here would replace the user-visible tool result.
         return undefined;
       }
       const eventToolCallId =
@@ -145,6 +151,7 @@ export function buildEmbeddedExtensionFactories(params: {
   sessionId?: string;
   sessionKey?: string;
   runId?: string;
+  shouldSkipToolResultMiddleware?: (toolName: string) => boolean;
 }): ExtensionFactory[] {
   const factories: ExtensionFactory[] = [];
   if (resolveEffectiveCompactionMode(params.cfg) === "safeguard") {
@@ -181,6 +188,7 @@ export function buildEmbeddedExtensionFactories(params: {
       sessionId: params.sessionId,
       sessionKey: params.sessionKey,
       runId: params.runId,
+      shouldSkipToolResultMiddleware: params.shouldSkipToolResultMiddleware,
     }),
   );
   return factories;

@@ -189,6 +189,48 @@ describe("buildEmbeddedExtensionFactories", () => {
     expect(seenToolCallIds[0]).not.toBe(seenToolCallIds[1]);
   });
 
+  it("keeps opaque tool results out of generic middleware", async () => {
+    const middleware = vi.fn();
+    const registry = createEmptyPluginRegistry();
+    registry.agentToolResultMiddlewares.push({
+      pluginId: "observer",
+      pluginName: "observer",
+      rawHandler: () => undefined,
+      handler: middleware,
+      runtimes: ["openclaw"],
+      source: "test",
+    });
+    setActivePluginRegistry(registry);
+
+    const factories = buildEmbeddedExtensionFactories({
+      cfg: undefined,
+      sessionManager: SessionManager.inMemory(),
+      provider: "openai",
+      modelId: "gpt-5.4",
+      model: undefined,
+      shouldSkipToolResultMiddleware: (toolName) => toolName === "browser",
+    });
+    const handlers = new Map<string, Function>();
+    await factories[0]?.({
+      on(event: string, handler: Function) {
+        handlers.set(event, handler);
+      },
+    } as never);
+
+    const result = await handlers.get("tool_result")?.(
+      {
+        toolName: "browser",
+        toolCallId: "call-browser",
+        content: [{ type: "text", text: "private-page-content" }],
+        details: { token: "private-token" },
+      },
+      { cwd: "/tmp" },
+    );
+
+    expect(result).toBeUndefined();
+    expect(middleware).not.toHaveBeenCalled();
+  });
+
   it("finalizes terminal presentation from the post-middleware result", async () => {
     const registry = createEmptyPluginRegistry();
     const seenMiddlewareArgs: unknown[] = [];

@@ -8,6 +8,7 @@ import {
   emitTrustedDiagnosticEventWithPrivateData,
 } from "../infra/diagnostic-events.js";
 import { resolveDiagnosticModelContentCapturePolicy } from "../infra/diagnostic-llm-content.js";
+import { redactBrowserDiagnosticSessionKey } from "../infra/diagnostic-session-key.js";
 import {
   createChildDiagnosticTraceContext,
   freezeDiagnosticTraceContext,
@@ -328,9 +329,13 @@ export function wrapToolWithBeforeToolCallHook(
         hookOptions.emitDiagnostics && ctx?.trace
           ? freezeDiagnosticTraceContext(createChildDiagnosticTraceContext(ctx.trace))
           : undefined;
+      const diagnosticSessionKey =
+        normalizedToolName === "browser"
+          ? redactBrowserDiagnosticSessionKey(ctx?.sessionKey)
+          : ctx?.sessionKey;
       const buildEventBase = (toolParams: unknown) => ({
         ...(ctx?.runId && { runId: ctx.runId }),
-        ...(ctx?.sessionKey && { sessionKey: ctx.sessionKey }),
+        ...(diagnosticSessionKey && { sessionKey: diagnosticSessionKey }),
         ...(ctx?.sessionId && { sessionId: ctx.sessionId }),
         ...(ctx?.agentId && { agentId: ctx.agentId }),
         ...(trace && { trace }),
@@ -609,6 +614,8 @@ export function wrapToolWithBeforeToolCallHook(
               input: executeParams,
               output: result,
               includeOutput: true,
+              redactInput: tool.redactBeforeToolCallDiagnosticParams,
+              redactOutput: tool.redactBeforeToolCallDiagnosticResult,
             }),
           );
         }
@@ -625,6 +632,7 @@ export function wrapToolWithBeforeToolCallHook(
             buildToolContentPrivateData(toolContentPolicy, {
               input: executeParams,
               includeOutput: false,
+              redactInput: tool.redactBeforeToolCallDiagnosticParams,
             }),
           );
         }

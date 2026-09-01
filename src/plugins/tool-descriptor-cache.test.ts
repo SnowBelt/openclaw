@@ -152,6 +152,31 @@ describe("plugin tool descriptor cache keys", () => {
     expect(cached).toHaveProperty("resultContentSource", "network");
   });
 
+  it("preserves lifecycle and diagnostic redaction capabilities in cached descriptors", () => {
+    const cached = capturePluginToolDescriptor({
+      pluginId: "demo",
+      optional: false,
+      tool: {
+        name: "lifecycle_demo",
+        label: "Lifecycle demo",
+        description: "Preserve lifecycle hooks",
+        parameters: { type: "object", properties: {} },
+        prepareBeforeToolCallParams: (params) => params,
+        finalizeBeforeToolCallParams: (params) => params,
+        redactBeforeToolCallDiagnosticParams: (params) => params,
+        redactBeforeToolCallDiagnosticResult: (result) => result,
+        execute: async () => ({ content: [], details: {} }),
+      },
+    });
+
+    expect(cached).toMatchObject({
+      hasBeforeToolCallParamsPreparer: true,
+      hasBeforeToolCallParamsFinalizer: true,
+      hasBeforeToolCallDiagnosticParamsRedactor: true,
+      hasBeforeToolCallDiagnosticResultRedactor: true,
+    });
+  });
+
   it("does not add network provenance to descriptors for ordinary plugin tools", () => {
     const cached = capturePluginToolDescriptor({
       pluginId: "demo",

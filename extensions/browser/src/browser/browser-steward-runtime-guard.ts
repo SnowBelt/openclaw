@@ -6,7 +6,10 @@ import {
   type BrowserStewardCredentialExposureReasonCode,
 } from "./browser-steward-credential-detection.js";
 import { normalizeBrowserRequestPath } from "./request-policy.js";
-export { redactBrowserStewardCredentialMaterial } from "./browser-steward-credential-detection.js";
+export {
+  redactBrowserStewardCredentialMaterial,
+  redactBrowserStewardDiagnosticResult,
+} from "./browser-steward-credential-detection.js";
 
 export type BrowserStewardRuntimeDecision = {
   boundaryDecision: "allow" | "approval_required";
@@ -35,7 +38,7 @@ type BrowserStewardRuntimeRequest = {
 
 export const BROWSER_STEWARD_AGENT_ID = "browser-session-credential-steward";
 
-type BrowserStewardSessionBoundaryKind =
+export type BrowserStewardSessionBoundaryKind =
   | "browser_steward"
   | "other_agent"
   | "global"
@@ -75,7 +78,7 @@ const UNKNOWN_AGENT_SESSION_BOUNDARY = "agent:UNKNOWN:REDACTED";
 
 const VALID_AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
-function resolveBrowserStewardSessionBoundary(
+export function resolveBrowserStewardSessionBoundary(
   sessionKey: string | undefined,
 ): BrowserStewardSessionBoundary {
   const normalized = sessionKey?.trim().toLowerCase();
@@ -99,7 +102,7 @@ function resolveBrowserStewardSessionBoundary(
   }
   const ownerAgentId = parts[1]?.trim();
   const hasMalformedEmptyTail =
-    parts.length > 2 && !parts.slice(2).some((part) => part.trim().length > 0);
+    parts.length > 2 && parts.slice(2).some((part) => part.trim().length === 0);
   if (!ownerAgentId || !VALID_AGENT_ID_RE.test(ownerAgentId) || hasMalformedEmptyTail) {
     return UNKNOWN_SESSION_BOUNDARY;
   }
@@ -117,7 +120,7 @@ function resolveBrowserStewardSessionBoundary(
   };
 }
 
-function isBrowserStewardSession(sessionKey: string | undefined): boolean {
+export function isBrowserStewardSession(sessionKey: string | undefined): boolean {
   return resolveBrowserStewardSessionBoundary(sessionKey).kind === "browser_steward";
 }
 

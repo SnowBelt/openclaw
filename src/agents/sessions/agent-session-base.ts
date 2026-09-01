@@ -1,5 +1,6 @@
 import { cleanupSessionResources } from "@openclaw/ai/internal/runtime";
 import { applyAssistantDeliveryDirectives } from "../../config/sessions/transcript-assistant-delivery.js";
+import { cloneDiagnosticContentValue } from "../../infra/diagnostic-llm-content.js";
 import { getStreamLlmRuntime } from "../../llm/model-runtime-binding.js";
 import type { AssistantMessage, Model } from "../../llm/types.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -9,6 +10,7 @@ import type {
   AgentMessage,
   AgentState,
   AgentTool,
+  AgentToolResult,
   ThinkingLevel,
 } from "../runtime/index.js";
 import {
@@ -38,6 +40,7 @@ import {
   type ToolExecutionStartEvent,
   type ToolExecutionUpdateEvent,
   type ToolInfo,
+  type ToolResultEvent,
   type TurnEndEvent,
   type TurnStartEvent,
 } from "./extensions/index.js";
@@ -263,15 +266,9 @@ export abstract class AgentSessionBase {
 
       const hookResult = await this.runWithSessionWriteSettlement(
         async () =>
-          await runner.emitToolResult({
-            type: "tool_result",
-            toolName: toolCall.name,
-            toolCallId: toolCall.id,
-            input: args as Record<string, unknown>,
-            content: result.content,
-            details: result.details,
-            isError,
-          }),
+          await runner.emitToolResult(
+            this.redactExtensionToolResult(toolCall.name, toolCall.id, args, result, isError),
+          ),
       );
 
       if (!hookResult) {
@@ -380,7 +377,8 @@ export abstract class AgentSessionBase {
 
     const sourceSlots =
       event.type === "message_end" ? takeCodeModeResponseSource(event.message) : undefined;
-    // Emit to extensions first
+    // Session subscribers retain the original event for user-visible delivery;
+    // tool-owned diagnostic redaction is applied inside extension-facing paths.
     const messageChanged = await this.emitExtensionEvent(event);
     const publishAfterPersistence = event.type === "message_end" && event.message.role === "user";
 
@@ -491,6 +489,70 @@ export abstract class AgentSessionBase {
     return undefined;
   }
 
+  private redactExtensionToolValue(
+    toolName: string,
+    value: unknown,
+    kind: "params" | "result",
+  ): unknown {
+    const definition = this.toolDefinitions.get(toolName)?.definition;
+    const redactor =
+      kind === "params"
+        ? definition?.redactBeforeToolCallDiagnosticParams
+        : definition?.redactBeforeToolCallDiagnosticResult;
+    if (redactor) {
+      try {
+        return redactor(cloneDiagnosticContentValue(value));
+      } catch {
+        return { redacted: true };
+      }
+    }
+    // Browser output is opaque page data. Fail closed if an extension event is
+    // emitted before the tool definition is registered or after a reload.
+    if (toolName === "browser") {
+      return { redacted: true };
+    }
+    return value;
+  }
+
+  private redactExtensionToolResult(
+    toolName: string,
+    toolCallId: string,
+    args: unknown,
+    result: AgentToolResult<unknown>,
+    isError: boolean,
+  ): ToolResultEvent {
+    const redactedInput = this.redactExtensionToolValue(toolName, args, "params");
+    const redactedResult = this.redactExtensionToolValue(toolName, result, "result");
+    const resultRecord =
+      redactedResult && typeof redactedResult === "object" && !Array.isArray(redactedResult)
+        ? (redactedResult as Record<string, unknown>)
+        : undefined;
+    const content = Array.isArray(resultRecord?.content)
+      ? (resultRecord.content as ToolResultEvent["content"])
+      : toolName === "browser"
+        ? [{ type: "text" as const, text: "[redacted]" }]
+        : result.content;
+    const details =
+      resultRecord && "details" in resultRecord
+        ? resultRecord.details
+        : toolName === "browser"
+          ? { redacted: true }
+          : result.details;
+    const input =
+      redactedInput && typeof redactedInput === "object" && !Array.isArray(redactedInput)
+        ? (redactedInput as Record<string, unknown>)
+        : { redacted: true };
+    return {
+      type: "tool_result",
+      toolName,
+      toolCallId,
+      input,
+      content,
+      details,
+      isError,
+    };
+  }
+
   /** Emit extension events based on agent events */
   private async emitExtensionEvent(event: AgentEvent): Promise<boolean> {
     if (event.type === "agent_start") {
@@ -542,7 +604,7 @@ export abstract class AgentSessionBase {
         type: "tool_execution_start",
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args: event.args,
+        args: this.redactExtensionToolValue(event.toolName, event.args, "params"),
       };
       await this.currentExtensionRunner.emit(extensionEvent);
     } else if (event.type === "tool_execution_update") {
@@ -550,8 +612,8 @@ export abstract class AgentSessionBase {
         type: "tool_execution_update",
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args: event.args,
-        partialResult: event.partialResult,
+        args: this.redactExtensionToolValue(event.toolName, event.args, "params"),
+        partialResult: this.redactExtensionToolValue(event.toolName, event.partialResult, "result"),
       };
       await this.currentExtensionRunner.emit(extensionEvent);
     } else if (event.type === "tool_execution_end") {
@@ -559,7 +621,7 @@ export abstract class AgentSessionBase {
         type: "tool_execution_end",
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        result: event.result,
+        result: this.redactExtensionToolValue(event.toolName, event.result, "result"),
         isError: event.isError,
       };
       await this.currentExtensionRunner.emit(extensionEvent);

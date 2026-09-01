@@ -44,6 +44,12 @@ const hookMocks = vi.hoisted(() => ({
   ),
 }));
 
+const browserLifecycle = vi.hoisted(() => ({
+  prepared: [] as unknown[],
+  finalized: [] as unknown[],
+  executed: [] as unknown[],
+}));
+
 const sessionEntries = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 
 let cfg: Record<string, unknown> = {};
@@ -186,7 +192,24 @@ vi.mock("../agents/openclaw-tools.js", async () => {
     {
       name: "browser",
       parameters: { type: "object", properties: {} },
-      execute: async () => ({ ok: true, result: "browser" }),
+      prepareBeforeToolCallParams: async (params: unknown) => {
+        browserLifecycle.prepared.push(params);
+        return {
+          ...(params as Record<string, unknown>),
+          preparedByBrowser: true,
+        };
+      },
+      finalizeBeforeToolCallParams: (params: unknown, preparedParams: unknown) => {
+        browserLifecycle.finalized.push({ params, preparedParams });
+        return {
+          ...(params as Record<string, unknown>),
+          finalizedByBrowser: true,
+        };
+      },
+      execute: async (_toolCallId: string, params: unknown) => {
+        browserLifecycle.executed.push(params);
+        return { ok: true, result: params };
+      },
     },
     {
       name: "plugin_doctor",
@@ -335,6 +358,9 @@ beforeEach(() => {
   lastCreateOpenClawToolsContext = undefined;
   pluginToolMetaState.clear();
   sessionEntries.clear();
+  browserLifecycle.prepared.length = 0;
+  browserLifecycle.finalized.length = 0;
+  browserLifecycle.executed.length = 0;
   pluginToolMetaState.set("plugin_doctor", { pluginId: "test-plugin", optional: true });
   hookMocks.resolveToolLoopDetectionConfig.mockClear();
   hookMocks.resolveToolLoopDetectionConfig.mockImplementation(() => ({ warnAt: 3 }));
@@ -899,6 +925,35 @@ describe("POST /tools/invoke", () => {
     expect(body.result?.ok).toBe(true);
   });
 
+  it("preserves Browser preparation state for direct HTTP execution", async () => {
+    setMainAllowedTools({ allow: ["browser"] });
+
+    const res = await invokeToolAuthed({
+      tool: "browser",
+      args: { marker: "raw-browser-argument" },
+      sessionKey: "agent:main:direct:browser-proof",
+    });
+
+    const body = await expectOkInvokeResponse(res);
+    expect(body.result).toMatchObject({
+      ok: true,
+      result: {
+        marker: "raw-browser-argument",
+        preparedByBrowser: true,
+        finalizedByBrowser: true,
+      },
+    });
+    expect(browserLifecycle.prepared).toEqual([{ marker: "raw-browser-argument" }]);
+    expect(browserLifecycle.finalized).toHaveLength(1);
+    expect(browserLifecycle.executed).toEqual([
+      {
+        marker: "raw-browser-argument",
+        preparedByBrowser: true,
+        finalizedByBrowser: true,
+      },
+    ]);
+  });
+
   it("supports tools.alsoAllow in profile and implicit modes", async () => {
     cfg = {
       ...cfg,
@@ -1397,7 +1452,10 @@ describe("POST /tools/invoke", () => {
     });
 
     const body = await expectOkInvokeResponse(res);
-    expect(body.result).toEqual({ ok: true, result: "browser" });
+    expect(body.result).toEqual({
+      ok: true,
+      result: { preparedByBrowser: true, finalizedByBrowser: true },
+    });
     expect(lastCreateOpenClawToolsContext?.disablePluginTools).toBe(false);
   });
 });

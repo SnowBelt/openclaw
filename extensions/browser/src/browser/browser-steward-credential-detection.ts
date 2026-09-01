@@ -533,3 +533,8 @@ export function evaluateBrowserCredentialExposure(
     blocked: false,
   };
 }
+
+/** Browser output can contain opaque page data, so diagnostic copies are metadata-only. */
+export function redactBrowserStewardDiagnosticResult(_value: unknown): unknown {
+  return { redacted: true };
+}

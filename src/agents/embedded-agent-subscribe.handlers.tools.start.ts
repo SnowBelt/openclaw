@@ -9,6 +9,7 @@ import { resolveControlUiSessionLinkBase } from "../config/control-ui-link-base.
 import { resolveGatewayPort } from "../config/paths.js";
 import { emitAgentActivityEvent, type AgentItemEventData } from "../infra/agent-activity-events.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
+import { redactBrowserDiagnosticSessionKey } from "../infra/diagnostic-session-key.js";
 import { REQUIRED_PARAM_GROUPS, type RequiredParamGroup } from "./agent-tools.params.js";
 import { sanitizeForConsole } from "./console-sanitize.js";
 import { extractMessagingToolSend } from "./embedded-agent-messaging-extraction.js";
@@ -119,6 +120,10 @@ function buildToolExecutionStartTraceMeta(params: {
       ? Object.keys(args as Record<string, unknown>).toSorted()
       : undefined;
   const requiredParamsMissing = collectMissingRequiredParamLabels(params.toolName, args);
+  const sessionKey =
+    params.toolName === "browser"
+      ? redactBrowserDiagnosticSessionKey(params.ctx.params.sessionKey)
+      : params.ctx.params.sessionKey;
   return {
     event: "embedded_tool_execution_start",
     tags: ["tool_start", "embedded", "trace"],
@@ -127,7 +132,7 @@ function buildToolExecutionStartTraceMeta(params: {
     toolCallId: params.toolCallId,
     argsType,
     ...(argsKeys?.length ? { argsKeys } : {}),
-    ...(params.ctx.params.sessionKey ? { sessionKey: params.ctx.params.sessionKey } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
     ...(params.ctx.params.sessionId ? { sessionId: params.ctx.params.sessionId } : {}),
     ...(params.ctx.params.agentId ? { agentId: params.ctx.params.agentId } : {}),
     ...(requiredParamsMissing.length ? { requiredParamsMissing } : {}),
@@ -259,9 +264,13 @@ export function emitTrackedItemEvent(ctx: ToolHandlerContext, itemData: AgentIte
     ctx.state.itemActiveIds.delete(itemData.itemId);
     ctx.state.itemCompletedCount += 1;
   }
+  const sessionKey =
+    itemData.name === "browser"
+      ? redactBrowserDiagnosticSessionKey(ctx.params.sessionKey)
+      : ctx.params.sessionKey;
   emitAgentActivityEvent({
     runId: ctx.params.runId,
-    ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
     stream: "item",
     data: itemData,
   });
@@ -451,7 +460,7 @@ export function handleToolExecutionStart(
           runId: ctx.params.runId,
           toolCallId,
           argsType,
-          ...(safeSessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
+          ...(safeSessionKey ? { sessionKey: safeSessionKey } : {}),
           ...(safeSessionId ? { sessionId: ctx.params.sessionId } : {}),
           ...(safeAgentId ? { agentId: ctx.params.agentId } : {}),
           ...(argsPreview ? { argsPreview } : {}),
