@@ -106,16 +106,17 @@ with open(os.path.join(runtime_root, "snapshot.json"), encoding="utf-8") as f:
     snapshot = json.load(f)
 if snapshot.get("releaseId") != candidate_runtime_id:
     raise SystemExit("active runtime is not the scoped candidate")
-required = (
+required_base = (
     "active-runtime.json",
     "ai.openclaw.gateway.plist",
     "ai.openclaw.gateway.env",
     "custom-runtime-launcher.sh",
 )
+required_current = (*required_base, "custom-runtime-source-provenance.mjs")
 files = manifest.get("files")
-if not isinstance(files, dict) or set(files) != set(required):
+if not isinstance(files, dict) or set(files) not in (set(required_base), set(required_current)):
     raise SystemExit("rollback file inventory is invalid")
-for name in required:
+for name in files:
     file_path = os.path.join(bundle, name)
     if os.path.islink(file_path) or not os.path.isfile(file_path):
         raise SystemExit(f"rollback file is invalid: {name}")
@@ -164,7 +165,35 @@ if [ "$verify_only" = false ]; then
 fi
 
 rollback_launcher="$bundle/custom-runtime-launcher.sh"
+state_provenance_helper() {
+  state_dir=$1
+  bundled_helper="$state_dir/custom-runtime-source-provenance.mjs"
+  if [ -f "$bundled_helper" ] && [ ! -L "$bundled_helper" ]; then
+    printf '%s\n' "$bundled_helper"
+    return 0
+  fi
+  legacy_helper=$(python3 - "$state_dir/active-runtime.json" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    runtime_root = json.load(handle).get("runtimeRoot")
+if not isinstance(runtime_root, str) or not runtime_root:
+    raise SystemExit(1)
+print(os.path.join(os.path.realpath(runtime_root), "scripts", "custom-runtime", "custom-runtime-source-provenance.mjs"))
+PY
+  ) || return 1
+  [ -f "$legacy_helper" ] && [ ! -L "$legacy_helper" ] || return 1
+  printf '%s\n' "$legacy_helper"
+}
+rollback_provenance_helper=$(state_provenance_helper "$bundle") || {
+  write_receipt rollback_provenance_helper_missing
+  exit 1
+}
 if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$bundle/active-runtime.json" \
+  OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER="$rollback_provenance_helper" \
+  OPENCLAW_ALLOW_LEGACY_SOURCE_STAMP=1 \
   "$rollback_launcher" --verify >/dev/null 2>&1; then
   write_receipt rollback_launcher_preflight_failed
   exit 1
@@ -181,10 +210,13 @@ cp -p "$pointer" "$backup/active-runtime.json"
 cp -p "$plist" "$backup/ai.openclaw.gateway.plist"
 cp -p "$env_file" "$backup/ai.openclaw.gateway.env"
 cp -p "$launcher" "$backup/custom-runtime-launcher.sh"
+cp -p "$runtime_home/bin/custom-runtime-source-provenance.mjs" \
+  "$backup/custom-runtime-source-provenance.mjs"
 [ ! -f "$desired_plist" ] || cp -p "$desired_plist" "$backup/ai.openclaw.gateway.desired.plist"
 
 install_state() {
   source_dir=$1
+  source_provenance_helper=$(state_provenance_helper "$source_dir") || return 1
   install -m 600 "$source_dir/active-runtime.json" "$runtime_home/.active-runtime.json.rollback-$$"
   mv "$runtime_home/.active-runtime.json.rollback-$$" "$pointer"
   install -m 600 "$source_dir/ai.openclaw.gateway.plist" "$plist.rollback-$$"
@@ -193,6 +225,10 @@ install_state() {
   mv "$env_file.rollback-$$" "$env_file"
   install -m 700 "$source_dir/custom-runtime-launcher.sh" "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$"
   mv "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$" "$launcher"
+  install -m 700 "$source_provenance_helper" \
+    "$runtime_home/bin/.custom-runtime-source-provenance.mjs.rollback-$$"
+  mv "$runtime_home/bin/.custom-runtime-source-provenance.mjs.rollback-$$" \
+    "$runtime_home/bin/custom-runtime-source-provenance.mjs"
   cp -p "$plist" "$desired_plist"
 }
 

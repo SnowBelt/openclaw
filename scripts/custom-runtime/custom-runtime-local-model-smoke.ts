@@ -562,11 +562,30 @@ export function readLocalModelResourceSnapshot(): LocalModelResourceSnapshot {
 
 function createIsolatedConfig(tempRoot: string, model: string): string {
   const configPath = path.join(tempRoot, "openclaw.json");
+  const workspacePath = path.join(tempRoot, "workspace");
+  ensurePrivateDirectory(workspacePath);
   const modelRef = `ollama/${model}`;
   const config = {
     agents: {
-      defaults: { model: { primary: modelRef }, timeoutSeconds: 180 },
-      list: [{ id: LOCAL_MODEL_COMPATIBILITY_AGENT_ID, model: { primary: modelRef } }],
+      defaults: {
+        model: { primary: modelRef },
+        timeoutSeconds: 180,
+        workspace: workspacePath,
+        skills: [],
+        contextInjection: "never",
+        skipBootstrap: true,
+        memorySearch: { enabled: false },
+      },
+      list: [
+        {
+          id: LOCAL_MODEL_COMPATIBILITY_AGENT_ID,
+          model: { primary: modelRef },
+          workspace: workspacePath,
+          skills: [],
+          contextInjection: "never",
+          memorySearch: { enabled: false },
+        },
+      ],
     },
     models: {
       providers: {
@@ -641,6 +660,7 @@ function childEnvironment(params: {
   }
   env.OPENCLAW_CONFIG_PATH = params.configPath;
   env.OPENCLAW_STATE_DIR = params.stateDir;
+  env.OPENCLAW_WORKSPACE_DIR = path.join(path.dirname(params.configPath), "workspace");
   env.OPENCLAW_LOCAL_MODEL_ADMISSION_PATH = params.admission.statePath;
   env.OPENCLAW_LOCAL_MODEL_ADMISSION_TOKEN = params.admission.token;
   env.OPENCLAW_SKIP_CHANNELS = "1";
@@ -649,6 +669,7 @@ function childEnvironment(params: {
   env.OPENCLAW_SKIP_BROWSER_CONTROL_SERVER = "1";
   env.OPENCLAW_SKIP_GMAIL_WATCHER = "1";
   env.OPENCLAW_SELF_IMPROVEMENT_BACKGROUND = "0";
+  delete env.OPENCLAW_PROFILE;
   return env;
 }
 

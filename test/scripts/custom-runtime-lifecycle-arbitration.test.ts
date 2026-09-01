@@ -56,6 +56,7 @@ function fixture() {
       ...process.env,
       HOME: home,
       OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+      OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "release-governor:test-lifecycle",
     },
     home,
     runtimeHome,
@@ -118,7 +119,11 @@ describe("custom runtime lifecycle arbitration", () => {
     const acquired = spawnSync(
       "sh",
       [promoteScript, "--lease-acquire", ...leaseBinding, "--ttl-seconds", "600"],
-      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...input.env, OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "" },
+      },
     );
     expect(acquired.status, acquired.stderr).toBe(0);
 
@@ -324,7 +329,11 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
     const acquired = spawnSync(
       "sh",
       [promoteScript, "--lease-acquire", ...leaseBinding, "--ttl-seconds", "600"],
-      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...input.env, OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "" },
+      },
     );
     expect(acquired.status, acquired.stderr).toBe(0);
 
@@ -383,7 +392,11 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
         `. "${authScript}"
 custom_runtime_certification_lease break-emergency "$OPENCLAW_CUSTOM_RUNTIME_HOME" "" "" "" "" "" "" "" "" "operator-recovery"`,
       ],
-      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...input.env, OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "" },
+      },
     );
     expect(denied.status).toBe(78);
     expect(denied.stderr).toContain("Release Governor approval identity is missing");

@@ -50,7 +50,7 @@ function createRoot(prefix: string) {
   return fs.realpathSync(root);
 }
 
-function writeCandidateContracts(release: string, sourceSha: string) {
+function writeCandidateContracts(release: string, sourceSha: string, runtimeHomeOverride?: string) {
   const entrypoint = path.join(release, "dist", "index.js");
   const controlUi = path.join(release, "dist", "control-ui");
   const bundledPlugins = path.join(release, "dist-runtime", "extensions");
@@ -152,6 +152,39 @@ function writeCandidateContracts(release: string, sourceSha: string) {
     ].join("\n"),
   );
   writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
+  const runtimeHome =
+    runtimeHomeOverride ??
+    path.join(path.dirname(path.dirname(release)), ".openclaw-custom-runtime");
+  const provenanceRecordPath = path.join(
+    runtimeHome,
+    "source-provenance",
+    sourceSha,
+    "provenance.json",
+  );
+  writeFile(provenanceRecordPath, "{}\n", 0o600);
+  fs.chmodSync(runtimeHome, 0o700);
+  fs.chmodSync(path.join(runtimeHome, "source-provenance"), 0o700);
+  writeFile(
+    path.join(release, "scripts", "custom-runtime", "custom-runtime-source-provenance.mjs"),
+    "process.exit(0);\n",
+    0o600,
+  );
+  writeFile(
+    path.join(runtimeHome, "bin", "custom-runtime-source-provenance.mjs"),
+    "process.exit(0);\n",
+    0o700,
+  );
+  writeFile(
+    path.join(release, ".openclaw-runtime-provenance.json"),
+    `${JSON.stringify({
+      schema: "openclaw.custom-runtime-runtime-provenance.v1",
+      sourceSha,
+      treeSha: "a".repeat(40),
+      recordPath: provenanceRecordPath,
+      recordSha256: sha256(provenanceRecordPath),
+    })}\n`,
+    0o600,
+  );
   const evidenceRoot = path.join(release, ".test-release-governance");
   for (const operation of ["stage", "promotion", "restart", "rollback", "finalize"]) {
     writeFile(
@@ -321,14 +354,19 @@ describe("custom runtime lifecycle", () => {
     const activeSha = "a".repeat(40);
     const candidateSha = "b".repeat(40);
     const invocationMarker = path.join(root, "provenance-invocations.jsonl");
-    const provenanceRecord = path.join(runtimeHome, "provenance.json");
-    const provenanceMigration = path.join(runtimeHome, "migration.json");
-    const provenanceHelper = path.join(
-      release,
-      "scripts",
-      "custom-runtime",
-      "custom-runtime-source-provenance.mjs",
+    const provenanceRecord = path.join(
+      runtimeHome,
+      "source-provenance",
+      candidateSha,
+      "provenance.json",
     );
+    const provenanceMigration = path.join(
+      runtimeHome,
+      "source-provenance",
+      candidateSha,
+      "migration.json",
+    );
+    const provenanceHelper = path.join(runtimeHome, "bin", "custom-runtime-source-provenance.mjs");
 
     writeCandidateContracts(release, candidateSha);
     writeFile(path.join(release, "dist", "index.js"), "// candidate\n");
@@ -743,7 +781,7 @@ describe("custom runtime lifecycle", () => {
     const sourceSha = "9".repeat(64);
 
     writeFile(path.join(release, "dist", "index.js"), "// candidate\n");
-    writeCandidateContracts(release, sourceSha);
+    writeCandidateContracts(release, sourceSha, runtimeHome);
     writeFile(
       config,
       `// JSON5 is the authored configuration contract.\n{
@@ -861,7 +899,7 @@ describe("custom runtime lifecycle", () => {
         'kill -0 "$pid" 2>/dev/null || exit 1',
         "pointer=$(printf '%s' \"$record\" | cut -d'|' -f3-)",
         `if [ "$pointer" = ${JSON.stringify(path.join(runtimeHome, "active-runtime.json"))} ]; then root=${JSON.stringify(path.join(root, "releases", "previous"))}; else root=${JSON.stringify(release)}; fi`,
-        `port=$(printf '%s' \"$record\" | cut -d'|' -f2)`,
+        `port=$(printf '%s' "$record" | cut -d'|' -f2)`,
         `printf '%s\\n' ${JSON.stringify(`${process.execPath} `)}"$root/dist/index.js gateway --port $port"`,
         "",
       ].join("\n"),
@@ -1484,6 +1522,7 @@ describe("custom runtime lifecycle", () => {
     ].join("\n");
     const previousLauncher = candidateLauncher.replace("exit 1", "# previous\nexit 1");
 
+    writeCandidateContracts(previousRoot, "e".repeat(64));
     writeCandidateContracts(candidateRoot, "f".repeat(64));
     writeFile(path.join(candidateRoot, "snapshot.json"), '{"releaseId":"native-candidate"}\n');
     writeFile(candidateManifest, '{"surfaces":[{"id":"pcc","path":"/pcc","aliases":[]}]}\n');
@@ -1704,6 +1743,28 @@ describe("custom runtime lifecycle", () => {
 
       writeCandidateContracts(release, sourceSha);
       writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
+      const previousRuntimeRoot = path.join(releases, "previous");
+      const plistPath = path.join(root, "ai.openclaw.gateway.plist");
+      const envFile = path.join(root, "gateway.env");
+      const previousPlist = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<plist version="1.0"><dict>',
+        "<key>WorkingDirectory</key>",
+        `<string>${previousRuntimeRoot}</string>`,
+        "</dict></plist>",
+        "",
+      ].join("\n");
+      writeFile(plistPath, previousPlist, 0o600);
+      writeFile(envFile, "export PREVIOUS=1\n", 0o600);
+      writeFile(
+        path.join(runtimeHome, "active-runtime.json"),
+        `${JSON.stringify({
+          releaseId: "previous",
+          runtimeRoot: previousRuntimeRoot,
+          sourceSha: "d".repeat(64),
+        })}\n`,
+        0o600,
+      );
       for (const file of controlPlaneFiles) {
         const oldText =
           file === "custom-runtime-launcher.sh"
@@ -1715,7 +1776,7 @@ describe("custom runtime lifecycle", () => {
           file === "custom-runtime-stage.sh"
             ? `#!/bin/sh\nprintf '%s\\n' "\${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}" > ${JSON.stringify(stageMigrationMarker)}\n[ -n "\${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-}" ]\n[ -f "\${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\ngrep -q "# previous" "$OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER"\nexit 0\n`
             : file === "custom-runtime-promote.sh"
-              ? `#!/bin/sh\nprintf '%s\\n' "\${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}" > ${JSON.stringify(promotionMigrationMarker)}\nprintf '%s\\n' "$@" > ${JSON.stringify(promoteArgsMarker)}\n[ -f "\${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\nexit ${promoteExit}\n`
+              ? `#!/bin/sh\nprintf '%s\n' "\${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}" > ${JSON.stringify(promotionMigrationMarker)}\nprintf '%s\n' "$@" > ${JSON.stringify(promoteArgsMarker)}\n[ -f "\${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\nif [ ${promoteExit} -ne 0 ]; then\n  printf '%s\n' 'candidate plist' > "\${OPENCLAW_GATEWAY_PLIST}"\n  printf '%s\n' 'candidate env' > "\${OPENCLAW_GATEWAY_ENV_FILE}"\nfi\nexit ${promoteExit}\n`
               : file.endsWith(".py")
                 ? "# candidate python\n"
                 : `#!/bin/sh\n# candidate ${file}\nexit 0\n`;
@@ -1749,7 +1810,8 @@ describe("custom runtime lifecycle", () => {
           HOME: home,
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
-          OPENCLAW_GATEWAY_PLIST: path.join(root, "ai.openclaw.gateway.plist"),
+          OPENCLAW_GATEWAY_ENV_FILE: envFile,
+          OPENCLAW_GATEWAY_PLIST: plistPath,
           OPENCLAW_RELEASE_GOVERNANCE_PROMOTION_POLICY_MIGRATION:
             "/governance/promotion-migration.json",
           OPENCLAW_RELEASE_GOVERNANCE_STAGE_POLICY_MIGRATION: "/governance/stage-migration.json",
@@ -1758,9 +1820,16 @@ describe("custom runtime lifecycle", () => {
       });
 
       expect(result.status, result.stderr).toBe(expectedStatus);
-      const expectedFiles = promoteExit === 0 ? candidateFiles : previousFiles;
-      for (const [file, expected] of expectedFiles) {
+      for (const [file, previous] of previousFiles) {
+        const expected =
+          promoteExit === 0 && file !== "custom-runtime-source-provenance.mjs"
+            ? candidateFiles.get(file)!
+            : previous;
         expect(fs.readFileSync(path.join(runtimeHome, "bin", file), "utf8")).toBe(expected);
+      }
+      if (promoteExit !== 0) {
+        expect(fs.readFileSync(plistPath, "utf8")).toBe(previousPlist);
+        expect(fs.readFileSync(envFile, "utf8")).toBe("export PREVIOUS=1\n");
       }
       expect(fs.existsSync(path.join(runtimeHome, "locks", "activation.lock"))).toBe(false);
       expect(fs.readFileSync(promoteArgsMarker, "utf8").includes("--enable-sig-background")).toBe(

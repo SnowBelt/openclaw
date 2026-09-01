@@ -47,6 +47,37 @@ function fixture(requiredSurfaces: string[], requiredCapabilities: string[] = ["
   writeFile(path.join(bundledPlugins, "example", "package.json"), "{}\n");
   writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   writeFile(path.join(controlUi, "assets", "pcc.js"), "// pcc\n");
+  const provenanceRecord = path.join(
+    home,
+    ".openclaw-custom-runtime",
+    "source-provenance",
+    sourceSha,
+    "provenance.json",
+  );
+  writeFile(provenanceRecord, "{}\n", 0o600);
+  chmodSync(path.join(home, ".openclaw-custom-runtime"), 0o700);
+  chmodSync(path.join(home, ".openclaw-custom-runtime", "source-provenance"), 0o700);
+  writeFile(
+    path.join(release, ".openclaw-runtime-provenance.json"),
+    `${JSON.stringify({
+      schema: "openclaw.custom-runtime-runtime-provenance.v1",
+      sourceSha,
+      treeSha: "a".repeat(40),
+      recordPath: provenanceRecord,
+      recordSha256: createHash("sha256").update(readFileSync(provenanceRecord)).digest("hex"),
+    })}\n`,
+    0o600,
+  );
+  writeFile(
+    path.join(release, "scripts", "custom-runtime", "custom-runtime-source-provenance.mjs"),
+    "process.exit(0);\n",
+    0o600,
+  );
+  writeFile(
+    path.join(home, ".openclaw-custom-runtime", "bin", "custom-runtime-source-provenance.mjs"),
+    "process.exit(0);\n",
+    0o700,
+  );
   writeFile(
     manifestPath,
     `${JSON.stringify({
@@ -318,6 +349,16 @@ describe("custom runtime launcher", () => {
     expect(result.stderr).toContain("runtime provenance root mismatch");
   });
 
+  it("rejects a release without durable source provenance", () => {
+    const input = fixture(["pcc"]);
+    rmSync(path.join(input.release, ".openclaw-runtime-provenance.json"));
+
+    const result = verifyLauncher(input);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("release without durable source provenance");
+  });
+
   it("fails closed when packaged source provenance changes after selection", () => {
     const input = fixture(["pcc"]);
     const provenance = path.join(input.release, ".openclaw-runtime-provenance.json");
@@ -345,5 +386,38 @@ describe("custom runtime launcher", () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("source provenance record hash mismatch");
+  });
+
+  it("rejects a provenance migration path outside the private provenance root", () => {
+    const input = fixture(["pcc"]);
+    const migrationPath = path.join(input.home, "migration.json");
+    writeFile(migrationPath, "{}\n", 0o600);
+    const provenance = path.join(input.release, ".openclaw-runtime-provenance.json");
+    const recordPath = path.join(
+      input.home,
+      ".openclaw-custom-runtime",
+      "source-provenance",
+      input.sourceSha,
+      "provenance.json",
+    );
+    writeFile(
+      provenance,
+      `${JSON.stringify({
+        migrationPath,
+        migrationSha256: createHash("sha256").update(readFileSync(migrationPath)).digest("hex"),
+        recordPath,
+        recordSha256: createHash("sha256").update(readFileSync(recordPath)).digest("hex"),
+        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        sourceSha: input.sourceSha,
+        treeSha: "a".repeat(40),
+      })}\n`,
+    );
+
+    const result = verifyLauncher(input);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "source provenance migration is outside the private provenance root",
+    );
   });
 });

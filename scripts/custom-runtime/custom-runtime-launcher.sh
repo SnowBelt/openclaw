@@ -3,6 +3,7 @@
 set -eu
 
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
+trusted_provenance_helper=${OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER:-"$runtime_home/bin/custom-runtime-source-provenance.mjs"}
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
 pointer=${OPENCLAW_CUSTOM_RUNTIME_POINTER:-"$runtime_home/active-runtime.json"}
 if [ -n "${OPENCLAW_NODE_BIN:-}" ]; then
@@ -77,9 +78,25 @@ elif [ -f "$source_provenance" ]; then
 import json
 import os
 import re
+import stat
 import sys
 
 envelope_path, runtime_home, expected_sha = sys.argv[1:]
+
+def fail(message):
+    raise SystemExit(message)
+
+def regular_file(path, label, private=False):
+    try:
+        info = os.lstat(path)
+    except OSError:
+        fail(f"{label} is missing")
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        fail(f"{label} is not a regular file")
+    if private and stat.S_IMODE(info.st_mode) & 0o077:
+        fail(f"{label} is not private")
+
+regular_file(envelope_path, "source provenance envelope")
 with open(envelope_path, encoding="utf-8") as handle:
     envelope = json.load(handle)
 if envelope.get("schema") != "openclaw.custom-runtime-runtime-provenance.v1":
@@ -94,13 +111,42 @@ if not re.fullmatch(r"[a-f0-9]{40,64}", str(envelope.get("treeSha"))):
 if not re.fullmatch(r"[a-f0-9]{64}", envelope["recordSha256"]):
     raise SystemExit("source provenance record hash is invalid")
 provenance_root = os.path.realpath(os.path.join(runtime_home, "source-provenance"))
-record_path = os.path.realpath(envelope["recordPath"])
-if os.path.commonpath((provenance_root, record_path)) != provenance_root:
-    raise SystemExit("source provenance record is outside the private provenance root")
-print(record_path)
+
+try:
+    root_info = os.lstat(provenance_root)
+except OSError:
+    raise SystemExit("source provenance root is missing")
+if (
+    not stat.S_ISDIR(root_info.st_mode)
+    or stat.S_ISLNK(root_info.st_mode)
+    or stat.S_IMODE(root_info.st_mode) & 0o077
+):
+    raise SystemExit("source provenance root is unsafe")
+
+def checked_path(value, label):
+    if not isinstance(value, str) or not value:
+        raise SystemExit(f"source provenance {label} path is missing")
+    resolved = os.path.realpath(value)
+    try:
+        if os.path.commonpath((provenance_root, resolved)) != provenance_root:
+            raise SystemExit(f"source provenance {label} is outside the private provenance root")
+    except ValueError:
+        raise SystemExit(f"source provenance {label} path is invalid")
+    regular_file(value, f"source provenance {label}", private=True)
+    return resolved
+
+print(checked_path(envelope["recordPath"], "record"))
 print(envelope["recordSha256"])
-print(envelope.get("migrationPath", ""))
-print(envelope.get("migrationSha256", ""))
+migration_path = envelope.get("migrationPath", "")
+if migration_path:
+    migration_sha = envelope.get("migrationSha256")
+    if not isinstance(migration_sha, str) or not re.fullmatch(r"[a-f0-9]{64}", migration_sha):
+        raise SystemExit("source provenance migration hash is invalid")
+    print(checked_path(migration_path, "migration"))
+    print(migration_sha)
+else:
+    print("")
+    print("")
 print(envelope.get("historicalSourceSha", ""))
 PY
 ) || fail "invalid source provenance envelope"
@@ -111,10 +157,9 @@ PY
   provenance_historical_sha=$(printf '%s\n' "$provenance_fields" | sed -n '5p')
   [ "$(shasum -a 256 "$provenance_record" | awk '{print $1}')" = "$provenance_record_sha" ] || \
     fail "source provenance record hash mismatch"
-  provenance_helper="$runtime_root/scripts/custom-runtime/custom-runtime-source-provenance.mjs"
-  [ -f "$provenance_helper" ] && [ ! -L "$provenance_helper" ] || \
-    fail "source provenance verifier is missing"
-  "$node_bin" "$provenance_helper" verify --record "$provenance_record" \
+  [ -f "$trusted_provenance_helper" ] && [ ! -L "$trusted_provenance_helper" ] || \
+    fail "trusted source provenance verifier is unavailable"
+  "$node_bin" "$trusted_provenance_helper" verify --record "$provenance_record" \
     --expected-sha "$source_sha" --deep true >/dev/null || \
     fail "source provenance verification failed"
   if [ -n "$provenance_migration" ]; then
@@ -122,12 +167,16 @@ PY
       fail "source provenance migration identity is incomplete"
     [ "$(shasum -a 256 "$provenance_migration" | awk '{print $1}')" = "$provenance_migration_sha" ] || \
       fail "source provenance migration hash mismatch"
-    "$node_bin" "$provenance_helper" verify-migration --migration "$provenance_migration" \
+    "$node_bin" "$trusted_provenance_helper" verify-migration --migration "$provenance_migration" \
       --historical-source-sha "$provenance_historical_sha" --candidate-sha "$source_sha" >/dev/null || \
       fail "source provenance migration verification failed"
   fi
-elif [ "${#source_sha}" -ne 40 ]; then
-  fail "release without source provenance must use a Git commit source stamp"
+else
+  if [ "${OPENCLAW_ALLOW_LEGACY_SOURCE_STAMP:-0}" = 1 ] && [ "${#source_sha}" -eq 40 ]; then
+    : # Explicit rollback-only compatibility for sealed runtimes predating durable provenance.
+  else
+    fail "release without durable source provenance"
+  fi
 fi
 [ "$(shasum -a 256 "$manifest" | awk '{print $1}')" = "$manifest_sha" ] || fail "surface manifest hash mismatch"
 [ "$(shasum -a 256 "$capability_manifest" | awk '{print $1}')" = "$capability_manifest_sha" ] || fail "capability manifest hash mismatch"

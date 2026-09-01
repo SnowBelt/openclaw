@@ -360,6 +360,7 @@ with open(target, "w", encoding="utf-8") as f:
         "sourceRemoteBranch": source_remote_branch,
     }, f, indent=2, sort_keys=True)
     f.write("\n")
+os.chmod(target, 0o600)
 PY
 python3 - "$candidate/.artifacts/openclaw-gateway-runtime/latest.json" "$release" \
   "$repo" <<'PY'

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -30,6 +31,7 @@ function createFixture() {
   const daemon = path.join(fakeBin, "tailscaled");
   const cli = path.join(fakeBin, "tailscale");
   const launchctl = path.join(fakeBin, "launchctl");
+  const provider = path.join(root, "secret-provider");
   const launchMarker = path.join(root, "launched");
   const launchLog = path.join(root, "launch.log");
   const serveMarker = path.join(root, "serve-configured");
@@ -81,11 +83,17 @@ function createFixture() {
     ].join("\n"),
     0o755,
   );
+  writeFile(
+    provider,
+    '#!/bin/sh\nprintf \'%s\\n\' \'{"values":{"discord/bot-token":"test-only"}}\'\n',
+    0o755,
+  );
 
   const env = {
     ...process.env,
     HOME: home,
     OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+    OPENCLAW_SECRET_PROVIDER: provider,
     OPENCLAW_GATEWAY_PORT: "18789",
     OPENCLAW_TAILSCALE_PRIMARY_CLI: cli,
     OPENCLAW_TAILSCALE_PRIMARY_DAEMON: daemon,
@@ -277,6 +285,13 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     const fakeBin = path.join(fixture.root, "guard-bin");
     const gatewayPlist = path.join(fixture.root, "gateway.plist");
     const runtimeRoot = path.join(fixture.root, "immutable", "openclaw-release");
+    const sourceSha = "a".repeat(40);
+    const provenanceRecord = path.join(
+      fixture.runtimeHome,
+      "source-provenance",
+      sourceSha,
+      "provenance.json",
+    );
     const dashboardManifest = path.join(
       runtimeRoot,
       "dist",
@@ -295,7 +310,22 @@ describe("custom runtime primary Tailscale continuity guard", () => {
       0o755,
     );
     writeFile(pgrep, "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(path.join(runtimeRoot, "dist", "index.js"), "// test runtime\n", 0o600);
     writeFile(dashboardManifest, '{"buildId":"test-build","surfaces":[]}\n');
+    writeFile(provenanceRecord, "{}\n", 0o600);
+    fs.chmodSync(fixture.runtimeHome, 0o700);
+    fs.chmodSync(path.join(fixture.runtimeHome, "source-provenance"), 0o700);
+    writeFile(
+      path.join(runtimeRoot, ".openclaw-runtime-provenance.json"),
+      `${JSON.stringify({
+        recordPath: provenanceRecord,
+        recordSha256: createHash("sha256").update("{}\n").digest("hex"),
+        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        sourceSha,
+        treeSha: "b".repeat(40),
+      })}\n`,
+      0o600,
+    );
     writeFile(
       path.join(fakeBin, "curl"),
       [
@@ -311,7 +341,7 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     );
     writeFile(
       path.join(fixture.runtimeHome, "active-runtime.json"),
-      `${JSON.stringify({ runtimeRoot })}\n`,
+      `${JSON.stringify({ runtimeRoot, sourceSha })}\n`,
     );
     writePlist(gatewayPlist, [launcher, "gateway"], runtimeRoot);
     const env = {
@@ -322,6 +352,7 @@ describe("custom runtime primary Tailscale continuity guard", () => {
       OPENCLAW_LSOF_BIN: lsof,
       OPENCLAW_PGREP_BIN: pgrep,
       OPENCLAW_PS_BIN: ps,
+      OPENCLAW_SECRET_PROVIDER: fixture.env.OPENCLAW_SECRET_PROVIDER,
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
     };
 

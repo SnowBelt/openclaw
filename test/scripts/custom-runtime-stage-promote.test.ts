@@ -87,6 +87,39 @@ function fixture() {
   mkdirSync(path.join(release, "node_modules"), { recursive: true });
   cpSync(json5PackageRoot, path.join(release, "node_modules", "json5"), { recursive: true });
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
+  const provenanceRecordPath = path.join(
+    runtimeHome,
+    "source-provenance",
+    sourceSha,
+    "provenance.json",
+  );
+  mkdirSync(path.dirname(provenanceRecordPath), { recursive: true, mode: 0o700 });
+  writeFileSync(provenanceRecordPath, "{}\n", { mode: 0o600 });
+  chmodSync(runtimeHome, 0o700);
+  chmodSync(path.join(runtimeHome, "source-provenance"), 0o700);
+  const provenanceHelper = path.join(
+    release,
+    "scripts",
+    "custom-runtime",
+    "custom-runtime-source-provenance.mjs",
+  );
+  writeFileSync(provenanceHelper, "process.exit(0);\n", { mode: 0o600 });
+  writeFileSync(
+    path.join(runtimeHome, "bin", "custom-runtime-source-provenance.mjs"),
+    "process.exit(0);\n",
+    { mode: 0o700 },
+  );
+  writeFileSync(
+    path.join(release, ".openclaw-runtime-provenance.json"),
+    `${JSON.stringify({
+      schema: "openclaw.custom-runtime-runtime-provenance.v1",
+      sourceSha,
+      treeSha: "a".repeat(40),
+      recordPath: provenanceRecordPath,
+      recordSha256: createHash("sha256").update(readFileSync(provenanceRecordPath)).digest("hex"),
+    })}\n`,
+    { mode: 0o600 },
+  );
   executable(
     path.join(release, "dist", "release-governor.js"),
     [

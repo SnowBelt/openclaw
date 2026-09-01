@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,14 +28,59 @@ describe("custom runtime sealing and status", () => {
     const root = temporaryRoot("openclaw-runtime-seal-");
     const releases = path.join(root, "releases");
     const release = path.join(releases, "candidate");
+    const home = path.join(root, "home");
+    const runtimeHome = path.join(home, ".openclaw-custom-runtime");
     const sourceSha = "a".repeat(40);
     fs.mkdirSync(path.join(release, "node_modules", "json5"), { recursive: true });
     fs.writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
     fs.writeFileSync(path.join(release, "node_modules", "json5", "package.json"), "{}\n");
+    const provenanceRecord = path.join(
+      runtimeHome,
+      "source-provenance",
+      sourceSha,
+      "provenance.json",
+    );
+    fs.mkdirSync(path.dirname(provenanceRecord), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(provenanceRecord, "{}\n", { mode: 0o600 });
+    fs.writeFileSync(
+      path.join(release, ".openclaw-runtime-provenance.json"),
+      `${JSON.stringify({
+        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        sourceSha,
+        treeSha: "a".repeat(40),
+        recordPath: provenanceRecord,
+        recordSha256: createHash("sha256").update(fs.readFileSync(provenanceRecord)).digest("hex"),
+      })}\n`,
+      { mode: 0o600 },
+    );
+    fs.mkdirSync(path.join(release, "scripts", "custom-runtime"), {
+      recursive: true,
+      mode: 0o700,
+    });
+    fs.writeFileSync(
+      path.join(release, "scripts", "custom-runtime", "custom-runtime-source-provenance.mjs"),
+      "process.exit(0);\n",
+      { mode: 0o600 },
+    );
+    fs.mkdirSync(path.join(runtimeHome, "bin"), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(
+      path.join(runtimeHome, "bin", "custom-runtime-source-provenance.mjs"),
+      "process.exit(0);\n",
+      { mode: 0o700 },
+    );
+    const fakeNode = path.join(root, "fake-node");
+    fs.writeFileSync(fakeNode, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
 
+    const sealEnv = {
+      ...process.env,
+      HOME: home,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+      OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      OPENCLAW_NODE_BIN: fakeNode,
+    };
     const result = spawnSync(sealScript, ["--seal", "--release", release], {
       encoding: "utf8",
-      env: { ...process.env, OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases },
+      env: sealEnv,
     });
 
     expect(result.status, result.stderr).toBe(0);
@@ -54,7 +100,7 @@ describe("custom runtime sealing and status", () => {
     }
     const verified = spawnSync(sealScript, ["--verify", "--release", release], {
       encoding: "utf8",
-      env: { ...process.env, OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases },
+      env: sealEnv,
     });
     expect(verified.status, verified.stderr).toBe(0);
 
@@ -62,7 +108,7 @@ describe("custom runtime sealing and status", () => {
     fs.chmodSync(packagePath, 0o600);
     const tampered = spawnSync(sealScript, ["--verify", "--release", release], {
       encoding: "utf8",
-      env: { ...process.env, OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases },
+      env: sealEnv,
     });
     expect(tampered.status).not.toBe(0);
     expect(tampered.stderr).toContain("writable path");

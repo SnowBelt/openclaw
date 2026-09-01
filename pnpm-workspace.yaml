@@ -92,6 +92,7 @@ minimumReleaseAgeExclude:
   - "clawpdf"
 
 nodeLinker: hoisted
+verifyDepsBeforeRun: false
 blockExoticSubdeps: true
 
 overrides:
