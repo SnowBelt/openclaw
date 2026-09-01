@@ -6,6 +6,7 @@ import type {
 } from "../controllers/pattern-lab-dashboard.ts";
 
 export type PatternLabDashboardProps = {
+  videoId: string;
   loading: boolean;
   error: string | null;
   snapshot: PatternLabDashboardSnapshot | null;
@@ -14,6 +15,7 @@ export type PatternLabDashboardProps = {
   basePath: string;
   authToken: string | null;
   onRefresh: () => void;
+  onVideoIdChange: (videoId: string) => void;
   onApproveAssetType: (assetType: PatternLabAssetType) => void;
 };
 
@@ -253,6 +255,33 @@ export function renderPatternLabDashboard(props: PatternLabDashboardProps) {
         margin: 0;
         color: #a8bbc1;
         line-height: 1.55;
+      }
+
+      .pattern-lab-selector {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .pattern-lab-selector label {
+        display: grid;
+        gap: 6px;
+        color: #a8bbc1;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .pattern-lab-selector input {
+        min-height: 38px;
+        width: 180px;
+        border: 1px solid rgba(19, 216, 232, 0.45);
+        border-radius: 8px;
+        padding: 0 10px;
+        color: #f5f7f8;
+        background: rgba(2, 9, 11, 0.86);
+        font: inherit;
       }
 
       .pattern-lab-status-card {
@@ -540,9 +569,30 @@ export function renderPatternLabDashboard(props: PatternLabDashboardProps) {
           <h2 class="pattern-lab-title">Pattern Lab</h2>
           <p class="pattern-lab-tagline">Patterns. Criteria. Proof.</p>
           <p class="pattern-lab-copy">
-            Review Video 01, approve original assets, inspect Shorts, and track the learning loop
+            Review one explicitly selected video, approve original assets, inspect Shorts, and track
             before any private upload or public publish decision.
           </p>
+          <form
+            class="pattern-lab-selector"
+            @submit=${(event: Event) => {
+              event.preventDefault();
+              props.onRefresh();
+            }}
+          >
+            <label>
+              Exact video ID
+              <input
+                aria-label="Exact Pattern Lab video ID"
+                placeholder="For example, 04"
+                .value=${props.videoId}
+                @input=${(event: Event) =>
+                  props.onVideoIdChange((event.currentTarget as HTMLInputElement).value)}
+              />
+            </label>
+            <button class="pattern-lab-button" type="submit" ?disabled=${props.loading}>
+              ${props.loading ? "Loading" : "Load video"}
+            </button>
+          </form>
         </div>
         <aside class="pattern-lab-status-card">
           <span>System certification</span>
@@ -654,7 +704,7 @@ export function renderPatternLabDashboard(props: PatternLabDashboardProps) {
               </section>
 
               <section class="pattern-lab-panel pattern-lab-panel--wide">
-                <h2>Video Review</h2>
+                <h2>Video Review: ${snapshot.videoId}</h2>
                 ${renderVideoPreview(props, snapshot.media.longForm, "Long-form draft")}
               </section>
 

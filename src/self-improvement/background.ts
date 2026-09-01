@@ -33,6 +33,38 @@ export function isSelfImprovementBackgroundEnabled(env: NodeJS.ProcessEnv = proc
 type SelfImprovementBackgroundScan = typeof runSelfImprovementGovernorScan;
 type SelfImprovementBackgroundAnalysis = typeof runSelfImprovementAnalysis;
 
+export type SelfImprovementSignalBridge = {
+  stop: () => void;
+};
+
+/**
+ * Persist trusted diagnostic failures independently from the optional analysis
+ * loop.  Analysis is an operator opt-in; losing failure intake when it is off
+ * would make the SIG blind exactly when a production workflow is degraded.
+ */
+export function startSelfImprovementSignalBridge(params: {
+  stateDir?: string;
+  log?: { error: (message: string) => void };
+  subscribeDiagnosticEvents?: typeof onInternalDiagnosticEvent;
+  recordSignal?: typeof recordSelfImprovementSignal;
+}): SelfImprovementSignalBridge {
+  const stop = (params.subscribeDiagnosticEvents ?? onInternalDiagnosticEvent)(
+    (event, metadata) => {
+      const input = adaptDiagnosticEventToSelfImprovementSignal(event, metadata);
+      if (!input) {
+        return;
+      }
+      void (params.recordSignal ?? recordSelfImprovementSignal)({
+        input,
+        stateDir: params.stateDir,
+      }).catch((error: unknown) => {
+        params.log?.error(`self-improvement signal ingestion failed: ${formatErrorMessage(error)}`);
+      });
+    },
+  );
+  return { stop };
+}
+
 async function recordBackgroundCycleHealth(params: {
   success: boolean;
   analysisLimit: number;
@@ -306,32 +338,24 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
   }, initialDelayMs);
   interval.unref?.();
   initial.unref?.();
-  const stopSignalListener =
+  const signalBridge =
     params.signalBridgeEnabled === false
-      ? () => {}
-      : (params.subscribeDiagnosticEvents ?? onInternalDiagnosticEvent)((event, metadata) => {
-          const input = adaptDiagnosticEventToSelfImprovementSignal(event, metadata);
-          if (!input) {
-            return;
-          }
-          void (params.recordSignal ?? recordSelfImprovementSignal)({
-            input,
-            stateDir: params.stateDir,
-          })
-            .then((result) => {
-              if (
-                !result.duplicate &&
-                result.signal.trusted &&
-                (result.signal.severity === "critical" || result.signal.severity === "high")
-              ) {
-                scheduleSignalWake(runNow);
-              }
-            })
-            .catch((error: unknown) => {
-              params.log?.error(
-                `self-improvement signal ingestion failed: ${formatErrorMessage(error)}`,
-              );
-            });
+      ? null
+      : startSelfImprovementSignalBridge({
+          stateDir: params.stateDir,
+          log: params.log,
+          subscribeDiagnosticEvents: params.subscribeDiagnosticEvents,
+          recordSignal: async (recordParams) => {
+            const result = await (params.recordSignal ?? recordSelfImprovementSignal)(recordParams);
+            if (
+              !result.duplicate &&
+              result.signal.trusted &&
+              (result.signal.severity === "critical" || result.signal.severity === "high")
+            ) {
+              scheduleSignalWake(runNow);
+            }
+            return result;
+          },
         });
   const stop = () => {
     clearInterval(interval);
@@ -340,7 +364,7 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
       clearTimeout(signalWakeTimer);
       signalWakeTimer = undefined;
     }
-    stopSignalListener();
+    signalBridge?.stop();
   };
   return { interval, initial, runNow, stop };
 }

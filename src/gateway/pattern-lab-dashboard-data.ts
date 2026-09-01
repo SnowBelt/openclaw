@@ -5,19 +5,20 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { emitTrustedDiagnosticEvent } from "../infra/diagnostic-events.js";
 
 const execFileAsync = promisify(execFile);
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_VIDEO_ID = "01";
 export const PATTERN_LAB_MEDIA_ROUTE_PREFIX = "/__openclaw__/pattern-lab-media";
 const PATTERN_LAB_YOUTUBE_ROOT_ENV = "OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT";
+const PATTERN_LAB_PYTHON_ENV = "OPENCLAW_PATTERN_LAB_PYTHON";
 const PATTERN_LAB_SYSTEM_CERTIFICATION_RELATIVE_PATH =
   "local-output/operations/system-certification-current.json";
 const CUSTOM_RUNTIME_POINTER_ENV = "OPENCLAW_CUSTOM_RUNTIME_POINTER";
 const MAX_SYSTEM_CERTIFICATION_BYTES = 16 * 1024 * 1024;
 const FFMPEG_DURATION_EXTENSIONS = new Set([".mp3", ".mp4", ".mov", ".m4a"]);
 const PUBLIC_MEDIA_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".mp3", ".mp4"]);
-const FFPROBE_CANDIDATES = ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "ffprobe"];
+const FFPROBE_CANDIDATES = ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe"];
 
 export const PATTERN_LAB_ASSET_TYPES = [
   "image",
@@ -379,17 +380,79 @@ function patternLabYoutubeRootMissingMessage(): string {
   return `Pattern Lab youtube-v1 root not found. Set ${PATTERN_LAB_YOUTUBE_ROOT_ENV} to the YouTube workspace, or keep youtube-v1 under the OpenClaw repo root.`;
 }
 
+const reportedPatternLabErrors = new WeakSet<object>();
+
+function patternLabSignalToken(value: string): string {
+  return value
+    .trim()
+    .replace(/[^A-Za-z0-9_.:-]+/g, "_")
+    .slice(0, 120);
+}
+
+/** Report a Pattern Lab boundary failure through the durable SIG signal path. */
+export function reportPatternLabWorkflowIssue(
+  params: {
+    stage: string;
+    issueCode: string;
+    summary: string;
+    outcome?: "blocked" | "failed" | "lost";
+    severity?: "critical" | "high" | "medium" | "low";
+  },
+  error?: unknown,
+): void {
+  if (error && typeof error === "object") {
+    if (reportedPatternLabErrors.has(error)) {
+      return;
+    }
+    reportedPatternLabErrors.add(error);
+  }
+  const operationId = `pattern-lab-boundary-${crypto.randomUUID()}`;
+  const stage = patternLabSignalToken(params.stage);
+  const issueCode = patternLabSignalToken(params.issueCode);
+  emitTrustedDiagnosticEvent({
+    type: "improvement.signal",
+    version: 1,
+    // The run remains unique for tracing, but the incident key is stable so
+    // repeated occurrences become one SIG record with an occurrence count.
+    idempotencyKey: `pattern-lab-boundary:${stage}:${issueCode}`,
+    source: { component: "pattern-lab", subsystem: `workflow:${stage}` },
+    kind: params.outcome === "blocked" ? "blocked" : "failure",
+    severity: params.severity ?? "high",
+    summary: params.summary,
+    occurredAt: Date.now(),
+    runId: operationId,
+    errorCode: params.issueCode,
+    expected: "Pattern Lab workflow boundary completes with durable evidence.",
+    observed: error instanceof Error ? error.message.slice(0, 640) : undefined,
+    privacy: "internal",
+    desiredState: {
+      owner: "pattern-lab",
+      expectedOutcome: "Every blocked or failed workflow boundary is visible to SIG.",
+      rollback: "Do not continue the affected workflow until the boundary is repaired.",
+    },
+  });
+}
+
 function resetPatternLabYoutubeRootCacheForTests(): void {
   cachedPatternLabYoutubeRoot = null;
 }
 
-export function normalizePatternLabVideoId(videoId: unknown = DEFAULT_VIDEO_ID): string {
-  const normalized =
-    typeof videoId === "string" && videoId.trim() ? videoId.trim() : DEFAULT_VIDEO_ID;
-  if (!/^[0-9][0-9a-z_-]{0,31}$/i.test(normalized)) {
-    throw new Error(`Invalid Pattern Lab video id: ${String(videoId)}`);
+export function normalizePatternLabVideoId(videoId: unknown): string {
+  if (typeof videoId !== "string" || !videoId.trim() || videoId.length > 64) {
+    throw new Error("Pattern Lab video id is required; no episode is selected by default.");
   }
-  return normalized;
+  const hasUnsupportedControl = Array.from(videoId).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
+  if (hasUnsupportedControl) {
+    throw new Error("Pattern Lab video id contains unsupported control bytes.");
+  }
+  const normalized = videoId.trim().replace(/^video-/i, "");
+  if (!/^[0-9][0-9a-z_-]{0,31}$/i.test(normalized)) {
+    throw new Error(`Invalid Pattern Lab video id: ${videoId}`);
+  }
+  return /^\d+$/.test(normalized) ? normalized.padStart(2, "0") : normalized;
 }
 
 export function isPatternLabAssetType(value: unknown): value is PatternLabAssetType {
@@ -437,7 +500,7 @@ export function resolvePatternLabYoutubeRoot(
   throw new Error(patternLabYoutubeRootMissingMessage());
 }
 
-export function resolvePatternLabOutputRoot(videoId: unknown = DEFAULT_VIDEO_ID): string {
+export function resolvePatternLabOutputRoot(videoId: unknown): string {
   const normalizedVideoId = normalizePatternLabVideoId(videoId);
   return path.join(resolvePatternLabYoutubeRoot(), "local-output", `video-${normalizedVideoId}`);
 }
@@ -449,9 +512,78 @@ function toRepoPath(youtubeRoot: string, absolutePath: string): string {
   );
 }
 
+function verifiedExecutable(candidate: string): string | null {
+  try {
+    const resolved = fs.realpathSync(candidate);
+    const stat = fs.statSync(resolved);
+    fs.accessSync(resolved, fs.constants.R_OK | fs.constants.X_OK);
+    return stat.isFile() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function verifiedFfprobeCandidates(): string[] {
+  const candidates = [
+    ...(cachedFfprobeExecutable ? [cachedFfprobeExecutable] : []),
+    ...FFPROBE_CANDIDATES,
+    ...(process.env.PATH ?? "")
+      .split(path.delimiter)
+      .filter((entry) => Boolean(entry) && path.isAbsolute(entry))
+      .map((entry) => path.join(entry, "ffprobe")),
+  ];
+  const verified: string[] = [];
+  for (const candidate of candidates) {
+    const executable = verifiedExecutable(candidate);
+    if (executable && !verified.includes(executable)) {
+      verified.push(executable);
+    }
+  }
+  return verified;
+}
+
 function patternLabPythonExecutable(youtubeRoot: string): string {
-  const venvPython = path.join(youtubeRoot, ".venv-youtube", "bin", "python");
-  return fs.existsSync(venvPython) ? venvPython : "python3";
+  const configured = process.env[PATTERN_LAB_PYTHON_ENV]?.trim();
+  if (configured && !path.isAbsolute(configured)) {
+    throw new Error("OPENCLAW_PATTERN_LAB_PYTHON must be an absolute executable path.");
+  }
+  const candidates = [
+    ...(configured ? [configured] : []),
+    path.join(youtubeRoot, ".venv-youtube-3.12", "bin", "python"),
+    path.join(youtubeRoot, ".venv-youtube", "bin", "python"),
+    ...(process.env.PATH ?? "")
+      .split(path.delimiter)
+      .filter((entry) => Boolean(entry) && path.isAbsolute(entry))
+      .flatMap((entry) => [path.join(entry, "python3"), path.join(entry, "python")]),
+  ];
+  for (const candidate of candidates) {
+    const executable = verifiedExecutable(candidate);
+    if (executable) {
+      return executable;
+    }
+  }
+  throw new Error(
+    "Pattern Lab Python executable is unavailable; configure OPENCLAW_PATTERN_LAB_PYTHON.",
+  );
+}
+
+function patternLabEnvironment(youtubeRoot: string): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    HOME: process.env.HOME,
+    LANG: process.env.LANG,
+    LC_ALL: process.env.LC_ALL,
+    LC_CTYPE: process.env.LC_CTYPE,
+    PATH: process.env.PATH,
+    TMPDIR: process.env.TMPDIR,
+    PYTHONDONTWRITEBYTECODE: "1",
+    PYTHONUNBUFFERED: "1",
+    [PATTERN_LAB_YOUTUBE_ROOT_ENV]: youtubeRoot,
+  };
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
 }
 
 async function processPatternLabRepairQueue(params: {
@@ -467,6 +599,7 @@ async function processPatternLabRepairQueue(params: {
       cwd: path.dirname(youtubeRoot),
       timeout: 15 * 60 * 1000,
       maxBuffer: 8 * 1024 * 1024,
+      env: patternLabEnvironment(youtubeRoot),
     },
   );
   try {
@@ -626,13 +759,7 @@ async function ffprobeDurationSeconds(filePath: string, stat?: fs.Stats): Promis
   if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) {
     return cached.durationSeconds;
   }
-  const candidates = cachedFfprobeExecutable
-    ? [
-        cachedFfprobeExecutable,
-        ...FFPROBE_CANDIDATES.filter((candidate) => candidate !== cachedFfprobeExecutable),
-      ]
-    : FFPROBE_CANDIDATES;
-  for (const ffprobe of candidates) {
+  for (const ffprobe of verifiedFfprobeCandidates()) {
     try {
       const { stdout } = await execFileAsync(
         ffprobe,
@@ -865,8 +992,8 @@ function readinessSteps(snapshot: {
   ];
 }
 
-export async function loadPatternLabDashboardSnapshot(params?: {
-  videoId?: unknown;
+export async function loadPatternLabDashboardSnapshot(params: {
+  videoId: unknown;
 }): Promise<PatternLabDashboardSnapshot> {
   const videoId = normalizePatternLabVideoId(params?.videoId);
   const youtubeRoot = resolvePatternLabYoutubeRoot();

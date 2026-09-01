@@ -15,6 +15,7 @@ import { cleanOldMedia } from "../media/store.js";
 import { startOperationsShadowMonitor } from "../operations/monitor.js";
 import {
   isSelfImprovementBackgroundEnabled,
+  startSelfImprovementSignalBridge,
   startSelfImprovementGovernorBackgroundTask,
 } from "../self-improvement/background.js";
 import type { CuratorDispatch } from "../self-improvement/curator-dispatch.js";
@@ -171,12 +172,18 @@ export function startGatewayMaintenanceTimers(params: {
     });
   }
 
+  // Failure intake is always enabled.  The optional environment flag controls
+  // analysis/mutation only; it must not make SIG blind to production errors.
+  const diagnosticSignalBridge = startSelfImprovementSignalBridge({
+    log: params.logHealth,
+  });
   const backgroundSelfImprovement =
     params.getRuntimeConfig && isSelfImprovementBackgroundEnabled(params.selfImprovementEnv)
       ? startSelfImprovementGovernorBackgroundTask({
           getRuntimeConfig: params.getRuntimeConfig,
           log: params.logHealth,
           env: params.selfImprovementEnv,
+          signalBridgeEnabled: false,
           onAnalysisComplete: async (result) => {
             await params.curatorDispatch?.enqueue(result.newlyCreatedMemorySkillProposalIds ?? []);
           },
@@ -200,11 +207,15 @@ export function startGatewayMaintenanceTimers(params: {
   } else {
     params.curatorDispatch?.dispose();
   }
-  const operationsCleanup = startOperationsShadowMonitor({
+  const stopOperationsShadowMonitor = startOperationsShadowMonitor({
     log: { warn: (message) => (params.logHealth.warn ?? params.logHealth.error)(message) },
     ...(params.cron ? { cron: params.cron } : {}),
     ...(params.getCron ? { getCron: params.getCron } : {}),
   });
+  const operationsCleanup = () => {
+    stopOperationsShadowMonitor();
+    diagnosticSignalBridge.stop();
+  };
   // dedupe cache cleanup
   const dedupeCleanup = setInterval(() => {
     const AGENT_RUN_SEQ_MAX = 10_000;

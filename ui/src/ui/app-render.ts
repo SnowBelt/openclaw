@@ -3731,6 +3731,7 @@ export function renderApp(state: AppViewState) {
         ${state.tab === "patternLab"
           ? renderLazyView(lazyPatternLab, (m) =>
               m.renderPatternLabDashboard({
+                videoId: state.patternLabVideoId,
                 loading: state.patternLabDashboardLoading,
                 error: state.patternLabDashboardError,
                 snapshot: state.patternLabDashboard,
@@ -3740,6 +3741,9 @@ export function renderApp(state: AppViewState) {
                 authToken: resolveAssistantAttachmentAuthToken(state),
                 onRefresh: () => {
                   void state.loadPatternLabDashboard();
+                },
+                onVideoIdChange: (videoId) => {
+                  state.selectPatternLabVideo(videoId);
                 },
                 onApproveAssetType: (assetType) => {
                   void state.approvePatternLabAssetType(assetType);

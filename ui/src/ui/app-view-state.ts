@@ -349,6 +349,7 @@ export type AppViewState = {
   kalshiDashboardPollInterval?: number | null;
   dashboardPollInterval?: number | null;
   dashboardPollInFlight?: boolean;
+  patternLabVideoId: string;
   patternLabDashboardLoading: boolean;
   patternLabDashboardError: string | null;
   patternLabDashboard:
@@ -763,6 +764,7 @@ export type AppViewState = {
       view?: "full" | "workspace";
     }) => Promise<void>;
     loadPatternLabDashboard: () => Promise<void>;
+    selectPatternLabVideo: (videoId: string) => void;
     approvePatternLabAssetType: (
       assetType: import("./controllers/pattern-lab-dashboard.js").PatternLabAssetType,
     ) => Promise<void>;

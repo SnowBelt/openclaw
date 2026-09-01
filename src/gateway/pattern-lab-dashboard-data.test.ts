@@ -3,11 +3,62 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  onInternalDiagnosticEvent,
+  resetDiagnosticEventsForTest,
+  waitForDiagnosticEventsDrained,
+  type DiagnosticEventPayload,
+} from "../infra/diagnostic-events.js";
+import {
   patternLabDashboardDataTesting,
+  normalizePatternLabVideoId,
+  reportPatternLabWorkflowIssue,
   resolvePatternLabYoutubeRoot,
 } from "./pattern-lab-dashboard-data.js";
 
 describe("Pattern Lab dashboard data helpers", () => {
+  it("requires an explicit path-safe video id", () => {
+    expect(() => normalizePatternLabVideoId(undefined)).toThrow(/required/);
+    expect(() => normalizePatternLabVideoId("01\n")).toThrow(/control bytes/);
+    expect(() => normalizePatternLabVideoId("video-04")).not.toThrow();
+  });
+
+  it("reports dashboard boundary failures through the trusted SIG event path", async () => {
+    const events: DiagnosticEventPayload[] = [];
+    resetDiagnosticEventsForTest();
+    const unsubscribe = onInternalDiagnosticEvent((event) => events.push(event));
+    try {
+      reportPatternLabWorkflowIssue({
+        stage: "dashboard_snapshot",
+        issueCode: "dashboard_snapshot_failed",
+        summary: "Pattern Lab dashboard snapshot failed.",
+      });
+      await waitForDiagnosticEventsDrained();
+
+      expect(events.at(-1)).toMatchObject({
+        type: "improvement.signal",
+        source: { component: "pattern-lab", subsystem: "workflow:dashboard_snapshot" },
+        errorCode: "dashboard_snapshot_failed",
+        severity: "high",
+        idempotencyKey: "pattern-lab-boundary:dashboard_snapshot:dashboard_snapshot_failed",
+      });
+
+      reportPatternLabWorkflowIssue({
+        stage: "dashboard_snapshot",
+        issueCode: "dashboard_snapshot_failed",
+        summary: "Pattern Lab dashboard snapshot failed again.",
+      });
+      await waitForDiagnosticEventsDrained();
+      const signals = events.filter(
+        (event): event is Extract<DiagnosticEventPayload, { type: "improvement.signal" }> =>
+          event.type === "improvement.signal",
+      );
+      expect(signals.at(-1)?.idempotencyKey).toBe(signals.at(-2)?.idempotencyKey);
+    } finally {
+      unsubscribe();
+      resetDiagnosticEventsForTest();
+    }
+  });
+
   it("resolves an explicitly configured youtube-v1 command center", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "openclaw-pattern-lab-test-"));
     const youtubeRoot = path.join(root, "youtube-v1");

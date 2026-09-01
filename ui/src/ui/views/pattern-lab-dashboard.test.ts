@@ -89,6 +89,7 @@ function snapshot(): PatternLabDashboardSnapshot {
 
 function props(overrides: Partial<PatternLabDashboardProps> = {}): PatternLabDashboardProps {
   return {
+    videoId: "01",
     loading: false,
     error: null,
     snapshot: snapshot(),
@@ -97,6 +98,7 @@ function props(overrides: Partial<PatternLabDashboardProps> = {}): PatternLabDas
     basePath: "/openclaw",
     authToken: "token",
     onRefresh: vi.fn(),
+    onVideoIdChange: vi.fn(),
     onApproveAssetType: vi.fn(),
     ...overrides,
   };
@@ -114,12 +116,34 @@ describe("renderPatternLabDashboard", () => {
     expect(container.textContent).toContain("Awaiting Owner");
     expect(container.textContent).toContain("Draw Things");
     expect(container.textContent).toContain("Public publish: blocked");
+    expect(
+      container.querySelector('input[aria-label="Exact Pattern Lab video ID"]'),
+    ).toBeInstanceOf(HTMLInputElement);
     expect(container.querySelector("iframe")).toBeNull();
 
     const video = container.querySelector("video");
     expect(video).toBeInstanceOf(HTMLVideoElement);
     expect(video?.getAttribute("src")).toContain("/openclaw/__openclaw__/pattern-lab-media");
     expect(video?.getAttribute("src")).toContain("token=token");
+  });
+
+  it("forwards an explicit video selection", () => {
+    const onVideoIdChange = vi.fn();
+    const container = document.createElement("div");
+
+    render(renderPatternLabDashboard(props({ videoId: "04", onVideoIdChange })), container);
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Exact Pattern Lab video ID"]',
+    );
+    expect(input?.value).toBe("04");
+    if (!input) {
+      throw new Error("Expected exact Pattern Lab video ID input");
+    }
+    input.value = "05";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+
+    expect(onVideoIdChange).toHaveBeenCalledWith("05");
   });
 
   it("wires asset approval buttons", () => {

@@ -250,6 +250,7 @@ import { loadOperationsRoom as loadOperationsRoomInternal } from "./controllers/
 import {
   approvePatternLabAssetType as approvePatternLabAssetTypeInternal,
   loadPatternLabDashboard as loadPatternLabDashboardInternal,
+  selectPatternLabVideo,
   type PatternLabAssetType,
   type PatternLabDashboardSnapshot,
 } from "./controllers/pattern-lab-dashboard.ts";
@@ -646,6 +647,7 @@ export class OpenClawApp extends LitElement {
   dashboardPollInterval: number | null = null;
   dashboardPollInFlight = false;
   @state() patternLabDashboardLoading = false;
+  @state() patternLabVideoId = "";
   @state() patternLabDashboardError: string | null = null;
   @state() patternLabDashboard: PatternLabDashboardSnapshot | null = null;
   @state() patternLabDashboardLastFetchAt: number | null = null;
@@ -1737,6 +1739,10 @@ export class OpenClawApp extends LitElement {
 
   async loadPatternLabDashboard() {
     await loadPatternLabDashboardInternal(this);
+  }
+
+  selectPatternLabVideo(videoId: string) {
+    selectPatternLabVideo(this, videoId);
   }
 
   async approvePatternLabAssetType(assetType: PatternLabAssetType) {

@@ -772,6 +772,20 @@ fail_promotion() {
   exit 1
 }
 
+verify_plist_working_directory() {
+  python3 - "$1" "$2" <<'PY'
+import plistlib
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as handle:
+        value = plistlib.load(handle)
+except (OSError, plistlib.InvalidFileException):
+    raise SystemExit(1)
+raise SystemExit(0 if value.get("WorkingDirectory") == sys.argv[2] else 1)
+PY
+}
+
 install_update_scheduler() {
   mkdir -p "$(dirname "$update_plist")" "$HOME/Library/Logs/openclaw"
   if ! python3 - "$update_plist_source" "$update_plist.tmp" "$update_label" \
@@ -866,19 +880,26 @@ with open(path + ".tmp", "w", encoding="utf-8") as f:
 os.chmod(path + ".tmp", mode)
 PY
 mv "$env_file.tmp" "$env_file"
-python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" "$release_version" "$promotion_stderr" <<'PY'
+python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" "$release_version" "$promotion_stderr" "$release" <<'PY'
 import plistlib, sys
-path, wrapper, env_file, launcher, port, release_version, stderr_path = sys.argv[1:]
+path, wrapper, env_file, launcher, port, release_version, stderr_path, release = sys.argv[1:]
 with open(path, "rb") as f: data = plistlib.load(f)
 # Keep the generated environment wrapper as argv[0]. The launchd status audit
 # recognizes this canonical shape, unwraps the real launcher, and reads PATH
 # from the service environment file before checking runtime drift.
 data["ProgramArguments"] = [wrapper, env_file, launcher, "gateway", "--port", port]
+# The service working directory is part of the runtime identity. Keeping the
+# old release here lets launchd start a healthy process while the integrity
+# gate correctly reports a stale or missing runtime root afterward.
+data["WorkingDirectory"] = release
 data["Comment"] = f"OpenClaw Gateway (v{release_version})"
 data["StandardErrorPath"] = stderr_path
 with open(path + ".tmp", "wb") as f: plistlib.dump(data, f, sort_keys=False)
 PY
 mv "$plist.tmp" "$plist"
+if ! verify_plist_working_directory "$plist" "$release"; then
+  fail_promotion runtime_identity
+fi
 cp -p "$plist" "$desired_plist"
 python3 - "$promotion_stderr" <<'PY'
 import os, sys
@@ -915,6 +936,9 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 if [ "$ok" != true ]; then fail_promotion health "candidate_pid=$candidate_pid"; fi
+if ! verify_plist_working_directory "$plist" "$release"; then
+  fail_promotion runtime_identity
+fi
 plist_comment=$(python3 - "$plist" <<'PY'
 import plistlib, sys
 with open(sys.argv[1], "rb") as f:

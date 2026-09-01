@@ -4,15 +4,16 @@ import {
   loadPatternLabDashboardSnapshot,
   normalizePatternLabAssetType,
   normalizePatternLabVideoId,
+  reportPatternLabWorkflowIssue,
   type PatternLabAssetType,
   type PatternLabDashboardSnapshot,
 } from "../pattern-lab-dashboard-data.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
-type LoadSnapshot = (params?: { videoId?: unknown }) => Promise<PatternLabDashboardSnapshot>;
+type LoadSnapshot = (params: { videoId: unknown }) => Promise<PatternLabDashboardSnapshot>;
 type ApproveAssetType = (params: {
   assetType: PatternLabAssetType;
-  videoId?: unknown;
+  videoId: unknown;
 }) => Promise<PatternLabDashboardSnapshot>;
 
 export function createPatternLabDashboardHandlers(params?: {
@@ -30,6 +31,15 @@ export function createPatternLabDashboardHandlers(params?: {
         respond(true, snapshot);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        reportPatternLabWorkflowIssue(
+          {
+            stage: "dashboard_snapshot",
+            issueCode: "dashboard_snapshot_failed",
+            summary: "Pattern Lab dashboard snapshot could not be loaded.",
+            severity: "medium",
+          },
+          error,
+        );
         respond(
           false,
           undefined,
@@ -49,6 +59,14 @@ export function createPatternLabDashboardHandlers(params?: {
         respond(true, snapshot);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        reportPatternLabWorkflowIssue(
+          {
+            stage: "dashboard_approval",
+            issueCode: "dashboard_approval_failed",
+            summary: "Pattern Lab dashboard approval could not be completed.",
+          },
+          error,
+        );
         respond(
           false,
           undefined,

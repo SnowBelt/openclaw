@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { onInternalDiagnosticEvent } from "../infra/diagnostic-events.js";
+import {
+  emitTrustedDiagnosticEvent,
+  onInternalDiagnosticEvent,
+  waitForDiagnosticEventsDrained,
+} from "../infra/diagnostic-events.js";
 import {
   isSelfImprovementBackgroundEnabled,
   resolveAdaptiveSelfImprovementInterval,
+  startSelfImprovementSignalBridge,
   startSelfImprovementGovernorBackgroundTask,
 } from "./background.js";
-import type { SelfImprovementSignal } from "./signals.js";
+import type { SelfImprovementSignal, SelfImprovementSignalRecordResult } from "./signals.js";
 import type { SelfImprovementAnalysisRunResult, SelfImprovementScanResult } from "./types.js";
 
 const now = Date.parse("2026-05-07T12:00:00.000Z");
@@ -93,6 +98,48 @@ describe("self-improvement background task", () => {
     expect(
       isSelfImprovementBackgroundEnabled({ OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "true" }),
     ).toBe(true);
+  });
+
+  it("persists trusted diagnostics even when the optional analysis loop is disabled", async () => {
+    const recordSignal = vi.fn(
+      async (): Promise<SelfImprovementSignalRecordResult> => ({
+        signal: {
+          id: "sis-test",
+          version: 1,
+          idempotencyKey: "pattern-lab-boundary:test:failure",
+          source: { component: "pattern-lab" },
+          kind: "failure",
+          severity: "high",
+          summary: "A trusted failure.",
+          firstSeenAt: now,
+          lastSeenAt: now,
+          occurrences: 1,
+          evidenceRefs: [],
+          privacy: "internal",
+          trusted: true,
+        } satisfies SelfImprovementSignal,
+        created: true,
+        duplicate: false,
+        budgeted: false,
+      }),
+    );
+    const bridge = startSelfImprovementSignalBridge({ recordSignal });
+    try {
+      emitTrustedDiagnosticEvent({
+        type: "improvement.signal",
+        version: 1,
+        idempotencyKey: "pattern-lab-boundary:test:failure",
+        source: { component: "pattern-lab" },
+        kind: "failure",
+        severity: "high",
+        summary: "A trusted failure.",
+        privacy: "internal",
+      });
+      await waitForDiagnosticEventsDrained();
+      expect(recordSignal).toHaveBeenCalledTimes(1);
+    } finally {
+      bridge.stop();
+    }
   });
 
   it("backs off during quiet periods and accelerates for failures or new work", () => {

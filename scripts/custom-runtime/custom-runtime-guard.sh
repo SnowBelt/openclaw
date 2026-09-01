@@ -93,6 +93,21 @@ PY
 then
   plist_uses_launcher=true
 fi
+plist_working_directory_matches=false
+if [ -f "$plist" ] && [ -n "$runtime_root" ] && python3 - "$plist" "$runtime_root" <<'PY'
+import plistlib
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as handle:
+        value = plistlib.load(handle)
+except (OSError, plistlib.InvalidFileException):
+    raise SystemExit(1)
+raise SystemExit(0 if value.get("WorkingDirectory") == sys.argv[2] else 1)
+PY
+then
+  plist_working_directory_matches=true
+fi
 pointer_sha=
 launcher_sha=
 plist_sha=
@@ -186,7 +201,8 @@ fi
 # most fifteen minutes and only when every input hash is unchanged.
 cache_valid=false
 verification_receipt="$runtime_home/receipts/guard-verification-current.json"
-if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && [ -n "$runtime_source_sha" ] && \
+if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && \
+  [ "$plist_working_directory_matches" = true ] && [ -n "$runtime_root" ] && [ -n "$runtime_source_sha" ] && \
   [ -n "$pointer_sha" ] && [ -n "$launcher_sha" ] && [ -n "$plist_sha" ] && \
   [ "$process_probes_available" = true ] && \
   custom_runtime_port_owner_pid "$port" "$runtime_root" >/dev/null 2>&1
@@ -231,7 +247,8 @@ fi
 if [ "$cache_valid" = true ]; then
   complete_guard
 fi
-if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && \
+if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && \
+  [ "$plist_working_directory_matches" = true ] && [ -n "$runtime_root" ] && \
   [ "$process_probes_available" = true ] && \
   custom_runtime_port_owner_pid "$port" "$runtime_root" >/dev/null 2>&1 && \
   "$launcher" --verify >/dev/null 2>&1
