@@ -77,9 +77,25 @@ elif [ -f "$source_provenance" ]; then
 import json
 import os
 import re
+import stat
 import sys
 
 envelope_path, runtime_home, expected_sha = sys.argv[1:]
+
+def fail(message):
+    raise SystemExit(message)
+
+def regular_file(path, label, private=False):
+    try:
+        info = os.lstat(path)
+    except OSError:
+        fail(f"{label} is missing")
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        fail(f"{label} is not a regular file")
+    if private and stat.S_IMODE(info.st_mode) & 0o077:
+        fail(f"{label} is not private")
+
+regular_file(envelope_path, "source provenance envelope")
 with open(envelope_path, encoding="utf-8") as handle:
     envelope = json.load(handle)
 if envelope.get("schema") != "openclaw.custom-runtime-runtime-provenance.v1":
@@ -94,13 +110,42 @@ if not re.fullmatch(r"[a-f0-9]{40,64}", str(envelope.get("treeSha"))):
 if not re.fullmatch(r"[a-f0-9]{64}", envelope["recordSha256"]):
     raise SystemExit("source provenance record hash is invalid")
 provenance_root = os.path.realpath(os.path.join(runtime_home, "source-provenance"))
-record_path = os.path.realpath(envelope["recordPath"])
-if os.path.commonpath((provenance_root, record_path)) != provenance_root:
-    raise SystemExit("source provenance record is outside the private provenance root")
-print(record_path)
+
+try:
+    root_info = os.lstat(provenance_root)
+except OSError:
+    raise SystemExit("source provenance root is missing")
+if (
+    not stat.S_ISDIR(root_info.st_mode)
+    or stat.S_ISLNK(root_info.st_mode)
+    or stat.S_IMODE(root_info.st_mode) & 0o077
+):
+    raise SystemExit("source provenance root is unsafe")
+
+def checked_path(value, label):
+    if not isinstance(value, str) or not value:
+        raise SystemExit(f"source provenance {label} path is missing")
+    resolved = os.path.realpath(value)
+    try:
+        if os.path.commonpath((provenance_root, resolved)) != provenance_root:
+            raise SystemExit(f"source provenance {label} is outside the private provenance root")
+    except ValueError:
+        raise SystemExit(f"source provenance {label} path is invalid")
+    regular_file(value, f"source provenance {label}", private=True)
+    return resolved
+
+print(checked_path(envelope["recordPath"], "record"))
 print(envelope["recordSha256"])
-print(envelope.get("migrationPath", ""))
-print(envelope.get("migrationSha256", ""))
+migration_path = envelope.get("migrationPath", "")
+if migration_path:
+    migration_sha = envelope.get("migrationSha256")
+    if not isinstance(migration_sha, str) or not re.fullmatch(r"[a-f0-9]{64}", migration_sha):
+        raise SystemExit("source provenance migration hash is invalid")
+    print(checked_path(migration_path, "migration"))
+    print(migration_sha)
+else:
+    print("")
+    print("")
 print(envelope.get("historicalSourceSha", ""))
 PY
 ) || fail "invalid source provenance envelope"
@@ -126,8 +171,8 @@ PY
       --historical-source-sha "$provenance_historical_sha" --candidate-sha "$source_sha" >/dev/null || \
       fail "source provenance migration verification failed"
   fi
-elif [ "${#source_sha}" -ne 40 ]; then
-  fail "release without source provenance must use a Git commit source stamp"
+else
+  fail "release without durable source provenance"
 fi
 [ "$(shasum -a 256 "$manifest" | awk '{print $1}')" = "$manifest_sha" ] || fail "surface manifest hash mismatch"
 [ "$(shasum -a 256 "$capability_manifest" | awk '{print $1}')" = "$capability_manifest_sha" ] || fail "capability manifest hash mismatch"

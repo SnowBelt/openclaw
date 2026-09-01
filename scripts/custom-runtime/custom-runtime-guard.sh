@@ -122,7 +122,9 @@ provenance_path=
 if [ -n "$runtime_root" ]; then
   provenance_path="$runtime_root/.openclaw-runtime-provenance.json"
 fi
-if [ -n "$provenance_path" ] && [ -e "$provenance_path" ]; then
+if [ -z "$provenance_path" ] || [ ! -e "$provenance_path" ]; then
+  provenance_invalid=true
+elif [ -e "$provenance_path" ]; then
   if [ -L "$provenance_path" ] || [ ! -f "$provenance_path" ]; then
     provenance_invalid=true
   else

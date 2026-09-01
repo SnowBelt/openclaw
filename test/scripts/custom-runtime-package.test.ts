@@ -102,6 +102,19 @@ function createRepository(
   return { root, activeSha, candidateSha };
 }
 
+function createProvenanceHome(sourceRoot: string, candidateSha: string): string {
+  const provenanceHome = fs.mkdtempSync(
+    path.join(os.tmpdir(), "openclaw-runtime-package-provenance-"),
+  );
+  roots.push(provenanceHome);
+  importSourceProvenance({
+    sourceRoot,
+    sourceSha: candidateSha,
+    runtimeHome: provenanceHome,
+  });
+  return provenanceHome;
+}
+
 function writeBuildSnapshot(root: string, candidateSha: string): void {
   const buildRoot = path.join(root, ".artifacts", "openclaw-gateway-runtime", "releases", "build");
   writeFile(buildRoot, "dist/index.js");
@@ -157,6 +170,7 @@ describe("custom managed-runtime packaging", () => {
     writeBuildSnapshot(root, candidateSha);
     const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
     roots.push(releasesDir);
+    const provenanceHome = createProvenanceHome(root, candidateSha);
 
     const result = assembleManagedRuntimePackage({
       sourceRoot: root,
@@ -164,6 +178,7 @@ describe("custom managed-runtime packaging", () => {
       sourceSha: candidateSha,
       activeSha,
       releaseId: "candidate-release",
+      provenanceRuntimeHome: provenanceHome,
       seal: false,
       deploy({ stagingRoot }) {
         writeFile(stagingRoot, "package.json", '{"name":"openclaw"}\n');
@@ -230,6 +245,7 @@ describe("custom managed-runtime packaging", () => {
     writeBuildSnapshot(root, candidateSha);
     const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
     roots.push(releasesDir);
+    const provenanceHome = createProvenanceHome(root, candidateSha);
 
     expect(() =>
       assembleManagedRuntimePackage({
@@ -238,6 +254,7 @@ describe("custom managed-runtime packaging", () => {
         sourceSha: candidateSha,
         activeSha,
         releaseId: "unregistered-source-dependency-release",
+        provenanceRuntimeHome: provenanceHome,
         seal: false,
         deploy() {
           throw new Error("deployment should not start before source-closure validation");
@@ -252,6 +269,7 @@ describe("custom managed-runtime packaging", () => {
     writeBuildSnapshot(root, candidateSha);
     const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
     roots.push(releasesDir);
+    const provenanceHome = createProvenanceHome(root, candidateSha);
 
     expect(() =>
       assembleManagedRuntimePackage({
@@ -260,6 +278,7 @@ describe("custom managed-runtime packaging", () => {
         sourceSha: candidateSha,
         activeSha,
         releaseId: "dirty-candidate-release",
+        provenanceRuntimeHome: provenanceHome,
         seal: false,
         deploy({ stagingRoot }) {
           writeFile(stagingRoot, "package.json", '{"name":"openclaw"}\n');
@@ -271,11 +290,34 @@ describe("custom managed-runtime packaging", () => {
     expect(fs.readdirSync(releasesDir)).toEqual([]);
   });
 
+  it("rejects packaging without durable source provenance before deployment", () => {
+    const { root, activeSha, candidateSha } = createRepository();
+    const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
+    roots.push(releasesDir);
+    const deploy = () => {
+      throw new Error("deployment must not start without provenance");
+    };
+
+    expect(() =>
+      assembleManagedRuntimePackage({
+        sourceRoot: root,
+        releasesDir,
+        sourceSha: candidateSha,
+        activeSha,
+        releaseId: "missing-provenance-release",
+        seal: false,
+        deploy,
+      }),
+    ).toThrow(/Durable source provenance is required/u);
+    expect(fs.readdirSync(releasesDir)).toEqual([]);
+  });
+
   it("removes the exact newly created release when sealing fails", () => {
     const { root, activeSha, candidateSha } = createRepository();
     writeBuildSnapshot(root, candidateSha);
     const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
     roots.push(releasesDir);
+    const provenanceHome = createProvenanceHome(root, candidateSha);
 
     expect(() =>
       assembleManagedRuntimePackage({
@@ -284,6 +326,7 @@ describe("custom managed-runtime packaging", () => {
         sourceSha: candidateSha,
         activeSha,
         releaseId: "seal-failure-release",
+        provenanceRuntimeHome: provenanceHome,
         deploy({ stagingRoot }) {
           writeFile(stagingRoot, "package.json", '{"name":"openclaw"}\n');
           writeFile(stagingRoot, "node_modules/pdfjs-dist/package.json", "{}\n");

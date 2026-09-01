@@ -392,6 +392,9 @@ export function assembleManagedRuntimePackage({
   if (provenanceRecordPath && provenanceRuntimeHome) {
     throw new Error("Use either an existing provenance record or a provenance runtime home.");
   }
+  if (!provenanceRecordPath && !provenanceRuntimeHome) {
+    throw new Error("Durable source provenance is required for every managed runtime package.");
+  }
   if (provenanceRecordPath) {
     sourceProvenance = verifySourceProvenance({
       recordPath: provenanceRecordPath,
@@ -552,7 +555,13 @@ export function assembleManagedRuntimePackage({
         ],
         {
           cwd: releaseRoot,
-          env: { ...process.env, OPENCLAW_CUSTOM_RUNTIME_RELEASES: managedReleasesDir },
+          env: {
+            ...process.env,
+            OPENCLAW_CUSTOM_RUNTIME_RELEASES: managedReleasesDir,
+            ...(provenanceRuntimeHome
+              ? { OPENCLAW_CUSTOM_RUNTIME_HOME: path.resolve(provenanceRuntimeHome) }
+              : {}),
+          },
           inherit: true,
         },
       );

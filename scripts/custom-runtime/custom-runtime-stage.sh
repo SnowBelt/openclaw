@@ -61,9 +61,109 @@ stamp_file="$release/.openclaw-production-sha"
   printf '%s\n' 'candidate stage blocked: release source stamp does not match requested source SHA' >&2
   exit 64
 }
+verify_release_source_provenance() {
+  provenance_envelope="$release/.openclaw-runtime-provenance.json"
+  provenance_fields=$(python3 - "$provenance_envelope" "$runtime_home" "$source_sha" <<'PY'
+import json
+import os
+import stat
+import sys
+
+envelope_path, runtime_home, expected_sha = sys.argv[1:]
+
+def fail(message):
+    raise SystemExit(message)
+
+def private_regular(path, description):
+    try:
+        info = os.lstat(path)
+    except OSError:
+        fail(f"{description} is missing")
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
+        fail(f"{description} is not a private regular file")
+
+provenance_root = os.path.realpath(os.path.join(runtime_home, "source-provenance"))
+try:
+    root_info = os.lstat(provenance_root)
+except OSError:
+    fail("source provenance root is missing")
+if (
+    not stat.S_ISDIR(root_info.st_mode)
+    or stat.S_ISLNK(root_info.st_mode)
+    or stat.S_IMODE(root_info.st_mode) & 0o077
+):
+    fail("source provenance root is unsafe")
+
+def checked_path(value, label):
+    if not isinstance(value, str) or not value:
+        fail(f"source provenance {label} path is missing")
+    resolved = os.path.realpath(value)
+    try:
+        if os.path.commonpath((provenance_root, resolved)) != provenance_root:
+            fail(f"source provenance {label} is outside the private provenance root")
+    except ValueError:
+        fail(f"source provenance {label} path is invalid")
+    private_regular(value, f"source provenance {label}")
+    return resolved
+
+private_regular(envelope_path, "source provenance envelope")
+try:
+    with open(envelope_path, encoding="utf-8") as handle:
+        envelope = json.load(handle)
+except (OSError, json.JSONDecodeError):
+    fail("source provenance envelope is malformed")
+if envelope.get("schema") != "openclaw.custom-runtime-runtime-provenance.v1":
+    fail("source provenance envelope schema is invalid")
+if envelope.get("sourceSha") != expected_sha:
+    fail("source provenance source identity mismatch")
+record_path = envelope.get("recordPath")
+record_sha = envelope.get("recordSha256")
+if not isinstance(record_path, str) or not record_path or not isinstance(record_sha, str) or len(record_sha) != 64:
+    fail("source provenance record identity is incomplete")
+record_real = checked_path(record_path, "record")
+print(record_real)
+print(record_sha)
+migration_path = envelope.get("migrationPath", "")
+if migration_path:
+    migration_sha = envelope.get("migrationSha256")
+    if not isinstance(migration_sha, str) or len(migration_sha) != 64:
+        fail("source provenance migration identity is incomplete")
+    print(checked_path(migration_path, "migration"))
+    print(migration_sha)
+else:
+    print("")
+    print("")
+print(envelope.get("historicalSourceSha", ""))
+PY
+  ) || {
+    printf '%s\n' 'candidate stage blocked: durable source provenance envelope is invalid' >&2
+    return 1
+  }
+  provenance_record=$(printf '%s\n' "$provenance_fields" | sed -n '1p')
+  provenance_record_sha=$(printf '%s\n' "$provenance_fields" | sed -n '2p')
+  provenance_migration=$(printf '%s\n' "$provenance_fields" | sed -n '3p')
+  provenance_migration_sha=$(printf '%s\n' "$provenance_fields" | sed -n '4p')
+  provenance_historical_sha=$(printf '%s\n' "$provenance_fields" | sed -n '5p')
+  [ "$(shasum -a 256 "$provenance_record" | awk '{print $1}')" = "$provenance_record_sha" ] || return 1
+  provenance_helper="$release/scripts/custom-runtime/custom-runtime-source-provenance.mjs"
+  [ -f "$provenance_helper" ] && [ ! -L "$provenance_helper" ] || return 1
+  "$OPENCLAW_NODE_BIN" "$provenance_helper" verify --record "$provenance_record" \
+    --expected-sha "$source_sha" --deep true >/dev/null || return 1
+  if [ -n "$provenance_migration" ]; then
+    [ -n "$provenance_historical_sha" ] && [ -n "$provenance_migration_sha" ] || return 1
+    [ -f "$provenance_migration" ] && [ ! -L "$provenance_migration" ] || return 1
+    [ "$(shasum -a 256 "$provenance_migration" | awk '{print $1}')" = "$provenance_migration_sha" ] || return 1
+    "$OPENCLAW_NODE_BIN" "$provenance_helper" verify-migration --migration "$provenance_migration" \
+      --historical-source-sha "$provenance_historical_sha" --candidate-sha "$source_sha" >/dev/null || return 1
+  fi
+}
 custom_runtime_ensure_node_bin "$runtime_home" || {
   printf '%s\n' 'candidate stage blocked: verified Node executable is unavailable' >&2
   exit 78
+}
+verify_release_source_provenance || {
+  printf '%s\n' 'candidate stage blocked: durable source provenance verification failed' >&2
+  exit 64
 }
 custom_runtime_require_release_governance stage "$source_sha" "$release"
 custom_runtime_init_process_probes || {
@@ -256,6 +356,10 @@ fi
 for _ in $(seq 1 45); do
   if ! custom_runtime_process_exists "$pid"; then
     printf '%s\n' 'candidate stage Gateway child exited before readiness' >&2
+    if [ -f "$stage/gateway.log" ]; then
+      tail -c 8192 "$stage/gateway.log" 2>/dev/null |
+        sed -E 's/(token|password|secret|key)=[^[:space:]]+/\1=[REDACTED]/Ig' >&2 || true
+    fi
     exit 1
   fi
   if custom_runtime_port_owner_pid "$port" "$release" >/dev/null 2>&1 && \
@@ -372,6 +476,10 @@ PY
       for _ in $(seq 1 45); do
         if ! custom_runtime_process_exists "$pid"; then
           printf '%s\n' 'candidate stage rollback Gateway child exited before readiness' >&2
+          if [ -f "$stage/gateway.log" ]; then
+            tail -c 8192 "$stage/gateway.log" 2>/dev/null |
+              sed -E 's/(token|password|secret|key)=[^[:space:]]+/\1=[REDACTED]/Ig' >&2 || true
+          fi
           exit 1
         fi
         if custom_runtime_port_owner_pid "$rollback_port" "$rollback_root" >/dev/null 2>&1 && \

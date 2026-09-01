@@ -5,6 +5,7 @@ set -eu
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
+env_file=${OPENCLAW_GATEWAY_ENV_FILE:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway.env"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
 managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh custom-runtime-source-provenance.mjs custom-runtime-signature.mjs control-director-role-config.py copy_stage_state.py'
@@ -34,7 +35,8 @@ done
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
-  [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
+  [ -n "$source_repo" ] || usage
+  [ -n "$source_branch" ] || source_branch=HEAD
   source_repo=$(cd "$source_repo" && pwd -P)
   case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
 fi
@@ -74,19 +76,28 @@ mkdir -p "$runtime_home/backups" "$runtime_home/bin" "$runtime_home/locks" "$run
 stage_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_STAGE_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
 promotion_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_PROMOTION_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
 active_source_sha=
+previous_runtime_root=
 if [ -f "$runtime_home/active-runtime.json" ]; then
-  active_source_sha=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+  active_identity=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
 import json
+import os
 import re
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
-    source_sha = json.load(handle).get("sourceSha")
+    value = json.load(handle)
+source_sha = value.get("sourceSha")
+runtime_root = value.get("runtimeRoot")
 if not isinstance(source_sha, str) or not re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", source_sha):
     raise SystemExit("active runtime source SHA is missing or invalid")
+if not isinstance(runtime_root, str) or not runtime_root:
+    raise SystemExit("active runtime root is missing or invalid")
 print(source_sha)
+print(os.path.realpath(runtime_root))
 PY
   ) || exit 64
+  active_source_sha=$(printf '%s\n' "$active_identity" | sed -n '1p')
+  previous_runtime_root=$(printf '%s\n' "$active_identity" | sed -n '2p')
 fi
 if [ -n "$active_source_sha" ]; then
   OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$promotion_policy_migration" \
@@ -102,6 +113,33 @@ custom_runtime_certification_lease verify-activation "$runtime_home" \
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="$runtime_home/backups/control-plane-$stamp"
 mkdir "$backup"
+
+# Capture the service files before staging. Promotion can fail after it has
+# replaced them, so activation owns an independent recovery copy rather than
+# trusting the candidate's partially completed rollback.
+plist_existed=false
+env_existed=false
+plist_hash=
+env_hash=
+if [ -e "$plist" ]; then
+  [ -f "$plist" ] && [ ! -L "$plist" ] || {
+    printf '%s\n' 'activation blocked: Gateway plist is missing, non-regular, or a symbolic link' >&2
+    exit 64
+  }
+  cp -p "$plist" "$backup/gateway.plist"
+  plist_existed=true
+  plist_hash=$(shasum -a 256 "$plist" | awk '{print $1}')
+fi
+if [ -e "$env_file" ]; then
+  [ -f "$env_file" ] && [ ! -L "$env_file" ] || {
+    printf '%s\n' 'activation blocked: Gateway environment file is missing, non-regular, or a symbolic link' >&2
+    exit 64
+  }
+  cp -p "$env_file" "$backup/gateway.env"
+  env_existed=true
+  env_hash=$(shasum -a 256 "$env_file" | awk '{print $1}')
+fi
+
 control_installed=false
 committed=false
 rollback_attempted=false
@@ -116,7 +154,64 @@ restore_control_plane() {
   done
 }
 
+verify_service_baseline() {
+  if [ "$plist_existed" = true ]; then
+    [ -f "$plist" ] && [ ! -L "$plist" ] || return 1
+    [ "$(shasum -a 256 "$plist" | awk '{print $1}')" = "$plist_hash" ] || return 1
+  else
+    [ ! -e "$plist" ] || return 1
+  fi
+  if [ "$env_existed" = true ]; then
+    [ -f "$env_file" ] && [ ! -L "$env_file" ] || return 1
+    [ "$(shasum -a 256 "$env_file" | awk '{print $1}')" = "$env_hash" ] || return 1
+  else
+    [ ! -e "$env_file" ] || return 1
+  fi
+}
+
+restore_service_file() {
+  restore_target=$1
+  restore_backup=$2
+  restore_existed=$3
+  restore_hash=$4
+  if [ "$restore_existed" = true ]; then
+    [ -f "$restore_backup" ] && [ ! -L "$restore_backup" ] || return 1
+    restore_tmp="$restore_target.restore-$$"
+    cp -p "$restore_backup" "$restore_tmp" || return 1
+    mv -f "$restore_tmp" "$restore_target" || return 1
+    [ "$(shasum -a 256 "$restore_target" | awk '{print $1}')" = "$restore_hash" ] || return 1
+  else
+    # Never remove an unexpected file on a path that was originally absent.
+    [ ! -e "$restore_target" ] || return 1
+  fi
+}
+
+restore_service_files() {
+  restore_service_file "$plist" "$backup/gateway.plist" "$plist_existed" "$plist_hash" || return 1
+  restore_service_file "$env_file" "$backup/gateway.env" "$env_existed" "$env_hash" || return 1
+}
+
+verify_plist_working_directory() {
+  python3 - "$1" "$2" <<'PY'
+import plistlib
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as handle:
+        value = plistlib.load(handle)
+except (OSError, plistlib.InvalidFileException, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if value.get("WorkingDirectory") == sys.argv[2] else 1)
+PY
+}
+
 restart_restored_gateway() {
+  [ "$plist_existed" = true ] || return 1
+  [ -f "$plist" ] && [ ! -L "$plist" ] || return 1
+  [ "$(shasum -a 256 "$plist" | awk '{print $1}')" = "$plist_hash" ] || return 1
+  if [ -n "$previous_runtime_root" ]; then
+    verify_plist_working_directory "$plist" "$previous_runtime_root" || return 1
+  fi
   launchctl bootout "gui/$uid/$label" 2>/dev/null || true
   for _ in $(seq 1 15); do
     launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
@@ -135,7 +230,8 @@ restart_restored_gateway() {
 
 rollback_activation() {
   rollback_attempted=true
-  restore_control_plane
+  restore_control_plane || return 1
+  restore_service_files || return 1
   if restart_restored_gateway; then
     printf '{"at":"%s","result":"rolled_back_verified","release":"%s"}\n' \
       "$stamp" "$(basename "$release")" > "$runtime_home/receipts/activation-$stamp.json"
@@ -172,6 +268,11 @@ OPENCLAW_CUSTOM_RUNTIME_LAUNCHER="$control_source/custom-runtime-launcher.sh" \
   OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$stage_policy_migration" \
   "$control_source/custom-runtime-stage.sh" \
   --release "$release" --source-sha "$source_sha" --port "$stage_port"
+
+verify_service_baseline || {
+  printf '%s\n' 'activation blocked: Gateway service files changed during staging' >&2
+  exit 75
+}
 
 for file in $managed_files; do
   [ ! -f "$runtime_home/bin/$file" ] || cp -p "$runtime_home/bin/$file" "$backup/$file"

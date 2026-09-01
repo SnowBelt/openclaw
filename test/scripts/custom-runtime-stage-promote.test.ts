@@ -12,11 +12,13 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const roots: string[] = [];
+const require = createRequire(import.meta.url);
 
 function createRuntimeFixtureRoot(prefix: string): string {
   // The production launcher intentionally rejects /tmp releases. Linux exposes
@@ -81,7 +83,41 @@ function fixture() {
     guardSchedulerPath,
   );
   writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
+  const json5Entry = require.resolve("json5");
+  cpSync(
+    path.resolve(path.dirname(json5Entry), ".."),
+    path.join(release, "node_modules", "json5"),
+    { recursive: true, dereference: false },
+  );
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
+  const provenanceRecordPath = path.join(
+    runtimeHome,
+    "source-provenance",
+    sourceSha,
+    "provenance.json",
+  );
+  mkdirSync(path.dirname(provenanceRecordPath), { recursive: true, mode: 0o700 });
+  writeFileSync(provenanceRecordPath, "{}\n", { mode: 0o600 });
+  chmodSync(runtimeHome, 0o700);
+  chmodSync(path.join(runtimeHome, "source-provenance"), 0o700);
+  const provenanceHelper = path.join(
+    release,
+    "scripts",
+    "custom-runtime",
+    "custom-runtime-source-provenance.mjs",
+  );
+  writeFileSync(provenanceHelper, "process.exit(0);\n", { mode: 0o600 });
+  writeFileSync(
+    path.join(release, ".openclaw-runtime-provenance.json"),
+    `${JSON.stringify({
+      schema: "openclaw.custom-runtime-runtime-provenance.v1",
+      sourceSha,
+      treeSha: "a".repeat(40),
+      recordPath: provenanceRecordPath,
+      recordSha256: createHash("sha256").update(readFileSync(provenanceRecordPath)).digest("hex"),
+    })}\n`,
+    { mode: 0o600 },
+  );
   executable(
     path.join(release, "dist", "release-governor.js"),
     [

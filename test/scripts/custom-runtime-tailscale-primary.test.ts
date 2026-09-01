@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -30,6 +31,7 @@ function createFixture() {
   const daemon = path.join(fakeBin, "tailscaled");
   const cli = path.join(fakeBin, "tailscale");
   const launchctl = path.join(fakeBin, "launchctl");
+  const provider = path.join(root, "secret-provider");
   const launchMarker = path.join(root, "launched");
   const launchLog = path.join(root, "launch.log");
   const serveMarker = path.join(root, "serve-configured");
@@ -81,11 +83,17 @@ function createFixture() {
     ].join("\n"),
     0o755,
   );
+  writeFile(
+    provider,
+    '#!/bin/sh\nprintf \'%s\\n\' \'{"values":{"discord/bot-token":"test-only"}}\'\n',
+    0o755,
+  );
 
   const env = {
     ...process.env,
     HOME: home,
     OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+    OPENCLAW_SECRET_PROVIDER: provider,
     OPENCLAW_GATEWAY_PORT: "18789",
     OPENCLAW_TAILSCALE_PRIMARY_CLI: cli,
     OPENCLAW_TAILSCALE_PRIMARY_DAEMON: daemon,
@@ -140,14 +148,19 @@ function parsePlist(filePath: string): unknown {
   return JSON.parse(result.stdout) as unknown;
 }
 
-function writePlist(filePath: string, programArguments: string[]): void {
+function writeGatewayPlist(
+  filePath: string,
+  programArguments: string[],
+  workingDirectory: string,
+): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const result = spawnSync(
     "python3",
     [
       "-c",
-      "import plistlib, sys; plistlib.dump({'Label': 'test.gateway', 'ProgramArguments': sys.argv[2:]}, open(sys.argv[1], 'wb'))",
+      "import plistlib, sys; plistlib.dump({'Label': 'test.gateway', 'ProgramArguments': sys.argv[3:], 'WorkingDirectory': sys.argv[2]}, open(sys.argv[1], 'wb'))",
       filePath,
+      workingDirectory,
       ...programArguments,
     ],
     { encoding: "utf8" },
@@ -270,19 +283,53 @@ describe("custom runtime primary Tailscale continuity guard", () => {
     );
     const fakeBin = path.join(fixture.root, "guard-bin");
     const gatewayPlist = path.join(fixture.root, "gateway.plist");
+    const runtimeRoot = path.join(fixture.root, "runtime-release");
+    const sourceSha = "a".repeat(40);
+    const provenanceRecord = path.join(
+      fixture.runtimeHome,
+      "source-provenance",
+      sourceSha,
+      "provenance.json",
+    );
+    const ownerPid = "424242";
     writeFile(launcher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n', 0o755);
     writeFile(primaryGuard, "#!/bin/sh\nexit 1\n", 0o755);
     writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o755);
+    writeFile(path.join(fakeBin, "lsof"), `#!/bin/sh\nprintf '%s\\n' '${ownerPid}'\n`, 0o755);
+    writeFile(
+      path.join(fakeBin, "ps"),
+      `#!/bin/sh\nprintf '%s\\n' '${runtimeRoot}/dist/index.js gateway --port 18789'\n`,
+      0o755,
+    );
+    writeFile(path.join(runtimeRoot, "dist", "index.js"), "// test runtime\n", 0o600);
+    writeFile(provenanceRecord, "{}\n", 0o600);
+    fs.chmodSync(fixture.runtimeHome, 0o700);
+    fs.chmodSync(path.join(fixture.runtimeHome, "source-provenance"), 0o700);
+    writeFile(
+      path.join(runtimeRoot, ".openclaw-runtime-provenance.json"),
+      `${JSON.stringify({
+        recordPath: provenanceRecord,
+        recordSha256: createHash("sha256").update("{}\n").digest("hex"),
+        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        sourceSha,
+        treeSha: "b".repeat(40),
+      })}\n`,
+      0o600,
+    );
     writeFile(
       path.join(fixture.runtimeHome, "active-runtime.json"),
-      `${JSON.stringify({ runtimeRoot: "/immutable/openclaw-release" })}\n`,
+      `${JSON.stringify({ runtimeRoot, sourceSha })}\n`,
     );
-    writePlist(gatewayPlist, [launcher, "gateway"]);
+    writeGatewayPlist(gatewayPlist, [launcher, "gateway"], runtimeRoot);
     const env = {
       ...process.env,
       HOME: fixture.home,
       OPENCLAW_CUSTOM_RUNTIME_HOME: fixture.runtimeHome,
       OPENCLAW_GATEWAY_PLIST: gatewayPlist,
+      OPENCLAW_SECRET_PROVIDER: fixture.env.OPENCLAW_SECRET_PROVIDER,
+      OPENCLAW_LSOF_BIN: path.join(fakeBin, "lsof"),
+      OPENCLAW_PS_BIN: path.join(fakeBin, "ps"),
+      OPENCLAW_PGREP_BIN: path.join(fakeBin, "pgrep"),
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
     };
 
