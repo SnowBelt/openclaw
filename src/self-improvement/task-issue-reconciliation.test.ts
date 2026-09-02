@@ -13,7 +13,12 @@ import {
 
 const NOW = 1_800_000_000_000;
 
-function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
+type TestTaskRecord = TaskRecord & {
+  judgeStatus?: string;
+  userVisible?: boolean;
+};
+
+function task(overrides: Partial<TestTaskRecord> = {}): TestTaskRecord {
   return {
     taskId: "task-1",
     runtime: "cli",

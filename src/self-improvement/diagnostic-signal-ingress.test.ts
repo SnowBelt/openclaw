@@ -37,7 +37,9 @@ describe("diagnostic signal ingress", () => {
   it("replays a signal durably staged before process restart", async () => {
     const stateDir = await createStateDir();
     stageDiagnosticSignalInput({ stateDir, input: input() });
-    const recordSignal = vi.fn(async () => ({}) as never);
+    const recordSignal = vi.fn(
+      async (_params: { input: SelfImprovementSignalInput }) => ({}) as never,
+    );
     const ingress = startDiagnosticSignalIngress({ stateDir, recordSignal, intervalMs: 60_000 });
 
     await ingress.drain();
@@ -77,7 +79,9 @@ describe("diagnostic signal ingress", () => {
     const filePath = stageDiagnosticSignalInput({ stateDir, input: input() });
     const raw = await fs.readFile(filePath, "utf8");
     await fs.writeFile(filePath, raw.replace("Pattern Lab workflow failed", "tampered"));
-    const recordSignal = vi.fn(async () => ({}) as never);
+    const recordSignal = vi.fn(
+      async (_params: { input: SelfImprovementSignalInput }) => ({}) as never,
+    );
     const ingress = startDiagnosticSignalIngress({ stateDir, recordSignal, intervalMs: 60_000 });
 
     await ingress.drain();
@@ -110,7 +114,9 @@ describe("diagnostic signal ingress", () => {
     );
     const [entry] = await fs.readdir(stagedDirectory);
     await fs.rename(path.join(stagedDirectory, entry), path.join(externalWorkflowDir, entry));
-    const recordSignal = vi.fn(async () => ({}) as never);
+    const recordSignal = vi.fn(
+      async (_params: { input: SelfImprovementSignalInput }) => ({}) as never,
+    );
     const ingress = startDiagnosticSignalIngress({
       stateDir,
       externalWorkflowDir,
