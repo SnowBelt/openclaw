@@ -88,6 +88,30 @@
       ]
     },
     {
+      "id": "plugin:codex",
+      "kind": "plugin",
+      "pluginId": "codex",
+      "requiredPaths": ["extensions/codex/openclaw.plugin.json"]
+    },
+    {
+      "id": "plugin:discord",
+      "kind": "plugin",
+      "pluginId": "discord",
+      "requiredPaths": ["extensions/discord/openclaw.plugin.json"]
+    },
+    {
+      "id": "plugin:ollama",
+      "kind": "plugin",
+      "pluginId": "ollama",
+      "requiredPaths": ["extensions/ollama/openclaw.plugin.json"]
+    },
+    {
+      "id": "plugin:searxng",
+      "kind": "plugin",
+      "pluginId": "searxng",
+      "requiredPaths": ["extensions/searxng/openclaw.plugin.json"]
+    },
+    {
       "id": "workflow:pcc-project-management",
       "kind": "workflow",
       "requiredPaths": [
@@ -634,6 +658,8 @@
         "src/pcc/release-governance/governor.ts",
         "scripts/custom-runtime/custom-runtime-package.d.mts",
         "scripts/custom-runtime/custom-runtime-package.mjs",
+        "scripts/custom-runtime/custom-runtime-build-profile.mjs",
+        "test/scripts/custom-runtime-build-profile.test.ts",
         "test/scripts/custom-runtime-local-model-smoke.test.ts",
         "scripts/custom-runtime/custom-runtime-local-model-smoke.ts",
         "scripts/custom-runtime/runtime-package-integrity.d.mts",
