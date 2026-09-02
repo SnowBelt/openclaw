@@ -694,14 +694,17 @@ function createControlPlaneBundle({
       if (!stored.redacted && entry.sha256 && storedSha256 !== entry.sha256) {
         fail(`control-plane copy changed while reading ${path.basename(entry.sourcePath)}`);
       }
-      return {
+      const file = {
         sourcePath: entry.sourcePath,
         sha256: entry.sha256,
         storedSha256,
         redacted: stored.redacted,
-        ...(entry.derivedFrom ? { derivedFrom: entry.derivedFrom } : {}),
         relativePath,
       };
+      if (entry.derivedFrom) {
+        file.derivedFrom = entry.derivedFrom;
+      }
+      return file;
     });
     writeAtomic(path.join(staging, "manifest.json"), {
       schema: "openclaw.custom-runtime-control-plane-backup.v1",
