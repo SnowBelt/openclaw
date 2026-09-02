@@ -13,13 +13,13 @@ import { createStreamIteratorWrapper } from "./stream-iterator-wrapper.js";
 
 type AcquireSharedAdmission = (params: {
   owner: string;
-  statePath?: string;
+  env?: NodeJS.ProcessEnv;
 }) => Promise<LocalModelAdmissionLease>;
 
 export function createLocalModelAdmissionStreamFn(params: {
   streamFn: StreamFn;
   owner: string;
-  statePath?: string;
+  env?: NodeJS.ProcessEnv;
   acquire?: AcquireSharedAdmission;
 }): StreamFn {
   const acquire = params.acquire ?? acquireSharedLocalModelAdmission;
@@ -28,7 +28,7 @@ export function createLocalModelAdmissionStreamFn(params: {
     context: Context,
     options?: SimpleStreamOptions,
   ): Promise<AssistantMessageEventStreamLike> => {
-    const lease = await acquire({ owner: params.owner, statePath: params.statePath });
+    const lease = await acquire({ owner: params.owner, env: params.env });
     let released = false;
     const release = async (): Promise<void> => {
       if (released) {

@@ -118,7 +118,6 @@ function lease(release = vi.fn(async () => undefined)) {
     mode: "exclusive" as const,
     acquiredAt: 1,
     expiresAt: 2,
-    statePath: "/tmp/openclaw-local-model-admission/state.json",
     borrowed: false,
     samples: [
       {

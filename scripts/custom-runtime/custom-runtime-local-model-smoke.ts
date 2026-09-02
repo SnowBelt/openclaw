@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   acquireExclusiveLocalModelAdmission,
+  LOCAL_MODEL_ADMISSION_TOKEN_ENV,
   LocalModelAdmissionError,
   type LocalModelAdmissionLease,
   type LocalModelResourceSnapshot,
@@ -661,7 +662,6 @@ function childEnvironment(params: {
   env.OPENCLAW_CONFIG_PATH = params.configPath;
   env.OPENCLAW_STATE_DIR = params.stateDir;
   env.OPENCLAW_WORKSPACE_DIR = path.join(path.dirname(params.configPath), "workspace");
-  env.OPENCLAW_LOCAL_MODEL_ADMISSION_PATH = params.admission.statePath;
   env.OPENCLAW_LOCAL_MODEL_ADMISSION_TOKEN = params.admission.token;
   env.OPENCLAW_SKIP_CHANNELS = "1";
   env.OPENCLAW_SKIP_CRON = "1";
@@ -1106,7 +1106,13 @@ export async function runLocalModelCompatibilitySmoke(
   let receipt: Record<string, unknown> | undefined;
   try {
     const acquire = params.runtime?.acquire ?? acquireExclusiveLocalModelAdmission;
+    const admissionEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      OPENCLAW_STATE_DIR: stateDir,
+    };
+    delete admissionEnv[LOCAL_MODEL_ADMISSION_TOKEN_ENV];
     lease = await acquire({
+      env: admissionEnv,
       owner: `patternlab:runtime-compatibility:${identity.releaseId}`,
       waitMs: params.waitMs ?? LOCAL_MODEL_COMPATIBILITY_WAIT_MS,
       sampleIntervalMs: LOCAL_MODEL_COMPATIBILITY_SAMPLE_INTERVAL_MS,
