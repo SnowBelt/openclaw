@@ -47,7 +47,10 @@ describe("custom runtime build profile", () => {
     const expected = ["apps", ...REQUIRED_CERTIFICATION_PLUGIN_IDS].toSorted();
     const { root, manifestPath } = fixture(expected);
 
-    expect(resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toEqual(expected);
+    expect(resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toEqual({
+      bundledPluginIds: expected,
+      externalPluginIds: [],
+    });
   });
 
   it("fails closed before a build can omit a certification provider", () => {
@@ -62,8 +65,11 @@ describe("custom runtime build profile", () => {
     const repoRoot = fs.realpathSync(process.cwd());
     const manifestPath = path.join(repoRoot, "config", "custom-runtime-capabilities.json");
 
-    expect(resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath })).toEqual(
+    const result = resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath });
+    expect([...result.bundledPluginIds, ...result.externalPluginIds]).toEqual(
       expect.arrayContaining([...REQUIRED_CERTIFICATION_PLUGIN_IDS]),
     );
+    expect(result.bundledPluginIds).toContain("ollama");
+    expect(result.externalPluginIds).toContain("searxng");
   });
 });

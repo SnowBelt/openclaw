@@ -41,6 +41,8 @@ export function resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath }) {
     throw new Error(`Custom runtime certification plugins are missing: ${missing.join(",")}`);
   }
   const result = [...pluginIds].toSorted((left, right) => left.localeCompare(right));
+  const bundledPluginIds = [];
+  const externalPluginIds = [];
   for (const pluginId of result) {
     const pluginRoot = path.join(root, "extensions", pluginId);
     const manifestFile = path.join(pluginRoot, "openclaw.plugin.json");
@@ -51,8 +53,20 @@ export function resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath }) {
     if (!isRecord(pluginManifest) || pluginManifest.id !== pluginId) {
       throw new Error(`Bundled plugin identity mismatch: ${pluginId}`);
     }
+    const packagePath = path.join(pluginRoot, "package.json");
+    const packageJson = fs.existsSync(packagePath)
+      ? JSON.parse(fs.readFileSync(packagePath, "utf8"))
+      : {};
+    if (
+      isRecord(packageJson?.openclaw?.build) &&
+      packageJson.openclaw.build.bundledDist === false
+    ) {
+      externalPluginIds.push(pluginId);
+    } else {
+      bundledPluginIds.push(pluginId);
+    }
   }
-  return result;
+  return { bundledPluginIds, externalPluginIds };
 }
 
 export function runCustomRuntimeBuild({ repoRoot = process.cwd() } = {}) {
@@ -64,7 +78,7 @@ export function runCustomRuntimeBuild({ repoRoot = process.cwd() } = {}) {
     env: {
       ...process.env,
       OPENCLAW_BUILD_ALL_NO_PNPM: "1",
-      OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS: pluginIds.join(","),
+      OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS: pluginIds.bundledPluginIds.join(","),
     },
     stdio: "inherit",
   });
