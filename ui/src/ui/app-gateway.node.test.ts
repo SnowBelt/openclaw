@@ -887,6 +887,49 @@ describe("connectGateway", () => {
     });
   });
 
+  it("hydrates update safety on connect without requiring the PCC view", async () => {
+    const host = createHost();
+    const sourceSha = "a".repeat(40);
+
+    connectGateway(host);
+    const client = requireGatewayClient();
+    client.request.mockImplementation(async (method: string) => {
+      if (method === "update.status") {
+        return {
+          sentinel: null,
+          updateSafety: {
+            managedRuntime: true,
+            standardUpdateBlocked: true,
+            sourceDurable: true,
+            sourceDurabilityReason: "durable",
+            backupConfigured: true,
+            approvalPending: false,
+            pendingCandidateSha: null,
+            preparationRunning: false,
+            preparationStatus: "idle",
+            preparationReason: null,
+            sourceSha,
+            sourceRepo: "/source.git",
+            sourceBranch: `refs/provenance/${sourceSha}`,
+            runtimeRoot: "/release",
+            pointerPath: "/runtime-home/active-runtime.json",
+            reason: "managed",
+          },
+        };
+      }
+      return {};
+    });
+
+    client.emitHello();
+
+    await vi.waitFor(() => {
+      expect(host.customRuntimeUpdatePolicy).toMatchObject({
+        managedRuntime: true,
+        sourceSha,
+      });
+    });
+  });
+
   it("clears pending update verification when the restarted version matches", async () => {
     const host = createHost();
     host.pendingUpdateExpectedVersion = "2.0.0";

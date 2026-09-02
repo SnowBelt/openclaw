@@ -39,6 +39,7 @@ type SelfImprovementBackgroundScan = typeof runSelfImprovementGovernorScan;
 type SelfImprovementBackgroundAnalysis = typeof runSelfImprovementAnalysis;
 
 export type SelfImprovementSignalBridge = {
+  drain: () => Promise<number>;
   stop: () => void;
 };
 
@@ -76,6 +77,7 @@ export function startSelfImprovementSignalBridge(params: {
     },
   );
   return {
+    drain: ingress.drain,
     stop: () => {
       unsubscribe();
       ingress.stop();
@@ -227,6 +229,7 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
   interval: ReturnType<typeof setInterval>;
   initial: ReturnType<typeof setTimeout>;
   runNow: (trigger?: SelfImprovementScanTrigger) => Promise<void>;
+  drainSignals: () => Promise<number>;
   stop: () => void;
 } {
   let inFlight: Promise<void> | null = null;
@@ -375,6 +378,7 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
             return result;
           },
         });
+  const drainSignals = signalBridge?.drain ?? (async () => 0);
   const stop = () => {
     clearInterval(interval);
     clearTimeout(initial);
@@ -384,5 +388,5 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
     }
     signalBridge?.stop();
   };
-  return { interval, initial, runNow, stop };
+  return { interval, initial, runNow, drainSignals, stop };
 }

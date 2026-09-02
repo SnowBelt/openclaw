@@ -3,6 +3,7 @@
 set -eu
 
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
+trusted_provenance_helper=${OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER:-"$runtime_home/bin/custom-runtime-source-provenance.mjs"}
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 env_wrapper=${OPENCLAW_GATEWAY_ENV_WRAPPER:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway-env-wrapper.sh"}
@@ -159,7 +160,8 @@ esac
   exit 64
 }
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
-  [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
+  [ -n "$source_repo" ] || usage
+  [ -n "$source_branch" ] || source_branch=HEAD
   source_repo=$(cd "$source_repo" && pwd -P)
   case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
 fi
@@ -199,27 +201,88 @@ if [ "$(tr -d '[:space:]' < "$stamp_file")" != "$source_sha" ]; then
 fi
 verify_release_source_provenance() {
   provenance_envelope="$release/.openclaw-runtime-provenance.json"
-  if [ ! -e "$provenance_envelope" ]; then
-    return 0
-  fi
-  [ -f "$provenance_envelope" ] && [ ! -L "$provenance_envelope" ] || {
-    printf '%s\n' 'promotion blocked: source provenance envelope is unsafe' >&2
+  [ -e "$provenance_envelope" ] || {
+    printf '%s\n' 'promotion blocked: durable source provenance envelope is missing' >&2
     return 1
   }
-  provenance_fields=$(python3 - "$provenance_envelope" <<'PY'
+  [ -f "$provenance_envelope" ] || {
+    printf '%s\n' 'promotion blocked: source provenance envelope is not a regular file' >&2
+    return 1
+  }
+  [ ! -L "$provenance_envelope" ] || {
+    printf '%s\n' 'promotion blocked: source provenance envelope is a symbolic link' >&2
+    return 1
+  }
+  provenance_fields=$(python3 - "$provenance_envelope" "$runtime_home" "$source_sha" <<'PY'
 import json
+import os
+import re
+import stat
 import sys
 
-with open(sys.argv[1], encoding="utf-8") as handle:
-    value = json.load(handle)
+envelope_path, runtime_home, expected_sha = sys.argv[1:]
+
+def fail(message):
+    raise SystemExit(message)
+
+def private_regular(path, description):
+    try:
+        info = os.lstat(path)
+    except OSError:
+        fail(f"{description} is missing")
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
+        fail(f"{description} is not a private regular file")
+
+private_regular(envelope_path, "source provenance envelope")
+try:
+    with open(envelope_path, encoding="utf-8") as handle:
+        value = json.load(handle)
+except (OSError, json.JSONDecodeError):
+    fail("source provenance envelope is malformed")
 if value.get("schema") != "openclaw.custom-runtime-runtime-provenance.v1":
     raise SystemExit("source provenance envelope schema is invalid")
-if value.get("sourceSha") is None or not isinstance(value.get("recordPath"), str):
+if value.get("sourceSha") != expected_sha:
+    raise SystemExit("source provenance source identity mismatch")
+record_path = value.get("recordPath")
+record_sha = value.get("recordSha256")
+if (
+    not isinstance(record_path, str)
+    or not record_path
+    or not isinstance(record_sha, str)
+    or not re.fullmatch(r"[a-f0-9]{64}", record_sha)
+):
     raise SystemExit("source provenance envelope is incomplete")
-print(value["recordPath"])
-print(value.get("migrationPath", ""))
+provenance_root = os.path.realpath(os.path.join(runtime_home, "source-provenance"))
+try:
+    root_info = os.lstat(provenance_root)
+except OSError:
+    raise SystemExit("source provenance root is missing")
+if not stat.S_ISDIR(root_info.st_mode) or stat.S_ISLNK(root_info.st_mode) or stat.S_IMODE(root_info.st_mode) & 0o077:
+    raise SystemExit("source provenance root is unsafe")
+
+def checked_path(candidate, label):
+    if not isinstance(candidate, str) or not candidate:
+        raise SystemExit(f"source provenance {label} path is missing")
+    resolved = os.path.realpath(candidate)
+    try:
+        if os.path.commonpath((provenance_root, resolved)) != provenance_root:
+            raise SystemExit(f"source provenance {label} path is outside the private root")
+    except ValueError:
+        raise SystemExit(f"source provenance {label} path is invalid")
+    private_regular(candidate, f"source provenance {label}")
+    return resolved
+
+print(checked_path(record_path, "record"))
+migration_path = value.get("migrationPath", "")
+if migration_path:
+    migration_sha = value.get("migrationSha256")
+    if not isinstance(migration_sha, str) or not re.fullmatch(r"[a-f0-9]{64}", migration_sha):
+        raise SystemExit("source provenance migration identity is incomplete")
+    print(checked_path(migration_path, "migration"))
+else:
+    print("")
 print(value.get("historicalSourceSha", ""))
-print(value.get("recordSha256", ""))
+print(record_sha)
 print(value.get("migrationSha256", ""))
 PY
 ) || return 1
@@ -230,15 +293,13 @@ PY
   provenance_migration_sha=$(printf '%s\n' "$provenance_fields" | sed -n '5p')
   [ -f "$provenance_record" ] && [ ! -L "$provenance_record" ] || return 1
   [ "$(shasum -a 256 "$provenance_record" | awk '{print $1}')" = "$provenance_record_sha" ] || return 1
-  provenance_helper="$release/scripts/custom-runtime/custom-runtime-source-provenance.mjs"
-  [ -f "$provenance_helper" ] && [ ! -L "$provenance_helper" ] || return 1
-  "${OPENCLAW_NODE_BIN:-node}" "$provenance_helper" verify --record "$provenance_record" \
+  [ -f "$trusted_provenance_helper" ] && [ ! -L "$trusted_provenance_helper" ] || return 1
+  "${OPENCLAW_NODE_BIN:-node}" "$trusted_provenance_helper" verify --record "$provenance_record" \
     --expected-sha "$source_sha" --deep true >/dev/null || return 1
   if [ -n "$provenance_migration" ]; then
     [ -n "$provenance_historical" ] && [ -n "$provenance_migration_sha" ] || return 1
     [ "$(shasum -a 256 "$provenance_migration" | awk '{print $1}')" = "$provenance_migration_sha" ] || return 1
-    [ -n "$provenance_migration" ] || return 1
-    "${OPENCLAW_NODE_BIN:-node}" "$provenance_helper" verify-migration \
+    "${OPENCLAW_NODE_BIN:-node}" "$trusted_provenance_helper" verify-migration \
       --migration "$provenance_migration" --historical-source-sha "$provenance_historical" \
       --candidate-sha "$source_sha" >/dev/null || return 1
   fi
@@ -331,8 +392,7 @@ PY
       printf '%s\n' 'promotion blocked: legacy source paths cannot accompany a provenance migration' >&2
       exit 64
     }
-    "${OPENCLAW_NODE_BIN:-node}" \
-      "$release/scripts/custom-runtime/custom-runtime-source-provenance.mjs" verify-migration \
+    "${OPENCLAW_NODE_BIN:-node}" "$trusted_provenance_helper" verify-migration \
       --migration "$provenance_migration" --historical-source-sha "$active_source_sha" \
       --candidate-sha "$source_sha" >/dev/null || {
         printf '%s\n' 'promotion blocked: provenance migration identity is invalid' >&2
@@ -382,12 +442,18 @@ source, target = sys.argv[1:]
 with open(source, "rb") as handle:
     raw = handle.read()[-32768:]
 text = raw.decode("utf-8", errors="replace")
+text = re.sub(r"(?i)(Bearer\s+)[^\s]+", r"\1[REDACTED]", text)
+key = r"(?:key|[a-z0-9_-]*(?:token|password|secret|authorization|api[_-]?key))"
 text = re.sub(
-    r'(?i)((?:"|\b)(?:token|password|secret|authorization|api[_-]?key)(?:"|\b)\s*[:=]\s*[" ]?)[^"\s,}]+',
+    rf'''(?i)((?:["']|\b){key}(?:["']|\b)\s*[:=]\s*)(["'])(.*?)\2''',
+    lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]{match.group(2)}",
+    text,
+)
+text = re.sub(
+    rf'''(?i)((?:["']|\b){key}(?:["']|\b)\s*[:=]\s*)(?!["'])[^\s,}}]+''',
     r"\1[REDACTED]",
     text,
 )
-text = re.sub(r"(?i)(Bearer\s+)[^\s]+", r"\1[REDACTED]", text)
 data = text.encode("utf-8", errors="replace")[-32768:]
 descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 try:
@@ -523,6 +589,8 @@ if [ -f "$pointer_backup" ]; then
     exit 1
   }
   if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer_backup" \
+    OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER="$trusted_provenance_helper" \
+    OPENCLAW_ALLOW_LEGACY_SOURCE_STAMP=1 \
     "$rollback_source_launcher" --verify >/dev/null 2>&1; then
     printf '{"at":"%s","result":"rollback_preflight_verify_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
     exit 1
@@ -535,6 +603,8 @@ if [ -f "$pointer_backup" ]; then
   cp -p "$plist_backup" "$rollback_bundle_tmp/ai.openclaw.gateway.plist"
   cp -p "$env_backup" "$rollback_bundle_tmp/ai.openclaw.gateway.env"
   cp -p "$rollback_source_launcher" "$rollback_bundle_tmp/custom-runtime-launcher.sh"
+  cp -p "$trusted_provenance_helper" \
+    "$rollback_bundle_tmp/custom-runtime-source-provenance.mjs"
   python3 - "$rollback_bundle_tmp" "$release" "$source_sha" <<'PY'
 import hashlib
 import json
@@ -552,6 +622,7 @@ for name in (
     "ai.openclaw.gateway.plist",
     "ai.openclaw.gateway.env",
     "custom-runtime-launcher.sh",
+    "custom-runtime-source-provenance.mjs",
 ):
     with open(os.path.join(bundle, name), "rb") as f:
         files[name] = hashlib.sha256(f.read()).hexdigest()
@@ -643,15 +714,13 @@ if missing_capabilities:
     raise SystemExit("release removed required custom capabilities: " + ", ".join(missing_capabilities))
 required = list(dict.fromkeys([*previous_required, *surfaces.keys()]))
 required_capabilities = list(dict.fromkeys([*previous_capabilities, *capabilities.keys()]))
-provenance = None
-if os.path.exists(provenance_path):
-    if os.path.islink(provenance_path):
-        raise SystemExit("release source provenance envelope is unsafe")
-    with open(provenance_path, encoding="utf-8") as f:
-        provenance = json.load(f)
-    if not isinstance(provenance, dict) or provenance.get("sourceSha") != sha:
-        raise SystemExit("release source provenance envelope does not match the candidate")
-data = {"schemaVersion": 2 if provenance is not None else 1, "releaseId": os.path.basename(root), "runtimeRoot": root,
+if os.path.islink(provenance_path) or not os.path.isfile(provenance_path):
+    raise SystemExit("release source provenance envelope is missing or unsafe")
+with open(provenance_path, encoding="utf-8") as f:
+    provenance = json.load(f)
+if not isinstance(provenance, dict) or provenance.get("sourceSha") != sha:
+    raise SystemExit("release source provenance envelope does not match the candidate")
+data = {"schemaVersion": 2, "releaseId": os.path.basename(root), "runtimeRoot": root,
         "entrypoint": os.path.join(root, "dist", "index.js"), "sourceSha": sha,
         "openclawVersion": version, "manifestPath": manifest,
         "manifestSha256": manifest_sha,
@@ -660,8 +729,7 @@ data = {"schemaVersion": 2 if provenance is not None else 1, "releaseId": os.pat
         "capabilityManifestSha256": capability_manifest_sha,
         "requiredCapabilities": required_capabilities,
         "previousRelease": previous, "promotedAt": promoted_at}
-if provenance is not None:
-    data["sourceProvenance"] = provenance
+data["sourceProvenance"] = provenance
 if source_repo and source_branch:
     data["sourceRepo"] = source_repo
     data["sourceBranch"] = source_branch

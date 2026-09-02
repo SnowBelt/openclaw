@@ -76,7 +76,7 @@ function readJson(filePath, label) {
     if (error?.message?.startsWith("candidate registry blocked:")) {
       throw error;
     }
-    fail(`${label} is malformed`);
+    return fail(`${label} is malformed`);
   }
 }
 

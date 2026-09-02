@@ -67,6 +67,7 @@ function createRuntime(options: { missingDependency?: string } = {}): string {
 }
 
 function sealSnapshot(root: string, runtimePluginClosure?: Record<string, unknown>): void {
+  const sourceSha = fs.readFileSync(path.join(root, ".openclaw-production-sha"), "utf8").trim();
   const runtimeClosurePaths = listRuntimeClosurePaths(root);
   const snapshot = {
     version: 2,
@@ -76,7 +77,7 @@ function sealSnapshot(root: string, runtimePluginClosure?: Record<string, unknow
     runtimeClosureVersion: 1,
     runtimeClosurePaths,
     runtimeClosureHash: hashRuntimeClosure(root, runtimeClosurePaths),
-    source: { commit: SOURCE_SHA },
+    source: { commit: sourceSha },
     ...(runtimePluginClosure ? { runtimePluginClosure } : {}),
   };
   writeFile(root, "snapshot.json", `${JSON.stringify(snapshot)}\n`);
@@ -116,6 +117,19 @@ describe("managed runtime package integrity", () => {
     sealSnapshot(root);
 
     expect(verifyRuntimePackage({ releaseRoot: root })).toEqual([]);
+  });
+
+  it("rejects an unsupported completeness contract version", () => {
+    const root = createRuntime();
+    sealSnapshot(root);
+    const snapshotPath = path.join(root, "snapshot.json");
+    const snapshot = JSON.parse(fs.readFileSync(snapshotPath, "utf8")) as Record<string, unknown>;
+    snapshot.completenessVersion = 2;
+    fs.writeFileSync(snapshotPath, `${JSON.stringify(snapshot)}\n`);
+
+    expect(verifyRuntimePackage({ releaseRoot: root })).toContain(
+      "Runtime package completeness version must be 1.",
+    );
   });
 
   it("detects build and closure tampering", () => {

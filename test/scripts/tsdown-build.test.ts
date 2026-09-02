@@ -371,6 +371,20 @@ describe("resolveTsdownBuildInvocation", () => {
     });
   });
 
+  it("can run tsdown without invoking pnpm in explicit offline mode", () => {
+    const result = resolveTsdownBuildInvocation({
+      platform: "linux",
+      nodeExecPath: "/usr/bin/node",
+      env: { OPENCLAW_BUILD_OFFLINE: "1" },
+      ...NO_MEMORY_LIMIT,
+    });
+
+    expect(result.command).toBe("/usr/bin/node");
+    expect(result.args[0]).toBe("node_modules/tsdown/dist/run.mjs");
+    expect(result.options.env).toMatchObject({ OPENCLAW_BUILD_OFFLINE: "1" });
+    expect(result.args).not.toContain("pnpm");
+  });
+
   it("keeps source-checkout prune best-effort", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const rmSync = vi.spyOn(fs, "rmSync");

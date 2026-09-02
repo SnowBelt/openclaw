@@ -84,6 +84,7 @@ export const UpdateRunParamsSchema = Type.Object(
     continuationMessage: Type.Optional(Type.String()),
     restartDelayMs: Type.Optional(Type.Integer({ minimum: 0 })),
     timeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
+    approvalSha: Type.Optional(Type.String({ pattern: "^[0-9a-f]{40}$" })),
   },
   { additionalProperties: false },
 );

@@ -49,6 +49,16 @@ export function canonicalJson(value) {
   return JSON.stringify(canonicalValue(value));
 }
 
+function asError(value, fallback) {
+  if (value instanceof Error) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return new Error(value);
+  }
+  return new Error(fallback);
+}
+
 export function sha256Canonical(value) {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
@@ -205,10 +215,10 @@ function withRegistryLock(registryPath, operation) {
     }
   }
   if (operationError) {
-    throw operationError;
+    throw asError(operationError, "Temporary-workspace operation failed.");
   }
   if (cleanupError) {
-    throw cleanupError;
+    throw asError(cleanupError, "Temporary-workspace cleanup failed.");
   }
   return result;
 }

@@ -70,6 +70,7 @@ export function registerProviderStreamForModel<TApi extends Api>(params: {
       ? createLocalModelAdmissionStreamFn({
           streamFn,
           owner: `openclaw:provider:${params.model.provider}:${params.model.id}`,
+          env: params.env,
         })
       : streamFn;
   // Register custom APIs only after a concrete stream exists, so later callers

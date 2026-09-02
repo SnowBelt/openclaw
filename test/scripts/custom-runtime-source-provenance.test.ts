@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const helper = path.resolve("scripts/custom-runtime/custom-runtime-source-provenance.mjs");
+const sourceRemote = "https://github.com/SnowBelt/openclaw.git";
+const sourceRemoteBranch = "codex/runtime-update-20260829T120000Z";
 const temporaryDirectories: string[] = [];
 
 function runGit(cwd: string, args: string[]): string {
@@ -65,7 +67,19 @@ describe("custom runtime source provenance", () => {
     const historicalSha = "e8dc155fe2f16183373f8ce1bc8d28f5d48377cd";
 
     const imported = runHelper(
-      ["import", "--source", root, "--source-sha", sourceSha, "--runtime-home", runtimeHome],
+      [
+        "import",
+        "--source",
+        root,
+        "--source-sha",
+        sourceSha,
+        "--runtime-home",
+        runtimeHome,
+        "--source-remote",
+        sourceRemote,
+        "--source-remote-branch",
+        sourceRemoteBranch,
+      ],
       nonRepositoryCwd,
     );
     expect(imported.status, imported.stderr).toBe(0);
@@ -73,8 +87,24 @@ describe("custom runtime source provenance", () => {
       bundlePath: string;
       recordPath: string;
       sourceSha: string;
+      sourceRemote: string;
+      sourceRemoteBranch: string;
+      storePath: string;
     };
     expect(record.sourceSha).toBe(sourceSha);
+    expect(record.sourceRemote).toBe(sourceRemote);
+    expect(record.sourceRemoteBranch).toBe(sourceRemoteBranch);
+    expect(runGit(root, ["--git-dir", record.storePath, "remote", "get-url", "origin"])).toBe(
+      sourceRemote,
+    );
+    expect(
+      runGit(root, [
+        "--git-dir",
+        record.storePath,
+        "rev-parse",
+        `refs/remotes/origin/${sourceRemoteBranch}^{commit}`,
+      ]),
+    ).toBe(sourceSha);
     expect(fs.statSync(record.bundlePath).mode & 0o077).toBe(0);
 
     const verified = runHelper(
@@ -95,6 +125,10 @@ describe("custom runtime source provenance", () => {
       runtimeHome,
       "--active-release",
       "legacy-runtime",
+      "--source-remote",
+      sourceRemote,
+      "--source-remote-branch",
+      sourceRemoteBranch,
     ]);
     expect(migrationResult.status, migrationResult.stderr).toBe(0);
     const migration = JSON.parse(migrationResult.stdout) as {
@@ -124,6 +158,10 @@ describe("custom runtime source provenance", () => {
       sourceSha,
       "--runtime-home",
       runtimeHome,
+      "--source-remote",
+      sourceRemote,
+      "--source-remote-branch",
+      sourceRemoteBranch,
     ]);
     expect(repeatedImport.status, repeatedImport.stderr).toBe(0);
     expect(JSON.parse(repeatedImport.stdout)).toMatchObject({ recordPath: record.recordPath });
@@ -142,6 +180,10 @@ describe("custom runtime source provenance", () => {
       sourceSha,
       "--runtime-home",
       runtimeHome,
+      "--source-remote",
+      sourceRemote,
+      "--source-remote-branch",
+      sourceRemoteBranch,
     ]);
     expect(imported.status, imported.stderr).toBe(0);
     const record = JSON.parse(imported.stdout) as { bundlePath: string; recordPath: string };

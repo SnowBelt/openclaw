@@ -23,6 +23,7 @@ const promoteScript = path.join(
 );
 const activeSha = "1".repeat(40);
 const candidateSha = "2".repeat(40);
+const lifecycleApprovalId = "release-governor:test:lifecycle-arbitration";
 const leaseBinding = [
   "--active-sha",
   activeSha,
@@ -55,6 +56,7 @@ function fixture() {
       ...process.env,
       HOME: home,
       OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+      OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "release-governor:test-lifecycle",
     },
     home,
     runtimeHome,
@@ -64,8 +66,8 @@ function fixture() {
 function lifecycleCommand(runtimeHome: string, operation: string, holdSeconds = 0) {
   return [
     "set -eu",
+    `export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID="${lifecycleApprovalId}"`,
     `. "${authScript}"`,
-    'export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID="pending:release-governor-verification"',
     `custom_runtime_lifecycle_begin "${runtimeHome}" "${operation}" "${activeSha}" "${candidateSha}"`,
     holdSeconds > 0 ? `sleep ${holdSeconds}` : ":",
     `custom_runtime_lifecycle_finish "${runtimeHome}" "${operation}-complete" 0`,
@@ -117,7 +119,11 @@ describe("custom runtime lifecycle arbitration", () => {
     const acquired = spawnSync(
       "sh",
       [promoteScript, "--lease-acquire", ...leaseBinding, "--ttl-seconds", "600"],
-      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...input.env, OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "" },
+      },
     );
     expect(acquired.status, acquired.stderr).toBe(0);
 
@@ -302,7 +308,7 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
     expect(receipt).toMatchObject({
       activeSha,
       actor: expect.any(String),
-      approvalId: "pending:release-governor-verification",
+      approvalId: lifecycleApprovalId,
       candidateSha,
       exitCode: 0,
       invocationId: expect.any(String),
@@ -323,7 +329,11 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
     const acquired = spawnSync(
       "sh",
       [promoteScript, "--lease-acquire", ...leaseBinding, "--ttl-seconds", "600"],
-      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...input.env, OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "" },
+      },
     );
     expect(acquired.status, acquired.stderr).toBe(0);
 
@@ -382,7 +392,11 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
         `. "${authScript}"
 custom_runtime_certification_lease break-emergency "$OPENCLAW_CUSTOM_RUNTIME_HOME" "" "" "" "" "" "" "" "" "operator-recovery"`,
       ],
-      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...input.env, OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: "" },
+      },
     );
     expect(denied.status).toBe(78);
     expect(denied.stderr).toContain("Release Governor approval identity is missing");

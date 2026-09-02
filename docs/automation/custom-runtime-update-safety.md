@@ -75,7 +75,10 @@ pnpm custom-runtime:package -- \
   --source-sha <candidate-sha> \
   --active-sha <active-sha> \
   --runtime-config /path/to/runtime-config.json5 \
-  --release-id <unique-release-id>
+  --release-id <unique-release-id> \
+  --provenance-runtime-home "$HOME/.openclaw-custom-runtime" \
+  --source-remote https://github.com/SnowBelt/openclaw.git \
+  --source-remote-branch <published-candidate-branch>
 ```
 
 The `--runtime-config` input is required for a v2 capability manifest. It is read-only evidence for the exact effective plugin configuration, including explicit load paths; it is never copied into the release. The packager fails before dependency deployment if any configured plugin is absent from the complete bundled build snapshot or an explicitly loaded external manifest, or if the snapshot contains stale or unexpected bundled plugin output. The packager uses the exact build snapshot, creates a production-only dependency closure, copies every registered capability path directly from the candidate Git commit rather than mutable working-tree bytes, and writes an additive runtime-closure inventory and SHA-256 digest into `snapshot.json`. It rechecks the candidate after dependency deployment to stop if packaging dirtied the source. Before sealing, after sealing, and before every managed launch, the packaged verifier recomputes both the build-artifact hash and the complete runtime-closure hash. It rejects missing Research Manager dependencies, changed bytes or executable bits, broken or release-escaping symlinks, special filesystem entries, unregistered capability paths, sensitive key or environment files outside dependencies, and forbidden source, state, or build-artifact directories.

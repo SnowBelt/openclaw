@@ -7,6 +7,7 @@ import {
   copyStaticExtensionAssetsToRuntimeOverlay,
   discoverStaticExtensionAssets,
 } from "../../scripts/lib/static-extension-assets.mjs";
+import { WORKSPACE_RUNTIME_TEMPLATE_NAMES } from "../../scripts/lib/workspace-template-assets.mjs";
 import {
   copyStaticExtensionAssets,
   listStaticExtensionAssetOutputs,
@@ -33,6 +34,14 @@ async function expectPathMissing(targetPath: string): Promise<void> {
     throw new Error("expected missing path error");
   }
   expect(Reflect.get(statError, "code")).toBe("ENOENT");
+}
+
+async function writeWorkspaceRuntimeTemplates(rootDir: string): Promise<void> {
+  const templateDir = path.join(rootDir, "src", "agents", "templates");
+  await fs.mkdir(templateDir, { recursive: true });
+  for (const name of WORKSPACE_RUNTIME_TEMPLATE_NAMES) {
+    await fs.writeFile(path.join(templateDir, name), `# ${name}\n`, "utf8");
+  }
 }
 
 describe("runtime postbuild static assets", () => {
@@ -149,6 +158,8 @@ describe("runtime postbuild static assets", () => {
     );
     await fs.writeFile(path.join(rootDir, source), "export const viewer = true;\n", "utf8");
 
+    await writeWorkspaceRuntimeTemplates(rootDir);
+
     runRuntimePostBuild({
       cwd: rootDir,
       repoRoot: rootDir,
@@ -198,6 +209,8 @@ describe("runtime postbuild static assets", () => {
     );
     await fs.writeFile(path.join(distPluginDir, output), "console.log('viewer');\n", "utf8");
 
+    await writeWorkspaceRuntimeTemplates(rootDir);
+
     runRuntimePostBuild({
       cwd: rootDir,
       repoRoot: rootDir,
@@ -233,6 +246,8 @@ describe("runtime postbuild static assets", () => {
       }),
       "utf8",
     );
+
+    await writeWorkspaceRuntimeTemplates(rootDir);
 
     runRuntimePostBuild({
       cwd: rootDir,

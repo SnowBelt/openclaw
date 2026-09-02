@@ -1612,6 +1612,16 @@ export function renderApp(state: AppViewState) {
   const chatHeaderHidden = isChat && (state.onboarding || state.chatHeaderControlsHidden);
   const navDrawerOpen = state.navDrawerOpen && !state.onboarding;
   const navCollapsed = state.settings.navCollapsed && !navDrawerOpen;
+  const pendingUpdateCandidateSha =
+    state.customRuntimeUpdatePolicy?.approvalPending === true &&
+    /^[0-9a-f]{40}$/u.test(state.customRuntimeUpdatePolicy.pendingCandidateSha ?? "")
+      ? state.customRuntimeUpdatePolicy.pendingCandidateSha
+      : null;
+  const genericUpdateBannerVisible = Boolean(
+    state.updateAvailable &&
+    state.updateAvailable.latestVersion !== state.updateAvailable.currentVersion &&
+    !isUpdateBannerDismissed(state.updateAvailable),
+  );
   const dashboardHeaderContext = resolveDashboardHeaderContext(state);
   const showThinking = state.onboarding ? false : state.settings.chatShowThinking;
   const showToolCalls = state.onboarding ? true : state.settings.chatShowToolCalls;
@@ -2888,43 +2898,75 @@ export function renderApp(state: AppViewState) {
               ${state.updateStatusBanner.text}
             </div>`
           : nothing}
-        ${state.updateAvailable &&
-        state.updateAvailable.latestVersion !== state.updateAvailable.currentVersion &&
-        !isUpdateBannerDismissed(state.updateAvailable)
+        ${pendingUpdateCandidateSha || genericUpdateBannerVisible
           ? html`<div
               class=${`update-banner callout danger ${state.tab === "pcc" ? "update-banner--pcc-chip" : ""}`}
               role="alert"
               data-update-banner
             >
               <span class="update-banner__message">
-                <strong>${t("chat.updateAvailable")}</strong>
-                v${state.updateAvailable.latestVersion}
-                <span class="update-banner__running"
-                  >${t("chat.runningVersion", {
-                    version: state.updateAvailable.currentVersion,
-                  })}</span
-                >
+                ${pendingUpdateCandidateSha
+                  ? html`<strong>${t("chat.installVerifiedUpdate")}</strong>
+                      <code>${pendingUpdateCandidateSha.slice(0, 12)}</code>`
+                  : html`<strong>${t("chat.updateAvailable")}</strong>
+                      v${state.updateAvailable?.latestVersion}
+                      <span class="update-banner__running"
+                        >${t("chat.runningVersion", {
+                          version: state.updateAvailable?.currentVersion ?? "",
+                        })}</span
+                      >`}
               </span>
               <span class="update-banner__actions">
                 <button
                   class="btn btn--sm update-banner__btn"
-                  ?disabled=${state.updateRunning || !state.connected}
+                  ?disabled=${state.updateRunning ||
+                  !state.connected ||
+                  (state.customRuntimeUpdatePolicy?.approvalPending === true &&
+                    !state.customRuntimeUpdatePolicy.pendingCandidateSha) ||
+                  state.customRuntimeUpdatePolicy?.preparationRunning === true ||
+                  (state.customRuntimeUpdatePolicy?.standardUpdateBlocked === true &&
+                    (!state.customRuntimeUpdatePolicy.sourceDurable ||
+                      !state.customRuntimeUpdatePolicy.backupConfigured))}
                   @click=${() => runUpdate(state)}
                 >
-                  ${state.updateRunning ? t("chat.updating") : t("chat.updateNow")}
+                  ${state.updateRunning || state.customRuntimeUpdatePolicy?.preparationRunning
+                    ? t("chat.preparingVerifiedUpdate")
+                    : state.customRuntimeUpdatePolicy?.approvalPending &&
+                        state.customRuntimeUpdatePolicy.pendingCandidateSha
+                      ? t("chat.installVerifiedUpdate")
+                      : state.customRuntimeUpdatePolicy?.approvalPending
+                        ? t("chat.exactShaApprovalRequired")
+                        : state.customRuntimeUpdatePolicy?.managedRuntime
+                          ? t("chat.prepareVerifiedUpdate")
+                          : t("chat.updateNow")}
                 </button>
-                <button
-                  class="update-banner__close"
-                  type="button"
-                  title=${t("common.dismiss")}
-                  aria-label=${t("chat.dismissUpdateBanner")}
-                  @click=${() => {
-                    dismissUpdateBanner(state.updateAvailable);
-                    state.updateAvailable = null;
-                  }}
-                >
-                  ${icons.x}
-                </button>
+                ${state.customRuntimeUpdatePolicy?.preparationStatus === "failed"
+                  ? html`<span class="update-banner__running"
+                      >Preparation failed:
+                      ${state.customRuntimeUpdatePolicy.preparationReason ??
+                      "unknown failure"}</span
+                    >`
+                  : state.customRuntimeUpdatePolicy?.standardUpdateBlocked === true &&
+                      (!state.customRuntimeUpdatePolicy.sourceDurable ||
+                        !state.customRuntimeUpdatePolicy.backupConfigured)
+                    ? html`<span class="update-banner__running"
+                        >${t("chat.updateProtectionIncomplete")}</span
+                      >`
+                    : nothing}
+                ${!pendingUpdateCandidateSha && state.updateAvailable
+                  ? html`<button
+                      class="update-banner__close"
+                      type="button"
+                      title=${t("common.dismiss")}
+                      aria-label=${t("chat.dismissUpdateBanner")}
+                      @click=${() => {
+                        dismissUpdateBanner(state.updateAvailable);
+                        state.updateAvailable = null;
+                      }}
+                    >
+                      ${icons.x}
+                    </button>`
+                  : nothing}
               </span>
             </div>`
           : nothing}

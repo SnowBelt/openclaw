@@ -204,6 +204,9 @@ export function startDiagnosticSignalIngress(params: {
   const runDrain = async (): Promise<number> => {
     let drained = 0;
     for (const sourceDirectory of directories) {
+      if (stopped) {
+        return drained;
+      }
       await fsPromises.mkdir(sourceDirectory, { recursive: true, mode: 0o700 });
       const directoryInfo = await fsPromises.lstat(sourceDirectory);
       if (
@@ -219,6 +222,9 @@ export function startDiagnosticSignalIngress(params: {
         .sort();
       let sourceDrained = 0;
       for (const entry of entries) {
+        if (stopped) {
+          return drained;
+        }
         const filePath = path.join(sourceDirectory, entry);
         let record: DiagnosticSignalIngressRecord;
         try {
@@ -239,7 +245,16 @@ export function startDiagnosticSignalIngress(params: {
           params.log?.error(`diagnostic signal ingress delivery failed: ${String(error)}`);
           return drained;
         }
-        await fsPromises.unlink(filePath);
+        if (stopped) {
+          return drained;
+        }
+        try {
+          await fsPromises.unlink(filePath);
+        } catch (error) {
+          if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+            throw error;
+          }
+        }
         drained += 1;
         sourceDrained += 1;
       }

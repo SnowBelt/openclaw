@@ -183,6 +183,33 @@ describe("resolveBuildAllStep", () => {
     });
   });
 
+  it("uses package-manager-free fallbacks for explicit offline builds", () => {
+    const step = getBuildAllStep("plugins:assets:build");
+
+    const result = resolveBuildAllStep(step, {
+      nodeExecPath: "/custom/node",
+      env: { OPENCLAW_BUILD_OFFLINE: "1" },
+    });
+
+    expect(result).toEqual({
+      command: "/custom/node",
+      args: ["scripts/bundled-plugin-assets.mjs", "--phase", "build"],
+      options: {
+        stdio: "inherit",
+        env: { OPENCLAW_BUILD_OFFLINE: "1" },
+      },
+    });
+  });
+
+  it("fails closed instead of invoking a package manager without an offline fallback", () => {
+    expect(() =>
+      resolveBuildAllStep(
+        { label: "future-pnpm-step", kind: "pnpm", pnpmArgs: ["future:build"] },
+        { env: { OPENCLAW_BUILD_OFFLINE: "1" } },
+      ),
+    ).toThrow("Offline build has no package-manager-free fallback");
+  });
+
   it("keeps export-html build output aligned with runtime template lookup", () => {
     const step = getBuildAllStep("copy-export-html-templates");
 
@@ -255,6 +282,8 @@ describe("resolveBuildAllSteps", () => {
       "write-build-info",
       "write-cli-startup-metadata",
       "write-cli-compat",
+      "prepare-extension-package-boundary-artifacts",
+      "write-custom-runtime-completeness",
       "promote-gateway-runtime-snapshot",
     ]);
   });
@@ -418,6 +447,18 @@ describe("resolveBuildAllSteps", () => {
       expect(labels.at(-1)).toBe("promote-gateway-runtime-snapshot");
       expect(labels.indexOf("promote-gateway-runtime-snapshot")).toBeGreaterThan(
         labels.indexOf("write-cli-compat"),
+      );
+    }
+  });
+
+  it("prepares package-boundary artifacts before completeness is sealed", () => {
+    for (const profile of ["full", "ciArtifacts"]) {
+      const labels = resolveBuildAllSteps(profile).map((step) => step.label);
+      expect(labels.indexOf("prepare-extension-package-boundary-artifacts")).toBeGreaterThan(
+        labels.indexOf("write-cli-compat"),
+      );
+      expect(labels.indexOf("prepare-extension-package-boundary-artifacts")).toBeLessThan(
+        labels.indexOf("write-custom-runtime-completeness"),
       );
     }
   });

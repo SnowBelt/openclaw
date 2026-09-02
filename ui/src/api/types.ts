@@ -1,5 +1,7 @@
 // Control UI type declarations define types contracts.
 export type UpdateAvailable = import("../../../src/infra/update-startup.js").UpdateAvailable;
+export type CustomRuntimeUpdatePolicy =
+  import("../../../src/infra/custom-runtime-update-policy.js").CustomRuntimeUpdatePolicy;
 import type { FastMode } from "@openclaw/normalization-core/string-coerce";
 import type { SessionGoal } from "../../../src/config/sessions/types.js";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";

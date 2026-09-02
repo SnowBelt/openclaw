@@ -662,11 +662,10 @@ describe("PCC Release Governor", () => {
       ...compatibilityBundleInput,
       checks: compatibilityBundleInput.checks.map((check) =>
         check.id === compatibilityCheck.id
-          ? {
-              ...check,
+          ? Object.assign({}, check, {
               artifact: staleCompatibilityPath,
               artifactSha256: createHash("sha256").update(staleCompatibilityContents).digest("hex"),
-            }
+            })
           : check,
       ),
     });

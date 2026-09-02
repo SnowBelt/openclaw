@@ -2,6 +2,7 @@
 
 import { html, render } from "lit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CustomRuntimeUpdatePolicy } from "../api/types.ts";
 import { i18n } from "../i18n/index.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import type { ChatProps } from "./views/chat.ts";
@@ -238,6 +239,29 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
   } as unknown as AppViewState;
 }
 
+function readyUpdatePolicy(): CustomRuntimeUpdatePolicy {
+  return {
+    managedRuntime: true,
+    standardUpdateBlocked: true,
+    sourceDurable: true,
+    sourceDurabilityReason: "durable",
+    backupConfigured: true,
+    backupStatus: "ready",
+    backupStatusReason: "verified",
+    approvalPending: true,
+    pendingCandidateSha: "c".repeat(40),
+    preparationRunning: false,
+    preparationStatus: "ready",
+    preparationReason: "ready-for-approval",
+    sourceSha: "a".repeat(40),
+    sourceRepo: "/source.git",
+    sourceBranch: `refs/provenance/${"a".repeat(40)}`,
+    runtimeRoot: "/release",
+    pointerPath: "/runtime-home/active-runtime.json",
+    reason: "managed",
+  };
+}
+
 async function renderChatApp(
   state: AppViewState,
   container = document.createElement("div"),
@@ -290,6 +314,26 @@ describe("renderApp assistant avatar routing", () => {
     const banner = container.querySelector<HTMLElement>("[data-update-banner]");
     expect(banner?.classList.contains("update-banner--pcc-chip")).toBe(true);
     expect(banner?.textContent).toContain("2026.6.11");
+  });
+
+  it("keeps an exact prepared candidate installable without generic update metadata", () => {
+    const container = document.createElement("div");
+
+    render(
+      renderApp(
+        createState({
+          tab: "pcc",
+          updateAvailable: null,
+          customRuntimeUpdatePolicy: readyUpdatePolicy(),
+        }),
+      ),
+      container,
+    );
+
+    const banner = container.querySelector<HTMLElement>("[data-update-banner]");
+    expect(banner?.textContent).toContain("Install verified update");
+    expect(banner?.textContent).toContain("cccccccccccc");
+    expect(banner?.querySelector(".update-banner__close")).toBeNull();
   });
 
   it("passes the browser-local assistant override to Quick Settings ahead of stale identity metadata", () => {

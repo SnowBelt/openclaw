@@ -118,6 +118,16 @@ export const BUILD_ALL_STEPS = [
     args: ["--import", "tsx", "scripts/write-cli-compat.ts"],
   },
   {
+    label: "prepare-extension-package-boundary-artifacts",
+    kind: "node",
+    args: ["scripts/prepare-extension-package-boundary-artifacts.mjs"],
+  },
+  {
+    label: "write-custom-runtime-completeness",
+    kind: "node",
+    args: ["scripts/custom-runtime/custom-runtime-completeness.mjs", "write", "--root", "."],
+  },
+  {
     label: "promote-gateway-runtime-snapshot",
     kind: "node",
     args: ["scripts/promote-gateway-runtime-snapshot.mjs"],
@@ -142,6 +152,8 @@ export const BUILD_ALL_PROFILES = {
     "write-build-info",
     "write-cli-startup-metadata",
     "write-cli-compat",
+    "prepare-extension-package-boundary-artifacts",
+    "write-custom-runtime-completeness",
     "promote-gateway-runtime-snapshot",
   ],
   gatewayWatch: [
@@ -287,7 +299,9 @@ export function resolveBuildAllStep(step, params = {}) {
   const env = resolveStepEnv(step, params.env ?? process.env, platform);
   if (step.kind === "pnpm") {
     const nodeFallbackArgs =
-      env.OPENCLAW_BUILD_ALL_NO_PNPM === "1" ? PNPM_STEP_NODE_FALLBACKS.get(step.label) : undefined;
+      env.OPENCLAW_BUILD_ALL_NO_PNPM === "1" || env.OPENCLAW_BUILD_OFFLINE === "1"
+        ? PNPM_STEP_NODE_FALLBACKS.get(step.label)
+        : undefined;
     if (nodeFallbackArgs) {
       return {
         command: params.nodeExecPath ?? nodeBin,
@@ -297,6 +311,9 @@ export function resolveBuildAllStep(step, params = {}) {
           env,
         },
       };
+    }
+    if (env.OPENCLAW_BUILD_OFFLINE === "1") {
+      throw new Error(`Offline build has no package-manager-free fallback for ${step.label}.`);
     }
     const runner = resolvePnpmRunner({
       env,

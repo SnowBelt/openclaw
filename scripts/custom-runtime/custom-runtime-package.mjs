@@ -443,10 +443,12 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function defaultDeploy({ sourceRoot, stagingRoot }) {
-  run(
-    "pnpm",
-    [
+export function resolveDefaultDeployInvocation({ stagingRoot, env = process.env }) {
+  const offline = env.OPENCLAW_BUILD_OFFLINE === "1";
+  return {
+    command: "pnpm",
+    args: [
+      ...(offline ? ["--config.offline=true"] : []),
       "--config.inject-workspace-packages=true",
       "--filter",
       "openclaw",
@@ -454,8 +456,31 @@ function defaultDeploy({ sourceRoot, stagingRoot }) {
       "--prod",
       stagingRoot,
     ],
-    { cwd: sourceRoot, inherit: true },
-  );
+    env: offline ? { ...env, npm_config_offline: "true" } : env,
+  };
+}
+
+function defaultDeploy({ sourceRoot, stagingRoot }) {
+  const invocation = resolveDefaultDeployInvocation({ stagingRoot });
+  run(invocation.command, invocation.args, {
+    cwd: sourceRoot,
+    env: invocation.env,
+    inherit: true,
+  });
+}
+
+function provenanceRuntimeHomeForRecord(record, sourceSha) {
+  const recordDirectory = path.dirname(path.resolve(record.recordPath));
+  const provenanceRoot = path.dirname(recordDirectory);
+  if (
+    path.basename(recordDirectory) !== sourceSha ||
+    path.basename(provenanceRoot) !== "source-provenance"
+  ) {
+    throw new Error(
+      "Durable source provenance record must be stored under a runtime source-provenance root.",
+    );
+  }
+  return path.dirname(provenanceRoot);
 }
 
 export function assembleManagedRuntimePackage({
@@ -472,6 +497,9 @@ export function assembleManagedRuntimePackage({
   provenanceRecordPath,
   candidateRegistryPath,
   storageReservation,
+  trustedProvenanceHelperPath,
+  sourceRemote,
+  sourceRemoteBranch,
 }) {
   const candidateSourceRoot = fs.realpathSync(sourceRoot);
   let managedReleasesDir = path.resolve(releasesDir);
@@ -479,8 +507,12 @@ export function assembleManagedRuntimePackage({
     throw new Error(`Invalid managed-runtime release ID: ${releaseId}`);
   }
   let sourceProvenance;
+  let provenanceSealRuntimeHome;
   if (provenanceRecordPath && provenanceRuntimeHome) {
     throw new Error("Use either an existing provenance record or a provenance runtime home.");
+  }
+  if (!provenanceRecordPath && !provenanceRuntimeHome) {
+    throw new Error("Durable source provenance is required for every managed runtime package.");
   }
   if (provenanceRecordPath) {
     sourceProvenance = verifySourceProvenance({
@@ -488,13 +520,17 @@ export function assembleManagedRuntimePackage({
       expectedSha: sourceSha,
       deep: true,
     });
+    provenanceSealRuntimeHome = provenanceRuntimeHomeForRecord(sourceProvenance, sourceSha);
   } else if (provenanceRuntimeHome) {
+    provenanceSealRuntimeHome = path.resolve(provenanceRuntimeHome);
     sourceProvenance = importSourceProvenance({
       sourceRoot: candidateSourceRoot,
       sourceSha,
       runtimeHome: provenanceRuntimeHome,
       historicalSourceSha: provenanceMigrationPath ? activeSha : undefined,
       storageReservation,
+      sourceRemote,
+      sourceRemoteBranch,
     });
   }
   const lineage = assertCandidateLineage({
@@ -512,6 +548,18 @@ export function assembleManagedRuntimePackage({
       expectedHistoricalSha: activeSha,
       expectedCandidateSha: sourceSha,
     });
+  }
+  let trustedProvenanceHelper;
+  if (seal) {
+    const helperPath =
+      trustedProvenanceHelperPath ??
+      process.env.OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER ??
+      path.join(provenanceSealRuntimeHome, "bin", "custom-runtime-source-provenance.mjs");
+    const helperStat = fs.lstatSync(helperPath, { throwIfNoEntry: false });
+    if (!helperStat?.isFile() || helperStat.isSymbolicLink()) {
+      throw new Error("Sealed packaging requires an existing trusted source provenance verifier.");
+    }
+    trustedProvenanceHelper = fs.realpathSync(helperPath);
   }
   fs.mkdirSync(managedReleasesDir, { recursive: true, mode: 0o700 });
   const releasesStat = fs.lstatSync(managedReleasesDir);
@@ -596,6 +644,10 @@ export function assembleManagedRuntimePackage({
         objectFormat: sourceProvenance.objectFormat,
         bundlePath: path.join(releaseRoot, ".openclaw-provenance", "source.bundle"),
         bundleSha256: sha256File(portableBundle),
+        ...(sourceProvenance.sourceRemote ? { sourceRemote: sourceProvenance.sourceRemote } : {}),
+        ...(sourceProvenance.sourceRemoteBranch
+          ? { sourceRemoteBranch: sourceProvenance.sourceRemoteBranch }
+          : {}),
         ...(sourceProvenance.historicalSourceSha
           ? { historicalSourceSha: sourceProvenance.historicalSourceSha }
           : {}),
@@ -660,7 +712,12 @@ export function assembleManagedRuntimePackage({
         ],
         {
           cwd: releaseRoot,
-          env: { ...process.env, OPENCLAW_CUSTOM_RUNTIME_RELEASES: managedReleasesDir },
+          env: {
+            ...process.env,
+            OPENCLAW_CUSTOM_RUNTIME_RELEASES: managedReleasesDir,
+            OPENCLAW_CUSTOM_RUNTIME_HOME: provenanceSealRuntimeHome,
+            OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER: trustedProvenanceHelper,
+          },
           inherit: true,
         },
       );
@@ -744,6 +801,13 @@ if (isMainModule()) {
         : {}),
       ...(values.get("candidate-registry")
         ? { candidateRegistryPath: values.get("candidate-registry") }
+        : {}),
+      ...(values.get("trusted-provenance-helper")
+        ? { trustedProvenanceHelperPath: values.get("trusted-provenance-helper") }
+        : {}),
+      ...(values.get("source-remote") ? { sourceRemote: values.get("source-remote") } : {}),
+      ...(values.get("source-remote-branch")
+        ? { sourceRemoteBranch: values.get("source-remote-branch") }
         : {}),
     });
     process.stdout.write(`${JSON.stringify({ result: "packaged", ...result })}\n`);

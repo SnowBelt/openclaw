@@ -148,6 +148,15 @@ describe("package scripts", () => {
     );
   });
 
+  it("leaves custom-runtime completeness to builds with exact Git identity", () => {
+    const script = readPackageJson().scripts["build:docker"];
+    const dockerfile = fs.readFileSync("Dockerfile", "utf8");
+
+    expect(script).not.toContain("custom-runtime-completeness.mjs");
+    expect(dockerfile).toContain("pnpm ui:build");
+    expect(dockerfile).not.toContain("custom-runtime-completeness.mjs write");
+  });
+
   it("uses the shipped package launcher for npm start", () => {
     expect(readPackageJson().scripts.start).toBe("node openclaw.mjs");
   });

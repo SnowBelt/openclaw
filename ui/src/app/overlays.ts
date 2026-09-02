@@ -3,7 +3,7 @@ import {
   type GatewayUpdateAvailableEventPayload,
 } from "../../../src/gateway/events.js";
 import type { GatewayEventFrame, GatewayHelloOk } from "../api/gateway.ts";
-import type { UpdateAvailable } from "../api/types.ts";
+import type { CustomRuntimeUpdatePolicy, UpdateAvailable } from "../api/types.ts";
 import {
   closeDevicePairSetup as closeDevicePairSetupState,
   openDevicePairSetup as openDevicePairSetupState,
@@ -35,6 +35,7 @@ export type ApplicationOverlaySnapshot = {
   updateAvailable: UpdateAvailable | null;
   updateRunning: boolean;
   updateStatusBanner: ApplicationStatusBanner | null;
+  updateSafety: CustomRuntimeUpdatePolicy | null;
   approvalQueue: readonly ExecApprovalRequest[];
   approvalBusy: boolean;
   approvalError: string | null;
@@ -48,7 +49,7 @@ export type ApplicationOverlaySnapshot = {
 export type ApplicationOverlays = {
   readonly snapshot: ApplicationOverlaySnapshot;
   subscribe: (listener: (snapshot: ApplicationOverlaySnapshot) => void) => () => void;
-  runUpdate: () => Promise<void>;
+  runUpdate: (approvalSha?: string) => Promise<void>;
   dismissUpdate: () => void;
   decideApproval: (decision: ExecApprovalDecision) => Promise<void>;
   openDevicePairSetup: () => Promise<void>;
@@ -63,6 +64,8 @@ const UPDATE_RESTART_VERIFICATION_POLL_MS = 250;
 const UPDATE_RESTART_VERIFICATION_TIMEOUT_MS = 10_000;
 const UPDATE_HANDOFF_POLL_MS = 1_000;
 const UPDATE_HANDOFF_TIMEOUT_MS = 35 * 60_000;
+const UPDATE_SAFETY_POLL_MS = 5_000;
+const UPDATE_SAFETY_START_GRACE_MS = 30_000;
 const PENDING_UPDATE_HANDOFF_REASONS = new Set([
   UPDATE_HANDOFF_STARTED_REASON,
   UPDATE_RESTART_HEALTH_PENDING_REASON,
@@ -77,6 +80,7 @@ type UpdateRestartStatusResponse = {
       after?: { version?: string | null } | null;
     } | null;
   } | null;
+  updateSafety?: CustomRuntimeUpdatePolicy;
 };
 
 function readUpdateAvailable(hello: GatewayHelloOk | null): UpdateAvailable | null {
@@ -106,6 +110,9 @@ function resolveUpdateStatusBanner(params: {
 }): ApplicationStatusBanner {
   const status = (params.status ?? "error").trim() || "error";
   const reason = (params.reason ?? "unexpected-error").trim() || "unexpected-error";
+  const managedStart =
+    reason === "custom-runtime-update-preparation-started" ||
+    reason === "custom-runtime-update-approval-started";
   const guidance =
     {
       dirty: "Commit or stash changes, then retry.",
@@ -126,7 +133,20 @@ function resolveUpdateStatusBanner(params: {
       "restart-unhealthy":
         "The replacement process never became healthy. The previous process stayed up so you can recover.",
       "doctor-failed": "Doctor repair failed. Run `openclaw doctor --non-interactive` and retry.",
+      "custom-runtime-update-preparation-started":
+        "Verified preparation started in isolation. The live runtime will not change.",
+      "custom-runtime-update-approval-started":
+        "Verified installation started. The Dashboard will reconnect after the managed restart.",
+      "custom-runtime-update-preparation-running":
+        "Verified preparation is already running. Wait for its readiness result.",
+      "custom-runtime-update-exact-sha-approval-required":
+        "Preparation passed. Review and approve the exact candidate SHA before installation.",
+      "custom-runtime-update-safety-blocked":
+        "Update protection is incomplete. Resolve the reported source, backup, or broker issue first.",
     }[reason] ?? "See the gateway logs for the exact failure and retry once the cause is fixed.";
+  if (managedStart) {
+    return { tone: "info", text: guidance };
+  }
   return {
     tone: status === "skipped" ? "warn" : "danger",
     text: `Update ${status}: ${reason}. ${guidance}`,
@@ -199,6 +219,7 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
     updateAvailable: null,
     updateRunning: false,
     updateStatusBanner: null,
+    updateSafety: null,
     approvalQueue: [],
     approvalBusy: false,
     approvalError: null,
@@ -216,6 +237,7 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
   let updateRunGeneration = 0;
   let updateVerificationGeneration = 0;
   let updateVerificationTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  let updateSafetyPollTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
   let devicePairPendingCountGeneration = 0;
   let approvalDecision: { client: NonNullable<typeof activeClient>; id: string } | null = null;
   const devicePairSetupState: DevicePairSetupState & { pendingCount: number } = {
@@ -240,6 +262,7 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
       updateAvailable: snapshot.updateAvailable,
       updateRunning: snapshot.updateRunning,
       updateStatusBanner: snapshot.updateStatusBanner,
+      updateSafety: snapshot.updateSafety,
       approvalQueue: promptState.execApprovalQueue,
       approvalBusy: promptState.execApprovalBusy,
       approvalError: promptState.execApprovalError,
@@ -298,6 +321,63 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
     if (applied && !disposed) {
       publish();
     }
+  };
+
+  const cancelUpdateSafetyPoll = () => {
+    if (updateSafetyPollTimer !== null) {
+      globalThis.clearTimeout(updateSafetyPollTimer);
+      updateSafetyPollTimer = null;
+    }
+  };
+
+  const scheduleUpdateSafetyPoll = (
+    client: NonNullable<typeof activeClient>,
+    startGraceDeadline = 0,
+  ) => {
+    cancelUpdateSafetyPoll();
+    const preparationPending =
+      snapshot.updateSafety?.preparationRunning === true ||
+      snapshot.updateSafety?.preparationStatus === "preparing" ||
+      snapshot.updateSafety?.preparationStatus === "installing" ||
+      (snapshot.updateSafety?.approvalPending !== true && Date.now() < startGraceDeadline);
+    if (!preparationPending || !isCurrentClient(client)) {
+      return;
+    }
+    updateSafetyPollTimer = globalThis.setTimeout(() => {
+      updateSafetyPollTimer = null;
+      void refreshUpdateSafety(client, startGraceDeadline);
+    }, UPDATE_SAFETY_POLL_MS);
+  };
+
+  const refreshUpdateSafety = async (
+    client: NonNullable<typeof activeClient>,
+    startGraceDeadline = 0,
+  ) => {
+    let result: UpdateRestartStatusResponse;
+    try {
+      result = await client.request<UpdateRestartStatusResponse>("update.status", {});
+    } catch {
+      return;
+    }
+    if (!isCurrentClient(client)) {
+      return;
+    }
+    const updateSafety = result.updateSafety ?? null;
+    const updateStatusBanner =
+      updateSafety?.preparationStatus === "failed"
+        ? {
+            tone: "danger" as const,
+            text: `Verified update preparation failed: ${updateSafety.preparationReason ?? "unknown failure"}. The live runtime was not changed.`,
+          }
+        : updateSafety?.preparationStatus === "ready" && updateSafety.pendingCandidateSha
+          ? {
+              tone: "info" as const,
+              text: `Verified update ${updateSafety.pendingCandidateSha.slice(0, 12)} is ready for explicit installation approval.`,
+            }
+          : snapshot.updateStatusBanner;
+    snapshot = { ...snapshot, updateSafety, updateStatusBanner };
+    publish();
+    scheduleUpdateSafetyPoll(client, startGraceDeadline);
   };
 
   const publishUpdateBanner = (updateStatusBanner: ApplicationStatusBanner | null) => {
@@ -420,10 +500,16 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
       devicePairSetupState.pendingCount = 0;
     }
     if (!next.connected || !next.client) {
+      cancelUpdateSafetyPoll();
       promptState.execApprovalQueue = [];
       promptState.execApprovalBusy = false;
       promptState.execApprovalError = null;
-      snapshot = { ...snapshot, updateAvailable: null, updateRunning: false };
+      snapshot = {
+        ...snapshot,
+        updateAvailable: null,
+        updateRunning: false,
+        updateSafety: null,
+      };
       for (const timer of promptState.execApprovalExpiryTimers?.values() ?? []) {
         globalThis.clearTimeout(timer);
       }
@@ -434,6 +520,7 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
     snapshot = { ...snapshot, updateAvailable: readUpdateAvailable(next.hello) };
     if (previousClient !== next.client) {
       void refreshApprovals(next.client);
+      void refreshUpdateSafety(next.client);
       if (next.client) {
         void verifyPendingUpdateVersion(next.client);
       }
@@ -489,7 +576,7 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async runUpdate() {
+    async runUpdate(approvalSha?: string) {
       const client = gateway.snapshot.client;
       if (!client || !gateway.snapshot.connected || disposed || snapshot.updateRunning) {
         return;
@@ -498,7 +585,10 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
       snapshot = { ...snapshot, updateRunning: true, updateStatusBanner: null };
       publish();
       try {
-        const response = await client.request<UpdateRunResponse>("update.run", {});
+        const response = await client.request<UpdateRunResponse>(
+          "update.run",
+          approvalSha ? { approvalSha } : {},
+        );
         if (
           disposed ||
           generation !== updateRunGeneration ||
@@ -544,6 +634,14 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
             }),
           };
         }
+        const preparationStarted =
+          response.ok === true &&
+          status === "skipped" &&
+          response.result?.reason === "custom-runtime-update-preparation-started";
+        void refreshUpdateSafety(
+          client,
+          preparationStarted ? Date.now() + UPDATE_SAFETY_START_GRACE_MS : 0,
+        );
       } catch (error) {
         if (
           disposed ||
@@ -656,6 +754,7 @@ export function createApplicationOverlays(gateway: ApplicationGateway): Applicat
       updateRunGeneration += 1;
       devicePairPendingCountGeneration += 1;
       cancelUpdateVerification();
+      cancelUpdateSafetyPoll();
       closeDevicePairSetupState(devicePairSetupState);
       stopGateway();
       stopEvents();

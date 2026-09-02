@@ -34,6 +34,12 @@ const rootEntries = [
   "src/self-improvement/autonomy.ts!",
   "src/self-improvement/mlx-diagnostic.ts!",
   "src/self-improvement/soak.ts!",
+  // Custom governance modules are stable tooling entrypoints even when the
+  // application graph does not statically reach their contract exports.
+  "src/agents/harness/codex-model-policy.ts!",
+  "src/self-improvement/curator/model-capabilities.ts!",
+  "src/self-improvement/curator/model-qualification.ts!",
+  "src/self-improvement/release-integrity.ts!",
   bundledPluginFile("telegram", "src/audit.ts", "!"),
   bundledPluginFile("telegram", "src/token.ts", "!"),
   "src/hooks/bundled/*/handler.ts!",

@@ -27,8 +27,8 @@ function run(command, args) {
   }
 }
 
-function runChecked(command, args) {
-  const result = spawnSync(command, args, { stdio: "inherit" });
+function runChecked(command, args, env = process.env) {
+  const result = spawnSync(command, args, { env, stdio: "inherit" });
   if (result.error) {
     return {
       message: `[check-workflows] failed to run ${command}: ${result.error.message}`,
@@ -51,7 +51,7 @@ function exitWithFailure(failure) {
   process.exit(failure.status);
 }
 
-function runPreCommitFromTempVenv(hook, hookArgs) {
+function runPreCommitFromTempVenv(hook, hookArgs, env = process.env) {
   if (!commandExists("python3", ["--version"])) {
     return false;
   }
@@ -59,21 +59,19 @@ function runPreCommitFromTempVenv(hook, hookArgs) {
   const python = join(venvDir, process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
   let postVenvFailure;
   try {
-    const venvFailure = runChecked("python3", ["-m", "venv", venvDir]);
+    const venvFailure = runChecked("python3", ["-m", "venv", venvDir], env);
     if (venvFailure) {
       return false;
     }
-    postVenvFailure = runChecked(python, [
-      "-m",
-      "pip",
-      "install",
-      "--disable-pip-version-check",
-      `pre-commit==${PRE_COMMIT_VERSION}`,
-    ]);
+    postVenvFailure = runChecked(
+      python,
+      ["-m", "pip", "install", "--disable-pip-version-check", `pre-commit==${PRE_COMMIT_VERSION}`],
+      env,
+    );
     if (postVenvFailure) {
       return false;
     }
-    postVenvFailure = runChecked(python, ["-m", "pre_commit", ...hookArgs]);
+    postVenvFailure = runChecked(python, ["-m", "pre_commit", ...hookArgs], env);
     if (postVenvFailure) {
       return false;
     }
@@ -95,15 +93,28 @@ function workflowFiles() {
 
 function runPreCommitHook(hook, files) {
   const hookArgs = ["run", "--config", ".pre-commit-config.yaml", hook, "--files", ...files];
-  if (commandExists("pre-commit")) {
-    run("pre-commit", hookArgs);
+  const preCommitHome = mkdtempSync(join(tmpdir(), "openclaw-check-workflows-pre-commit-home-"));
+  const env = { ...process.env, PRE_COMMIT_HOME: preCommitHome };
+  let failure;
+  let selected = false;
+  try {
+    if (commandExists("pre-commit")) {
+      selected = true;
+      failure = runChecked("pre-commit", hookArgs, env);
+    } else if (commandExists("python3", ["-m", "pre_commit", "--version"])) {
+      selected = true;
+      failure = runChecked("python3", ["-m", "pre_commit", ...hookArgs], env);
+    }
+  } finally {
+    rmSync(preCommitHome, { force: true, recursive: true });
+  }
+  if (selected) {
+    if (failure) {
+      exitWithFailure(failure);
+    }
     return;
   }
-  if (commandExists("python3", ["-m", "pre_commit", "--version"])) {
-    run("python3", ["-m", "pre_commit", ...hookArgs]);
-    return;
-  }
-  if (runPreCommitFromTempVenv(hook, hookArgs)) {
+  if (runPreCommitFromTempVenv(hook, hookArgs, env)) {
     return;
   }
 

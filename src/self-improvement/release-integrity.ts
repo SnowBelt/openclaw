@@ -607,12 +607,12 @@ export function startReleaseIntegritySupervisor(params: {
     return running;
   };
   const timer = setInterval(() => {
-    void runNow().catch((error) =>
+    void runNow().catch((error: unknown) =>
       params.log?.error(`release integrity supervisor failed: ${String(error)}`),
     );
   }, params.intervalMs ?? RELEASE_INTEGRITY_INTERVAL_MS);
   timer.unref?.();
-  void runNow().catch((error) =>
+  void runNow().catch((error: unknown) =>
     params.log?.error(`release integrity supervisor failed: ${String(error)}`),
   );
   return { stop: () => clearInterval(timer), runNow };

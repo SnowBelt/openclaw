@@ -15,6 +15,8 @@
       "pnpm check:custom-runtime-capabilities",
       "pnpm check:pcc-capabilities",
       "pnpm control-director:verify -- --expected-sha <candidate-sha>",
+      "pnpm protocol:check",
+      "pnpm ui:i18n:check",
       "pnpm check",
       "pnpm ui:build",
       "pnpm build",
@@ -26,55 +28,73 @@
       "id": "dashboard:pcc",
       "kind": "dashboard_surface",
       "surfaceId": "pcc",
-      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts"
+      ]
     },
     {
       "id": "dashboard:app-studio",
       "kind": "dashboard_surface",
       "surfaceId": "app-studio",
-      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts"
+      ]
     },
     {
       "id": "dashboard:music-studio",
       "kind": "dashboard_surface",
       "surfaceId": "music-studio",
-      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts"
+      ]
     },
     {
       "id": "dashboard:snes-studio",
       "kind": "dashboard_surface",
       "surfaceId": "snes-studio",
-      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts"
+      ]
     },
     {
       "id": "dashboard:book-writer",
       "kind": "dashboard_surface",
       "surfaceId": "book-writer",
-      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts"
+      ]
     },
     {
       "id": "dashboard:kalshi",
       "kind": "dashboard_surface",
       "surfaceId": "kalshi",
-      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts"
+      ]
     },
     {
       "id": "dashboard:pattern-lab",
       "kind": "dashboard_surface",
       "surfaceId": "pattern-lab",
-      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts"
+      ]
     },
     {
       "id": "plugin:apps",
       "kind": "plugin",
       "pluginId": "apps",
-      "requiredPaths": ["extensions/apps/openclaw.plugin.json"]
+      "requiredPaths": [
+        "extensions/apps/openclaw.plugin.json"
+      ]
     },
     {
       "id": "plugin:book-writer",
       "kind": "plugin",
       "pluginId": "book-writer",
-      "requiredPaths": ["extensions/book-writer/openclaw.plugin.json"]
+      "requiredPaths": [
+        "extensions/book-writer/openclaw.plugin.json"
+      ]
     },
     {
       "id": "plugin:research-manager",
@@ -91,25 +111,33 @@
       "id": "plugin:codex",
       "kind": "plugin",
       "pluginId": "codex",
-      "requiredPaths": ["extensions/codex/openclaw.plugin.json"]
+      "requiredPaths": [
+        "extensions/codex/openclaw.plugin.json"
+      ]
     },
     {
       "id": "plugin:discord",
       "kind": "plugin",
       "pluginId": "discord",
-      "requiredPaths": ["extensions/discord/openclaw.plugin.json"]
+      "requiredPaths": [
+        "extensions/discord/openclaw.plugin.json"
+      ]
     },
     {
       "id": "plugin:ollama",
       "kind": "plugin",
       "pluginId": "ollama",
-      "requiredPaths": ["extensions/ollama/openclaw.plugin.json"]
+      "requiredPaths": [
+        "extensions/ollama/openclaw.plugin.json"
+      ]
     },
     {
       "id": "plugin:searxng",
       "kind": "plugin",
       "pluginId": "searxng",
-      "requiredPaths": ["extensions/searxng/openclaw.plugin.json"]
+      "requiredPaths": [
+        "extensions/searxng/openclaw.plugin.json"
+      ]
     },
     {
       "id": "workflow:pcc-project-management",
@@ -264,7 +292,9 @@
     {
       "id": "runtime:local-first-model-intelligence",
       "kind": "runtime",
-      "requiredPaths": ["src/agents/model-routing-policy.ts"]
+      "requiredPaths": [
+        "src/agents/model-routing-policy.ts"
+      ]
     },
     {
       "id": "runtime:chat-work-surface",
@@ -604,7 +634,44 @@
         "docs/automation/control-director-source-handoff.md",
         "docs/automation/operations-room-architecture.md",
         "docs/automation/pcc-operational-excellence.md",
-        "docs/concepts/control-director.md"
+        "docs/concepts/control-director.md",
+        "src/infra/custom-runtime-update-broker.ts",
+        "src/gateway/server-methods/update.ts",
+        "packages/gateway-protocol/src/schema/config.ts",
+        "packages/gateway-protocol/src/index.test.ts",
+        "apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift",
+        "scripts/custom-runtime/custom-runtime-update-backup.mjs",
+        "scripts/custom-runtime/custom-runtime-update-github-proof.mjs",
+        "scripts/custom-runtime/custom-runtime-baseline-certificate.mjs",
+        "scripts/custom-runtime/custom-runtime-completeness.mjs",
+        "scripts/custom-runtime/custom-runtime-package.mjs",
+        "scripts/custom-runtime/custom-runtime-source-provenance.mjs",
+        "scripts/lib/workspace-template-assets.mjs",
+        "test/scripts/custom-runtime-update-backup.test.ts",
+        "test/scripts/custom-runtime-update-github-proof.test.ts",
+        "test/scripts/custom-runtime-baseline-certificate.test.ts",
+        "test/scripts/custom-runtime-completeness.test.ts",
+        "test/scripts/custom-runtime-source-provenance.test.ts",
+        "src/infra/custom-runtime-update-policy.test.ts",
+        "src/infra/custom-runtime-update-broker.test.ts",
+        "src/gateway/server-methods/update.test.ts",
+        "scripts/dev/control-ui-projects-smoke.ts",
+        "test/scripts/custom-runtime-guard.test.ts",
+        "test/scripts/custom-runtime-package.test.ts",
+        "ui/src/api/types.ts",
+        "ui/src/app/app-host.ts",
+        "ui/src/app/overlays.ts",
+        "ui/src/app/overlays.test.ts",
+        "ui/src/components/update-banner.test.ts",
+        "ui/src/components/update-banner.ts",
+        "ui/src/i18n/locales/en.ts",
+        "ui/src/ui/app-render.ts",
+        "ui/src/ui/app-gateway.ts",
+        "ui/src/ui/app-gateway.node.test.ts",
+        "ui/src/ui/app-view-state.ts",
+        "ui/src/ui/app.ts",
+        "ui/src/ui/controllers/config.ts",
+        "ui/src/ui/controllers/config.test.ts"
       ]
     },
     {
@@ -644,7 +711,11 @@
         "scripts/custom-runtime/custom-runtime-restart.sh",
         "scripts/custom-runtime/custom-runtime-rollback.sh",
         "scripts/custom-runtime/custom-runtime-stage.sh",
-        "scripts/dev/control-ui-self-improvement-smoke.ts"
+        "scripts/dev/control-ui-self-improvement-smoke.ts",
+        "src/agents/tools/curator-tools.ts",
+        "src/agents/tools/curator-tools.test.ts",
+        "src/agents/tool-display-config.ts",
+        "apps/shared/OpenClawKit/Sources/OpenClawKit/Resources/tool-display.json"
       ]
     },
     {
@@ -691,6 +762,7 @@
         "src/pcc/release-governance/local-proof.ts",
         "test/scripts/custom-runtime-lifecycle-arbitration.test.ts",
         "test/scripts/custom-runtime-package.test.ts",
+        "test/scripts/custom-runtime-update-backup.test.ts",
         "test/scripts/custom-runtime-source-provenance-retention.test.ts",
         "test/scripts/release-approval-ingestion.test.ts",
         "test/scripts/storage-admission.test.ts",
@@ -699,7 +771,111 @@
         "test/scripts/runtime-package-integrity.test.ts",
         "test/scripts/custom-runtime-stage-promote.test.ts",
         "test/scripts/custom-runtime-usability-coordinator.test.ts",
-        "ui/src/ui/views/pcc.ts"
+        "ui/src/ui/views/pcc.ts",
+        "scripts/custom-runtime/custom-runtime-update-backup.mjs",
+        "packages/llm-core/src/types.ts",
+        "packages/llm-core/src/utils/diagnostics.ts",
+        "packages/normalization-core/src/number-coercion.ts",
+        "packages/terminal-core/src/ansi.ts",
+        "src/channels/chat-type.ts",
+        "src/cli/argv.ts",
+        "src/cli/program/command-descriptor-utils.ts",
+        "src/cli/program/command-group-descriptors.ts",
+        "src/cli/program/core-command-descriptors.ts",
+        "src/cli/program/private-qa-cli.ts",
+        "src/cli/program/subcli-descriptors.ts",
+        "src/config/paths.ts",
+        "src/config/types.access-groups.ts",
+        "src/config/types.acp.ts",
+        "src/config/types.agent-defaults.ts",
+        "src/config/types.agents-shared.ts",
+        "src/config/types.agents.ts",
+        "src/config/types.approvals.ts",
+        "src/config/types.auth.ts",
+        "src/config/types.base.ts",
+        "src/config/types.bot-loop-protection.ts",
+        "src/config/types.browser.ts",
+        "src/config/types.channel-health.ts",
+        "src/config/types.channel-messaging-common.ts",
+        "src/config/types.channels.ts",
+        "src/config/types.cli.ts",
+        "src/config/types.commitments.ts",
+        "src/config/types.crestodian.ts",
+        "src/config/types.cron.ts",
+        "src/config/types.discord.ts",
+        "src/config/types.gateway.ts",
+        "src/config/types.googlechat.ts",
+        "src/config/types.hooks.ts",
+        "src/config/types.imessage.ts",
+        "src/config/types.installs.ts",
+        "src/config/types.irc.ts",
+        "src/config/types.marketplaces.ts",
+        "src/config/types.mcp.ts",
+        "src/config/types.memory.ts",
+        "src/config/types.messages.ts",
+        "src/config/types.models.ts",
+        "src/config/types.msteams.ts",
+        "src/config/types.node-host.ts",
+        "src/config/types.openclaw.ts",
+        "src/config/types.plugins.ts",
+        "src/config/types.provider-request.ts",
+        "src/config/types.queue.ts",
+        "src/config/types.sandbox.ts",
+        "src/config/types.secrets.ts",
+        "src/config/types.signal.ts",
+        "src/config/types.skills.ts",
+        "src/config/types.slack.ts",
+        "src/config/types.telegram.ts",
+        "src/config/types.tools.ts",
+        "src/config/types.ts",
+        "src/config/types.tts.ts",
+        "src/config/types.whatsapp.ts",
+        "src/config/zod-schema.proxy.ts",
+        "src/config/zod-schema.sensitive.ts",
+        "src/daemon/runtime-binary.ts",
+        "src/infra/cli-root-options.ts",
+        "src/infra/command-carriers.ts",
+        "src/infra/dispatch-wrapper-resolution.ts",
+        "src/infra/errors.ts",
+        "src/infra/exec-allowlist-pattern.ts",
+        "src/infra/exec-approvals.types.ts",
+        "src/infra/exec-command-resolution.ts",
+        "src/infra/exec-safe-bin-policy-profiles.ts",
+        "src/infra/exec-safe-bin-policy-validator.ts",
+        "src/infra/exec-safe-bin-policy.ts",
+        "src/infra/exec-safe-bin-semantics.ts",
+        "src/infra/exec-wrapper-tokens.ts",
+        "src/infra/exec-wrapper-trust-plan.ts",
+        "src/infra/executable-path.ts",
+        "src/infra/fs-safe-defaults.ts",
+        "src/infra/fs-safe.ts",
+        "src/infra/home-dir.ts",
+        "src/infra/inline-option-token.ts",
+        "src/infra/openclaw-root.fs.runtime.ts",
+        "src/infra/openclaw-root.ts",
+        "src/infra/parse-finite-number.ts",
+        "src/infra/plain-object.ts",
+        "src/infra/safe-cwd.ts",
+        "src/infra/shell-inline-command.ts",
+        "src/infra/shell-wrapper-resolution.ts",
+        "src/infra/tcp-port.ts",
+        "src/llm/types.ts",
+        "src/logging/config.ts",
+        "src/logging/redact-bounded.ts",
+        "src/logging/redact-internal.ts",
+        "src/logging/redact.ts",
+        "src/logging/secret-redaction-registry.ts",
+        "src/security/config-regex.ts",
+        "src/security/safe-regex.ts",
+        "src/shared/number-coercion.ts",
+        "src/shared/regexp.ts",
+        "src/shared/silent-reply-policy.ts",
+        "src/transcripts/config.ts",
+        "src/utils.ts",
+        "src/utils/reaction-level.ts",
+        "src/utils/shell-argv.ts",
+        "src/utils/sleep.ts",
+        "src/utils/string-readers.ts"
       ]
     }
   ]

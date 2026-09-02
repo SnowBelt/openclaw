@@ -118,7 +118,6 @@ function lease(release = vi.fn(async () => undefined)) {
     mode: "exclusive" as const,
     acquiredAt: 1,
     expiresAt: 2,
-    statePath: "/tmp/openclaw-local-model-admission/state.json",
     borrowed: false,
     samples: [
       {
@@ -214,9 +213,28 @@ describe("custom runtime local-model compatibility smoke", () => {
       expect(input.env.OPENCLAW_SKIP_PROVIDERS).toBeUndefined();
       expect(input.env.HTTP_PROXY).toBeUndefined();
       expect(input.env.OPENCLAW_LOCAL_MODEL_ADMISSION_TOKEN).toBe("lease-token");
+      expect(input.env.OPENCLAW_PROFILE).toBeUndefined();
+      expect(input.env.OPENCLAW_WORKSPACE_DIR).toBe(
+        path.join(path.dirname(input.env.OPENCLAW_CONFIG_PATH!), "workspace"),
+      );
       const isolatedConfig = JSON.parse(
         fs.readFileSync(input.env.OPENCLAW_CONFIG_PATH!, "utf8"),
       ) as {
+        agents: {
+          defaults: {
+            workspace: string;
+            skills: string[];
+            contextInjection: string;
+            skipBootstrap: boolean;
+            memorySearch: { enabled: boolean };
+          };
+          list: Array<{
+            workspace: string;
+            skills: string[];
+            contextInjection: string;
+            memorySearch: { enabled: boolean };
+          }>;
+        };
         plugins: {
           enabled: boolean;
           allow: string[];
@@ -226,6 +244,23 @@ describe("custom runtime local-model compatibility smoke", () => {
         cron: { enabled: boolean; triggers: { enabled: boolean } };
       };
       expect(isolatedConfig).toMatchObject({
+        agents: {
+          defaults: {
+            workspace: path.join(path.dirname(input.env.OPENCLAW_CONFIG_PATH!), "workspace"),
+            skills: [],
+            contextInjection: "never",
+            skipBootstrap: true,
+            memorySearch: { enabled: false },
+          },
+          list: [
+            {
+              workspace: path.join(path.dirname(input.env.OPENCLAW_CONFIG_PATH!), "workspace"),
+              skills: [],
+              contextInjection: "never",
+              memorySearch: { enabled: false },
+            },
+          ],
+        },
         plugins: {
           enabled: true,
           allow: ["ollama"],
@@ -234,6 +269,7 @@ describe("custom runtime local-model compatibility smoke", () => {
         browser: { enabled: false },
         cron: { enabled: false, triggers: { enabled: false } },
       });
+      expect(fs.readdirSync(input.env.OPENCLAW_WORKSPACE_DIR!)).toEqual([]);
       return {
         status: 0,
         signal: null,

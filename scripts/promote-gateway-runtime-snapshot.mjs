@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { verifyCustomRuntimeCompleteness } from "./custom-runtime/custom-runtime-completeness.mjs";
 
 const defaultRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SNAPSHOT_VERSION = 2;
@@ -108,6 +109,7 @@ function requireRuntimeArtifacts(rootDir) {
     "dist/control-ui/index.html",
     "dist-runtime/extensions",
     "dist/build-info.json",
+    "dist/custom-runtime-completeness.json",
     "package.json",
   ];
   for (const relativePath of required) {
@@ -138,8 +140,16 @@ export function promoteGatewayRuntimeSnapshot(options = {}) {
         ? packageJson.version
         : null;
   const sourceCommit = typeof buildInfo.commit === "string" ? buildInfo.commit : null;
-  if (!builtAt || !packageVersion) {
+  if (!builtAt || !packageVersion || !sourceCommit) {
     throw new Error("Gateway runtime snapshot promotion requires complete dist/build-info.json.");
+  }
+  const completenessErrors = verifyCustomRuntimeCompleteness({
+    rootDir,
+    expectedSourceSha: sourceCommit,
+    verifySourceContract: true,
+  });
+  if (completenessErrors.length > 0) {
+    throw new Error(completenessErrors.join("\n"));
   }
 
   const snapshotDir = path.join(rootDir, SNAPSHOT_RELATIVE_DIR);
@@ -166,6 +176,7 @@ export function promoteGatewayRuntimeSnapshot(options = {}) {
     const releaseRoot = path.join(releasesDir, releaseId);
     const manifest = {
       version: SNAPSHOT_VERSION,
+      completenessVersion: 1,
       releaseId,
       root: releaseRoot,
       createdAt: builtAt,

@@ -136,6 +136,7 @@ describe("self-improvement background task", () => {
         privacy: "internal",
       });
       await waitForDiagnosticEventsDrained();
+      await bridge.drain();
       expect(recordSignal).toHaveBeenCalledTimes(1);
     } finally {
       bridge.stop();
@@ -225,7 +226,7 @@ describe("self-improvement background task", () => {
         },
         { trusted: true, internal: true },
       );
-      await Promise.resolve();
+      await task.drainSignals();
       await vi.advanceTimersByTimeAsync(100);
     } finally {
       task.stop();

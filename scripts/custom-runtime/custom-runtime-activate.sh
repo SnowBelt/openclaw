@@ -3,11 +3,16 @@
 set -eu
 
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
+trusted_provenance_helper=${OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER:-"$runtime_home/bin/custom-runtime-source-provenance.mjs"}
+pointer="$runtime_home/active-runtime.json"
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
+env_file=${OPENCLAW_GATEWAY_ENV_FILE:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway.env"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
-managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh custom-runtime-source-provenance.mjs custom-runtime-signature.mjs control-director-role-config.py copy_stage_state.py'
+managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh custom-runtime-update-backup.mjs custom-runtime-update-github-proof.mjs custom-runtime-signature.mjs control-director-role-config.py copy_stage_state.py'
+post_activation_files='custom-runtime-source-provenance.mjs'
+control_files="$managed_files $post_activation_files"
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
@@ -34,7 +39,8 @@ done
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
-  [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
+  [ -n "$source_repo" ] || usage
+  [ -n "$source_branch" ] || source_branch=HEAD
   source_repo=$(cd "$source_repo" && pwd -P)
   case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
 fi
@@ -46,7 +52,7 @@ releases_dir=$(cd "$releases_dir" && pwd -P)
 case "$release" in "$releases_dir"/*) ;; *) printf '%s\n' 'release must be under the immutable releases root' >&2; exit 64 ;; esac
 
 control_source="$release/scripts/custom-runtime"
-for file in $managed_files; do
+for file in $control_files; do
   [ -f "$control_source/$file" ] || {
     printf '%s\n' "candidate control-plane file is missing: $file" >&2
     exit 64
@@ -74,19 +80,49 @@ mkdir -p "$runtime_home/backups" "$runtime_home/bin" "$runtime_home/locks" "$run
 stage_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_STAGE_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
 promotion_policy_migration=${OPENCLAW_RELEASE_GOVERNANCE_PROMOTION_POLICY_MIGRATION:-${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}}
 active_source_sha=
-if [ -f "$runtime_home/active-runtime.json" ]; then
-  active_source_sha=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+previous_runtime_root=
+if [ -f "$pointer" ]; then
+  active_identity=$(python3 - "$pointer" <<'PY'
 import json
+import os
 import re
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
-    source_sha = json.load(handle).get("sourceSha")
+    value = json.load(handle)
+source_sha = value.get("sourceSha")
+runtime_root = value.get("runtimeRoot")
 if not isinstance(source_sha, str) or not re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", source_sha):
     raise SystemExit("active runtime source SHA is missing or invalid")
+if not isinstance(runtime_root, str) or not runtime_root:
+    raise SystemExit("active runtime root is missing or invalid")
 print(source_sha)
+print(os.path.realpath(runtime_root))
 PY
   ) || exit 64
+  active_source_sha=$(printf '%s\n' "$active_identity" | sed -n '1p')
+  previous_runtime_root=$(printf '%s\n' "$active_identity" | sed -n '2p')
+fi
+if { [ ! -f "$trusted_provenance_helper" ] || [ -L "$trusted_provenance_helper" ]; } && \
+  [ -n "$previous_runtime_root" ]; then
+  active_provenance_helper="$previous_runtime_root/scripts/custom-runtime/custom-runtime-source-provenance.mjs"
+  if [ -f "$active_provenance_helper" ] && [ ! -L "$active_provenance_helper" ]; then
+    trusted_provenance_helper=$active_provenance_helper
+  fi
+fi
+[ -f "$trusted_provenance_helper" ] && [ ! -L "$trusted_provenance_helper" ] || {
+  printf '%s\n' \
+    'activation blocked: an existing trusted source provenance verifier is required; bootstrap must set OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER' >&2
+  exit 64
+}
+trusted_provenance_helper=$(cd "$(dirname "$trusted_provenance_helper")" && pwd -P)/$(basename "$trusted_provenance_helper")
+installed_provenance_helper="$runtime_home/bin/custom-runtime-source-provenance.mjs"
+if [ "$trusted_provenance_helper" != "$installed_provenance_helper" ]; then
+  install -m 700 "$trusted_provenance_helper" \
+    "$runtime_home/bin/.custom-runtime-source-provenance.mjs.bootstrap-$$"
+  mv "$runtime_home/bin/.custom-runtime-source-provenance.mjs.bootstrap-$$" \
+    "$installed_provenance_helper"
+  trusted_provenance_helper=$installed_provenance_helper
 fi
 if [ -n "$active_source_sha" ]; then
   OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$promotion_policy_migration" \
@@ -102,11 +138,49 @@ custom_runtime_certification_lease verify-activation "$runtime_home" \
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="$runtime_home/backups/control-plane-$stamp"
 mkdir "$backup"
+
+# Capture the service files before staging. Promotion can fail after it has
+# replaced them, so activation owns an independent recovery copy rather than
+# trusting the candidate's partially completed rollback.
+plist_existed=false
+env_existed=false
+pointer_existed=false
+plist_hash=
+env_hash=
+pointer_hash=
+if [ -e "$pointer" ]; then
+  [ -f "$pointer" ] && [ ! -L "$pointer" ] || {
+    printf '%s\n' 'activation blocked: active runtime pointer is missing, non-regular, or a symbolic link' >&2
+    exit 64
+  }
+  cp -p "$pointer" "$backup/active-runtime.json"
+  pointer_existed=true
+  pointer_hash=$(shasum -a 256 "$pointer" | awk '{print $1}')
+fi
+if [ -e "$plist" ]; then
+  [ -f "$plist" ] && [ ! -L "$plist" ] || {
+    printf '%s\n' 'activation blocked: Gateway plist is missing, non-regular, or a symbolic link' >&2
+    exit 64
+  }
+  cp -p "$plist" "$backup/gateway.plist"
+  plist_existed=true
+  plist_hash=$(shasum -a 256 "$plist" | awk '{print $1}')
+fi
+if [ -e "$env_file" ]; then
+  [ -f "$env_file" ] && [ ! -L "$env_file" ] || {
+    printf '%s\n' 'activation blocked: Gateway environment file is missing, non-regular, or a symbolic link' >&2
+    exit 64
+  }
+  cp -p "$env_file" "$backup/gateway.env"
+  env_existed=true
+  env_hash=$(shasum -a 256 "$env_file" | awk '{print $1}')
+fi
+
 control_installed=false
 committed=false
 rollback_attempted=false
 restore_control_plane() {
-  for file in $managed_files; do
+  for file in $control_files; do
     if [ -f "$backup/$file" ]; then
       install -m 700 "$backup/$file" "$runtime_home/bin/.$file.restore-$$"
       mv "$runtime_home/bin/.$file.restore-$$" "$runtime_home/bin/$file"
@@ -116,7 +190,78 @@ restore_control_plane() {
   done
 }
 
+verify_service_baseline() {
+  if [ "$pointer_existed" = true ]; then
+    [ -f "$pointer" ] && [ ! -L "$pointer" ] || return 1
+    [ "$(shasum -a 256 "$pointer" | awk '{print $1}')" = "$pointer_hash" ] || return 1
+  else
+    [ ! -e "$pointer" ] || return 1
+  fi
+  if [ "$plist_existed" = true ]; then
+    [ -f "$plist" ] && [ ! -L "$plist" ] || return 1
+    [ "$(shasum -a 256 "$plist" | awk '{print $1}')" = "$plist_hash" ] || return 1
+  else
+    [ ! -e "$plist" ] || return 1
+  fi
+  if [ "$env_existed" = true ]; then
+    [ -f "$env_file" ] && [ ! -L "$env_file" ] || return 1
+    [ "$(shasum -a 256 "$env_file" | awk '{print $1}')" = "$env_hash" ] || return 1
+  else
+    [ ! -e "$env_file" ] || return 1
+  fi
+}
+
+restore_service_file() {
+  restore_target=$1
+  restore_backup=$2
+  restore_existed=$3
+  restore_hash=$4
+  if [ "$restore_existed" = true ]; then
+    [ -f "$restore_backup" ] && [ ! -L "$restore_backup" ] || return 1
+    restore_tmp="$restore_target.restore-$$"
+    cp -p "$restore_backup" "$restore_tmp" || return 1
+    mv -f "$restore_tmp" "$restore_target" || return 1
+    [ "$(shasum -a 256 "$restore_target" | awk '{print $1}')" = "$restore_hash" ] || return 1
+  else
+    # Never remove an unexpected file on a path that was originally absent.
+    [ ! -e "$restore_target" ] || return 1
+  fi
+}
+
+restore_service_files() {
+  restore_service_file "$plist" "$backup/gateway.plist" "$plist_existed" "$plist_hash" || return 1
+  restore_service_file "$env_file" "$backup/gateway.env" "$env_existed" "$env_hash" || return 1
+}
+
+restore_active_pointer() {
+  if [ "$pointer_existed" = true ]; then
+    restore_service_file "$pointer" "$backup/active-runtime.json" true "$pointer_hash"
+  else
+    rm -f "$pointer"
+  fi
+}
+
+verify_plist_working_directory() {
+  python3 - "$1" "$2" <<'PY'
+import plistlib
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as handle:
+        value = plistlib.load(handle)
+except (OSError, plistlib.InvalidFileException, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if value.get("WorkingDirectory") == sys.argv[2] else 1)
+PY
+}
+
 restart_restored_gateway() {
+  [ "$plist_existed" = true ] || return 1
+  [ -f "$plist" ] && [ ! -L "$plist" ] || return 1
+  [ "$(shasum -a 256 "$plist" | awk '{print $1}')" = "$plist_hash" ] || return 1
+  if [ -n "$previous_runtime_root" ]; then
+    verify_plist_working_directory "$plist" "$previous_runtime_root" || return 1
+  fi
   launchctl bootout "gui/$uid/$label" 2>/dev/null || true
   for _ in $(seq 1 15); do
     launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
@@ -135,7 +280,9 @@ restart_restored_gateway() {
 
 rollback_activation() {
   rollback_attempted=true
-  restore_control_plane
+  restore_control_plane || return 1
+  restore_active_pointer || return 1
+  restore_service_files || return 1
   if restart_restored_gateway; then
     printf '{"at":"%s","result":"rolled_back_verified","release":"%s"}\n' \
       "$stamp" "$(basename "$release")" > "$runtime_home/receipts/activation-$stamp.json"
@@ -169,11 +316,24 @@ stage_rollback_launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 [ -f "$stage_rollback_launcher" ] || stage_rollback_launcher="$control_source/custom-runtime-launcher.sh"
 OPENCLAW_CUSTOM_RUNTIME_LAUNCHER="$control_source/custom-runtime-launcher.sh" \
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$stage_rollback_launcher" \
+  OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER="$trusted_provenance_helper" \
   OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$stage_policy_migration" \
   "$control_source/custom-runtime-stage.sh" \
   --release "$release" --source-sha "$source_sha" --port "$stage_port"
 
-for file in $managed_files; do
+verify_service_baseline || {
+  printf '%s\n' 'activation blocked: active pointer or Gateway service files changed during staging' >&2
+  if restore_active_pointer && restore_service_files && \
+    { [ "$plist_existed" = false ] || restart_restored_gateway; }; then
+    printf '%s\n' 'activation restored the previous runtime and Gateway service baseline' >&2
+  else
+    printf '%s\n' 'activation failed to restore the previous runtime and Gateway service baseline' >&2
+    exit 1
+  fi
+  exit 75
+}
+
+for file in $control_files; do
   [ ! -f "$runtime_home/bin/$file" ] || cp -p "$runtime_home/bin/$file" "$backup/$file"
 done
 control_installed=true
@@ -193,16 +353,22 @@ if [ -n "$provenance_migration" ]; then
 fi
 if [ "$enable_sig_background" = true ]; then
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER="$trusted_provenance_helper" \
     OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$promotion_policy_migration" \
     "$runtime_home/bin/custom-runtime-promote.sh" \
     "$@" --port "$port" \
     --enable-sig-background || exit 1
 else
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    OPENCLAW_TRUSTED_SOURCE_PROVENANCE_HELPER="$trusted_provenance_helper" \
     OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION="$promotion_policy_migration" \
     "$runtime_home/bin/custom-runtime-promote.sh" \
     "$@" --port "$port" || exit 1
 fi
+
+# The provenance verifier is the installed root of trust. Candidate activation
+# may validate against it but cannot replace it; verifier upgrades require a
+# separate operator-controlled bootstrap.
 
 committed=true
 printf '{"at":"%s","result":"activated","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s}\n' \

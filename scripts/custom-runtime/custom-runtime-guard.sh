@@ -8,6 +8,7 @@ label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-secret-provider"}
+config_path=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
 port=${OPENCLAW_GATEWAY_PORT:-18789}
 tailscale_primary_guard="$runtime_home/bin/custom-runtime-tailscale-primary.sh"
 full_verification_ttl=900
@@ -56,11 +57,49 @@ receipt() {
 }
 
 tailscale_primary_ok=true
-if [ -x "$tailscale_primary_guard" ] && ! "$tailscale_primary_guard" guard; then
-  tailscale_primary_ok=false
+tailnet_origin_ok=true
+if [ -x "$tailscale_primary_guard" ]; then
+  if ! "$tailscale_primary_guard" guard; then
+    tailscale_primary_ok=false
+  elif tailscale_status=$("$tailscale_primary_guard" status); then
+    if ! python3 - "$tailscale_status" "$config_path" <<'PY'
+import json
+import os
+import stat
+import sys
+
+status = json.loads(sys.argv[1])
+if status.get("configured") is not True:
+    raise SystemExit(0)
+dns_name = str(status.get("dnsName") or "").strip().rstrip(".").lower()
+if not dns_name:
+    raise SystemExit(1)
+config_path = sys.argv[2]
+info = os.lstat(config_path)
+if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+    raise SystemExit(1)
+with open(config_path, encoding="utf-8") as f:
+    config = json.load(f)
+origins = ((config.get("gateway") or {}).get("controlUi") or {}).get("allowedOrigins")
+if not isinstance(origins, list):
+    raise SystemExit(1)
+expected = f"https://{dns_name}"
+normalized = {
+    str(origin).strip().rstrip("/").lower()
+    for origin in origins
+    if isinstance(origin, str) and origin.strip()
+}
+raise SystemExit(0 if expected in normalized else 1)
+PY
+    then
+      tailnet_origin_ok=false
+    fi
+  else
+    tailscale_primary_ok=false
+  fi
 fi
 complete_guard() {
-  if [ "$tailscale_primary_ok" = true ]; then
+  if [ "$tailscale_primary_ok" = true ] && [ "$tailnet_origin_ok" = true ]; then
     [ "$lifecycle_result" != guard-failed ] || lifecycle_result=guard-healthy
     exit 0
   fi
@@ -114,6 +153,7 @@ plist_sha=
 provenance_sha=
 provenance_record_sha=
 provenance_migration_sha=
+dashboard_manifest_sha=
 provenance_invalid=false
 [ -f "$runtime_home/active-runtime.json" ] && pointer_sha=$(shasum -a 256 "$runtime_home/active-runtime.json" | awk '{print $1}') || true
 [ -f "$launcher" ] && launcher_sha=$(shasum -a 256 "$launcher" | awk '{print $1}') || true
@@ -122,7 +162,9 @@ provenance_path=
 if [ -n "$runtime_root" ]; then
   provenance_path="$runtime_root/.openclaw-runtime-provenance.json"
 fi
-if [ -n "$provenance_path" ] && [ -e "$provenance_path" ]; then
+if [ -z "$provenance_path" ] || [ ! -e "$provenance_path" ]; then
+  provenance_invalid=true
+elif [ -e "$provenance_path" ]; then
   if [ -L "$provenance_path" ] || [ ! -f "$provenance_path" ]; then
     provenance_invalid=true
   else
@@ -195,6 +237,60 @@ PY
     fi
   fi
 fi
+dashboard_manifest=
+if [ -n "$runtime_root" ]; then
+  dashboard_manifest="$runtime_root/dist/control-ui/dashboard-surfaces.json"
+fi
+if [ -n "$dashboard_manifest" ] && [ -f "$dashboard_manifest" ] && [ ! -L "$dashboard_manifest" ]; then
+  dashboard_manifest_sha=$(shasum -a 256 "$dashboard_manifest" | awk '{print $1}')
+fi
+
+dashboard_runtime_ok() {
+  [ -n "$dashboard_manifest_sha" ] || return 1
+  bootstrap=$(mktemp "$runtime_home/.guard-control-ui-config.XXXXXX") || return 1
+  service_worker=$(mktemp "$runtime_home/.guard-service-worker.XXXXXX") || {
+    rm -f "$bootstrap"
+    return 1
+  }
+  chmod 600 "$bootstrap" "$service_worker"
+  cleanup_dashboard_probe() { rm -f "$bootstrap" "$service_worker"; }
+  if ! curl --silent --fail --max-time 3 -H 'Cache-Control: no-cache' \
+    "http://127.0.0.1:$port/control-ui-config.json" > "$bootstrap" || \
+     ! curl --silent --fail --max-time 3 -H 'Cache-Control: no-cache' \
+    "http://127.0.0.1:$port/sw.js" > "$service_worker"; then
+    cleanup_dashboard_probe
+    return 1
+  fi
+  if ! python3 - "$bootstrap" "$service_worker" "$dashboard_manifest" "$runtime_root" <<'PY'
+import json
+import os
+import sys
+
+bootstrap_path, service_worker_path, manifest_path, expected_root = sys.argv[1:]
+with open(bootstrap_path, encoding="utf-8") as f:
+    bootstrap = json.load(f)
+with open(manifest_path, encoding="utf-8") as f:
+    manifest = json.load(f)
+identity = bootstrap.get("runtimeIdentity")
+build_id = manifest.get("buildId")
+if not isinstance(identity, dict) or not isinstance(build_id, str) or not build_id:
+    raise SystemExit("dashboard runtime identity is incomplete")
+if os.path.realpath(str(identity.get("runtimeRoot", ""))) != os.path.realpath(expected_root):
+    raise SystemExit("dashboard runtime root does not match the active pointer")
+if identity.get("dashboardBuildId") != build_id:
+    raise SystemExit("served Dashboard build does not match the active manifest")
+with open(service_worker_path, encoding="utf-8") as f:
+    service_worker = f.read()
+if json.dumps(build_id) not in service_worker:
+    raise SystemExit("served service worker does not match the Dashboard build")
+PY
+  then
+    cleanup_dashboard_probe
+    return 1
+  fi
+  cleanup_dashboard_probe
+  return 0
+}
 
 # The cheap path is intentionally limited to identity, launcher, plist, and
 # process checks. A hash-bound full verification receipt is trusted for at
@@ -207,14 +303,14 @@ if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && \
   [ "$process_probes_available" = true ] && \
   custom_runtime_port_owner_pid "$port" "$runtime_root" >/dev/null 2>&1
 then
-  if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" "$provenance_sha" "$provenance_record_sha" "$provenance_migration_sha" "$full_verification_ttl" <<'PY'
+  if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" "$provenance_sha" "$provenance_record_sha" "$provenance_migration_sha" "$dashboard_manifest_sha" "$full_verification_ttl" <<'PY'
 import json
 import os
 import stat
 import sys
 import time
 
-path, runtime_root, source_sha, pointer_sha, launcher_sha, plist_sha, provenance_sha, provenance_record_sha, provenance_migration_sha, ttl = sys.argv[1:]
+path, runtime_root, source_sha, pointer_sha, launcher_sha, plist_sha, provenance_sha, provenance_record_sha, provenance_migration_sha, dashboard_manifest_sha, ttl = sys.argv[1:]
 try:
     info = os.lstat(path)
     if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o077:
@@ -232,6 +328,7 @@ try:
         and value.get("provenanceSha256", "") == provenance_sha
         and value.get("provenanceRecordSha256", "") == provenance_record_sha
         and value.get("provenanceMigrationSha256", "") == provenance_migration_sha
+        and value.get("dashboardManifestSha256", "") == dashboard_manifest_sha
         and isinstance(value.get("verifiedAt"), int)
         and not isinstance(value.get("verifiedAt"), bool)
         and 0 <= time.time() - value["verifiedAt"] <= int(ttl)
@@ -247,20 +344,28 @@ fi
 if [ "$cache_valid" = true ]; then
   complete_guard
 fi
+if [ "$tailscale_primary_ok" = false ]; then
+  receipt tailscale_primary_failed
+  exit 1
+fi
+if [ "$tailnet_origin_ok" = false ]; then
+  receipt tailnet_origin_failed
+  exit 1
+fi
 if [ "$provenance_invalid" = false ] && [ "$plist_uses_launcher" = true ] && \
   [ "$plist_working_directory_matches" = true ] && [ -n "$runtime_root" ] && \
   [ "$process_probes_available" = true ] && \
   custom_runtime_port_owner_pid "$port" "$runtime_root" >/dev/null 2>&1 && \
-  "$launcher" --verify >/dev/null 2>&1
+  "$launcher" --verify >/dev/null 2>&1 && dashboard_runtime_ok
 then
-  if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" "$provenance_sha" "$provenance_record_sha" "$provenance_migration_sha" <<'PY'
+  if python3 - "$verification_receipt" "$runtime_root" "$runtime_source_sha" "$pointer_sha" "$launcher_sha" "$plist_sha" "$provenance_sha" "$provenance_record_sha" "$provenance_migration_sha" "$dashboard_manifest_sha" <<'PY'
 import json
 import os
 import sys
 import tempfile
 import time
 
-target, runtime_root, source_sha, pointer_sha, launcher_sha, plist_sha, provenance_sha, provenance_record_sha, provenance_migration_sha = sys.argv[1:]
+target, runtime_root, source_sha, pointer_sha, launcher_sha, plist_sha, provenance_sha, provenance_record_sha, provenance_migration_sha, dashboard_manifest_sha = sys.argv[1:]
 directory = os.path.dirname(target)
 temporary = None
 try:
@@ -279,6 +384,7 @@ try:
                 "provenanceSha256": provenance_sha,
                 "provenanceRecordSha256": provenance_record_sha,
                 "provenanceMigrationSha256": provenance_migration_sha,
+                "dashboardManifestSha256": dashboard_manifest_sha,
             },
             handle,
             separators=(",", ":"),

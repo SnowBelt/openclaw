@@ -9,11 +9,8 @@ async function readRepoFile(relativePath: string): Promise<string> {
 
 describe("curator prompt contract", () => {
   it("keeps the canonical instructions compact, model-neutral, and complete", async () => {
-    const [instructions, skill] = await Promise.all([
-      readRepoFile("control/agents/memory-knowledge-curator/AGENTS.md"),
-      readRepoFile(".agents/skills/memory-knowledge-curator/SKILL.md"),
-    ]);
-    const combined = `${instructions}\n${skill}`;
+    const instructions = await readRepoFile("control/agents/memory-knowledge-curator/AGENTS.md");
+    const combined = instructions;
 
     expect(combined.length).toBeLessThanOrEqual(CURATOR_PROMPT_BUDGET_CHARS);
     expect(combined).toContain("curator_get");

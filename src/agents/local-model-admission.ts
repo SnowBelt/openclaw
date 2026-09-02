@@ -1,25 +1,25 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import { formatErrorMessage } from "../infra/errors.js";
+import {
+  executeSqliteQuerySync,
+  executeSqliteQueryTakeFirstSync,
+  getNodeSqliteKysely,
+} from "../infra/kysely-sync.js";
+import { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
+import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
+import { withOpenClawStateStartupMigrationCheckpointDatabase } from "../state/openclaw-state-db.js";
 
 export const LOCAL_MODEL_ADMISSION_SCHEMA = "openclaw.local-model-admission.v1" as const;
-export const LOCAL_MODEL_ADMISSION_ENV = "OPENCLAW_LOCAL_MODEL_ADMISSION_PATH" as const;
+export const LOCAL_MODEL_ADMISSION_STATE_DIR_ENV = "OPENCLAW_STATE_DIR" as const;
 export const LOCAL_MODEL_ADMISSION_TOKEN_ENV = "OPENCLAW_LOCAL_MODEL_ADMISSION_TOKEN" as const;
 export const LOCAL_MODEL_ADMISSION_MAX_WAIT_MS = 30 * 60 * 1000;
 export const LOCAL_MODEL_ADMISSION_SAMPLE_INTERVAL_MS = 5_000;
 export const LOCAL_MODEL_ADMISSION_DEFAULT_TTL_MS = 5 * 60 * 1000;
-const COORDINATOR_LOCK_STALE_MS = 60_000;
 
-export type LocalModelAdmissionMode = "shared" | "exclusive";
+const LOCAL_MODEL_LEASE_SCOPE = "local-model";
 
-export type LocalModelResourceSnapshot = {
-  observedAt: string;
-  activeOpenClawWorkerCount: number;
-  activeOllamaClientCount: number;
-  activeOpenClawWorkerPids?: number[];
-  activeOllamaClientPids?: number[];
-};
+type LocalModelAdmissionDatabase = Pick<OpenClawStateKyselyDatabase, "state_leases">;
 
 type StoredLocalModelLease = {
   token: string;
@@ -30,9 +30,22 @@ type StoredLocalModelLease = {
   expiresAt: number;
 };
 
-type StoredLocalModelState = {
-  schema: typeof LOCAL_MODEL_ADMISSION_SCHEMA;
-  leases: StoredLocalModelLease[];
+type StoredLocalModelLeaseRow = {
+  leaseKey: string;
+  owner: string;
+  expiresAt: number | null;
+  acquiredAt: number;
+  payloadJson: string | null;
+};
+
+export type LocalModelAdmissionMode = "shared" | "exclusive";
+
+export type LocalModelResourceSnapshot = {
+  observedAt: string;
+  activeOpenClawWorkerCount: number;
+  activeOllamaClientCount: number;
+  activeOpenClawWorkerPids?: number[];
+  activeOllamaClientPids?: number[];
 };
 
 export type LocalModelAdmissionErrorCode = "resource_contention" | "lease_state_invalid";
@@ -54,7 +67,6 @@ export type LocalModelAdmissionLease = {
   readonly mode: LocalModelAdmissionMode;
   readonly acquiredAt: number;
   expiresAt: number;
-  readonly statePath: string;
   readonly borrowed: boolean;
   readonly samples: readonly LocalModelResourceSnapshot[];
   renew(): Promise<void>;
@@ -64,20 +76,13 @@ export type LocalModelAdmissionLease = {
 export type AcquireLocalModelAdmissionParams = {
   mode: LocalModelAdmissionMode;
   owner: string;
-  statePath?: string;
+  env?: NodeJS.ProcessEnv;
   waitMs?: number;
   ttlMs?: number;
   probe?: () => LocalModelResourceSnapshot | Promise<LocalModelResourceSnapshot>;
   sampleIntervalMs?: number;
   signal?: AbortSignal;
 };
-
-const DEFAULT_LOCAL_MODEL_ADMISSION_PATH = path.join(
-  path.parse(os.tmpdir()).root,
-  "tmp",
-  "openclaw-local-model-admission",
-  "state.json",
-);
 
 function admissionError(
   code: LocalModelAdmissionErrorCode,
@@ -94,7 +99,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   }
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
     const cleanup = () => {
       if (timer) {
         clearTimeout(timer);
@@ -119,7 +123,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
         admissionError("resource_contention", "blocked_resource_contention:admission aborted"),
       );
     };
-    timer = setTimeout(complete, ms);
+    const timer = setTimeout(complete, ms);
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) {
       abort();
@@ -133,104 +137,10 @@ function validateFiniteNonNegative(value: number, label: string): void {
   }
 }
 
-function resolveStatePath(value?: string): string {
-  const selected =
-    value?.trim() ||
-    process.env[LOCAL_MODEL_ADMISSION_ENV]?.trim() ||
-    DEFAULT_LOCAL_MODEL_ADMISSION_PATH;
-  const resolved = path.resolve(selected);
-  if (resolved === path.parse(resolved).root || path.basename(resolved) === "") {
-    throw admissionError(
-      "lease_state_invalid",
-      "lease_state_invalid:lease path is not a regular file path",
-    );
-  }
-  return resolved;
-}
-
-function ensurePrivateParent(statePath: string): void {
-  const parent = path.dirname(statePath);
-  try {
-    fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
-    const info = fs.lstatSync(parent);
-    if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-      throw admissionError("lease_state_invalid", "lease_state_invalid:lease directory is unsafe");
-    }
-    fs.chmodSync(parent, 0o700);
-  } catch (error) {
-    if (error instanceof LocalModelAdmissionError) {
-      throw error;
-    }
-    throw admissionError(
-      "lease_state_invalid",
-      "lease_state_invalid:lease directory is unavailable",
-    );
-  }
-}
-
-function readState(statePath: string): StoredLocalModelState {
-  try {
-    const info = fs.lstatSync(statePath);
-    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-      throw admissionError(
-        "lease_state_invalid",
-        "lease_state_invalid:lease state is not a private file",
-      );
-    }
-    const value = JSON.parse(fs.readFileSync(statePath, "utf8")) as Record<string, unknown>;
-    if (value.schema !== LOCAL_MODEL_ADMISSION_SCHEMA || !Array.isArray(value.leases)) {
-      throw admissionError(
-        "lease_state_invalid",
-        "lease_state_invalid:lease state schema is invalid",
-      );
-    }
-    const leases: StoredLocalModelLease[] = [];
-    for (const item of value.leases) {
-      if (!isStoredLease(item)) {
-        throw admissionError("lease_state_invalid", "lease_state_invalid:lease entry is invalid");
-      }
-      leases.push({ ...item });
-    }
-    return { schema: LOCAL_MODEL_ADMISSION_SCHEMA, leases };
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      return { schema: LOCAL_MODEL_ADMISSION_SCHEMA, leases: [] };
-    }
-    if (error instanceof LocalModelAdmissionError) {
-      throw error;
-    }
-    throw admissionError("lease_state_invalid", "lease_state_invalid:lease state is unreadable");
-  }
-}
-
-function isStoredLease(value: unknown): value is StoredLocalModelLease {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const row = value as Record<string, unknown>;
-  return (
-    typeof row.token === "string" &&
-    row.token.length > 0 &&
-    typeof row.owner === "string" &&
-    row.owner.trim().length > 0 &&
-    (row.mode === "shared" || row.mode === "exclusive") &&
-    typeof row.pid === "number" &&
-    Number.isInteger(row.pid) &&
-    row.pid > 0 &&
-    typeof row.acquiredAt === "number" &&
-    Number.isInteger(row.acquiredAt) &&
-    typeof row.expiresAt === "number" &&
-    Number.isInteger(row.expiresAt) &&
-    row.expiresAt > row.acquiredAt
-  );
-}
-
-function isMissingPathError(error: unknown): boolean {
-  return Boolean(
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "ENOENT",
+function withLeaseDatabase<T>(env: NodeJS.ProcessEnv, callback: (db: DatabaseSync) => T): T {
+  return withOpenClawStateStartupMigrationCheckpointDatabase(
+    (db) => runSqliteImmediateTransactionSync(db, () => callback(db)),
+    { env },
   );
 }
 
@@ -243,188 +153,178 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-function pruneState(state: StoredLocalModelState, now: number): StoredLocalModelState {
+function pruneLeases(db: DatabaseSync, nowMs: number): void {
+  const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
+  for (const lease of readLeases(db)) {
+    if (lease.expiresAt <= nowMs || !processIsAlive(lease.pid)) {
+      executeSqliteQuerySync(
+        db,
+        stateDb
+          .deleteFrom("state_leases")
+          .where("scope", "=", LOCAL_MODEL_LEASE_SCOPE)
+          .where("lease_key", "=", lease.token),
+      );
+    }
+  }
+}
+
+function parseLeaseRow(row: StoredLocalModelLeaseRow): StoredLocalModelLease {
+  const acquiredAt = row.acquiredAt;
+  const expiresAt = row.expiresAt;
+  if (
+    typeof row.leaseKey !== "string" ||
+    row.leaseKey.length === 0 ||
+    typeof row.owner !== "string" ||
+    row.owner.trim().length === 0 ||
+    !Number.isInteger(acquiredAt) ||
+    acquiredAt < 0 ||
+    typeof expiresAt !== "number" ||
+    !Number.isInteger(expiresAt) ||
+    expiresAt <= acquiredAt ||
+    typeof row.payloadJson !== "string"
+  ) {
+    throw admissionError("lease_state_invalid", "lease_state_invalid:lease entry is invalid");
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payloadJson);
+  } catch {
+    throw admissionError("lease_state_invalid", "lease_state_invalid:lease payload is invalid");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw admissionError("lease_state_invalid", "lease_state_invalid:lease payload is invalid");
+  }
+  const mode = (payload as Record<string, unknown>).mode;
+  const schema = (payload as Record<string, unknown>).schema;
+  const pid = (payload as Record<string, unknown>).pid;
+  if (
+    schema !== LOCAL_MODEL_ADMISSION_SCHEMA ||
+    (mode !== "shared" && mode !== "exclusive") ||
+    typeof pid !== "number" ||
+    !Number.isSafeInteger(pid) ||
+    pid <= 0
+  ) {
+    throw admissionError("lease_state_invalid", "lease_state_invalid:lease payload is invalid");
+  }
   return {
-    schema: LOCAL_MODEL_ADMISSION_SCHEMA,
-    leases: state.leases.filter((lease) => lease.expiresAt > now && processIsAlive(lease.pid)),
+    token: row.leaseKey,
+    owner: row.owner.trim(),
+    mode,
+    pid,
+    acquiredAt,
+    expiresAt,
   };
 }
 
-function writeState(statePath: string, state: StoredLocalModelState): void {
-  ensurePrivateParent(statePath);
-  const temporary = `${statePath}.tmp-${process.pid}-${crypto.randomUUID()}`;
-  let descriptor: number | undefined;
-  try {
-    descriptor = fs.openSync(
-      temporary,
-      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
-      0o600,
+function readLeases(db: DatabaseSync): StoredLocalModelLease[] {
+  const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
+  const rows = executeSqliteQuerySync(
+    db,
+    stateDb
+      .selectFrom("state_leases")
+      .select([
+        "lease_key as leaseKey",
+        "owner",
+        "expires_at as expiresAt",
+        "created_at as acquiredAt",
+        "payload_json as payloadJson",
+      ])
+      .where("scope", "=", LOCAL_MODEL_LEASE_SCOPE),
+  ).rows;
+  return rows.map(parseLeaseRow);
+}
+
+function readLeaseByToken(db: DatabaseSync, token: string): StoredLocalModelLease | undefined {
+  const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
+  const row = executeSqliteQueryTakeFirstSync(
+    db,
+    stateDb
+      .selectFrom("state_leases")
+      .select([
+        "lease_key as leaseKey",
+        "owner",
+        "expires_at as expiresAt",
+        "created_at as acquiredAt",
+        "payload_json as payloadJson",
+      ])
+      .where("scope", "=", LOCAL_MODEL_LEASE_SCOPE)
+      .where("lease_key", "=", token),
+  );
+  return row ? parseLeaseRow(row) : undefined;
+}
+
+function storeLease(db: DatabaseSync, lease: StoredLocalModelLease): void {
+  const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
+  executeSqliteQuerySync(
+    db,
+    stateDb.insertInto("state_leases").values({
+      scope: LOCAL_MODEL_LEASE_SCOPE,
+      lease_key: lease.token,
+      owner: lease.owner,
+      expires_at: lease.expiresAt,
+      heartbeat_at: lease.acquiredAt,
+      payload_json: JSON.stringify({
+        schema: LOCAL_MODEL_ADMISSION_SCHEMA,
+        mode: lease.mode,
+        pid: lease.pid,
+      }),
+      created_at: lease.acquiredAt,
+      updated_at: lease.acquiredAt,
+    }),
+  );
+}
+
+function renewLease(env: NodeJS.ProcessEnv, token: string, owner: string, ttlMs: number): number {
+  const nowMs = Date.now();
+  const expiresAt = nowMs + ttlMs;
+  withLeaseDatabase(env, (db) => {
+    const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
+    const result = executeSqliteQuerySync(
+      db,
+      stateDb
+        .updateTable("state_leases")
+        .set({
+          expires_at: expiresAt,
+          heartbeat_at: nowMs,
+          updated_at: nowMs,
+        })
+        .where("scope", "=", LOCAL_MODEL_LEASE_SCOPE)
+        .where("lease_key", "=", token)
+        .where("owner", "=", owner)
+        .where("expires_at", ">", nowMs),
     );
-    const payload = `${JSON.stringify(state)}\n`;
-    fs.writeFileSync(descriptor, payload, "utf8");
-    fs.fsyncSync(descriptor);
-    fs.closeSync(descriptor);
-    descriptor = undefined;
-    fs.renameSync(temporary, statePath);
-    fs.chmodSync(statePath, 0o600);
-    const directory = fs.openSync(path.dirname(statePath), fs.constants.O_RDONLY);
-    try {
-      fs.fsyncSync(directory);
-    } finally {
-      fs.closeSync(directory);
-    }
-  } catch (error) {
-    if (descriptor !== undefined) {
-      fs.closeSync(descriptor);
-    }
-    try {
-      fs.rmSync(temporary, { force: true });
-    } catch {
-      // Preserve the original write error.
-    }
-    throw error;
-  }
-}
-
-async function withCoordinatorLock<T>(statePath: string, operation: () => Promise<T>): Promise<T> {
-  ensurePrivateParent(statePath);
-  const lockPath = `${statePath}.lock`;
-  const deadline = Date.now() + 1_000;
-  let descriptor: number | undefined;
-  while (descriptor === undefined) {
-    try {
-      descriptor = fs.openSync(
-        lockPath,
-        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
-        0o600,
-      );
-      fs.writeFileSync(descriptor, `${process.pid}\n`, "utf8");
-      fs.fsyncSync(descriptor);
-    } catch (error) {
-      if (descriptor !== undefined) {
-        try {
-          fs.closeSync(descriptor);
-        } catch {
-          // Preserve the lock acquisition error.
-        }
-        descriptor = undefined;
-        try {
-          fs.rmSync(lockPath, { force: true });
-        } catch {
-          // A failed lock cleanup is handled as an unavailable coordinator.
-        }
-        throw admissionError(
-          "lease_state_invalid",
-          "lease_state_invalid:coordinator lock is unavailable",
-        );
-      }
-      if (
-        !(
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          (error as { code?: unknown }).code === "EEXIST"
-        )
-      ) {
-        throw admissionError(
-          "lease_state_invalid",
-          "lease_state_invalid:coordinator lock is unavailable",
-        );
-      }
-      try {
-        const info = fs.lstatSync(lockPath);
-        if (!info.isFile() || info.isSymbolicLink()) {
-          throw admissionError(
-            "lease_state_invalid",
-            "lease_state_invalid:coordinator lock is unsafe",
-          );
-        }
-        if (Date.now() - info.mtimeMs > COORDINATOR_LOCK_STALE_MS) {
-          fs.rmSync(lockPath);
-          continue;
-        }
-      } catch (lockError) {
-        if (lockError instanceof LocalModelAdmissionError) {
-          throw lockError;
-        }
-        if (isMissingPathError(lockError)) {
-          continue;
-        }
-        throw admissionError(
-          "lease_state_invalid",
-          "lease_state_invalid:coordinator lock is unreadable",
-        );
-      }
-      if (Date.now() >= deadline) {
-        throw admissionError(
-          "resource_contention",
-          "blocked_resource_contention:coordinator lock is held",
-        );
-      }
-      await sleep(25);
-    }
-  }
-  try {
-    return await operation();
-  } finally {
-    if (descriptor !== undefined) {
-      fs.closeSync(descriptor);
-    }
-    try {
-      fs.rmSync(lockPath, { force: true });
-    } catch {
-      // Do not hide an operation result behind cleanup of the coordinator lock.
-    }
-  }
-}
-
-function validateSnapshot(snapshot: LocalModelResourceSnapshot): void {
-  if (
-    typeof snapshot.observedAt !== "string" ||
-    !Number.isInteger(snapshot.activeOpenClawWorkerCount) ||
-    snapshot.activeOpenClawWorkerCount < 0 ||
-    !Number.isInteger(snapshot.activeOllamaClientCount) ||
-    snapshot.activeOllamaClientCount < 0
-  ) {
-    throw admissionError(
-      "lease_state_invalid",
-      "lease_state_invalid:resource probe returned invalid data",
-    );
-  }
-}
-
-async function renewLease(statePath: string, token: string, ttlMs: number): Promise<number> {
-  const expiresAt = Date.now() + ttlMs;
-  await withCoordinatorLock(statePath, async () => {
-    const state = pruneState(readState(statePath), Date.now());
-    const lease = state.leases.find((row) => row.token === token);
-    if (!lease) {
+    if (result.numAffectedRows !== 1n) {
       throw admissionError("lease_state_invalid", "lease_state_invalid:owned lease disappeared");
     }
-    lease.expiresAt = expiresAt;
-    writeState(statePath, state);
   });
   return expiresAt;
 }
 
-async function releaseLease(statePath: string, token: string): Promise<void> {
-  await withCoordinatorLock(statePath, async () => {
-    const state = pruneState(readState(statePath), Date.now());
-    const before = state.leases.length;
-    state.leases = state.leases.filter((row) => row.token !== token);
-    if (state.leases.length === before) {
+function releaseLease(env: NodeJS.ProcessEnv, token: string, owner: string): void {
+  withLeaseDatabase(env, (db) => {
+    const nowMs = Date.now();
+    pruneLeases(db, nowMs);
+    const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
+    const result = executeSqliteQuerySync(
+      db,
+      stateDb
+        .deleteFrom("state_leases")
+        .where("scope", "=", LOCAL_MODEL_LEASE_SCOPE)
+        .where("lease_key", "=", token)
+        .where("owner", "=", owner),
+    );
+    if (result.numAffectedRows !== 1n) {
       throw admissionError(
         "lease_state_invalid",
         "lease_state_invalid:owned lease disappeared before release",
       );
     }
-    writeState(statePath, state);
   });
 }
 
 function makeLease(params: {
   stored: StoredLocalModelLease;
-  statePath: string;
+  env: NodeJS.ProcessEnv;
   borrowed: boolean;
   samples: readonly LocalModelResourceSnapshot[];
   ttlMs: number;
@@ -437,7 +337,7 @@ function makeLease(params: {
     if (released || params.borrowed) {
       return;
     }
-    expiresAt = await renewLease(params.statePath, params.stored.token, params.ttlMs);
+    expiresAt = renewLease(params.env, params.stored.token, params.stored.owner, params.ttlMs);
   };
   if (!params.borrowed) {
     timer = setInterval(
@@ -462,12 +362,13 @@ function makeLease(params: {
     set expiresAt(value: number) {
       expiresAt = value;
     },
-    statePath: params.statePath,
     borrowed: params.borrowed,
     samples: params.samples,
     renew: async () => {
       if (renewalError) {
-        throw renewalError;
+        throw renewalError instanceof Error
+          ? renewalError
+          : new Error(formatErrorMessage(renewalError));
       }
       await renew();
     },
@@ -481,15 +382,32 @@ function makeLease(params: {
       }
       if (renewalError) {
         try {
-          await releaseLease(params.statePath, params.stored.token);
+          releaseLease(params.env, params.stored.token, params.stored.owner);
         } catch {
           // Preserve the renewal error as the primary failure.
         }
-        throw renewalError;
+        throw renewalError instanceof Error
+          ? renewalError
+          : new Error(formatErrorMessage(renewalError));
       }
-      await releaseLease(params.statePath, params.stored.token);
+      releaseLease(params.env, params.stored.token, params.stored.owner);
     },
   };
+}
+
+function validateSnapshot(snapshot: LocalModelResourceSnapshot): void {
+  if (
+    typeof snapshot.observedAt !== "string" ||
+    !Number.isInteger(snapshot.activeOpenClawWorkerCount) ||
+    snapshot.activeOpenClawWorkerCount < 0 ||
+    !Number.isInteger(snapshot.activeOllamaClientCount) ||
+    snapshot.activeOllamaClientCount < 0
+  ) {
+    throw admissionError(
+      "lease_state_invalid",
+      "lease_state_invalid:resource probe returned invalid data",
+    );
+  }
 }
 
 export async function acquireLocalModelAdmission(
@@ -512,13 +430,14 @@ export async function acquireLocalModelAdmission(
       "lease_state_invalid:exclusive admission requires a resource probe",
     );
   }
-  const statePath = resolveStatePath(params.statePath);
-  const inheritedToken = process.env[LOCAL_MODEL_ADMISSION_TOKEN_ENV]?.trim();
+  const env = params.env ?? process.env;
+  const inheritedToken = env[LOCAL_MODEL_ADMISSION_TOKEN_ENV]?.trim();
   if (inheritedToken) {
-    const stored = await withCoordinatorLock(statePath, async () => {
-      const state = pruneState(readState(statePath), Date.now());
-      const found = state.leases.find((row) => row.token === inheritedToken);
-      if (!found || found.mode !== "exclusive") {
+    const stored = withLeaseDatabase(env, (db) => {
+      const nowMs = Date.now();
+      pruneLeases(db, nowMs);
+      const found = readLeaseByToken(db, inheritedToken);
+      if (!found || found.expiresAt <= nowMs || found.mode !== "exclusive") {
         throw admissionError(
           "lease_state_invalid",
           "lease_state_invalid:inherited exclusive lease token is invalid",
@@ -526,49 +445,53 @@ export async function acquireLocalModelAdmission(
       }
       return found;
     });
-    return makeLease({ stored, statePath, borrowed: true, samples: [], ttlMs });
+    return makeLease({ stored, env, borrowed: true, samples: [], ttlMs });
   }
 
   const deadline = Date.now() + waitMs;
   const token = crypto.randomUUID().replaceAll("-", "");
-  let stored: StoredLocalModelLease | undefined;
-  while (!stored) {
+  let stored: StoredLocalModelLease;
+  while (true) {
     if (params.signal?.aborted) {
       throw admissionError("resource_contention", "blocked_resource_contention:admission aborted");
     }
-    const now = Date.now();
-    await withCoordinatorLock(statePath, async () => {
-      const state = pruneState(readState(statePath), now);
+    const nowMs = Date.now();
+    const acquired = withLeaseDatabase(env, (db) => {
+      pruneLeases(db, nowMs);
+      const leases = readLeases(db);
       const conflict =
         params.mode === "exclusive"
-          ? state.leases.length > 0
-          : state.leases.some((lease) => lease.mode === "exclusive");
-      if (!conflict) {
-        stored = {
-          token,
-          owner: params.owner.trim(),
-          mode: params.mode,
-          pid: process.pid,
-          acquiredAt: now,
-          expiresAt: now + ttlMs,
-        };
-        state.leases.push(stored);
-        writeState(statePath, state);
+          ? leases.length > 0
+          : leases.some((lease) => lease.mode === "exclusive");
+      if (conflict) {
+        return undefined;
       }
+      const next: StoredLocalModelLease = {
+        token,
+        owner: params.owner.trim(),
+        mode: params.mode,
+        pid: process.pid,
+        acquiredAt: nowMs,
+        expiresAt: nowMs + ttlMs,
+      };
+      storeLease(db, next);
+      return next;
     });
-    if (!stored) {
-      if (Date.now() >= deadline) {
-        throw admissionError(
-          "resource_contention",
-          "blocked_resource_contention:local-model admission is busy",
-        );
-      }
-      await sleep(Math.min(250, Math.max(10, deadline - Date.now())), params.signal);
+    if (acquired) {
+      stored = acquired;
+      break;
     }
+    if (Date.now() >= deadline) {
+      throw admissionError(
+        "resource_contention",
+        "blocked_resource_contention:local-model admission is busy",
+      );
+    }
+    await sleep(Math.min(250, Math.max(10, deadline - Date.now())), params.signal);
   }
 
   const samples: LocalModelResourceSnapshot[] = [];
-  const lease = makeLease({ stored, statePath, borrowed: false, samples, ttlMs });
+  const lease = makeLease({ stored, env, borrowed: false, samples, ttlMs });
   try {
     if (params.mode === "exclusive") {
       while (samples.length < 3) {
@@ -594,8 +517,7 @@ export async function acquireLocalModelAdmission(
       }
     }
     // Sampling can legitimately wait much longer than the base lease TTL.
-    // Start renewal as soon as the exclusive lease is stored, then prove once
-    // more that the lease still exists before exposing it to the caller.
+    // Renew as soon as the exclusive lease is stored, then prove it still exists.
     await lease.renew();
     return lease;
   } catch (error) {

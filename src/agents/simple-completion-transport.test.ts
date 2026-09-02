@@ -5,8 +5,10 @@ import type { Model } from "openclaw/plugin-sdk/llm";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { createMoonshotThinkingWrapper } from "../llm/providers/stream-wrappers/moonshot-thinking.js";
+import { createAssistantMessageEventStream } from "../llm/utils/event-stream.js";
 import { mintSecretSentinel } from "../secrets/sentinel.js";
 import type { StreamFn } from "./runtime/index.js";
+import { buildAssistantMessageWithZeroUsage } from "./stream-message-shared.js";
 
 const createAnthropicVertexStreamFnForModel = vi.fn();
 const ensureCustomApiRegistered = vi.fn();
@@ -18,7 +20,17 @@ const createTransportAwareStreamFnForModel = vi.fn();
 const prepareTransportAwareSimpleModel = vi.fn();
 const resolveTransportAwareSimpleApi = vi.fn();
 const prepareGoogleSimpleCompletionModel = vi.fn((model: unknown) => model);
-const pluginStreamFn = vi.fn(() => "plugin-stream-result" as never);
+const pluginStreamFn = vi.fn(() => {
+  const stream = createAssistantMessageEventStream();
+  stream.end(
+    buildAssistantMessageWithZeroUsage({
+      model: { api: "ollama", provider: "ollama", id: "llama3" },
+      content: [{ type: "text", text: "ok" }],
+      stopReason: "stop",
+    }),
+  );
+  return stream;
+});
 
 vi.mock("./anthropic-vertex-stream.js", () => ({
   createAnthropicVertexStreamFnForModel,
@@ -145,7 +157,7 @@ describe("prepareModelForSimpleCompletion", () => {
     expect(capturedApi).toBe(sourceApi);
   });
 
-  it("registers the configured Ollama transport and keeps the original api", () => {
+  it("registers the configured Ollama transport and keeps the original api", async () => {
     const secret = "ollama-provider-secret";
     const sentinel = mintSecretSentinel(secret, { label: "model-auth:ollama" });
     const model: Model<"ollama"> = {
@@ -195,11 +207,12 @@ describe("prepareModelForSimpleCompletion", () => {
     });
     expect(ensureCustomApiRegistered).toHaveBeenCalledWith("ollama", expect.any(Function));
     const registeredStream = ensureCustomApiRegistered.mock.calls[0]?.[1] as StreamFn;
-    void registeredStream(
+    const stream = await registeredStream(
       { ...model, headers: { Authorization: `Bearer ${sentinel}` } } as never,
       {} as never,
       { apiKey: sentinel, headers: { "X-Managed": `Bearer ${sentinel}` } } as never,
     );
+    await stream.result();
     expect(pluginStreamFn).toHaveBeenCalledWith(
       expect.objectContaining({ headers: { Authorization: `Bearer ${secret}` } }),
       {},

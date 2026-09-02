@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -75,7 +74,9 @@ function sha256Canonical(value) {
 }
 
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function processIsAlive(pid) {
@@ -905,9 +906,9 @@ async function runCli() {
         }
         heartbeatRunning = true;
         void heartbeatOperation({ operation, ttlMs })
-          .catch((error) => {
+          .then(undefined, (/** @type {unknown} */ error) => {
             clearInterval(timer);
-            reject(error);
+            reject(error instanceof Error ? error : new Error(String(error)));
           })
           .finally(() => {
             heartbeatRunning = false;
@@ -953,7 +954,7 @@ async function runCli() {
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  runCli().catch((error) => {
+  runCli().then(undefined, (/** @type {unknown} */ error) => {
     const code = error instanceof OperationAdmissionError ? error.code : "internal_error";
     process.stderr.write(
       `${JSON.stringify({ code, message: error instanceof Error ? error.message : String(error) })}\n`,

@@ -78,7 +78,9 @@ async function waitForProposal(
     if (predicate(proposal)) {
       return proposal;
     }
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 5);
+    });
   }
   return await getSelfImprovementProposal({ id, stateDir });
 }
