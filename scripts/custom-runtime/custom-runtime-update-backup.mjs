@@ -85,7 +85,10 @@ function redactedControlPlaneDescriptor(sourcePath, sourceSha256, reason) {
   );
 }
 
-function controlPlaneFileContents(sourcePath, sourceSha256) {
+function controlPlaneFileContents(sourcePath, sourceSha256, contentsOverride) {
+  if (contentsOverride) {
+    return { contents: contentsOverride, redacted: false };
+  }
   const basename = path.basename(sourcePath).toLowerCase();
   if (basename.endsWith(".plist")) {
     return {
@@ -221,6 +224,95 @@ function verifyExternalRoot(externalRoot, allowTestDirectory) {
 
 function configPath(runtimeHome) {
   return path.join(runtimeHome, "update-safety.json");
+}
+
+function verifyLegacySourceBundle(bundlePath, legacyRoot, sourceSha, treeSha) {
+  const canonicalPath = path.join(legacyRoot, "source.bundle");
+  if (path.resolve(bundlePath) !== path.resolve(canonicalPath)) {
+    fail("legacy source provenance bundle is not canonical");
+  }
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-legacy-bundle-"));
+  const storePath = path.join(temporaryRoot, "store.git");
+  const runGit = (args) =>
+    execFileSync("git", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  try {
+    runGit(["init", "--bare", "--quiet", storePath]);
+    runGit(["--git-dir", storePath, "bundle", "verify", canonicalPath]);
+    const heads = runGit(["bundle", "list-heads", canonicalPath]).split("\n").filter(Boolean);
+    if (heads.length !== 1 || heads[0] !== `${sourceSha} refs/provenance/${sourceSha}`) {
+      throw new Error("bundle head is not bound to the active SHA");
+    }
+    runGit([
+      "--git-dir",
+      storePath,
+      "fetch",
+      "--no-tags",
+      canonicalPath,
+      `${sourceSha}:refs/provenance/${sourceSha}`,
+    ]);
+    if (runGit(["--git-dir", storePath, "rev-parse", "--show-object-format"]) !== "sha1") {
+      throw new Error("bundle object format is not sha1");
+    }
+    if (runGit(["--git-dir", storePath, "rev-parse", `${sourceSha}^{commit}`]) !== sourceSha) {
+      throw new Error("bundle commit does not match the active SHA");
+    }
+    if (runGit(["--git-dir", storePath, "rev-parse", `${sourceSha}^{tree}`]) !== treeSha) {
+      throw new Error("bundle tree does not match the canonical record");
+    }
+    runGit(["--git-dir", storePath, "fsck", "--full", "--strict"]);
+  } catch (error) {
+    const detail = error?.stderr?.toString("utf8") || error?.message || String(error);
+    fail(`legacy source provenance bundle validation failed: ${detail.trim()}`);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+function resolveSourceProvenance(pointer, provenanceRoot) {
+  const configured = isRecord(pointer.sourceProvenance) ? pointer.sourceProvenance : null;
+  if (configured) {
+    return {
+      recordPath: typeof configured.recordPath === "string" ? configured.recordPath : "",
+      bundlePath: typeof configured.bundlePath === "string" ? configured.bundlePath : "",
+    };
+  }
+
+  const sourceSha = String(pointer.sourceSha ?? "");
+  if (!SHA_PATTERN.test(sourceSha)) {
+    fail("active runtime source SHA is invalid");
+  }
+  const legacyRoot = path.join(provenanceRoot, sourceSha);
+  const recordPath = containedRegularFile(
+    path.join(legacyRoot, "provenance.json"),
+    provenanceRoot,
+    "legacy source provenance record",
+  );
+  const record = readJson(recordPath, "legacy source provenance record");
+  if (
+    record.schema !== "openclaw.custom-runtime-source-provenance.v1" ||
+    record.version !== 1 ||
+    record.sourceSha !== sourceSha ||
+    record.recordPath !== recordPath ||
+    record.objectFormat !== "sha1" ||
+    !SHA_PATTERN.test(String(record.treeSha ?? "")) ||
+    typeof record.bundlePath !== "string" ||
+    !DIGEST_PATTERN.test(String(record.bundleSha256 ?? ""))
+  ) {
+    fail("legacy source provenance record is not bound to the active SHA");
+  }
+  const bundlePath = containedRegularFile(
+    record.bundlePath,
+    legacyRoot,
+    "legacy source provenance bundle",
+  );
+  if (sha256File(bundlePath) !== String(record.bundleSha256).toLowerCase()) {
+    fail("legacy source provenance bundle hash changed");
+  }
+  verifyLegacySourceBundle(bundlePath, legacyRoot, sourceSha, record.treeSha);
+  return { recordPath, bundlePath };
 }
 
 function configuredExternalRoot(runtimeHome, explicitRoot) {
@@ -433,9 +525,67 @@ function rehearseRestore(archivePath) {
 
 function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
   const runtimeRoot = path.resolve(String(pointer.runtimeRoot ?? ""));
+  const entrypoint = path.resolve(String(pointer.entrypoint ?? ""));
   const runtimeHomeRoot = path.resolve(runtimeHome);
   const provenanceRoot = path.join(runtimeHomeRoot, "source-provenance");
-  const provenance = isRecord(pointer.sourceProvenance) ? pointer.sourceProvenance : {};
+  const provenance = resolveSourceProvenance(pointer, provenanceRoot);
+  const runtimeProvenancePath = path.join(runtimeRoot, ".openclaw-runtime-provenance.json");
+  let runtimeProvenanceOverride;
+  // Legacy releases may predate the standalone runtime-provenance file.
+  // Derive backup evidence only from snapshot facts bound to the active pointer; never mutate the release.
+  try {
+    const stat = fs.lstatSync(runtimeProvenancePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      fail("active runtime provenance is not a regular file");
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+    const snapshotPath = path.join(runtimeRoot, "snapshot.json");
+    const productionStampPath = path.join(runtimeRoot, ".openclaw-production-sha");
+    const snapshot = readJson(snapshotPath, "active runtime snapshot");
+    let productionSha;
+    try {
+      productionSha = fs.readFileSync(productionStampPath, "utf8").trim();
+    } catch {
+      fail("active runtime production stamp is missing");
+    }
+    const snapshotSource = isRecord(snapshot.source) ? snapshot.source : {};
+    const snapshotPaths = isRecord(snapshot.paths) ? snapshot.paths : {};
+    if (
+      snapshot.version !== 2 ||
+      snapshot.releaseId !== pointer.releaseId ||
+      snapshot.root !== runtimeRoot ||
+      snapshotSource.commit !== pointer.sourceSha ||
+      productionSha !== pointer.sourceSha ||
+      snapshotPaths.entrypoint !== entrypoint
+    ) {
+      fail("legacy runtime snapshot is not bound to the active runtime");
+    }
+    const snapshotSha256 = sha256File(snapshotPath);
+    runtimeProvenanceOverride = Buffer.from(
+      `${JSON.stringify(
+        {
+          schema: "openclaw.custom-runtime-legacy-runtime-provenance.v1",
+          derivedFrom: {
+            path: snapshotPath,
+            sha256: snapshotSha256,
+          },
+          productionStamp: {
+            path: productionStampPath,
+            sourceSha: productionSha,
+          },
+          sourceSha: pointer.sourceSha,
+          releaseId: pointer.releaseId ?? null,
+          runtimeRoot,
+          entrypoint: pointer.entrypoint,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
   const candidates = [
     { path: pointerPath, root: runtimeHomeRoot },
     { path: path.join(runtimeHomeRoot, "active-rollback.json"), root: runtimeHomeRoot },
@@ -446,7 +596,12 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
     },
     { path: configPath(runtimeHomeRoot), root: runtimeHomeRoot },
     { path: path.join(runtimeRoot, ".openclaw-production-sha"), root: runtimeRoot },
-    { path: path.join(runtimeRoot, ".openclaw-runtime-provenance.json"), root: runtimeRoot },
+    {
+      path: runtimeProvenancePath,
+      root: runtimeRoot,
+      contents: runtimeProvenanceOverride,
+      derivedFrom: runtimeProvenanceOverride ? "snapshot.json" : undefined,
+    },
     { path: path.join(runtimeRoot, "snapshot.json"), root: runtimeRoot },
     {
       path: path.join(runtimeRoot, "config", "custom-runtime-capabilities.json"),
@@ -466,9 +621,12 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
     },
   ];
   const seen = new Set();
-  return candidates.flatMap(({ path: filePath, root }) => {
+  return candidates.flatMap(({ path: filePath, root, contents, derivedFrom }) => {
     if (!filePath) {
       return [];
+    }
+    if (contents) {
+      return [{ sourcePath: filePath, sha256: null, contents, derivedFrom }];
     }
     try {
       const sourcePath = containedRegularFile(filePath, root, "control-plane evidence file");
@@ -508,7 +666,10 @@ function createControlPlaneBundle({
       fail(`required control-plane recovery file is unavailable: ${path.basename(requiredPath)}`);
     }
   }
-  const provenance = isRecord(pointer.sourceProvenance) ? pointer.sourceProvenance : {};
+  const provenance = resolveSourceProvenance(
+    pointer,
+    path.join(path.resolve(runtimeHome), "source-provenance"),
+  );
   for (const [label, requiredPath] of [
     ["source provenance record", provenance.recordPath],
     ["source provenance recovery bundle", provenance.bundlePath],
@@ -527,10 +688,10 @@ function createControlPlaneBundle({
       );
       const target = path.join(staging, relativePath);
       fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-      const stored = controlPlaneFileContents(entry.sourcePath, entry.sha256);
+      const stored = controlPlaneFileContents(entry.sourcePath, entry.sha256, entry.contents);
       fs.writeFileSync(target, stored.contents, { flag: "wx", mode: 0o600 });
       const storedSha256 = sha256File(target);
-      if (!stored.redacted && storedSha256 !== entry.sha256) {
+      if (!stored.redacted && entry.sha256 && storedSha256 !== entry.sha256) {
         fail(`control-plane copy changed while reading ${path.basename(entry.sourcePath)}`);
       }
       return {
@@ -538,6 +699,7 @@ function createControlPlaneBundle({
         sha256: entry.sha256,
         storedSha256,
         redacted: stored.redacted,
+        ...(entry.derivedFrom ? { derivedFrom: entry.derivedFrom } : {}),
         relativePath,
       };
     });

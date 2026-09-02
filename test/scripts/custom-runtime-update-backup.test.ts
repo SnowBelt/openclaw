@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,6 +28,7 @@ function fixture(): {
   externalRoot: string;
   payload: string;
   sourceSha: string;
+  sourceBundlePath: string;
   homedir: string;
   allowTestDirectory: true;
 } {
@@ -36,8 +38,31 @@ function fixture(): {
   const runtimeRoot = path.join(base, "release");
   const externalRoot = path.join(base, "external");
   const payload = path.join(base, "payload");
-  const sourceSha = "a".repeat(40);
+  const sourceRoot = path.join(base, "source");
   fs.mkdirSync(externalRoot, { recursive: true });
+  fs.mkdirSync(sourceRoot, { recursive: true });
+  const runGit = (args: string[]): string =>
+    execFileSync("git", args, {
+      cwd: sourceRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_EMAIL: "backup-fixture@localhost",
+        GIT_AUTHOR_NAME: "OpenClaw Backup Fixture",
+        GIT_COMMITTER_EMAIL: "backup-fixture@localhost",
+        GIT_COMMITTER_NAME: "OpenClaw Backup Fixture",
+      },
+    }).trim();
+  runGit(["init", "-q"]);
+  runGit(["config", "user.email", "backup-fixture@localhost"]);
+  runGit(["config", "user.name", "OpenClaw Backup Fixture"]);
+  writeFile(path.join(sourceRoot, "README.md"), "fixture source\n");
+  runGit(["add", "."]);
+  runGit(["commit", "-qm", "fixture source"]);
+  const sourceSha = runGit(["rev-parse", "HEAD"]);
+  const treeSha = runGit(["rev-parse", `${sourceSha}^{tree}`]);
+  const objectFormat = runGit(["rev-parse", "--show-object-format"]);
+  runGit(["update-ref", `refs/provenance/${sourceSha}`, sourceSha]);
   writeFile(path.join(payload, "manifest.json"), '{"schema":"fixture"}\n');
   const entrypoint = path.join(runtimeRoot, "dist", "index.js");
   writeFile(
@@ -61,10 +86,25 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
   );
   writeFile(path.join(runtimeRoot, "config", "custom-runtime-capabilities.json"), "{}\n");
   const provenanceRoot = path.join(runtimeHome, "source-provenance", sourceSha);
+  fs.mkdirSync(provenanceRoot, { recursive: true });
   const recordPath = path.join(provenanceRoot, "provenance.json");
   const bundlePath = path.join(provenanceRoot, "source.bundle");
-  writeFile(recordPath, '{"schema":"fixture"}\n');
-  writeFile(bundlePath, "fixture bundle\n");
+  runGit(["bundle", "create", bundlePath, `refs/provenance/${sourceSha}`]);
+  fs.chmodSync(bundlePath, 0o600);
+  writeFile(
+    recordPath,
+    `${JSON.stringify({
+      schema: "openclaw.custom-runtime-source-provenance.v1",
+      version: 1,
+      sourceSha,
+      treeSha,
+      objectFormat,
+      storePath: path.join(sourceRoot, ".git"),
+      recordPath,
+      bundlePath,
+      bundleSha256: createHash("sha256").update(fs.readFileSync(bundlePath)).digest("hex"),
+    })}\n`,
+  );
   writeFile(path.join(runtimeHome, "active-rollback.json"), '{"rollbackReleaseId":"old"}\n');
   writeFile(path.join(runtimeHome, "last-known-good.json"), '{"releaseId":"old"}\n');
   writeFile(
@@ -93,7 +133,15 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
       sourceProvenance: { recordPath, bundlePath },
     })}\n`,
   );
-  return { runtimeHome, externalRoot, payload, sourceSha, homedir, allowTestDirectory: true };
+  return {
+    runtimeHome,
+    externalRoot,
+    payload,
+    sourceSha,
+    sourceBundlePath: bundlePath,
+    homedir,
+    allowTestDirectory: true,
+  };
 }
 
 afterEach(() => {
@@ -174,7 +222,7 @@ describe("custom runtime update backup", () => {
       execFileSync("tar", ["-xOf", controlPlane.path, sourceBundleEntry!], {
         encoding: "utf8",
       }),
-    ).toBe("fixture bundle\n");
+    ).toBe(fs.readFileSync(value.sourceBundlePath, "utf8"));
   });
 
   it("rejects a changed external recovery copy", () => {
@@ -192,6 +240,169 @@ describe("custom runtime update backup", () => {
         allowTestDirectory: true,
       }),
     ).toThrow(/externalArchive hash changed/u);
+  });
+
+  it("derives legacy runtime provenance from a bound snapshot without mutating the release", () => {
+    const value = fixture();
+    const runtimeRoot = path.join(path.dirname(value.runtimeHome), "release");
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    pointer.entrypoint = `${runtimeRoot}/dist/../dist/index.js`;
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+    writeFile(
+      path.join(runtimeRoot, "snapshot.json"),
+      `${JSON.stringify({
+        version: 2,
+        releaseId: "release",
+        root: runtimeRoot,
+        paths: { entrypoint: path.join(runtimeRoot, "dist", "index.js") },
+        source: { commit: value.sourceSha },
+      })}\n`,
+    );
+    fs.rmSync(path.join(runtimeRoot, ".openclaw-runtime-provenance.json"));
+
+    const result = createBackup(value);
+
+    expect(result).toMatchObject({
+      result: "passed",
+      controlPlane: { fileCount: 12 },
+    });
+    const controlPlane = result.controlPlane as { path: string };
+    const entries = execFileSync("tar", ["-tzf", controlPlane.path], { encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .filter((entry) => entry.includes("runtime-provenance"));
+    expect(entries).toHaveLength(1);
+    expect(
+      execFileSync("tar", ["-xOf", controlPlane.path, entries[0]!], { encoding: "utf8" }),
+    ).toContain("openclaw.custom-runtime-legacy-runtime-provenance.v1");
+    expect(fs.existsSync(path.join(runtimeRoot, ".openclaw-runtime-provenance.json"))).toBe(false);
+  });
+
+  it("uses canonical exact-SHA provenance for a legacy pointer without sourceProvenance", () => {
+    const value = fixture();
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    delete pointer.sourceProvenance;
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+
+    const result = createBackup(value);
+
+    expect(result).toMatchObject({
+      result: "passed",
+      sourceSha: value.sourceSha,
+      controlPlane: { fileCount: 12 },
+    });
+  });
+
+  it("rejects a legacy provenance record with an unsupported version", () => {
+    const value = fixture();
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    delete pointer.sourceProvenance;
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+    const recordPath = path.join(
+      value.runtimeHome,
+      "source-provenance",
+      value.sourceSha,
+      "provenance.json",
+    );
+    const record = JSON.parse(fs.readFileSync(recordPath, "utf8")) as Record<string, unknown>;
+    record.version = 2;
+    writeFile(recordPath, `${JSON.stringify(record)}\n`);
+
+    expect(() => createBackup(value)).toThrow(/legacy source provenance record is not bound/u);
+  });
+
+  it("rejects a legacy provenance bundle from another SHA directory", () => {
+    const value = fixture();
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    delete pointer.sourceProvenance;
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+    const recordPath = path.join(
+      value.runtimeHome,
+      "source-provenance",
+      value.sourceSha,
+      "provenance.json",
+    );
+    const otherRoot = path.join(value.runtimeHome, "source-provenance", "b".repeat(40));
+    const otherBundlePath = path.join(otherRoot, "source.bundle");
+    writeFile(otherBundlePath, "other bundle\n");
+    const record = JSON.parse(fs.readFileSync(recordPath, "utf8")) as Record<string, unknown>;
+    record.bundlePath = otherBundlePath;
+    record.bundleSha256 = createHash("sha256").update("other bundle\n").digest("hex");
+    writeFile(recordPath, `${JSON.stringify(record)}\n`);
+
+    expect(() => createBackup(value)).toThrow(/outside its managed root/u);
+  });
+
+  it("rejects a noncanonical bundle file within the active SHA directory", () => {
+    const value = fixture();
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    delete pointer.sourceProvenance;
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+    const legacyRoot = path.join(value.runtimeHome, "source-provenance", value.sourceSha);
+    const recordPath = path.join(legacyRoot, "provenance.json");
+    const alternateBundlePath = path.join(legacyRoot, "recovery.bundle");
+    fs.copyFileSync(path.join(legacyRoot, "source.bundle"), alternateBundlePath);
+    const record = JSON.parse(fs.readFileSync(recordPath, "utf8")) as Record<string, unknown>;
+    record.bundlePath = alternateBundlePath;
+    record.bundleSha256 = createHash("sha256")
+      .update(fs.readFileSync(alternateBundlePath))
+      .digest("hex");
+    writeFile(recordPath, `${JSON.stringify(record)}\n`);
+
+    expect(() => createBackup(value)).toThrow(/bundle is not canonical/u);
+  });
+
+  it("rejects a canonical provenance file that is not a Git bundle", () => {
+    const value = fixture();
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    delete pointer.sourceProvenance;
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+    const legacyRoot = path.join(value.runtimeHome, "source-provenance", value.sourceSha);
+    const recordPath = path.join(legacyRoot, "provenance.json");
+    const bundlePath = path.join(legacyRoot, "source.bundle");
+    writeFile(bundlePath, "not a Git bundle\n");
+    const record = JSON.parse(fs.readFileSync(recordPath, "utf8")) as Record<string, unknown>;
+    record.bundleSha256 = createHash("sha256").update("not a Git bundle\n").digest("hex");
+    writeFile(recordPath, `${JSON.stringify(record)}\n`);
+
+    expect(() => createBackup(value)).toThrow(/bundle validation failed/u);
+  });
+
+  it("rejects a legacy pointer without canonical exact-SHA provenance", () => {
+    const value = fixture();
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    delete pointer.sourceProvenance;
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+    fs.rmSync(path.join(value.runtimeHome, "source-provenance", value.sourceSha), {
+      recursive: true,
+    });
+
+    expect(() => createBackup(value)).toThrow(/legacy source provenance record/u);
+  });
+
+  it("rejects legacy runtime provenance when the snapshot commit is not the active SHA", () => {
+    const value = fixture();
+    const runtimeRoot = path.join(path.dirname(value.runtimeHome), "release");
+    writeFile(
+      path.join(runtimeRoot, "snapshot.json"),
+      `${JSON.stringify({
+        version: 2,
+        releaseId: "release",
+        root: runtimeRoot,
+        paths: { entrypoint: path.join(runtimeRoot, "dist", "index.js") },
+        source: { commit: "b".repeat(40) },
+      })}\n`,
+    );
+    fs.rmSync(path.join(runtimeRoot, ".openclaw-runtime-provenance.json"));
+
+    expect(() => createBackup(value)).toThrow(/legacy runtime snapshot is not bound/u);
   });
 
   it("does not execute an entrypoint outside the active runtime", () => {
