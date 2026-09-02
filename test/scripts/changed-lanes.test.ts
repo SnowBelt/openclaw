@@ -310,6 +310,41 @@ describe("scripts/changed-lanes", () => {
     expectLanes(result.lanes, { tooling: true });
   });
 
+  it("uses the local remote-default ref when an isolated worktree lacks origin/main", () => {
+    const dir = makeTempRepoRoot(tempDirs, "openclaw-changed-lanes-remote-default-");
+    git(dir, ["init", "-q", "--initial-branch=main"]);
+    writeFileSync(path.join(dir, "README.md"), "initial\n", "utf8");
+    git(dir, ["add", "README.md"]);
+    git(dir, [
+      "-c",
+      "user.email=test@example.com",
+      "-c",
+      "user.name=Test User",
+      "commit",
+      "-q",
+      "-m",
+      "initial",
+    ]);
+    git(dir, ["update-ref", "refs/remotes/origin/HEAD", "HEAD"]);
+    git(dir, ["switch", "-q", "-c", "isolated-feature"]);
+    writeRepoFile(dir, "scripts/repair.mjs", "export const repaired = true;\n");
+    git(dir, ["add", "scripts/repair.mjs"]);
+    git(dir, [
+      "-c",
+      "user.email=test@example.com",
+      "-c",
+      "user.name=Test User",
+      "commit",
+      "-q",
+      "-m",
+      "repair",
+    ]);
+
+    expect(
+      listChangedPathsFromGit({ base: "origin/main", cwd: dir, includeWorktree: false }),
+    ).toEqual(["scripts/repair.mjs"]);
+  });
+
   it("falls back to a two-dot diff when a delegated checkout has no merge base", () => {
     const dir = makeTempRepoRoot(tempDirs, "openclaw-changed-lanes-no-merge-base-");
     git(dir, ["init", "-q", "--initial-branch=main"]);

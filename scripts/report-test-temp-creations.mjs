@@ -6,6 +6,7 @@ import path from "node:path";
 import ts from "typescript";
 import { isChangedLaneTestPath } from "./changed-lanes.mjs";
 import { booleanFlag, parseFlagArgs, stringFlag } from "./lib/arg-utils.mjs";
+import { resolveAvailableDiffBase } from "./lib/merge-head-diff-base.mjs";
 import { runAsScript } from "./lib/ts-guard-utils.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
@@ -131,7 +132,8 @@ function parseArgs(argv) {
 }
 
 function readDiff(args, cwd = process.cwd()) {
-  const range = args.noMergeBase ? `${args.base}..${args.head}` : `${args.base}...${args.head}`;
+  const base = args.staged ? args.base : resolveAvailableDiffBase({ base: args.base, cwd });
+  const range = args.noMergeBase ? `${base}..${args.head}` : `${base}...${args.head}`;
   const diffArgs = args.staged
     ? ["diff", "--cached", "--unified=0", "--diff-filter=ACMR", "--"]
     : ["diff", "--unified=0", "--diff-filter=ACMR", range, "--"];

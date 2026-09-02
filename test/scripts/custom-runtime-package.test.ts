@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assembleManagedRuntimePackage,
+  assertBuildSnapshotPluginClosure,
   assertCandidateLineage,
 } from "../../scripts/custom-runtime/custom-runtime-package.mjs";
 import { importSourceProvenance } from "../../scripts/custom-runtime/custom-runtime-source-provenance.mjs";
@@ -26,10 +27,11 @@ function runGit(root: string, args: string[]): string {
   }).trim();
 }
 
-function writeFile(root: string, relativePath: string, contents = `${relativePath}\n`): void {
+function writeFile(root: string, relativePath: string, contents = `${relativePath}\n`): string {
   const target = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, contents);
+  return target;
 }
 
 function createRepository(
@@ -126,6 +128,60 @@ function writeBuildSnapshot(root: string, candidateSha: string): void {
   );
 }
 
+function createPluginClosureFixture(options: { omitRuntimePlugin?: string } = {}) {
+  const sourceRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "openclaw-runtime-plugin-closure-source-"),
+  );
+  const buildRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "openclaw-runtime-plugin-closure-build-"),
+  );
+  roots.push(sourceRoot, buildRoot);
+  const pluginIds = ["codex", "discord", "memory-core", "ollama", "searxng"];
+  for (const pluginId of pluginIds) {
+    writeFile(
+      sourceRoot,
+      `extensions/${pluginId}/openclaw.plugin.json`,
+      `${JSON.stringify({ id: pluginId })}\n`,
+    );
+    if (pluginId === "searxng") {
+      writeFile(
+        sourceRoot,
+        `extensions/${pluginId}/package.json`,
+        `${JSON.stringify({ openclaw: { build: { bundledDist: false } } })}\n`,
+      );
+    }
+  }
+  writeFile(
+    sourceRoot,
+    "config/custom-runtime-capabilities.json",
+    `${JSON.stringify({
+      schema: "openclaw.custom-runtime-capabilities.v2",
+      version: 1,
+      capabilities: pluginIds.map((pluginId) => ({
+        id: `plugin:${pluginId}`,
+        kind: "plugin",
+        pluginId,
+        requiredPaths: [`extensions/${pluginId}/openclaw.plugin.json`],
+      })),
+    })}\n`,
+  );
+  const runtimeConfigPath = writeFile(
+    sourceRoot,
+    "runtime-config.json5",
+    '{plugins:{allow:["memory-core"],entries:{"memory-core":{enabled:true}},slots:{memory:"memory-core"}}}\n',
+  );
+  for (const pluginId of pluginIds.filter(
+    (id) => id !== "searxng" && id !== options.omitRuntimePlugin,
+  )) {
+    writeFile(
+      buildRoot,
+      `dist-runtime/extensions/${pluginId}/openclaw.plugin.json`,
+      `${JSON.stringify({ id: pluginId })}\n`,
+    );
+  }
+  return { buildRoot, runtimeConfigPath, sourceRoot };
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     fs.chmodSync(root, 0o700);
@@ -134,6 +190,45 @@ afterEach(() => {
 });
 
 describe("custom managed-runtime packaging", () => {
+  it("rejects a v2 build snapshot that omits a bundled source plugin", () => {
+    const fixture = createPluginClosureFixture({ omitRuntimePlugin: "memory-core" });
+    expect(fixture.runtimeConfigPath).toEqual(expect.any(String));
+
+    expect(() =>
+      assertBuildSnapshotPluginClosure({
+        ...fixture,
+      }),
+    ).toThrow(/omitted required bundled plugin\(s\): memory-core/u);
+  });
+
+  it("binds configured plugins to bundled or explicitly loaded external manifests", () => {
+    const fixture = createPluginClosureFixture();
+    expect(fixture.runtimeConfigPath).toEqual(expect.any(String));
+
+    expect(
+      assertBuildSnapshotPluginClosure({
+        ...fixture,
+      }),
+    ).toMatchObject({
+      checked: true,
+      configuredPluginIds: ["memory-core"],
+      bundledPluginIds: ["codex", "discord", "memory-core", "ollama"],
+      externalPluginIds: ["searxng"],
+    });
+  });
+
+  it("rejects a v2 runtime config that references no supplied plugin", () => {
+    const fixture = createPluginClosureFixture();
+    expect(fixture.runtimeConfigPath).toEqual(expect.any(String));
+    writeFile(fixture.sourceRoot, "runtime-config.json5", '{plugins:{allow:["missing-plugin"]}}\n');
+
+    expect(() =>
+      assertBuildSnapshotPluginClosure({
+        ...fixture,
+      }),
+    ).toThrow("Runtime plugin closure is incomplete: missing-plugin");
+  });
+
   it("accepts an indirect active ancestor and rejects unrelated lineage", () => {
     const { root, activeSha, candidateSha } = createRepository();
 

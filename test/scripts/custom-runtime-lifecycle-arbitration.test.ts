@@ -65,6 +65,7 @@ function lifecycleCommand(runtimeHome: string, operation: string, holdSeconds = 
   return [
     "set -eu",
     `. "${authScript}"`,
+    'export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID="pending:release-governor-verification"',
     `custom_runtime_lifecycle_begin "${runtimeHome}" "${operation}" "${activeSha}" "${candidateSha}"`,
     holdSeconds > 0 ? `sleep ${holdSeconds}` : ":",
     `custom_runtime_lifecycle_finish "${runtimeHome}" "${operation}-complete" 0`,

@@ -15,7 +15,7 @@ afterEach(() => {
   }
 });
 
-function fixture(pluginIds: string[]) {
+function fixture(pluginIds: string[], manifestPluginIds = pluginIds) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "custom-runtime-build-profile-"));
   temporaryRoots.push(root);
   fs.mkdirSync(path.join(root, "config"), { recursive: true });
@@ -32,7 +32,7 @@ function fixture(pluginIds: string[]) {
     manifestPath,
     `${JSON.stringify({
       schema: "openclaw.custom-runtime-capabilities.v2",
-      capabilities: pluginIds.map((pluginId) => ({
+      capabilities: manifestPluginIds.map((pluginId) => ({
         id: `plugin:${pluginId}`,
         kind: "plugin",
         pluginId,
@@ -47,9 +47,10 @@ describe("custom runtime build profile", () => {
     const expected = ["apps", ...REQUIRED_CERTIFICATION_PLUGIN_IDS].toSorted();
     const { root, manifestPath } = fixture(expected);
 
-    expect(resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toEqual({
+    expect(resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toMatchObject({
       bundledPluginIds: expected,
       externalPluginIds: [],
+      bundledRuntimePluginIds: expected,
     });
   });
 
@@ -59,6 +60,18 @@ describe("custom runtime build profile", () => {
     expect(() => resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toThrow(
       "Custom runtime certification plugins are missing: ollama",
     );
+  });
+
+  it("builds a source plugin even when the preservation manifest omitted it", () => {
+    const { root, manifestPath } = fixture(
+      ["apps", ...REQUIRED_CERTIFICATION_PLUGIN_IDS, "memory-core"],
+      ["apps", ...REQUIRED_CERTIFICATION_PLUGIN_IDS],
+    );
+
+    expect(resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toMatchObject({
+      bundledPluginIds: expect.arrayContaining(["memory-core"]),
+      bundledRuntimePluginIds: expect.arrayContaining(["memory-core"]),
+    });
   });
 
   it("binds the checked-in capability manifest to all certification plugins", () => {

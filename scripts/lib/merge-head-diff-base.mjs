@@ -3,6 +3,42 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_GIT_OUTPUT_MAX_BUFFER = 16 * 1024 * 1024;
+const DEFAULT_BASE_REF = "origin/main";
+const LOCAL_BASE_FALLBACK_REFS = [
+  "refs/remotes/origin/HEAD",
+  "refs/heads/main",
+  "refs/remotes/origin/master",
+  "refs/heads/master",
+];
+
+/**
+ * Resolve a base ref without fetching. Isolated worktrees commonly omit
+ * origin/main but retain the remote's advertised default ref; use that only
+ * for the default base and fail closed for every other missing ref.
+ */
+export function resolveAvailableDiffBase({
+  base,
+  cwd = process.cwd(),
+  maxBuffer = DEFAULT_GIT_OUTPUT_MAX_BUFFER,
+}) {
+  if (!base) {
+    return "";
+  }
+  if (resolveCommit({ ref: base, cwd, maxBuffer })) {
+    return base;
+  }
+  if (base !== DEFAULT_BASE_REF) {
+    throw new Error(`Changed-lanes base ref is unavailable: ${base}`);
+  }
+  for (const fallback of LOCAL_BASE_FALLBACK_REFS) {
+    if (resolveCommit({ ref: fallback, cwd, maxBuffer })) {
+      return fallback;
+    }
+  }
+  throw new Error(
+    `Changed-lanes base ref is unavailable: ${base}; no local canonical baseline is present`,
+  );
+}
 
 /** Resolve the git base ref to use when diffing a merge head. */
 export function resolveMergeHeadDiffBase({

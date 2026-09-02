@@ -1,9 +1,10 @@
 // Classifies changed files into CI lanes and release metadata scopes.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { booleanFlag, parseFlagArgs, stringFlag } from "./lib/arg-utils.mjs";
 import { isDirectRunUrl } from "./lib/direct-run.mjs";
-import { resolveMergeHeadDiffBase } from "./lib/merge-head-diff-base.mjs";
+import { resolveAvailableDiffBase, resolveMergeHeadDiffBase } from "./lib/merge-head-diff-base.mjs";
 
 const GIT_OUTPUT_MAX_BUFFER = 64 * 1024 * 1024;
 const IMPLAUSIBLE_NO_MERGE_BASE_DIFF_PATHS = 200;
@@ -238,11 +239,16 @@ export function detectChangedLanes(changedPaths, options = {}) {
  * Classifies changed paths with optional package.json before/after contents.
  */
 export function detectChangedLanesForPaths(params) {
+  const cwd = params.cwd ?? process.cwd();
+  const availableBase = params.staged
+    ? params.base
+    : resolveAvailableDiffBase({ base: params.base, cwd });
   const base = params.staged
     ? params.base
     : resolveMergeHeadDiffBase({
-        base: params.base,
+        base: availableBase,
         head: params.head ?? "HEAD",
+        cwd,
         maxBuffer: GIT_OUTPUT_MAX_BUFFER,
         preferFirstParent: params.mergeHeadFirstParent === true,
       });
@@ -251,6 +257,7 @@ export function detectChangedLanesForPaths(params) {
         base,
         head: params.head,
         staged: params.staged,
+        cwd,
       })
     : null;
   return detectChangedLanes(params.paths, { packageJsonChangeKind });
@@ -266,8 +273,9 @@ export function detectChangedLanesForPaths(params) {
 export function listChangedPathsFromGit(params) {
   const head = params.head ?? "HEAD";
   const cwd = params.cwd ?? process.cwd();
+  const availableBase = resolveAvailableDiffBase({ base: params.base, cwd });
   const base = resolveMergeHeadDiffBase({
-    base: params.base,
+    base: availableBase,
     head,
     cwd,
     maxBuffer: GIT_OUTPUT_MAX_BUFFER,
@@ -404,14 +412,15 @@ export function isPackageScriptOnlyChange(before, after) {
 }
 
 function readPackageJsonBeforeAfter(params) {
-  const before = readGitText(params.staged ? "HEAD" : params.base, "package.json");
+  const cwd = params.cwd ?? process.cwd();
+  const before = readGitText(params.staged ? "HEAD" : params.base, "package.json", cwd);
   if (params.staged) {
-    return { before, after: readGitText("INDEX", "package.json") };
+    return { before, after: readGitText("INDEX", "package.json", cwd) };
   }
 
-  let after = readGitText(params.head ?? "HEAD", "package.json");
-  if (params.includeWorktree !== false && existsSync("package.json")) {
-    const worktree = readGitText("WORKTREE", "package.json");
+  let after = readGitText(params.head ?? "HEAD", "package.json", cwd);
+  if (params.includeWorktree !== false && existsSync(path.join(cwd, "package.json"))) {
+    const worktree = readGitText("WORKTREE", "package.json", cwd);
     if (worktree !== after) {
       after = worktree;
     }
@@ -419,12 +428,13 @@ function readPackageJsonBeforeAfter(params) {
   return { before, after };
 }
 
-function readGitText(ref, filePath) {
+function readGitText(ref, filePath, cwd = process.cwd()) {
   if (ref === "WORKTREE") {
-    return readFileSync(filePath, "utf8");
+    return readFileSync(path.join(cwd, filePath), "utf8");
   }
   const spec = ref === "INDEX" ? `:${filePath}` : `${ref}:${filePath}`;
   return execFileSync("git", ["show", spec], {
+    cwd,
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,

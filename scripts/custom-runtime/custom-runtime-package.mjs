@@ -6,7 +6,15 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import JSON5 from "json5";
 import { registerSealedCandidate } from "./candidate-registry.mjs";
+import { resolveCustomRuntimeBuildPluginIds } from "./custom-runtime-build-profile.mjs";
+import {
+  assertRuntimePluginClosure,
+  collectBundledRuntimePluginIds,
+  collectConfiguredRuntimePluginIds,
+  collectExternalRuntimePluginIds,
+} from "./custom-runtime-plugin-closure.mjs";
 import {
   importSourceProvenance,
   verifySourceProvenance,
@@ -71,6 +79,83 @@ function runBuffer(command, args, options = {}) {
 
 function sha256File(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function readRuntimeConfig(runtimeConfigPath) {
+  let stat;
+  try {
+    stat = fs.lstatSync(runtimeConfigPath);
+  } catch {
+    throw new Error(`Runtime config is unavailable: ${runtimeConfigPath}`);
+  }
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error(`Runtime config is not a regular file: ${runtimeConfigPath}`);
+  }
+  try {
+    const parsed = JSON5.parse(fs.readFileSync(runtimeConfigPath, "utf8"));
+    if (!isRecord(parsed)) {
+      throw new Error("not an object");
+    }
+    return parsed;
+  } catch {
+    throw new Error(`Runtime config is invalid: ${runtimeConfigPath}`);
+  }
+}
+
+/**
+ * Fail before dependency deployment when the build snapshot cannot satisfy the
+ * effective runtime plugin configuration. Legacy capability fixtures remain
+ * package-compatible; every v2 release must provide this proof.
+ */
+export function assertBuildSnapshotPluginClosure({ sourceRoot, buildRoot, runtimeConfigPath }) {
+  const capabilityManifestPath = path.join(
+    sourceRoot,
+    "config",
+    "custom-runtime-capabilities.json",
+  );
+  const capabilityManifest = readJson(capabilityManifestPath);
+  if (capabilityManifest.schema !== "openclaw.custom-runtime-capabilities.v2") {
+    return { checked: false };
+  }
+  if (typeof runtimeConfigPath !== "string" || runtimeConfigPath.trim() === "") {
+    throw new Error("Runtime config is required for v2 plugin-closure verification.");
+  }
+  const runtimeConfig = readRuntimeConfig(runtimeConfigPath);
+  const configuredPluginIds = collectConfiguredRuntimePluginIds(runtimeConfig);
+  const externalPluginIds = collectExternalRuntimePluginIds(runtimeConfig);
+  const buildProfile = resolveCustomRuntimeBuildPluginIds({
+    repoRoot: sourceRoot,
+    manifestPath: capabilityManifestPath,
+  });
+  const actualBundledPluginIds = collectBundledRuntimePluginIds(buildRoot);
+  const expectedBundledPluginIds = buildProfile.bundledRuntimePluginIds;
+  const missingBundledPluginIds = expectedBundledPluginIds.filter(
+    (pluginId) => !actualBundledPluginIds.includes(pluginId),
+  );
+  if (missingBundledPluginIds.length > 0) {
+    throw new Error(
+      `Gateway build snapshot omitted required bundled plugin(s): ${missingBundledPluginIds.join(", ")}`,
+    );
+  }
+  const unexpectedBundledPluginIds = actualBundledPluginIds.filter(
+    (pluginId) => !expectedBundledPluginIds.includes(pluginId),
+  );
+  if (unexpectedBundledPluginIds.length > 0) {
+    throw new Error(
+      `Gateway build snapshot contains unexpected bundled plugin(s): ${unexpectedBundledPluginIds.join(", ")}`,
+    );
+  }
+  const closure = assertRuntimePluginClosure({
+    configuredPluginIds: [...configuredPluginIds, ...externalPluginIds],
+    bundledPluginIds: actualBundledPluginIds,
+    externalPluginIds: [...buildProfile.externalPluginIds, ...externalPluginIds],
+  });
+  return {
+    checked: true,
+    configPath: fs.realpathSync(runtimeConfigPath),
+    configSha256: sha256File(runtimeConfigPath),
+    ...closure,
+  };
 }
 
 export function assertCandidateLineage({
@@ -379,6 +464,7 @@ export function assembleManagedRuntimePackage({
   sourceSha,
   activeSha,
   releaseId,
+  runtimeConfigPath,
   deploy = defaultDeploy,
   seal = true,
   provenanceRuntimeHome,
@@ -459,6 +545,11 @@ export function assembleManagedRuntimePackage({
   if (sourceSnapshot.artifactHash !== sourceArtifactHash) {
     throw new Error("Gateway build snapshot artifact hash does not match its bytes.");
   }
+  const pluginClosure = assertBuildSnapshotPluginClosure({
+    sourceRoot: candidateSourceRoot,
+    buildRoot,
+    runtimeConfigPath,
+  });
   const capabilityPaths = requiredCapabilityPaths(candidateSourceRoot, sourceSha);
 
   let releaseCreated = false;
@@ -549,6 +640,7 @@ export function assembleManagedRuntimePackage({
         controlUi: path.join(releaseRoot, "dist", "control-ui"),
         bundledPlugins: path.join(releaseRoot, "dist-runtime", "extensions"),
       },
+      ...(pluginClosure.checked ? { runtimePluginClosure: pluginClosure } : {}),
     };
     writeJson(path.join(stagingRoot, "snapshot.json"), snapshot);
     const errors = verifyRuntimePackage({ releaseRoot: stagingRoot, expectedRoot: releaseRoot });
@@ -631,6 +723,7 @@ if (isMainModule()) {
       sourceSha: values.get("source-sha"),
       activeSha: values.get("active-sha"),
       releaseId: values.get("release-id"),
+      ...(values.get("runtime-config") ? { runtimeConfigPath: values.get("runtime-config") } : {}),
       ...(values.get("storage-reservation-id") && values.get("storage-reservation-token")
         ? {
             storageReservation: loadStorageReservation({

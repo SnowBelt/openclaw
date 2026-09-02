@@ -233,6 +233,138 @@ function verifyResearchManagerDependencies(root) {
     .map((dependency) => `Research Manager runtime dependency is missing: ${dependency}`);
 }
 
+function listRuntimePluginIds(root) {
+  const extensionsRoot = path.join(root, "dist-runtime", "extensions");
+  const errors = [];
+  let rootStat;
+  try {
+    rootStat = fs.lstatSync(extensionsRoot);
+  } catch {
+    return {
+      ids: [],
+      errors: ["Runtime bundled plugin directory is missing."],
+    };
+  }
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    return {
+      ids: [],
+      errors: ["Runtime bundled plugin directory is unsafe."],
+    };
+  }
+  const ids = [];
+  for (const entry of sortedDirectoryEntries(extensionsRoot)) {
+    if (entry === "node_modules") {
+      continue;
+    }
+    const pluginRoot = path.join(extensionsRoot, entry);
+    let pluginRootStat;
+    try {
+      pluginRootStat = fs.lstatSync(pluginRoot);
+    } catch {
+      errors.push(`Runtime bundled plugin entry disappeared: ${entry}`);
+      continue;
+    }
+    if (pluginRootStat.isSymbolicLink()) {
+      errors.push(`Runtime bundled plugin directory is a symlink: ${entry}`);
+      continue;
+    }
+    if (!pluginRootStat.isDirectory()) {
+      continue;
+    }
+    const manifestPath = path.join(pluginRoot, "openclaw.plugin.json");
+    if (!fs.existsSync(manifestPath)) {
+      continue;
+    }
+    let manifestStat;
+    try {
+      manifestStat = fs.lstatSync(manifestPath);
+    } catch {
+      errors.push(`Runtime bundled plugin manifest disappeared: ${entry}`);
+      continue;
+    }
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+      errors.push(`Runtime bundled plugin manifest is unsafe: ${entry}`);
+      continue;
+    }
+    let manifest;
+    try {
+      manifest = readJson(manifestPath);
+    } catch {
+      errors.push(`Runtime bundled plugin manifest is invalid: ${entry}`);
+      continue;
+    }
+    if (typeof manifest.id !== "string" || manifest.id.trim() === "") {
+      errors.push(`Runtime bundled plugin identity is invalid: ${entry}`);
+      continue;
+    }
+    const id = manifest.id.trim();
+    if (ids.includes(id)) {
+      errors.push(`Runtime bundled plugin id is duplicated: ${id}`);
+      continue;
+    }
+    ids.push(id);
+  }
+  return { ids: ids.toSorted((left, right) => left.localeCompare(right)), errors };
+}
+
+function verifyRuntimePluginClosure(root, snapshot) {
+  const closure = snapshot.runtimePluginClosure;
+  if (closure === undefined) {
+    // Older sealed releases remain valid rollback targets. New packages are
+    // required to record this proof before they can be sealed.
+    return [];
+  }
+  if (!isRecord(closure) || closure.checked !== true) {
+    return ["Runtime plugin closure proof is missing or invalid."];
+  }
+  const errors = [];
+  const lists = {};
+  for (const key of ["configuredPluginIds", "bundledPluginIds", "externalPluginIds"]) {
+    const value = closure[key];
+    if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item !== "")) {
+      errors.push(`Runtime plugin closure ${key} is invalid.`);
+      continue;
+    }
+    const normalized = value.map((item) => item.trim());
+    if (normalized.some((item) => item === "")) {
+      errors.push(`Runtime plugin closure ${key} contains an empty id.`);
+    }
+    if (new Set(normalized).size !== normalized.length) {
+      errors.push(`Runtime plugin closure ${key} contains duplicates.`);
+    }
+    const sorted = normalized.toSorted((left, right) => left.localeCompare(right));
+    if (JSON.stringify(normalized) !== JSON.stringify(sorted)) {
+      errors.push(`Runtime plugin closure ${key} is not sorted.`);
+    }
+    lists[key] = normalized;
+  }
+  if (typeof closure.configPath !== "string" || !path.isAbsolute(closure.configPath)) {
+    errors.push("Runtime plugin closure config path is invalid.");
+  }
+  if (!SHA256_PATTERN.test(String(closure.configSha256 ?? ""))) {
+    errors.push("Runtime plugin closure config hash is invalid.");
+  }
+  const actual = listRuntimePluginIds(root);
+  errors.push(...actual.errors);
+  if (Array.isArray(lists.bundledPluginIds)) {
+    if (JSON.stringify(actual.ids) !== JSON.stringify(lists.bundledPluginIds)) {
+      errors.push("Runtime plugin closure bundled ids do not match the release.");
+    }
+  }
+  if (
+    Array.isArray(lists.configuredPluginIds) &&
+    Array.isArray(lists.bundledPluginIds) &&
+    Array.isArray(lists.externalPluginIds)
+  ) {
+    const available = new Set([...lists.bundledPluginIds, ...lists.externalPluginIds]);
+    const missing = lists.configuredPluginIds.filter((id) => !available.has(id));
+    if (missing.length > 0) {
+      errors.push(`Runtime plugin closure is incomplete: ${missing.join(", ")}`);
+    }
+  }
+  return errors;
+}
+
 export function verifyRuntimePackage({ releaseRoot, expectedRoot = releaseRoot }) {
   const errors = [];
   let root;
@@ -321,6 +453,7 @@ export function verifyRuntimePackage({ releaseRoot, expectedRoot = releaseRoot }
   }
   errors.push(...verifyTreeShape(root));
   errors.push(...verifyCapabilityClosure(root));
+  errors.push(...verifyRuntimePluginClosure(root, snapshot));
   errors.push(...verifyResearchManagerDependencies(root));
   return errors;
 }

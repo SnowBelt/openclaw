@@ -10,6 +10,7 @@ export function assembleManagedRuntimePackage(params: {
   sourceSha: string;
   activeSha: string;
   releaseId: string;
+  runtimeConfigPath?: string;
   deploy?: (params: { sourceRoot: string; stagingRoot: string }) => void;
   seal?: boolean;
   provenanceRecordPath?: string;
@@ -28,4 +29,17 @@ export function assembleManagedRuntimePackage(params: {
   runtimeClosureHash: string;
   runtimeClosurePaths: string[];
   candidateRegistryPath?: string;
+};
+
+export function assertBuildSnapshotPluginClosure(params: {
+  sourceRoot: string;
+  buildRoot: string;
+  runtimeConfigPath?: string;
+}): {
+  checked: boolean;
+  configPath?: string;
+  configSha256?: string;
+  configuredPluginIds?: string[];
+  bundledPluginIds?: string[];
+  externalPluginIds?: string[];
 };

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { collectBundledPluginBuildEntries } from "../lib/bundled-plugin-build-entries.mjs";
 
 export const REQUIRED_CERTIFICATION_PLUGIN_IDS = Object.freeze([
   "codex",
@@ -14,6 +15,65 @@ export const REQUIRED_CERTIFICATION_PLUGIN_IDS = Object.freeze([
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readSourcePluginManifests(root) {
+  const extensionsRoot = path.join(root, "extensions");
+  const extensionsStat = fs.lstatSync(extensionsRoot);
+  if (!extensionsStat.isDirectory() || extensionsStat.isSymbolicLink()) {
+    throw new Error("Bundled plugin source root is unavailable.");
+  }
+  const manifests = [];
+  for (const entry of fs.readdirSync(extensionsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const pluginRoot = path.join(extensionsRoot, entry.name);
+    const pluginRootStat = fs.lstatSync(pluginRoot);
+    if (pluginRootStat.isSymbolicLink()) {
+      throw new Error(`Bundled plugin source root is a symlink: ${entry.name}`);
+    }
+    const manifestPath = path.join(pluginRoot, "openclaw.plugin.json");
+    if (!fs.existsSync(manifestPath)) {
+      continue;
+    }
+    const manifestStat = fs.lstatSync(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+      throw new Error(`Bundled plugin manifest is not a regular file: ${entry.name}`);
+    }
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    } catch {
+      throw new Error(`Bundled plugin manifest is invalid: ${entry.name}`);
+    }
+    if (!isRecord(manifest) || typeof manifest.id !== "string" || !manifest.id.trim()) {
+      throw new Error(`Bundled plugin identity mismatch: ${entry.name}`);
+    }
+    const packagePath = path.join(pluginRoot, "package.json");
+    let packageJson;
+    if (fs.existsSync(packagePath)) {
+      const packageStat = fs.lstatSync(packagePath);
+      if (!packageStat.isFile() || packageStat.isSymbolicLink()) {
+        throw new Error(`Bundled plugin package manifest is not a regular file: ${entry.name}`);
+      }
+      try {
+        packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+      } catch {
+        throw new Error(`Bundled plugin package manifest is invalid: ${entry.name}`);
+      }
+    }
+    if (manifests.some((candidate) => candidate.pluginId === manifest.id)) {
+      throw new Error(`Bundled plugin id is duplicated: ${manifest.id}`);
+    }
+    manifests.push({
+      directoryId: entry.name,
+      pluginId: manifest.id,
+      bundledDist: packageJson?.openclaw?.build?.bundledDist !== false,
+      packageJson,
+    });
+  }
+  return manifests;
 }
 
 export function resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath }) {
@@ -40,33 +100,49 @@ export function resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath }) {
   if (missing.length > 0) {
     throw new Error(`Custom runtime certification plugins are missing: ${missing.join(",")}`);
   }
-  const result = [...pluginIds].toSorted((left, right) => left.localeCompare(right));
-  const bundledPluginIds = [];
+  const sourceManifests = readSourcePluginManifests(root);
+  const buildEnvironment = {
+    ...process.env,
+    OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS: "",
+    OPENCLAW_INCLUDE_OPTIONAL_BUNDLED: "1",
+  };
+  const buildEntries = collectBundledPluginBuildEntries({
+    cwd: root,
+    env: buildEnvironment,
+  });
+  const buildableIds = new Set(buildEntries.map((entry) => entry.id));
+  const bundledPluginIds = buildEntries
+    .map((entry) => entry.id)
+    .toSorted((left, right) => left.localeCompare(right));
+  const bundledRuntimePluginIds = [];
   const externalPluginIds = [];
-  for (const pluginId of result) {
-    const pluginRoot = path.join(root, "extensions", pluginId);
-    const manifestFile = path.join(pluginRoot, "openclaw.plugin.json");
-    if (!fs.existsSync(manifestFile) || fs.lstatSync(manifestFile).isSymbolicLink()) {
-      throw new Error(`Bundled plugin manifest is unavailable: ${pluginId}`);
-    }
-    const pluginManifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
-    if (!isRecord(pluginManifest) || pluginManifest.id !== pluginId) {
-      throw new Error(`Bundled plugin identity mismatch: ${pluginId}`);
-    }
-    const packagePath = path.join(pluginRoot, "package.json");
-    const packageJson = fs.existsSync(packagePath)
-      ? JSON.parse(fs.readFileSync(packagePath, "utf8"))
-      : {};
-    if (
-      isRecord(packageJson?.openclaw?.build) &&
-      packageJson.openclaw.build.bundledDist === false
-    ) {
-      externalPluginIds.push(pluginId);
+  for (const sourceManifest of sourceManifests) {
+    if (sourceManifest.bundledDist) {
+      if (buildableIds.has(sourceManifest.directoryId)) {
+        bundledRuntimePluginIds.push(sourceManifest.pluginId);
+      }
     } else {
-      bundledPluginIds.push(pluginId);
+      externalPluginIds.push(sourceManifest.pluginId);
     }
   }
-  return { bundledPluginIds, externalPluginIds };
+  for (const pluginId of pluginIds) {
+    const sourceManifest = sourceManifests.find(
+      (candidate) => candidate.directoryId === pluginId || candidate.pluginId === pluginId,
+    );
+    if (!sourceManifest) {
+      throw new Error(`Bundled plugin manifest is unavailable: ${pluginId}`);
+    }
+    if (sourceManifest.bundledDist && !buildableIds.has(sourceManifest.directoryId)) {
+      throw new Error(`Configured bundled plugin is not buildable: ${pluginId}`);
+    }
+  }
+  return {
+    bundledPluginIds,
+    bundledRuntimePluginIds: bundledRuntimePluginIds.toSorted((left, right) =>
+      left.localeCompare(right),
+    ),
+    externalPluginIds: externalPluginIds.toSorted((left, right) => left.localeCompare(right)),
+  };
 }
 
 export function runCustomRuntimeBuild({ repoRoot = process.cwd() } = {}) {
@@ -78,6 +154,7 @@ export function runCustomRuntimeBuild({ repoRoot = process.cwd() } = {}) {
     env: {
       ...process.env,
       OPENCLAW_BUILD_ALL_NO_PNPM: "1",
+      OPENCLAW_INCLUDE_OPTIONAL_BUNDLED: "1",
       OPENCLAW_BUNDLED_PLUGIN_BUILD_IDS: pluginIds.bundledPluginIds.join(","),
     },
     stdio: "inherit",

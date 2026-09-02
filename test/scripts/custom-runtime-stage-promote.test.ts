@@ -41,6 +41,13 @@ function fixture() {
   const capabilityManifestPath = path.join(release, "config", "custom-runtime-capabilities.json");
   const evidenceRoot = path.join(release, ".test-release-governance");
   const pluginManifestPath = path.join(release, "extensions", "apps", "openclaw.plugin.json");
+  const runtimePluginManifestPath = path.join(
+    release,
+    "dist-runtime",
+    "extensions",
+    "apps",
+    "openclaw.plugin.json",
+  );
   const updateSchedulerPath = path.join(
     release,
     "scripts",
@@ -59,6 +66,7 @@ function fixture() {
     path.dirname(assetPath),
     path.dirname(capabilityManifestPath),
     path.dirname(pluginManifestPath),
+    path.dirname(runtimePluginManifestPath),
     path.dirname(updateSchedulerPath),
     path.dirname(guardSchedulerPath),
     path.join(runtimeHome, "bin"),
@@ -67,6 +75,7 @@ function fixture() {
   }
   writeFileSync(assetPath, "// pcc\n");
   writeFileSync(pluginManifestPath, "{}\n");
+  writeFileSync(runtimePluginManifestPath, `${JSON.stringify({ id: "apps" })}\n`);
   cpSync(
     path.join(
       process.cwd(),
@@ -79,6 +88,10 @@ function fixture() {
   cpSync(
     path.join(process.cwd(), "scripts", "custom-runtime", "ai.openclaw.custom-runtime.guard.plist"),
     guardSchedulerPath,
+  );
+  cpSync(
+    path.join(process.cwd(), "scripts", "custom-runtime", "custom-runtime-plugin-closure.mjs"),
+    path.join(release, "scripts", "custom-runtime", "custom-runtime-plugin-closure.mjs"),
   );
   writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);

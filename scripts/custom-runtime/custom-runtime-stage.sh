@@ -6,8 +6,8 @@ runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 config_source=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
 state_source=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
 provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-secret-provider"}
-launcher=${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-"$runtime_home/bin/custom-runtime-launcher.sh"}
-rollback_launcher=${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-"$launcher"}
+launcher=${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-}
+rollback_launcher=${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'candidate Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
@@ -61,6 +61,21 @@ stamp_file="$release/.openclaw-production-sha"
   printf '%s\n' 'candidate stage blocked: release source stamp does not match requested source SHA' >&2
   exit 64
 }
+if [ -z "$launcher" ]; then
+  launcher="$release/scripts/custom-runtime/custom-runtime-launcher.sh"
+  [ -f "$launcher" ] || launcher="$runtime_home/bin/custom-runtime-launcher.sh"
+fi
+if [ -z "$rollback_launcher" ]; then
+  rollback_launcher="$launcher"
+fi
+[ -f "$launcher" ] || {
+  printf '%s\n' 'candidate runtime launcher is missing' >&2
+  exit 64
+}
+[ -f "$rollback_launcher" ] || {
+  printf '%s\n' 'candidate rollback runtime launcher is missing' >&2
+  exit 64
+}
 custom_runtime_ensure_node_bin "$runtime_home" || {
   printf '%s\n' 'candidate stage blocked: verified Node executable is unavailable' >&2
   exit 78
@@ -79,6 +94,11 @@ printf '%s' '{"ids":["discord/bot-token"]}' | "$provider" | python3 -c 'import j
 }
 stage=$(mktemp -d "$runtime_home/stage.XXXXXX")
 pid= pid_port=
+report_gateway_log() {
+  [ -f "$stage/gateway.log" ] || return 0
+  tail -c 16384 "$stage/gateway.log" 2>/dev/null |
+    sed -E 's/(token|password|secret|key)=[^[:space:]]+/\1=[REDACTED]/Ig' >&2 || true
+}
 cleanup() {
   status=$?
   trap - EXIT INT TERM
@@ -115,6 +135,8 @@ python3 "$(dirname "$0")/copy_stage_state.py" "$state_source" "$stage/state" \
 OPENCLAW_STAGE_RELEASE="$release" "$OPENCLAW_NODE_BIN" --input-type=module - "$stage/openclaw.director.json" "$capability_manifest" "$port" <<'NODE'
 import fs from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const [configPath, capabilityManifestPath, rawPort] = process.argv.slice(2);
 const require = createRequire(`${process.env.OPENCLAW_STAGE_RELEASE}/package.json`);
@@ -126,6 +148,7 @@ if (!config || typeof config !== "object" || Array.isArray(config)) {
 }
 const plugins = config.plugins && typeof config.plugins === "object" ? config.plugins : {};
 const allowed = Array.isArray(plugins.allow) ? plugins.allow : [];
+const denied = Array.isArray(plugins.deny) ? plugins.deny : [];
 const entries = plugins.entries && typeof plugins.entries === "object" ? plugins.entries : {};
 const requiredPlugins = (Array.isArray(manifest.capabilities) ? manifest.capabilities : [])
   .filter((item) => item && typeof item === "object" && item.kind === "plugin")
@@ -133,8 +156,38 @@ const requiredPlugins = (Array.isArray(manifest.capabilities) ? manifest.capabil
 if (requiredPlugins.length === 0 || requiredPlugins.some((item) => typeof item !== "string" || !item)) {
   throw new Error("candidate capability manifest has no valid required plugins");
 }
+if (manifest.schema === "openclaw.custom-runtime-capabilities.v2") {
+  const {
+    assertRuntimePluginClosure,
+    collectBundledRuntimePluginIds,
+    collectConfiguredRuntimePluginIds,
+    collectExternalRuntimePluginIds,
+  } = await import(
+    pathToFileURL(
+      path.join(
+        process.env.OPENCLAW_STAGE_RELEASE,
+        "scripts",
+        "custom-runtime",
+        "custom-runtime-plugin-closure.mjs",
+      ),
+    ).href
+  );
+  const externalPluginIds = collectExternalRuntimePluginIds(config);
+  assertRuntimePluginClosure({
+    configuredPluginIds: [
+      ...collectConfiguredRuntimePluginIds(config),
+      ...externalPluginIds,
+    ],
+    bundledPluginIds: collectBundledRuntimePluginIds(process.env.OPENCLAW_STAGE_RELEASE),
+    externalPluginIds,
+  });
+}
 for (const pluginId of requiredPlugins) {
-  if (!allowed.includes(pluginId) || entries[pluginId]?.enabled !== true) {
+  if (
+    !allowed.includes(pluginId) ||
+    denied.includes(pluginId) ||
+    entries[pluginId]?.enabled !== true
+  ) {
     throw new Error(`required dashboard plugin unavailable: ${pluginId}`);
   }
 }
@@ -253,9 +306,10 @@ else
   sed -E 's/(token|password|secret|key)=[^[:space:]]+/\1=[REDACTED]/Ig' "$stage/gateway.log" >&2 2>/dev/null || true
   exit 1
 fi
-for _ in $(seq 1 45); do
+    for _ in $(seq 1 45); do
   if ! custom_runtime_process_exists "$pid"; then
     printf '%s\n' 'candidate stage Gateway child exited before readiness' >&2
+    report_gateway_log
     exit 1
   fi
   if custom_runtime_port_owner_pid "$port" "$release" >/dev/null 2>&1 && \
@@ -392,5 +446,5 @@ PY
   fi
   sleep 2
 done
-sed -E 's/(token|password|secret|key)=[^[:space:]]+/\1=[REDACTED]/Ig' "$stage/gateway.log" >&2 || true
+report_gateway_log
 exit 1

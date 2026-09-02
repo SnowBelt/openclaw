@@ -66,7 +66,7 @@ function createRuntime(options: { missingDependency?: string } = {}): string {
   return root;
 }
 
-function sealSnapshot(root: string): void {
+function sealSnapshot(root: string, runtimePluginClosure?: Record<string, unknown>): void {
   const runtimeClosurePaths = listRuntimeClosurePaths(root);
   const snapshot = {
     version: 2,
@@ -77,8 +77,17 @@ function sealSnapshot(root: string): void {
     runtimeClosurePaths,
     runtimeClosureHash: hashRuntimeClosure(root, runtimeClosurePaths),
     source: { commit: SOURCE_SHA },
+    ...(runtimePluginClosure ? { runtimePluginClosure } : {}),
   };
   writeFile(root, "snapshot.json", `${JSON.stringify(snapshot)}\n`);
+}
+
+function addBundledPlugin(root: string, pluginId: string): void {
+  writeFile(
+    root,
+    `dist-runtime/extensions/${pluginId}/openclaw.plugin.json`,
+    `${JSON.stringify({ id: pluginId })}\n`,
+  );
 }
 
 afterEach(() => {
@@ -173,6 +182,59 @@ describe("managed runtime package integrity", () => {
 
     expect(verifyRuntimePackage({ releaseRoot: root })).toContain(
       "Runtime package contains a prohibited sensitive file: config/release-signing.pem",
+    );
+  });
+
+  it("verifies the recorded bundled plugin closure against the release", () => {
+    const root = createRuntime();
+    addBundledPlugin(root, "memory-core");
+    sealSnapshot(root, {
+      checked: true,
+      configPath: "/Users/openclaw/.openclaw/openclaw.director.json",
+      configSha256: "b".repeat(64),
+      configuredPluginIds: ["memory-core", "research-manager"],
+      bundledPluginIds: ["memory-core"],
+      externalPluginIds: ["research-manager"],
+    });
+
+    expect(verifyRuntimePackage({ releaseRoot: root })).toEqual([]);
+  });
+
+  it("rejects bundled plugin closure drift after sealing", () => {
+    const root = createRuntime();
+    addBundledPlugin(root, "memory-core");
+    sealSnapshot(root, {
+      checked: true,
+      configPath: "/Users/openclaw/.openclaw/openclaw.director.json",
+      configSha256: "b".repeat(64),
+      configuredPluginIds: ["memory-core"],
+      bundledPluginIds: ["memory-core"],
+      externalPluginIds: [],
+    });
+    addBundledPlugin(root, "unexpected");
+
+    expect(verifyRuntimePackage({ releaseRoot: root })).toContain(
+      "Runtime plugin closure bundled ids do not match the release.",
+    );
+  });
+
+  it("rejects a malformed immutable plugin closure proof", () => {
+    const root = createRuntime();
+    sealSnapshot(root, {
+      checked: true,
+      configPath: "relative-config.json5",
+      configSha256: "not-a-hash",
+      configuredPluginIds: ["memory-core"],
+      bundledPluginIds: [],
+      externalPluginIds: [],
+    });
+
+    expect(verifyRuntimePackage({ releaseRoot: root })).toEqual(
+      expect.arrayContaining([
+        "Runtime plugin closure config path is invalid.",
+        "Runtime plugin closure config hash is invalid.",
+        "Runtime plugin closure is incomplete: memory-core",
+      ]),
     );
   });
 });
