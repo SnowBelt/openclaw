@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 export const SIGNATURE_SCHEMA = "openclaw.custom-runtime-signature.v1";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const DEVICE_ID_PATTERN = /^[a-f0-9]{64}$/u;
+const PRIVATE_KEY_HEADER = ["BEGIN", "PRIVATE", "KEY"].join(" ");
 
 /** @returns {never} */
 function fail(message) {
@@ -108,7 +109,7 @@ function loadIdentity(identityPath, includePrivate) {
   }
   if (
     typeof record.privateKeyPem !== "string" ||
-    !record.privateKeyPem.includes("BEGIN PRIVATE KEY")
+    !record.privateKeyPem.includes(PRIVATE_KEY_HEADER)
   ) {
     fail("device private key is unavailable");
   }

@@ -615,7 +615,7 @@ describe("session.message websocket events", () => {
         messageSeq: 1,
         totalTokens: 2_400,
         totalTokensFresh: true,
-        contextTokens: 200_000,
+        contextTokens: 272_000,
         estimatedCostUsd: 0.0042,
         modelProvider: "openai",
         model: "gpt-5.4",

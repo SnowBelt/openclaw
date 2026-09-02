@@ -1,6 +1,11 @@
 {
   "schemaVersion": 1,
   "dependencies": {
+    "@openclaw/ai": {
+      "owner": "core:ai-runtime",
+      "class": "core-runtime",
+      "risk": ["agent-runtime", "streaming"]
+    },
     "@agentclientprotocol/sdk": {
       "owner": "core:mcp-acp",
       "class": "core-runtime",
@@ -224,6 +229,11 @@
       "owner": "core:qr-setup",
       "class": "default-runtime-initially",
       "risk": ["terminal-rendering", "png-encoding"]
+    },
+    "sharp": {
+      "owner": "core:snes-asset-tooling",
+      "class": "tooling-runtime",
+      "risk": ["native", "image-processing"]
     },
     "rastermill": {
       "owner": "core:media",

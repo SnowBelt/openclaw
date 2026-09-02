@@ -2084,7 +2084,6 @@
     "node-edge-tts": "1.2.10",
     "openai": "6.45.0",
     "partial-json": "0.1.7",
-    "pdfjs-dist": "6.2.108",
     "playwright-core": "1.61.1",
     "proper-lockfile": "4.1.2",
     "qrcode": "1.5.4",

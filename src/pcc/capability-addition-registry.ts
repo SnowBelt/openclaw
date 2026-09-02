@@ -103,11 +103,7 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     id: "plugin:research-manager",
     kind: "plugin",
     owner: "Research Manager plugin",
-    tests: [
-      "extensions/research-manager/index.test.ts",
-      "extensions/research-manager/manifest.test.ts",
-      "extensions/research-manager/src/runtime.test.ts",
-    ],
+    tests: ["pnpm test extensions/research-manager"],
     proofSurfaces: [
       "pnpm test extensions/research-manager",
       "sterile managed-runtime plugin discovery and execution smoke",

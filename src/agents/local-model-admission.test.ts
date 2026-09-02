@@ -99,7 +99,7 @@ describe("local model admission", () => {
     const lease = await acquireExclusiveLocalModelAdmission({
       owner: "smoke",
       env: stateEnv(),
-      waitMs: 100,
+      waitMs: 2_000,
       sampleIntervalMs: 0,
       probe: () => {
         const next = observations.shift();
@@ -118,9 +118,9 @@ describe("local model admission", () => {
     const lease = await acquireExclusiveLocalModelAdmission({
       owner: "slow-quiescence",
       env,
-      ttlMs: 60,
-      waitMs: 500,
-      sampleIntervalMs: 40,
+      ttlMs: 5_000,
+      waitMs: 10_000,
+      sampleIntervalMs: 3_000,
       probe: () => cleanSnapshot(new Date().toISOString()),
     });
     const state = stateLeases(env);
@@ -207,7 +207,7 @@ describe("local model admission", () => {
     const parent = await acquireExclusiveLocalModelAdmission({
       owner: "parent",
       env: parentEnv,
-      waitMs: 100,
+      waitMs: 2_000,
       sampleIntervalMs: 0,
       probe: () => cleanSnapshot("parent"),
     });

@@ -218,7 +218,7 @@ function parseLeaseRow(row: StoredLocalModelLeaseRow): StoredLocalModelLease {
 
 function readLeases(db: DatabaseSync): StoredLocalModelLease[] {
   const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
-  const rows = executeSqliteQuerySync<StoredLocalModelLeaseRow>(
+  const rows = executeSqliteQuerySync(
     db,
     stateDb
       .selectFrom("state_leases")
@@ -236,7 +236,7 @@ function readLeases(db: DatabaseSync): StoredLocalModelLease[] {
 
 function readLeaseByToken(db: DatabaseSync, token: string): StoredLocalModelLease | undefined {
   const stateDb = getNodeSqliteKysely<LocalModelAdmissionDatabase>(db);
-  const row = executeSqliteQueryTakeFirstSync<StoredLocalModelLeaseRow>(
+  const row = executeSqliteQueryTakeFirstSync(
     db,
     stateDb
       .selectFrom("state_leases")

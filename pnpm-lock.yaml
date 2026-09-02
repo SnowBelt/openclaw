@@ -168,9 +168,6 @@ importers:
       partial-json:
         specifier: 0.1.7
         version: 0.1.7
-      pdfjs-dist:
-        specifier: 6.2.108
-        version: 6.2.108
       playwright-core:
         specifier: 1.61.1
         version: 1.61.1
@@ -1519,6 +1516,9 @@ importers:
       '@mozilla/readability':
         specifier: 0.6.0
         version: 0.6.0
+      json5:
+        specifier: 2.2.3
+        version: 2.2.3
       linkedom:
         specifier: 0.18.12
         version: 0.18.12

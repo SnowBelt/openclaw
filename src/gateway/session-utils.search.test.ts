@@ -834,14 +834,14 @@ describe("listSessionsFromStore search", () => {
             sessionId: "sess-pricing",
             modelProvider: "openai",
             model: "gpt-5.4",
-            contextTokens: 200_000,
+            contextTokens: 272_000,
             totalTokens: TRANSCRIPT_TOTAL_TOKENS,
             totalTokensFresh: true,
           }),
         });
 
         expectOpenAiGpt54Backfill(result.sessions[0]);
-        expect(result.sessions[0]?.contextTokens).toBe(200_000);
+        expect(result.sessions[0]?.contextTokens).toBe(272_000);
       },
     });
   });

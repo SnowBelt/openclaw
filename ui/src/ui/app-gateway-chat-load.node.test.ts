@@ -224,6 +224,7 @@ function createHost(tab: Tab) {
     refreshSessionsAfterChat: new Map(),
     execApprovalQueue: [],
     execApprovalError: null,
+    chatQueue: [],
     updateAvailable: null,
     reconcileWebPushState: verifyPushMock,
   } as unknown as Parameters<typeof connectGateway>[0];
