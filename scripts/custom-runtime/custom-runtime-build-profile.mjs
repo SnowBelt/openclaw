@@ -4,7 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { collectBundledPluginBuildEntries } from "../lib/bundled-plugin-build-entries.mjs";
+import {
+  collectBundledPluginBuildEntries,
+  NON_PACKAGED_BUNDLED_PLUGIN_DIRS,
+} from "../lib/bundled-plugin-build-entries.mjs";
 
 export const REQUIRED_CERTIFICATION_PLUGIN_IDS = Object.freeze([
   "codex",
@@ -110,7 +113,11 @@ export function resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath }) {
     cwd: root,
     env: buildEnvironment,
   });
-  const buildableIds = new Set(buildEntries.map((entry) => entry.id));
+  const runtimeBuildableIds = new Set(
+    buildEntries
+      .filter((entry) => !NON_PACKAGED_BUNDLED_PLUGIN_DIRS.has(entry.id))
+      .map((entry) => entry.id),
+  );
   const bundledPluginIds = buildEntries
     .map((entry) => entry.id)
     .toSorted((left, right) => left.localeCompare(right));
@@ -118,7 +125,7 @@ export function resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath }) {
   const externalPluginIds = [];
   for (const sourceManifest of sourceManifests) {
     if (sourceManifest.bundledDist) {
-      if (buildableIds.has(sourceManifest.directoryId)) {
+      if (runtimeBuildableIds.has(sourceManifest.directoryId)) {
         bundledRuntimePluginIds.push(sourceManifest.pluginId);
       }
     } else {
@@ -132,7 +139,7 @@ export function resolveCustomRuntimeBuildPluginIds({ repoRoot, manifestPath }) {
     if (!sourceManifest) {
       throw new Error(`Bundled plugin manifest is unavailable: ${pluginId}`);
     }
-    if (sourceManifest.bundledDist && !buildableIds.has(sourceManifest.directoryId)) {
+    if (sourceManifest.bundledDist && !runtimeBuildableIds.has(sourceManifest.directoryId)) {
       throw new Error(`Configured bundled plugin is not buildable: ${pluginId}`);
     }
   }

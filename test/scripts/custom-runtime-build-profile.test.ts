@@ -74,6 +74,28 @@ describe("custom runtime build profile", () => {
     });
   });
 
+  it("excludes non-packaged QA support plugins from the runtime closure", () => {
+    const pluginIds = ["apps", ...REQUIRED_CERTIFICATION_PLUGIN_IDS, "qa-channel"];
+    const { root, manifestPath } = fixture(
+      pluginIds,
+      pluginIds.filter((id) => id !== "qa-channel"),
+    );
+
+    expect(resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toMatchObject({
+      bundledPluginIds: expect.arrayContaining(["qa-channel"]),
+      bundledRuntimePluginIds: expect.not.arrayContaining(["qa-channel"]),
+    });
+  });
+
+  it("rejects a configured non-packaged QA support plugin", () => {
+    const pluginIds = ["apps", ...REQUIRED_CERTIFICATION_PLUGIN_IDS, "qa-channel"];
+    const { root, manifestPath } = fixture(pluginIds);
+
+    expect(() => resolveCustomRuntimeBuildPluginIds({ repoRoot: root, manifestPath })).toThrow(
+      "Configured bundled plugin is not buildable: qa-channel",
+    );
+  });
+
   it("binds the checked-in capability manifest to all certification plugins", () => {
     const repoRoot = fs.realpathSync(process.cwd());
     const manifestPath = path.join(repoRoot, "config", "custom-runtime-capabilities.json");
