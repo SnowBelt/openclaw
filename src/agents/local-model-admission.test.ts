@@ -191,7 +191,9 @@ describe("local model admission", () => {
       const lease = await acquireExclusiveLocalModelAdmission({
         owner: "replacement",
         env,
-        waitMs: 100,
+        // SQLite bootstrap and the three-sample proof can exceed 100ms on a
+        // cold CI runner; keep the test bounded without making it timing-flaky.
+        waitMs: 2_000,
         sampleIntervalMs: 0,
         probe: () => cleanSnapshot("replacement"),
       });
