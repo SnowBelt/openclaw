@@ -18,6 +18,7 @@ const RECEIPT_SCHEMA = "openclaw.disposable-cleanup-receipt.v1";
 const TERMINAL_STATES = new Set(["released", "failed", "expired"]);
 const REGISTRY_LOCK_STALE_MS = 30_000;
 const REGISTRY_LOCK_WAIT_MS = 60_000;
+const MACOS_DATA_VOLUME = "/System/Volumes/Data";
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -334,7 +335,13 @@ function trimTerminalReservations(registry, keep = 64) {
   }
 }
 
-export function availableBytes(volumePath = "/System/Volumes/Data") {
+export function defaultStorageVolumePath(allowedRoots = []) {
+  return process.platform === "darwin" && fs.existsSync(MACOS_DATA_VOLUME)
+    ? MACOS_DATA_VOLUME
+    : path.resolve(allowedRoots[0] ?? process.cwd());
+}
+
+export function availableBytes(volumePath = defaultStorageVolumePath()) {
   const stat = fs.statfsSync(volumePath);
   return stat.bavail * stat.bsize;
 }
@@ -345,7 +352,7 @@ export function acquireStorageReservation({
   purpose,
   allowedRoots,
   registryPath = defaultRegistryPath(),
-  volumePath = "/System/Volumes/Data",
+  volumePath,
   expectedBytes = DEFAULT_EXPECTED_WORKSPACE_BYTES,
   floorBytes = DEFAULT_STORAGE_FLOOR_BYTES,
   targetBytes = DEFAULT_STORAGE_TARGET_BYTES,
@@ -370,6 +377,7 @@ export function acquireStorageReservation({
   validatePositiveInteger(ttlMs, "ttlMs");
   validatePositiveInteger(pid, "pid");
   const normalizedRoots = normalizeAllowedRoots(allowedRoots);
+  const resolvedVolumePath = path.resolve(volumePath ?? defaultStorageVolumePath(normalizedRoots));
   validatePositiveInteger(operationWaitMs, "operationWaitMs", { allowZero: true });
   return withRegistryLock(registryPath, () => {
     const registry = readRegistry(registryPath);
@@ -383,7 +391,7 @@ export function acquireStorageReservation({
           `limit is ${maxConcurrent}.`,
       );
     }
-    const freeBytes = availableBytesProvider(volumePath);
+    const freeBytes = availableBytesProvider(resolvedVolumePath);
     validatePositiveInteger(freeBytes, "availableBytes", { allowZero: true });
     const reservedBytes = active.reduce(
       (total, entry) => total + Number(entry.expectedBytes ?? 0),
@@ -416,7 +424,7 @@ export function acquireStorageReservation({
       "--owner",
       `storage-${createHash("sha256").update(owner).digest("hex").slice(0, 16)}`,
       "--claim",
-      `storage-large:${createHash("sha256").update(path.resolve(volumePath)).digest("hex").slice(0, 16)}:exclusive`,
+      `storage-large:${createHash("sha256").update(resolvedVolumePath).digest("hex").slice(0, 16)}:exclusive`,
       "--priority",
       "high",
       "--pid",
@@ -442,6 +450,7 @@ export function acquireStorageReservation({
       targetMetAtAdmission: projectedFreeBytes >= targetBytes,
       freeBytesAtAdmission: freeBytes,
       allowedRoots: normalizedRoots,
+      volumePath: resolvedVolumePath,
       workspacePaths: [],
       createdAt: new Date(nowMs).toISOString(),
       heartbeatAt: new Date(nowMs).toISOString(),
@@ -772,7 +781,7 @@ function runCli() {
       purpose: input.purpose,
       allowedRoots: input.allowedRoots,
       registryPath: path.resolve(input.registry),
-      volumePath: input.volume ?? "/System/Volumes/Data",
+      volumePath: input.volume,
       expectedBytes: Number(input["expected-bytes"] ?? DEFAULT_EXPECTED_WORKSPACE_BYTES),
       floorBytes: Number(input["floor-bytes"] ?? DEFAULT_STORAGE_FLOOR_BYTES),
       targetBytes: Number(input["target-bytes"] ?? DEFAULT_STORAGE_TARGET_BYTES),

@@ -110,7 +110,6 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H1: Custom runtime update safety
   - H2: Source of truth
   - H2: Durable source requirement
-  - H2: Verified recovery backup
   - H2: Canonical production package
   - H2: Prepare, review, approve
   - H2: Dashboard customization rule

@@ -33,7 +33,7 @@ function canonicalize(value: unknown): unknown {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .toSorted(([left], [right]) => left.localeCompare(right))
         .map(([key, entry]) => [key, canonicalize(entry)]),
     );
   }
@@ -219,7 +219,7 @@ export function startDiagnosticSignalIngress(params: {
       }
       const entries = (await fsPromises.readdir(sourceDirectory))
         .filter((entry) => entry.endsWith(".json") && !entry.includes(".quarantine-"))
-        .sort();
+        .toSorted();
       let sourceDrained = 0;
       for (const entry of entries) {
         if (stopped) {

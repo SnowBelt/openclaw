@@ -4037,6 +4037,11 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
             case "harness.run.error":
               recordHarnessRunError(evt, metadata, privateData);
               return;
+            // Workflow/task lifecycle events are consumed by the self-improvement
+            // signal bridge; this exporter has no stable OTEL schema for them yet.
+            case "task.issue":
+            case "workflow.event":
+              return;
             case "context.assembled":
               recordContextAssembled(evt, metadata);
               return;

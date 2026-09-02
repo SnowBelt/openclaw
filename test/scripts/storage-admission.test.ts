@@ -9,6 +9,7 @@ import {
   acquireStorageReservation,
   applyCleanupReceipt,
   createCleanupReceipt,
+  defaultStorageVolumePath,
   defaultRegistryPath,
   registerWorkspacePath,
   releaseStorageReservation,
@@ -53,6 +54,27 @@ describe("temporary-workspace storage admission", () => {
     expect(defaultRegistryPath()).toBe(
       path.join(os.homedir(), ".openclaw-custom-runtime", "temp-workspace-registry.json"),
     );
+  });
+
+  it("derives the default storage volume from the allowed workspace root", () => {
+    const root = temporaryRoot("openclaw-storage-volume-");
+    const expectedVolume =
+      process.platform === "darwin" && fs.existsSync("/System/Volumes/Data")
+        ? "/System/Volumes/Data"
+        : root;
+    expect(defaultStorageVolumePath([root])).toBe(expectedVolume);
+
+    let observedVolume: string | undefined;
+    const reservation = acquireStorageReservation({
+      ...admissionOptions(root),
+      availableBytesProvider: (volumePath: string) => {
+        observedVolume = volumePath;
+        return 100;
+      },
+    });
+    expect(observedVolume).toBe(expectedVolume);
+    expect(reservation.volumePath).toBe(expectedVolume);
+    releaseStorageReservation({ reservation });
   });
 
   it("fails closed when the requested operation would cross the free-space floor", () => {

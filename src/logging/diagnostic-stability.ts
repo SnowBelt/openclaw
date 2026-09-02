@@ -564,6 +564,21 @@ function sanitizeDiagnosticEvent(event: DiagnosticEventPayload): DiagnosticStabi
       record.level = event.severity;
       assignReasonCode(record, event.errorCode);
       break;
+    case "task.issue":
+      record.source = event.scope;
+      record.target = event.taskId ?? event.flowId;
+      record.action = event.issueCode;
+      record.level = event.severity;
+      record.outcome = event.terminalOutcome ?? event.status;
+      record.ageMs = event.ageMs;
+      break;
+    case "workflow.event":
+      record.source = event.workflowId;
+      record.target = event.operationId;
+      record.action = event.stage ?? event.issueCode;
+      record.level = event.severity;
+      record.outcome = event.outcome;
+      break;
   }
 
   return record;
