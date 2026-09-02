@@ -2,7 +2,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { importSourceProvenance } from "../../scripts/custom-runtime/custom-runtime-source-provenance.mjs";
 
 const helper = path.resolve("scripts/custom-runtime/custom-runtime-source-provenance.mjs");
 const sourceRemote = "https://github.com/SnowBelt/openclaw.git";
@@ -29,6 +31,60 @@ function runHelper(args: string[], cwd = process.cwd()) {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
+  };
+}
+
+function runImport(
+  args: string[],
+  runtimeHome: string,
+  cwd = process.cwd(),
+): {
+  status: number;
+  stdout: string;
+  stderr: string;
+} {
+  const valueFor = (flag: string) => {
+    const index = args.indexOf(flag);
+    return index === -1 ? undefined : args[index + 1];
+  };
+  const child = `
+import { importSourceProvenance } from ${JSON.stringify(pathToFileURL(helper).href)};
+const result = importSourceProvenance({
+  sourceRoot: process.env.OPENCLAW_TEST_SOURCE_ROOT,
+  sourceSha: process.env.OPENCLAW_TEST_SOURCE_SHA,
+  runtimeHome: process.env.OPENCLAW_TEST_RUNTIME_HOME,
+  sourceRemote: process.env.OPENCLAW_TEST_SOURCE_REMOTE || undefined,
+  sourceRemoteBranch: process.env.OPENCLAW_TEST_SOURCE_REMOTE_BRANCH || undefined,
+  storageAdmission: {
+    // The fixture uses the exported API so CI disk size cannot affect the
+    // behavior under test; production CLI callers retain the real floor.
+    registryPath: process.env.OPENCLAW_TEST_STORAGE_REGISTRY,
+    volumePath: process.env.OPENCLAW_TEST_STORAGE_VOLUME,
+    expectedBytes: 0,
+    floorBytes: 0,
+    targetBytes: 0,
+  },
+});
+process.stdout.write(JSON.stringify(result) + "\\n");
+`;
+  const childResult = spawnSync(process.execPath, ["--input-type=module", "-e", child], {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      OPENCLAW_TEST_SOURCE_ROOT: valueFor("--source"),
+      OPENCLAW_TEST_SOURCE_SHA: valueFor("--source-sha"),
+      OPENCLAW_TEST_RUNTIME_HOME: valueFor("--runtime-home") ?? runtimeHome,
+      OPENCLAW_TEST_SOURCE_REMOTE: valueFor("--source-remote") ?? "",
+      OPENCLAW_TEST_SOURCE_REMOTE_BRANCH: valueFor("--source-remote-branch") ?? "",
+      OPENCLAW_TEST_STORAGE_REGISTRY: path.join(runtimeHome, "storage-registry.json"),
+      OPENCLAW_TEST_STORAGE_VOLUME: runtimeHome,
+    },
+  });
+  return {
+    status: childResult.status,
+    stdout: childResult.stdout,
+    stderr: childResult.stderr,
   };
 }
 
@@ -66,7 +122,7 @@ describe("custom runtime source provenance", () => {
     fs.chmodSync(nonRepositoryCwd, 0o700);
     const historicalSha = "e8dc155fe2f16183373f8ce1bc8d28f5d48377cd";
 
-    const imported = runHelper(
+    const imported = runImport(
       [
         "import",
         "--source",
@@ -80,6 +136,7 @@ describe("custom runtime source provenance", () => {
         "--source-remote-branch",
         sourceRemoteBranch,
       ],
+      runtimeHome,
       nonRepositoryCwd,
     );
     expect(imported.status, imported.stderr).toBe(0);
@@ -150,19 +207,22 @@ describe("custom runtime source provenance", () => {
     ]);
     expect(migrationVerified.status, migrationVerified.stderr).toBe(0);
 
-    const repeatedImport = runHelper([
-      "import",
-      "--source",
-      root,
-      "--source-sha",
-      sourceSha,
-      "--runtime-home",
-      runtimeHome,
-      "--source-remote",
-      sourceRemote,
-      "--source-remote-branch",
-      sourceRemoteBranch,
-    ]);
+    const repeatedImport = runHelper(
+      [
+        "import",
+        "--source",
+        root,
+        "--source-sha",
+        sourceSha,
+        "--runtime-home",
+        runtimeHome,
+        "--source-remote",
+        sourceRemote,
+        "--source-remote-branch",
+        sourceRemoteBranch,
+      ],
+      nonRepositoryCwd,
+    );
     expect(repeatedImport.status, repeatedImport.stderr).toBe(0);
     expect(JSON.parse(repeatedImport.stdout)).toMatchObject({ recordPath: record.recordPath });
   });
@@ -172,19 +232,22 @@ describe("custom runtime source provenance", () => {
     const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
     temporaryDirectories.push(runtimeHome);
     fs.chmodSync(runtimeHome, 0o700);
-    const imported = runHelper([
-      "import",
-      "--source",
-      root,
-      "--source-sha",
-      sourceSha,
-      "--runtime-home",
+    const imported = runImport(
+      [
+        "import",
+        "--source",
+        root,
+        "--source-sha",
+        sourceSha,
+        "--runtime-home",
+        runtimeHome,
+        "--source-remote",
+        sourceRemote,
+        "--source-remote-branch",
+        sourceRemoteBranch,
+      ],
       runtimeHome,
-      "--source-remote",
-      sourceRemote,
-      "--source-remote-branch",
-      sourceRemoteBranch,
-    ]);
+    );
     expect(imported.status, imported.stderr).toBe(0);
     const record = JSON.parse(imported.stdout) as { bundlePath: string; recordPath: string };
     fs.appendFileSync(record.bundlePath, "tampered\n");
@@ -207,15 +270,10 @@ describe("custom runtime source provenance", () => {
     const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-source-provenance-home-"));
     temporaryDirectories.push(runtimeHome);
     fs.chmodSync(runtimeHome, 0o700);
-    const imported = runHelper([
-      "import",
-      "--source",
-      root,
-      "--source-sha",
-      sourceSha,
-      "--runtime-home",
+    const imported = runImport(
+      ["import", "--source", root, "--source-sha", sourceSha, "--runtime-home", runtimeHome],
       runtimeHome,
-    ]);
+    );
     expect(imported.status, imported.stderr).toBe(0);
     const record = JSON.parse(imported.stdout) as { recordPath: string; storePath: string };
     fs.chmodSync(record.storePath, 0o710);
