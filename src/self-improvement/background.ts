@@ -1,9 +1,14 @@
+import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { CronJob } from "../cron/types.js";
 import { onInternalDiagnosticEvent } from "../infra/diagnostic-events.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { runSelfImprovementAnalysis } from "./analysis.js";
 import { appendSelfImprovementAuditEvent } from "./audit-events.js";
+import {
+  resolveExternalWorkflowIngressDir,
+  startDiagnosticSignalIngress,
+} from "./diagnostic-signal-ingress.js";
 import { writeSelfImprovementOperationalHealthSnapshot } from "./operational-health.js";
 import { runSelfImprovementGovernorScan } from "./runner.js";
 import {
@@ -48,21 +53,34 @@ export function startSelfImprovementSignalBridge(params: {
   subscribeDiagnosticEvents?: typeof onInternalDiagnosticEvent;
   recordSignal?: typeof recordSelfImprovementSignal;
 }): SelfImprovementSignalBridge {
-  const stop = (params.subscribeDiagnosticEvents ?? onInternalDiagnosticEvent)(
+  const stateDir = params.stateDir ?? resolveStateDir();
+  const ingress = startDiagnosticSignalIngress({
+    stateDir,
+    recordSignal: params.recordSignal ?? recordSelfImprovementSignal,
+    log: params.log,
+    externalWorkflowDir: resolveExternalWorkflowIngressDir(),
+  });
+  const unsubscribe = (params.subscribeDiagnosticEvents ?? onInternalDiagnosticEvent)(
     (event, metadata) => {
       const input = adaptDiagnosticEventToSelfImprovementSignal(event, metadata);
       if (!input) {
         return;
       }
-      void (params.recordSignal ?? recordSelfImprovementSignal)({
-        input,
-        stateDir: params.stateDir,
-      }).catch((error: unknown) => {
-        params.log?.error(`self-improvement signal ingestion failed: ${formatErrorMessage(error)}`);
-      });
+      try {
+        ingress.submit(input);
+      } catch (error) {
+        params.log?.error(
+          `self-improvement signal durable staging failed: ${formatErrorMessage(error)}`,
+        );
+      }
     },
   );
-  return { stop };
+  return {
+    stop: () => {
+      unsubscribe();
+      ingress.stop();
+    },
+  };
 }
 
 async function recordBackgroundCycleHealth(params: {

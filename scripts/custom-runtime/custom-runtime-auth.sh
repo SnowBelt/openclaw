@@ -685,6 +685,87 @@ custom_runtime_require_release_governance() {
       printf '%s\n' "release governance blocked: policy denied $custom_runtime_governor_operation for $custom_runtime_governor_candidate_sha" >&2
       return 78
     }
+  custom_runtime_governor_exact_approval=$(
+    python3 - "$custom_runtime_governor_bundle" "$custom_runtime_governor_operation" \
+      "$custom_runtime_governor_candidate_sha" <<'PY'
+import json
+import sys
+
+bundle_path, operation, candidate_sha = sys.argv[1:]
+with open(bundle_path, encoding="utf-8") as handle:
+    bundle = json.load(handle)
+if not isinstance(bundle, dict):
+    raise SystemExit(78)
+approvals = bundle.get("approvals", [])
+if not isinstance(approvals, list):
+    raise SystemExit(78)
+match = next(
+    (
+        approval
+        for approval in approvals
+        if isinstance(approval, dict)
+        and approval.get("candidateSha") == candidate_sha
+        and isinstance(approval.get("operations"), list)
+        and operation in approval["operations"]
+    ),
+    None,
+)
+if match is None:
+    raise SystemExit(0)
+facts = bundle.get("facts")
+if not isinstance(facts, dict):
+    raise SystemExit(78)
+values = [
+    match.get("id"),
+    facts.get("repository") or bundle.get("sourceRepository"),
+    facts.get("branch") or bundle.get("branch"),
+    facts.get("destination") or bundle.get("destination") or "local-only",
+]
+if any(not isinstance(value, str) or not value for value in values):
+    raise SystemExit(78)
+print("\n".join(values))
+PY
+  ) || {
+    printf '%s\n' 'release governance blocked: exact approval binding is malformed' >&2
+    return 78
+  }
+  if [ -n "$custom_runtime_governor_exact_approval" ]; then
+    custom_runtime_governor_approval_id=$(printf '%s\n' "$custom_runtime_governor_exact_approval" | sed -n '1p')
+    custom_runtime_governor_repository=$(printf '%s\n' "$custom_runtime_governor_exact_approval" | sed -n '2p')
+    custom_runtime_governor_branch=$(printf '%s\n' "$custom_runtime_governor_exact_approval" | sed -n '3p')
+    custom_runtime_governor_destination=$(printf '%s\n' "$custom_runtime_governor_exact_approval" | sed -n '4p')
+    custom_runtime_governor_approval_verifier="$custom_runtime_governor_release/scripts/custom-runtime/release-approval-ingestion.mjs"
+    if [ -z "${OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_RECEIPT:-}" ] || \
+      [ -z "${OPENCLAW_RELEASE_GOVERNANCE_SOURCE_THREAD_ID:-}" ] || \
+      [ -z "${OPENCLAW_RELEASE_GOVERNANCE_DESTINATION_THREAD_ID:-}" ] || \
+      [ -z "${OPENCLAW_RELEASE_GOVERNANCE_DESTINATION_HOST:-}" ] || \
+      [ ! -f "$custom_runtime_governor_approval_verifier" ] || \
+      [ -L "$custom_runtime_governor_approval_verifier" ]; then
+      printf '%s\n' 'release governance blocked: signed destination-bound exact approval receipt is required' >&2
+      return 78
+    fi
+    "$OPENCLAW_NODE_BIN" "$custom_runtime_governor_approval_verifier" verify \
+      --receipt "$OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_RECEIPT" \
+      --operation "$custom_runtime_governor_operation" \
+      --candidate-sha "$custom_runtime_governor_candidate_sha" \
+      --approval-id "$custom_runtime_governor_approval_id" \
+      --source-thread-id "$OPENCLAW_RELEASE_GOVERNANCE_SOURCE_THREAD_ID" \
+      --destination-thread-id "$OPENCLAW_RELEASE_GOVERNANCE_DESTINATION_THREAD_ID" \
+      --destination-host "$OPENCLAW_RELEASE_GOVERNANCE_DESTINATION_HOST" \
+      --repository "$custom_runtime_governor_repository" \
+      --branch "$custom_runtime_governor_branch" \
+      --destination "$custom_runtime_governor_destination" >/dev/null || {
+      printf '%s\n' 'release governance blocked: signed exact approval receipt verification failed' >&2
+      return 78
+    }
+    if [ -n "${OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID:-}" ] && \
+      [ "$OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID" != "$custom_runtime_governor_approval_id" ]; then
+      printf '%s\n' 'release governance blocked: approval identity does not match signed receipt' >&2
+      return 78
+    fi
+    OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID=$custom_runtime_governor_approval_id
+    export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID
+  fi
   if [ -z "${OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID:-}" ]; then
     custom_runtime_governor_bundle_sha=$(shasum -a 256 "$custom_runtime_governor_bundle" | awk '{print $1}')
     custom_runtime_governor_bundle_id=$(printf '%s' "$custom_runtime_governor_bundle_sha" | cut -c1-16)

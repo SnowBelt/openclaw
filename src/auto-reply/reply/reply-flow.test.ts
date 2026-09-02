@@ -30,7 +30,7 @@ describe("createReplyDispatcher", () => {
     expect(deliveredText(deliver, 1)).toBe(`interject.${SILENT_REPLY_TOKEN}`);
   });
 
-  it("drops exact NO_REPLY final payloads for direct sessions", async () => {
+  it("delivers a visible blocker for exact NO_REPLY final payloads in direct sessions", async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
     const cfg: OpenClawConfig = {
       agents: {
@@ -51,10 +51,11 @@ describe("createReplyDispatcher", () => {
       },
     });
 
-    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(false);
+    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(true);
 
     await dispatcher.waitForIdle();
-    expect(deliver).not.toHaveBeenCalled();
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliveredText(deliver)).toContain("blocked and reported");
   });
 
   it("still drops exact NO_REPLY final payloads for group sessions where silence is allowed", async () => {

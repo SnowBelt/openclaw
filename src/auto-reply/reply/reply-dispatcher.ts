@@ -2,9 +2,14 @@
 import type { TypingCallbacks } from "../../channels/typing.js";
 import type { HumanDelayConfig } from "../../config/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { emitTrustedDiagnosticEvent } from "../../infra/diagnostic-events.js";
 import { generateSecureInt } from "../../infra/secure-random.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import type { SilentReplyConversationType } from "../../shared/silent-reply-policy.js";
+import {
+  classifySilentReplyConversationType,
+  resolveSilentReplyPolicyFromPolicies,
+  type SilentReplyConversationType,
+} from "../../shared/silent-reply-policy.js";
 import { sleep } from "../../utils.js";
 import { copyReplyPayloadMetadata, getReplyPayloadMetadata } from "../reply-payload.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -48,6 +53,8 @@ export type { ReplyDispatchBeforeDeliver };
 const DEFAULT_HUMAN_DELAY_MIN_MS = 800;
 const DEFAULT_HUMAN_DELAY_MAX_MS = 2500;
 const silentReplyLogger = createSubsystemLogger("silent-reply/dispatcher");
+const VISIBLE_SILENT_FINAL_BLOCKER =
+  "I couldn't produce a user-visible answer. This run was blocked and reported for investigation.";
 const beforeDeliverCancelledHooks = new WeakMap<ReplyDispatcher, ReplyDispatchCancelHandler[]>();
 
 /** Adds a core-internal cancellation observer without expanding the plugin-facing dispatcher. */
@@ -237,7 +244,35 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
 
   const enqueue = (kind: ReplyDispatchKind, payload: ReplyPayload) => {
     const originalWasExactSilent = isSilentReplyText(payload.text, SILENT_REPLY_TOKEN);
-    const normalized = normalizeReplyPayloadInternal(payload, {
+    let payloadForNormalization = payload;
+    if (kind === "final" && originalWasExactSilent && options.silentReplyContext) {
+      const conversationType = classifySilentReplyConversationType(options.silentReplyContext);
+      const surface = options.silentReplyContext.surface?.trim().toLowerCase();
+      const policy = resolveSilentReplyPolicyFromPolicies({
+        conversationType,
+        defaultPolicy: options.silentReplyContext.cfg?.agents?.defaults?.silentReply,
+        surfacePolicy: surface
+          ? options.silentReplyContext.cfg?.surfaces?.[surface]?.silentReply
+          : undefined,
+      });
+      if (policy === "disallow") {
+        payloadForNormalization = { ...payload, text: VISIBLE_SILENT_FINAL_BLOCKER };
+        emitTrustedDiagnosticEvent({
+          type: "workflow.event",
+          workflowId: "chat-reply-delivery",
+          operationId:
+            options.silentReplyContext.sessionKey ?? `${surface ?? "unknown"}:${conversationType}`,
+          outcome: "blocked",
+          summary: "A direct chat run ended with an internal silent marker.",
+          issueCode: "direct_chat_silent_final",
+          severity: "high",
+          stage: "final-reply",
+          status: "blocked",
+          deliveryStatus: "visible-blocker-delivered",
+        });
+      }
+    }
+    const normalized = normalizeReplyPayloadInternal(payloadForNormalization, {
       responsePrefix: options.responsePrefix,
       responsePrefixContext: options.responsePrefixContext,
       responsePrefixContextProvider: options.responsePrefixContextProvider,

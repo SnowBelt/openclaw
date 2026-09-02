@@ -1,11 +1,9 @@
-// Produces task-flow registry audit summaries for diagnostics and maintenance.
 import { listTasksForFlowId } from "./runtime-internal.js";
 import { isTaskFlowCancellationPending } from "./task-cancellation-state.js";
 import { getTaskFlowRegistryRestoreFailure, listTaskFlowRecords } from "./task-flow-registry.js";
 import type { TaskFlowRecord } from "./task-flow-registry.types.js";
 import type { TaskRecord } from "./task-registry.types.js";
 
-/** Severity used by task-flow registry audit findings. */
 export type TaskFlowAuditSeverity = "warn" | "error";
 export type TaskFlowAuditCode =
   | "restore_failed"
@@ -32,9 +30,11 @@ export type TaskFlowAuditSummary = {
   byCode: Record<TaskFlowAuditCode, number>;
 };
 
-type TaskFlowAuditOptions = {
+export type TaskFlowAuditOptions = {
   now?: number;
   flows?: TaskFlowRecord[];
+  tasks?: TaskRecord[];
+  restoreFailure?: string | null;
   staleRunningMs?: number;
   staleWaitingMs?: number;
   staleBlockedMs?: number;
@@ -121,7 +121,7 @@ function findTimestampInconsistency(flow: TaskFlowRecord): TaskFlowAuditFinding 
   return null;
 }
 
-function createEmptyTaskFlowAuditSummary(): TaskFlowAuditSummary {
+export function createEmptyTaskFlowAuditSummary(): TaskFlowAuditSummary {
   return {
     total: 0,
     warnings: 0,
@@ -150,7 +150,10 @@ export function listTaskFlowAuditFindings(
   const cancelStuckMs = options.cancelStuckMs ?? DEFAULT_CANCEL_STUCK_MS;
   const findings: TaskFlowAuditFinding[] = [];
 
-  const restoreFailure = getTaskFlowRegistryRestoreFailure();
+  const restoreFailure =
+    options.restoreFailure === undefined
+      ? getTaskFlowRegistryRestoreFailure()
+      : options.restoreFailure;
   if (restoreFailure) {
     findings.push(
       createFinding({
@@ -164,7 +167,9 @@ export function listTaskFlowAuditFindings(
   for (const flow of flows) {
     const referenceAt = getReferenceAt(flow);
     const ageMs = Math.max(0, now - referenceAt);
-    const linkedTasks = getLinkedTasks(flow.flowId);
+    const linkedTasks = options.tasks
+      ? options.tasks.filter((task) => task.parentFlowId === flow.flowId)
+      : getLinkedTasks(flow.flowId);
     const activeTasks = linkedTasks.filter((task) => isTaskFlowCancellationPending(task));
 
     if (flow.status === "running" && ageMs >= staleRunningMs) {

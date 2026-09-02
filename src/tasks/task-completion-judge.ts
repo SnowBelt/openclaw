@@ -25,6 +25,10 @@ const WORKING_ONLY_RE =
   /\b(i'?m|i am|we'?re|we are|still|will|going to|let me|checking|working|started|starting|in progress|look into|follow up)\b/i;
 const COMPLETION_RE =
   /\b(done|complete|completed|finished|ready|attached|created|built|delivered|here(?:'s| is))\b/i;
+const NON_TERMINAL_STATUS_RE = /\bstatus\s*:\s*(?:blocked|needs[_ -]user[_ -]input)\b/i;
+const INCOMPLETE_FINAL_RE =
+  /\b(?:not\s+(?:yet\s+)?(?:complete|completed|finished|done)|incomplete|still\s+(?:working|checking|investigating|debugging|building|preparing))\b/i;
+const SILENT_FINAL_RE = /^\s*(?:NO_REPLY|HEARTBEAT_OK|ANNOUNCE_SKIP|REPLY_SKIP)\s*$/i;
 const ARTIFACT_REQUEST_RE =
   /\b(video|game|rom|file|download|attachment|image|picture|photo|song|music|audio|pdf|docx|spreadsheet|presentation|app|project|artifact)\b/i;
 
@@ -41,6 +45,10 @@ function inferExpectedDeliverable(params: JudgeTaskCompletionParams): string {
 
 function isWorkingOnlyFinal(text: string): boolean {
   return WORKING_ONLY_RE.test(text) && !COMPLETION_RE.test(text);
+}
+
+function isNonTerminalFinal(text: string): boolean {
+  return NON_TERMINAL_STATUS_RE.test(text) || INCOMPLETE_FINAL_RE.test(text);
 }
 
 export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskCompletionJudgeResult {
@@ -83,17 +91,32 @@ export function judgeTaskCompletion(params: JudgeTaskCompletionParams): TaskComp
       gate: "task_completion",
     });
     instructions = "Reject because there is no final user-visible reply.";
-  } else if (isWorkingOnlyFinal(finalText)) {
+  } else if (SILENT_FINAL_RE.test(finalText)) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",
       scope: expectedDeliverable,
       evidence,
       risk: "low",
-      reason: "The final reply only promises future work.",
+      reason: "The final reply is an internal silent marker, not a user-visible response.",
+      conditions: "provide a visible final answer or explicit blocker",
+      gate: "task_completion",
+    });
+    instructions = "Reject because the final reply is an internal silent marker.";
+  } else if (isWorkingOnlyFinal(finalText) || isNonTerminalFinal(finalText)) {
+    forcedVerdict = buildJudgeVerdict({
+      verdict: "REQUEST_MORE_EVIDENCE",
+      scope: expectedDeliverable,
+      evidence,
+      risk: "low",
+      reason: isWorkingOnlyFinal(finalText)
+        ? "The final reply only promises future work."
+        : "The final reply reports blocked or incomplete work.",
       conditions: "finish the work or record a concrete blocker",
       gate: "task_completion",
     });
-    instructions = "Reject because the final reply only promises future work.";
+    instructions = isWorkingOnlyFinal(finalText)
+      ? "Reject because the final reply only promises future work."
+      : "Reject because the final reply reports blocked or incomplete work.";
   } else if (wantsArtifact && artifactIds.length === 0) {
     forcedVerdict = buildJudgeVerdict({
       verdict: "REQUEST_MORE_EVIDENCE",

@@ -200,6 +200,12 @@ describe("custom managed-runtime packaging", () => {
       sourceRoot: root,
       sourceSha: candidateSha,
       runtimeHome: provenanceHome,
+      storageAdmission: {
+        registryPath: path.join(provenanceHome, "storage-registry.json"),
+        expectedBytes: 0,
+        floorBytes: 0,
+        targetBytes: 0,
+      },
     });
     const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
     roots.push(releasesDir);
@@ -221,8 +227,13 @@ describe("custom managed-runtime packaging", () => {
     const envelope = JSON.parse(
       fs.readFileSync(path.join(result.releaseRoot, ".openclaw-runtime-provenance.json"), "utf8"),
     ) as Record<string, unknown>;
-    expect(envelope.recordPath).toBe(provenance.recordPath);
-    expect(envelope.recordSha256).toEqual(expect.any(String));
+    expect(envelope.schema).toBe("openclaw.custom-runtime-runtime-provenance.v2");
+    expect(envelope).not.toHaveProperty("recordPath");
+    expect(envelope.bundlePath).toBe(
+      path.join(result.releaseRoot, ".openclaw-provenance", "source.bundle"),
+    );
+    expect(envelope.bundleSha256).toEqual(expect.any(String));
+    expect(fs.existsSync(envelope.bundlePath as string)).toBe(true);
   });
 
   it("fails before deployment when a custom-runtime source import has no capability owner", () => {

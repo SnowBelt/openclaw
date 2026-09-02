@@ -344,6 +344,6 @@ describe("custom runtime launcher", () => {
     const result = verifyLauncher(input);
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("source provenance record hash mismatch");
+    expect(result.stderr).toContain("source provenance evidence hash mismatch");
   });
 });

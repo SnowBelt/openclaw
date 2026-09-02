@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { registerSealedCandidate } from "./candidate-registry.mjs";
 import {
   importSourceProvenance,
   verifySourceProvenance,
@@ -17,6 +18,7 @@ import {
   listRuntimeClosurePaths,
   verifyRuntimePackage,
 } from "./runtime-package-integrity.mjs";
+import { loadStorageReservation } from "./storage-admission.mjs";
 
 const SOURCE_SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const RELEASE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/u;
@@ -382,6 +384,8 @@ export function assembleManagedRuntimePackage({
   provenanceRuntimeHome,
   provenanceMigrationPath,
   provenanceRecordPath,
+  candidateRegistryPath,
+  storageReservation,
 }) {
   const candidateSourceRoot = fs.realpathSync(sourceRoot);
   let managedReleasesDir = path.resolve(releasesDir);
@@ -404,6 +408,7 @@ export function assembleManagedRuntimePackage({
       sourceSha,
       runtimeHome: provenanceRuntimeHome,
       historicalSourceSha: provenanceMigrationPath ? activeSha : undefined,
+      storageReservation,
     });
   }
   const lineage = assertCandidateLineage({
@@ -482,20 +487,31 @@ export function assembleManagedRuntimePackage({
       mode: 0o600,
     });
     if (sourceProvenance) {
+      const portableDirectory = path.join(stagingRoot, ".openclaw-provenance");
+      fs.mkdirSync(portableDirectory, { mode: 0o700 });
+      const portableBundle = path.join(portableDirectory, "source.bundle");
+      fs.copyFileSync(sourceProvenance.bundlePath, portableBundle);
+      fs.chmodSync(portableBundle, 0o600);
+      let portableMigration;
+      if (provenanceMigrationPath) {
+        portableMigration = path.join(portableDirectory, "migration.json");
+        fs.copyFileSync(provenanceMigrationPath, portableMigration);
+        fs.chmodSync(portableMigration, 0o600);
+      }
       writeJson(path.join(stagingRoot, ".openclaw-runtime-provenance.json"), {
-        schema: "openclaw.custom-runtime-runtime-provenance.v1",
+        schema: "openclaw.custom-runtime-runtime-provenance.v2",
         sourceSha: sourceProvenance.sourceSha,
         treeSha: sourceProvenance.treeSha,
         objectFormat: sourceProvenance.objectFormat,
-        recordPath: sourceProvenance.recordPath,
-        recordSha256: sha256File(sourceProvenance.recordPath),
+        bundlePath: path.join(releaseRoot, ".openclaw-provenance", "source.bundle"),
+        bundleSha256: sha256File(portableBundle),
         ...(sourceProvenance.historicalSourceSha
           ? { historicalSourceSha: sourceProvenance.historicalSourceSha }
           : {}),
-        ...(provenanceMigrationPath
+        ...(portableMigration
           ? {
-              migrationPath: path.resolve(provenanceMigrationPath),
-              migrationSha256: sha256File(provenanceMigrationPath),
+              migrationPath: path.join(releaseRoot, ".openclaw-provenance", "migration.json"),
+              migrationSha256: sha256File(portableMigration),
             }
           : {}),
       });
@@ -556,8 +572,25 @@ export function assembleManagedRuntimePackage({
           inherit: true,
         },
       );
+      registerSealedCandidate({
+        registryPath:
+          candidateRegistryPath ?? path.join(managedReleasesDir, ".candidate-registry.json"),
+        releaseRoot,
+      });
     }
-    return { releaseRoot, releaseId, artifactHash, runtimeClosureHash, runtimeClosurePaths };
+    return {
+      releaseRoot,
+      releaseId,
+      artifactHash,
+      runtimeClosureHash,
+      runtimeClosurePaths,
+      ...(seal
+        ? {
+            candidateRegistryPath:
+              candidateRegistryPath ?? path.join(managedReleasesDir, ".candidate-registry.json"),
+          }
+        : {}),
+    };
   } catch (error) {
     removeCreatedTree(stagingRoot);
     if (releaseCreated) {
@@ -598,6 +631,15 @@ if (isMainModule()) {
       sourceSha: values.get("source-sha"),
       activeSha: values.get("active-sha"),
       releaseId: values.get("release-id"),
+      ...(values.get("storage-reservation-id") && values.get("storage-reservation-token")
+        ? {
+            storageReservation: loadStorageReservation({
+              registryPath: values.get("storage-registry"),
+              reservationId: values.get("storage-reservation-id"),
+              token: values.get("storage-reservation-token"),
+            }),
+          }
+        : {}),
       ...(values.get("provenance-runtime-home")
         ? { provenanceRuntimeHome: values.get("provenance-runtime-home") }
         : {}),
@@ -606,6 +648,9 @@ if (isMainModule()) {
         : {}),
       ...(values.get("provenance-migration")
         ? { provenanceMigrationPath: values.get("provenance-migration") }
+        : {}),
+      ...(values.get("candidate-registry")
+        ? { candidateRegistryPath: values.get("candidate-registry") }
         : {}),
     });
     process.stdout.write(`${JSON.stringify({ result: "packaged", ...result })}\n`);

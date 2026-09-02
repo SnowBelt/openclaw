@@ -520,6 +520,76 @@ export function adaptDiagnosticEventToSelfImprovementSignal(
         privacy: "internal",
         trusted: true,
       };
+    case "task.issue": {
+      const subjectId = event.taskId ?? event.flowId ?? "unknown";
+      const observed = [
+        event.status ? `status=${event.status}` : undefined,
+        event.deliveryStatus ? `delivery=${event.deliveryStatus}` : undefined,
+        event.judgeStatus ? `judge=${event.judgeStatus}` : undefined,
+        event.terminalOutcome ? `outcome=${event.terminalOutcome}` : undefined,
+        typeof event.ageMs === "number" ? `ageMs=${event.ageMs}` : undefined,
+      ]
+        .filter(Boolean)
+        .join("; ");
+      return {
+        version: 1,
+        idempotencyKey: ["task.issue", event.scope, subjectId, event.runId, event.issueCode]
+          .filter(Boolean)
+          .join(":"),
+        source: { component: "task-runtime", subsystem: event.scope },
+        kind: event.issueCode.includes("blocked") ? "blocked" : "failure",
+        severity: event.severity,
+        summary: `Task lifecycle issue: ${event.issueCode}.`,
+        occurredAt: event.ts,
+        ...(event.runId ? { runId: event.runId } : {}),
+        ...(event.taskId ? { taskId: event.taskId } : {}),
+        ...(traceId ? { traceId } : {}),
+        errorCode: event.issueCode,
+        ...(observed ? { observed } : {}),
+        privacy: "internal",
+        trusted: true,
+      };
+    }
+    case "workflow.event":
+      if (
+        event.outcome === "accepted" ||
+        event.outcome === "started" ||
+        event.outcome === "progress" ||
+        event.outcome === "completed"
+      ) {
+        return null;
+      }
+      return {
+        version: 1,
+        idempotencyKey: [
+          "workflow.event",
+          event.workflowId,
+          event.operationId,
+          event.outcome,
+          event.issueCode ?? event.stage,
+        ]
+          .filter(Boolean)
+          .join(":"),
+        source: {
+          component: event.workflowId,
+          subsystem: event.stage ?? "external-workflow",
+        },
+        kind: event.outcome === "blocked" ? "blocked" : "failure",
+        severity: event.severity ?? (event.outcome === "lost" ? "critical" : "high"),
+        summary: event.summary,
+        occurredAt: event.ts,
+        ...(event.runId ? { runId: event.runId } : {}),
+        ...(traceId ? { traceId } : {}),
+        ...(event.issueCode ? { errorCode: event.issueCode } : {}),
+        observed: [
+          event.status ? `status=${event.status}` : undefined,
+          event.deliveryStatus ? `delivery=${event.deliveryStatus}` : undefined,
+        ]
+          .filter(Boolean)
+          .join("; "),
+        privacy: "internal",
+        trusted: true,
+      };
     default:
       return null;
   }

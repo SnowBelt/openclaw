@@ -1,11 +1,16 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import JSON5 from "json5";
 import { afterEach, describe, expect, it } from "vitest";
+import { signRecord } from "../../scripts/custom-runtime/custom-runtime-signature.mjs";
+import {
+  APPROVAL_ENVELOPE_SCHEMA,
+  ingestReleaseApproval,
+} from "../../scripts/custom-runtime/release-approval-ingestion.mjs";
 
 const temporaryDirectories: string[] = [];
 const activateScript = path.resolve("scripts/custom-runtime/custom-runtime-activate.sh");
@@ -111,6 +116,14 @@ function writeCandidateContracts(release: string, sourceSha: string) {
   writeFile(path.join(release, "extensions", "apps", "openclaw.plugin.json"), "{}\n");
   writeFile(path.join(release, "extensions", "book-writer", "openclaw.plugin.json"), "{}\n");
   writeFile(path.join(release, "package.json"), '{"version":"2026.6.11"}\n');
+  fs.mkdirSync(path.join(release, "scripts", "custom-runtime"), { recursive: true });
+  for (const fileName of ["custom-runtime-signature.mjs", "release-approval-ingestion.mjs"]) {
+    fs.copyFileSync(
+      path.resolve("scripts", "custom-runtime", fileName),
+      path.join(release, "scripts", "custom-runtime", fileName),
+    );
+    fs.chmodSync(path.join(release, "scripts", "custom-runtime", fileName), 0o700);
+  }
   const json5Entry = require.resolve("json5");
   fs.cpSync(
     path.resolve(path.dirname(json5Entry), ".."),
@@ -178,6 +191,74 @@ function writeCandidateContracts(release: string, sourceSha: string) {
       paths: { entrypoint, controlUi, bundledPlugins },
     })}\n`,
   );
+}
+
+function writeSignedApprovalFixture(params: {
+  root: string;
+  candidateSha: string;
+  approvalId: string;
+  operation: string;
+}) {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicKeyDer = publicKey.export({ type: "spki", format: "der" });
+  const identityPath = path.join(params.root, "device.json");
+  writeFile(
+    identityPath,
+    `${JSON.stringify({
+      deviceId: createHash("sha256").update(publicKeyDer.subarray(-32)).digest("hex"),
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }),
+    })}\n`,
+    0o600,
+  );
+  const expected = {
+    operation: params.operation,
+    candidateSha: params.candidateSha,
+    approvalId: params.approvalId,
+    sourceThreadId: "test-source-thread",
+    destinationThreadId: "test-destination-thread",
+    destinationHost: "local",
+    repository: "local/openclaw",
+    branch: "tests/release-governance",
+    destination: "local-only",
+  };
+  const now = new Date();
+  const envelopePath = path.join(params.root, `approval-${params.operation}.json`);
+  writeFile(
+    envelopePath,
+    `${JSON.stringify(
+      signRecord({
+        identityPath,
+        record: {
+          schema: APPROVAL_ENVELOPE_SCHEMA,
+          ...expected,
+          nonce: randomUUID(),
+          authorizationMaterialSha256: "9".repeat(64),
+          grantedAt: new Date(now.getTime() - 60_000).toISOString(),
+          expiresAt: new Date(now.getTime() + 60 * 60_000).toISOString(),
+        },
+      }),
+      null,
+      2,
+    )}\n`,
+    0o600,
+  );
+  const receiptPath = path.join(params.root, `approval-${params.operation}-receipt.json`);
+  ingestReleaseApproval({
+    envelopePath,
+    receiptPath,
+    ledgerPath: path.join(params.root, "approval-replay-ledger.json"),
+    identityPath,
+    expected,
+    now,
+  });
+  return {
+    OPENCLAW_DEVICE_IDENTITY_PATH: identityPath,
+    OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_RECEIPT: receiptPath,
+    OPENCLAW_RELEASE_GOVERNANCE_SOURCE_THREAD_ID: expected.sourceThreadId,
+    OPENCLAW_RELEASE_GOVERNANCE_DESTINATION_THREAD_ID: expected.destinationThreadId,
+    OPENCLAW_RELEASE_GOVERNANCE_DESTINATION_HOST: expected.destinationHost,
+  };
 }
 
 function readPlistArray(plistPath: string, key: string): string[] {
@@ -518,16 +599,24 @@ describe("custom runtime lifecycle", () => {
           decision: { operation: "stage", proofProfile: "mac_studio_control_director" },
         },
         facts: {
+          branch: "tests/release-governance",
           candidateSha,
           destination: "local-only",
           externalDisclosure: false,
           project: "project-command-center",
           proofProfile: "mac_studio_control_director",
+          repository: "local/openclaw",
         },
         proofProfile: "mac_studio_control_director",
       })}\n`,
       0o600,
     );
+    const signedApproval = writeSignedApprovalFixture({
+      root,
+      candidateSha,
+      approvalId,
+      operation: "stage",
+    });
     const createdAt = new Date(Date.now() - 60_000).toISOString();
     const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
     const migration = path.join(root, "policy-migration.json");
@@ -572,6 +661,7 @@ describe("custom runtime lifecycle", () => {
         encoding: "utf8",
         env: {
           ...process.env,
+          ...signedApproval,
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: approvalId,
           OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION: migration,
@@ -637,16 +727,24 @@ describe("custom runtime lifecycle", () => {
           decision: { operation: "stage", proofProfile: "mac_studio_control_director" },
         },
         facts: {
+          branch: "tests/release-governance",
           candidateSha,
           destination: "local-only",
           externalDisclosure: false,
           project: "project-command-center",
           proofProfile: "mac_studio_control_director",
+          repository: "local/openclaw",
         },
         proofProfile: "mac_studio_control_director",
       })}\n`,
       0o600,
     );
+    const signedApproval = writeSignedApprovalFixture({
+      root,
+      candidateSha,
+      approvalId,
+      operation: "stage",
+    });
     const migration = path.join(root, "policy-migration.json");
     writeFile(
       migration,
@@ -687,6 +785,7 @@ describe("custom runtime lifecycle", () => {
         encoding: "utf8",
         env: {
           ...process.env,
+          ...signedApproval,
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: approvalId,
           OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION: migration,

@@ -15,10 +15,17 @@ export function assembleManagedRuntimePackage(params: {
   provenanceRecordPath?: string;
   provenanceRuntimeHome?: string;
   provenanceMigrationPath?: string;
+  candidateRegistryPath?: string;
+  storageReservation?: {
+    id: string;
+    ownerToken: string;
+    registryPath: string;
+  };
 }): {
   releaseRoot: string;
   releaseId: string;
   artifactHash: string;
   runtimeClosureHash: string;
   runtimeClosurePaths: string[];
+  candidateRegistryPath?: string;
 };

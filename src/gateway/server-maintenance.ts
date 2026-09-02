@@ -19,6 +19,7 @@ import {
   startSelfImprovementGovernorBackgroundTask,
 } from "../self-improvement/background.js";
 import type { CuratorDispatch } from "../self-improvement/curator-dispatch.js";
+import { startSelfImprovementTaskIssueReconciliation } from "../self-improvement/task-issue-reconciliation.js";
 import { startSkillCuratorMaintenance } from "../skills/workshop/curator.js";
 import {
   abortTrackedChatRunById,
@@ -177,6 +178,9 @@ export function startGatewayMaintenanceTimers(params: {
   const diagnosticSignalBridge = startSelfImprovementSignalBridge({
     log: params.logHealth,
   });
+  const taskIssueReconciliation = startSelfImprovementTaskIssueReconciliation({
+    log: params.logHealth,
+  });
   const backgroundSelfImprovement =
     params.getRuntimeConfig && isSelfImprovementBackgroundEnabled(params.selfImprovementEnv)
       ? startSelfImprovementGovernorBackgroundTask({
@@ -214,6 +218,7 @@ export function startGatewayMaintenanceTimers(params: {
   });
   const operationsCleanup = () => {
     stopOperationsShadowMonitor();
+    taskIssueReconciliation.stop();
     diagnosticSignalBridge.stop();
   };
   // dedupe cache cleanup

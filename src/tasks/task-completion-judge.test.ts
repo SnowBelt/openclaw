@@ -25,6 +25,33 @@ describe("judgeTaskCompletion", () => {
     expect(result.blockedReason).toContain("future work");
   });
 
+  it("rejects internal silent markers as user-visible completion", () => {
+    const result = judgeTaskCompletion({
+      userRequest: "Tell me when the task is finished",
+      finalText: "NO_REPLY",
+      status: "succeeded",
+    });
+
+    expect(result.approved).toBe(false);
+    expect(result.verdict.verdict).toBe("REQUEST_MORE_EVIDENCE");
+    expect(result.blockedReason).toContain("silent marker");
+  });
+
+  it.each([
+    "Status: blocked\nThe runtime is waiting on an unavailable dependency.",
+    "Status: complete\nThe implementation is not finished yet; I will continue.",
+  ])("rejects non-terminal completion claims", (finalText) => {
+    const result = judgeTaskCompletion({
+      userRequest: "Implement the requested change",
+      finalText,
+      status: "succeeded",
+    });
+
+    expect(result.approved).toBe(false);
+    expect(result.verdict.verdict).toBe("REQUEST_MORE_EVIDENCE");
+    expect(result.blockedReason).toContain("blocked or incomplete");
+  });
+
   it("rejects artifact requests without recorded artifacts", () => {
     const result = judgeTaskCompletion({
       userRequest: "Create a video game",

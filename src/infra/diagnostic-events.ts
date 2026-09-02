@@ -548,6 +548,67 @@ export type DiagnosticRunCompletedEvent = DiagnosticRunBaseEvent & {
   blockedBy?: string;
 };
 
+export type DiagnosticTaskIssueCode =
+  | "task_terminal_failed"
+  | "task_terminal_timed_out"
+  | "task_terminal_cancelled"
+  | "task_terminal_lost"
+  | "task_blocked"
+  | "task_delivery_failed"
+  | "task_delivery_parent_missing"
+  | "task_terminal_delivery_pending"
+  | "task_user_visible_completion_unapproved"
+  | "task_terminal_summary_missing"
+  | "task_stale_queued"
+  | "task_stale_running"
+  | "task_missing_cleanup"
+  | "task_inconsistent_timestamps"
+  | "task_reconciliation_failed"
+  | "flow_failed"
+  | "flow_cancelled"
+  | "flow_lost"
+  | "flow_blocked"
+  | "flow_stale_running"
+  | "flow_stale_waiting"
+  | "flow_task_status_mismatch"
+  | "flow_cancel_stuck"
+  | "flow_missing_linked_tasks"
+  | "flow_blocked_task_missing"
+  | "flow_inconsistent_timestamps"
+  | "flow_restore_failed";
+
+export type DiagnosticTaskIssueEvent = DiagnosticBaseEvent & {
+  type: "task.issue";
+  issueCode: DiagnosticTaskIssueCode;
+  severity: "critical" | "high" | "medium" | "low";
+  scope: "task" | "flow";
+  taskId?: string;
+  flowId?: string;
+  runId?: string;
+  sessionKey?: string;
+  runtime?: string;
+  status?: string;
+  deliveryStatus?: string;
+  judgeStatus?: string;
+  terminalOutcome?: string;
+  ageMs?: number;
+};
+
+/** Durable diagnostic boundary for workflows that execute outside OpenClaw. */
+export type DiagnosticExternalWorkflowEvent = DiagnosticBaseEvent & {
+  type: "workflow.event";
+  workflowId: string;
+  operationId: string;
+  runId?: string;
+  outcome: "accepted" | "started" | "progress" | "completed" | "blocked" | "failed" | "lost";
+  summary: string;
+  issueCode?: string;
+  severity?: "critical" | "high" | "medium" | "low";
+  stage?: string;
+  status?: string;
+  deliveryStatus?: string;
+};
+
 export type DiagnosticHarnessRunPhase = "prepare" | "start" | "send" | "resolve" | "cleanup";
 export type DiagnosticHarnessRunOutcome = "completed" | "aborted" | "timed_out" | "error";
 
@@ -834,6 +895,8 @@ export type DiagnosticEventPayload =
   | DiagnosticExecApprovalFollowupSuppressedEvent
   | DiagnosticRunStartedEvent
   | DiagnosticRunCompletedEvent
+  | DiagnosticTaskIssueEvent
+  | DiagnosticExternalWorkflowEvent
   | DiagnosticHarnessRunStartedEvent
   | DiagnosticHarnessRunCompletedEvent
   | DiagnosticHarnessRunErrorEvent
