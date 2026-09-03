@@ -59,6 +59,93 @@ afterEach(() => {
 });
 
 describe("source provenance retention", () => {
+  it("admits only the exact pending candidate reference without hiding retireable history", () => {
+    const source = makeRepository();
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-provenance-retention-pending-home-"),
+    );
+    roots.push(runtimeHome);
+    for (const sourceSha of source.commits) {
+      git(source.root, ["checkout", "-q", sourceSha]);
+      importSourceProvenance({
+        sourceRoot: source.root,
+        sourceSha,
+        runtimeHome,
+        storageAdmission: isolatedStorageAdmission(runtimeHome),
+      });
+    }
+    const pendingSourceSha = "c".repeat(40);
+    const candidateRegistryPath = path.join(runtimeHome, "candidate-registry.json");
+    fs.writeFileSync(
+      candidateRegistryPath,
+      JSON.stringify({
+        schema: "openclaw.custom-runtime-candidate-registry.v1",
+        candidates: {
+          pending: { sourceSha: pendingSourceSha, state: "staged" },
+        },
+      }),
+      "utf8",
+    );
+    fs.chmodSync(candidateRegistryPath, 0o600);
+
+    const plan = planSourceProvenanceRetention({
+      runtimeHome,
+      candidateRegistryPath,
+      allowedMissingReferenceSourceSha: pendingSourceSha,
+      deepVerify: false,
+    });
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.allowedMissingReferences).toEqual([pendingSourceSha]);
+    expect(plan.entries.find((entry) => entry.sourceSha === source.commits[0])).toMatchObject({
+      decision: "retire",
+    });
+    expect(plan.entries.find((entry) => entry.sourceSha === source.commits[1])).toMatchObject({
+      decision: "retain",
+    });
+  });
+
+  it("keeps unrelated missing candidate references fail-closed", () => {
+    const source = makeRepository();
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-provenance-retention-missing-home-"),
+    );
+    roots.push(runtimeHome);
+    git(source.root, ["checkout", "-q", source.commits[0]]);
+    importSourceProvenance({
+      sourceRoot: source.root,
+      sourceSha: source.commits[0],
+      runtimeHome,
+      storageAdmission: isolatedStorageAdmission(runtimeHome),
+    });
+    const pendingSourceSha = "d".repeat(40);
+    const candidateRegistryPath = path.join(runtimeHome, "candidate-registry.json");
+    fs.writeFileSync(
+      candidateRegistryPath,
+      JSON.stringify({
+        schema: "openclaw.custom-runtime-candidate-registry.v1",
+        candidates: {
+          pending: { sourceSha: pendingSourceSha, state: "staged" },
+        },
+      }),
+      "utf8",
+    );
+    fs.chmodSync(candidateRegistryPath, 0o600);
+
+    const plan = planSourceProvenanceRetention({
+      runtimeHome,
+      candidateRegistryPath,
+      allowedMissingReferenceSourceSha: "e".repeat(40),
+      deepVerify: false,
+    });
+
+    expect(plan.errors).toContain(
+      `referenced source provenance record is missing: ${pendingSourceSha}`,
+    );
+    expect(plan.admissionBlocked).toBe(true);
+    expect(plan.entries.every((entry) => entry.decision === "retain")).toBe(true);
+  });
+
   it("retains the newest verified snapshot and retires older unreferenced history", () => {
     const source = makeRepository();
     const runtimeHome = fs.mkdtempSync(

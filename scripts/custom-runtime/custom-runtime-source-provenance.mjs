@@ -683,6 +683,7 @@ export function planSourceProvenanceRetention({
   temporaryWorkspaceRegistryPath,
   referencePaths = [],
   protectedCandidateStates = ["assembling", "governed", "staged", "active"],
+  allowedMissingReferenceSourceSha,
   deepVerify = true,
   nowMs = Date.now(),
 }) {
@@ -694,6 +695,9 @@ export function planSourceProvenanceRetention({
   }
   const root = resolvePrivateRoot(runtimeHome);
   const errors = [];
+  if (allowedMissingReferenceSourceSha !== undefined && !isSha(allowedMissingReferenceSourceSha)) {
+    throw new Error("Allowed missing source provenance reference must be a valid SHA.");
+  }
   const references = new Set();
   const referenceFiles = referencePathsForRetention({
     runtimeHome,
@@ -727,9 +731,14 @@ export function planSourceProvenanceRetention({
   }
   const records = sourceProvenanceRecords(root, { errors });
   const bySha = new Map(records.map((record) => [record.sourceSha, record]));
+  const allowedMissingReferences = [];
   for (const sourceSha of references) {
     if (!bySha.has(sourceSha)) {
-      errors.push(`referenced source provenance record is missing: ${sourceSha}`);
+      if (sourceSha === allowedMissingReferenceSourceSha) {
+        allowedMissingReferences.push(sourceSha);
+      } else {
+        errors.push(`referenced source provenance record is missing: ${sourceSha}`);
+      }
     }
   }
   const protectedBySha = new Map();
@@ -840,6 +849,9 @@ export function planSourceProvenanceRetention({
     capExceeded,
     importBlocked,
     openReferences: [...openReferences].toSorted((left, right) => left.localeCompare(right)),
+    allowedMissingReferences: allowedMissingReferences.toSorted((left, right) =>
+      left.localeCompare(right),
+    ),
     referenceFiles,
     errors,
     admissionBlocked: errors.length > 0,
@@ -1087,18 +1099,17 @@ export function importSourceProvenance({
     operationRegistryPath: sourceProvenanceRetention.operationRegistryPath,
     temporaryWorkspaceRegistryPath: sourceProvenanceRetention.temporaryWorkspaceRegistryPath,
     referencePaths: sourceProvenanceRetention.referencePaths,
+    allowedMissingReferenceSourceSha: sourceProvenanceRetention.allowMissingReferenceSourceSha
+      ? sourceSha
+      : undefined,
     deepVerify: false,
   });
-  const allowedMissingReference = `referenced source provenance record is missing: ${sourceSha}`;
-  const blockingRetentionErrors = sourceProvenanceRetention.allowMissingReferenceSourceSha
-    ? retentionPlan.errors.filter((error) => error !== allowedMissingReference)
-    : retentionPlan.errors;
   const blockImportWhenCapExceeded = sourceProvenanceRetention.blockImportWhenCapExceeded !== false;
   if (
-    (retentionPlan.admissionBlocked && blockingRetentionErrors.length > 0) ||
+    retentionPlan.admissionBlocked ||
     (blockImportWhenCapExceeded && retentionPlan.importBlocked)
   ) {
-    const details = [...blockingRetentionErrors];
+    const details = [...retentionPlan.errors];
     if (blockImportWhenCapExceeded && retentionPlan.importBlocked) {
       details.push(
         `retention cap is full (${retentionPlan.totalCount} snapshots/${retentionPlan.totalBytes} bytes)`,
