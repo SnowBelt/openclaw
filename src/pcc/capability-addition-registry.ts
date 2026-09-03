@@ -377,6 +377,7 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "src/infra/custom-runtime-update-policy.test.ts",
       "src/infra/custom-runtime-update-broker.test.ts",
       "src/pcc/update-safety.test.ts",
+      "packages/gateway-protocol/src/schema/pcc.test.ts",
       "test/scripts/custom-runtime-lifecycle.test.ts",
       "test/scripts/custom-runtime-update-survival.test.ts",
       "test/scripts/custom-runtime-updater.test.ts",

@@ -294,6 +294,85 @@ describe("Project Command Center protocol schemas", () => {
     ).toBe(true);
   });
 
+  it("validates canonical update recovery readiness without requiring external media", () => {
+    expect(
+      Value.Check(PccSummaryGetResultSchema, {
+        portfolio: {
+          projectsTotal: 0,
+          active: 0,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 0,
+          nextActions: [],
+        },
+        updateSafety: {
+          status: "protected",
+          standardUpdateBlocked: true,
+          sourceDurable: true,
+          backupConfigured: true,
+          backupStatus: "ready",
+          backupStatusReason: "Local recovery is ready.",
+          recovery: {
+            mode: "local_verified",
+            localStatus: "ready",
+            externalStatus: "not_configured",
+            installationReady: true,
+            blockingReasons: [],
+            advisories: ["External hardware-disaster recovery is not configured."],
+          },
+          brokerConfigured: true,
+          runtimeGuardConfigured: true,
+          approvalPending: false,
+          pendingCandidateSha: null,
+          preparationRunning: false,
+          preparationStatus: "idle",
+          preparationReason: null,
+          sourceSha: "a".repeat(40),
+          sourceBranch: "codex/update-safety",
+          activeRelease: "release-1",
+          lastReceipt: null,
+          issues: [],
+          advisories: ["External hardware-disaster recovery is not configured."],
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts a blocked update preparation status", () => {
+    expect(
+      Value.Check(PccSummaryGetResultSchema, {
+        portfolio: {
+          projectsTotal: 0,
+          active: 0,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 0,
+          nextActions: [],
+        },
+        updateSafety: {
+          status: "attention",
+          standardUpdateBlocked: true,
+          sourceDurable: false,
+          backupConfigured: false,
+          backupStatus: "unconfigured",
+          backupStatusReason: "No update recovery mode has been configured.",
+          brokerConfigured: true,
+          approvalPending: false,
+          preparationStatus: "blocked",
+          sourceSha: null,
+          sourceBranch: null,
+          activeRelease: null,
+          lastReceipt: null,
+          issues: ["Source provenance is unavailable."],
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("validates sub-milestone list and upsert params", () => {
     expect(
       validatePccSubMilestonesListParams({

@@ -15,6 +15,17 @@ export type CustomRuntimeBackupStatus =
   | "stale"
   | "failed";
 
+export type CustomRuntimeRecoveryMode = "unconfigured" | "local_verified" | "external_encrypted";
+
+export type CustomRuntimeRecoveryReadiness = {
+  mode: CustomRuntimeRecoveryMode;
+  localStatus: CustomRuntimeBackupStatus;
+  externalStatus: CustomRuntimeBackupStatus | "not_configured";
+  installationReady: boolean;
+  blockingReasons: string[];
+  advisories: string[];
+};
+
 export type CustomRuntimeUpdatePolicy = {
   managedRuntime: boolean;
   standardUpdateBlocked: boolean;
@@ -23,6 +34,7 @@ export type CustomRuntimeUpdatePolicy = {
   backupConfigured: boolean;
   backupStatus: CustomRuntimeBackupStatus;
   backupStatusReason: string;
+  recovery?: CustomRuntimeRecoveryReadiness;
   approvalPending: boolean;
   pendingCandidateSha: string | null;
   preparationRunning: boolean;
@@ -44,6 +56,7 @@ export type CustomRuntimeUpdatePolicyOptions = {
 };
 
 type RuntimePointer = {
+  releaseId: string;
   runtimeRoot: string;
   entrypoint: string;
   sourceSha: string;
@@ -69,8 +82,8 @@ type SourceDurability = { durable: boolean; reason: string };
 
 let sourceDurabilityCache: { key: string; value: SourceDurability } | undefined;
 
-const UPDATE_SAFETY_CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v1";
-const UPDATE_BACKUP_RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v1";
+const UPDATE_SAFETY_CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v2";
+const UPDATE_BACKUP_RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v2";
 const UPDATE_BACKUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function nonEmptyString(value: unknown): string | null {
@@ -130,7 +143,8 @@ function readRuntimePointer(pointerPath: string): RuntimePointer | null {
     const runtimeRoot = nonEmptyString(record.runtimeRoot);
     const entrypoint = nonEmptyString(record.entrypoint);
     const sourceSha = nonEmptyString(record.sourceSha);
-    if (!runtimeRoot || !entrypoint || !sourceSha) {
+    const releaseId = nonEmptyString(record.releaseId);
+    if (!releaseId || !runtimeRoot || !entrypoint || !sourceSha) {
       return null;
     }
     const resolvedRoot = path.resolve(runtimeRoot);
@@ -138,6 +152,7 @@ function readRuntimePointer(pointerPath: string): RuntimePointer | null {
       return null;
     }
     return {
+      releaseId,
       runtimeRoot: resolvedRoot,
       entrypoint: path.resolve(entrypoint),
       sourceSha,
@@ -257,6 +272,7 @@ type BackupState = {
   configured: boolean;
   status: CustomRuntimeBackupStatus;
   reason: string;
+  recovery: CustomRuntimeRecoveryReadiness;
 };
 
 function backupReceiptBindingReason(
@@ -293,18 +309,14 @@ function backupReceiptBindingReason(
   return null;
 }
 
-function backupReceiptTimestamp(value: unknown, filePath: string): number {
+function backupReceiptTimestamp(value: unknown): number {
   if (typeof value === "string") {
     const parsed = Date.parse(value);
     if (Number.isFinite(parsed)) {
       return parsed;
     }
   }
-  try {
-    return fs.statSync(filePath).mtimeMs;
-  } catch {
-    return 0;
-  }
+  return Number.NaN;
 }
 
 function latestBackupReceipt(runtimeHome: string): string | null {
@@ -336,183 +348,275 @@ function latestBackupReceipt(runtimeHome: string): string | null {
   return candidates[0]?.filePath ?? null;
 }
 
-function readBackupState(
-  pointerPath: string,
-  env: NodeJS.ProcessEnv,
-  sourceSha: string,
-): BackupState {
+function backupState(params: {
+  configured: boolean;
+  mode: CustomRuntimeRecoveryMode;
+  status: CustomRuntimeBackupStatus;
+  reason: string;
+  localStatus?: CustomRuntimeBackupStatus;
+  externalStatus?: CustomRuntimeBackupStatus | "not_configured";
+}): BackupState {
+  const externalStatus = params.externalStatus ?? "not_configured";
+  const installationReady =
+    params.status === "ready" && (params.mode === "local_verified" || externalStatus === "ready");
+  return {
+    configured: params.configured,
+    status: params.status,
+    reason: params.reason,
+    recovery: {
+      mode: params.mode,
+      localStatus: params.localStatus ?? params.status,
+      externalStatus,
+      installationReady,
+      blockingReasons: installationReady ? [] : [params.reason],
+      advisories:
+        params.mode === "local_verified"
+          ? ["Hardware-disaster recovery is not configured on encrypted external storage."]
+          : [],
+    },
+  };
+}
+
+function readBackupState(pointerPath: string, sourceSha: string, releaseId: string): BackupState {
   const runtimeHome = path.dirname(path.resolve(pointerPath));
+  const localRoot = path.join(runtimeHome, "data-backups");
   const configPath = path.join(runtimeHome, "update-safety.json");
-  let config: unknown;
+  let config: Record<string, unknown>;
   try {
-    config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    const value: unknown = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("invalid config");
+    }
+    config = value as Record<string, unknown>;
   } catch {
-    return {
+    return backupState({
       configured: false,
+      mode: "unconfigured",
       status: "unconfigured",
-      reason: "No encrypted external backup destination has been configured.",
-    };
+      reason: "No update recovery mode has been configured.",
+    });
   }
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return {
+  if (config.schema !== UPDATE_SAFETY_CONFIG_SCHEMA) {
+    return backupState({
       configured: false,
-      status: "failed",
-      reason: "The update-safety backup configuration is malformed.",
-    };
-  }
-  const record = config as Record<string, unknown>;
-  if (record.schema !== UPDATE_SAFETY_CONFIG_SCHEMA) {
-    return {
-      configured: false,
+      mode: "unconfigured",
       status: "failed",
       reason: "The update-safety backup configuration has an unsupported schema.",
-    };
+    });
   }
-  const backupRoot = nonEmptyString(record.backupRoot);
-  if (!backupRoot) {
-    return {
+  const mode = config.mode;
+  if (mode !== "local_verified" && mode !== "external_encrypted") {
+    return backupState({
       configured: false,
-      status: "unconfigured",
-      reason: "No encrypted external backup destination has been configured.",
-    };
+      mode: "unconfigured",
+      status: "failed",
+      reason: "The configured update recovery mode is invalid.",
+    });
   }
 
-  const environmentRoot = nonEmptyString(env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT);
-  if (environmentRoot && path.resolve(environmentRoot) !== path.resolve(backupRoot)) {
-    return {
-      configured: true,
+  const backupRoot = mode === "external_encrypted" ? nonEmptyString(config.backupRoot) : null;
+  if (mode === "external_encrypted" && !backupRoot) {
+    return backupState({
+      configured: false,
+      mode,
       status: "failed",
-      reason:
-        "The backup destination in the runtime environment conflicts with its canonical configuration.",
-    };
+      reason: "The encrypted external recovery mode has no backup destination.",
+      externalStatus: "failed",
+    });
+  }
+  const resolvedRoot = backupRoot ? path.resolve(backupRoot) : null;
+  let externalStatus: CustomRuntimeBackupStatus | "not_configured" = "not_configured";
+  let externalReason: string | null = null;
+  if (resolvedRoot) {
+    try {
+      const rootInfo = fs.lstatSync(resolvedRoot);
+      if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
+        externalStatus = "failed";
+        externalReason = "The configured backup destination is not a regular directory.";
+      } else {
+        fs.accessSync(resolvedRoot, fs.constants.R_OK | fs.constants.W_OK);
+        externalStatus = "ready";
+      }
+    } catch (error) {
+      const code =
+        error && typeof error === "object" ? (error as NodeJS.ErrnoException).code : null;
+      externalStatus = code === "EACCES" ? "locked" : "offline";
+      externalReason =
+        code === "EACCES"
+          ? "The configured backup destination is present but access is denied or locked."
+          : "The configured backup destination is not currently mounted or available.";
+    }
   }
 
-  const resolvedRoot = path.resolve(backupRoot);
-  let rootInfo: fs.Stats;
   try {
-    rootInfo = fs.lstatSync(resolvedRoot);
+    const localRootInfo = fs.lstatSync(localRoot);
+    if (!localRootInfo.isDirectory() || localRootInfo.isSymbolicLink()) {
+      return backupState({
+        configured: true,
+        mode,
+        status: "failed",
+        reason: "The local backup destination is not a regular directory.",
+        externalStatus,
+      });
+    }
   } catch (error) {
     const code = error && typeof error === "object" ? (error as NodeJS.ErrnoException).code : null;
-    return {
-      configured: true,
-      status: code === "EACCES" ? "locked" : "offline",
-      reason:
-        code === "EACCES"
-          ? "The configured backup destination is present but access is denied or locked."
-          : "The configured backup destination is not currently mounted or available.",
-    };
-  }
-  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
-    return {
-      configured: true,
-      status: "failed",
-      reason: "The configured backup destination is not a regular directory.",
-    };
-  }
-  try {
-    fs.accessSync(resolvedRoot, fs.constants.R_OK | fs.constants.W_OK);
-  } catch (error) {
-    const code = error && typeof error === "object" ? (error as NodeJS.ErrnoException).code : null;
-    return {
-      configured: true,
-      status: code === "EACCES" ? "locked" : "failed",
-      reason:
-        code === "EACCES"
-          ? "The configured backup destination is present but access is denied or locked."
-          : "The configured backup destination cannot be read and written safely.",
-    };
+    if (code !== "ENOENT") {
+      return backupState({
+        configured: true,
+        mode,
+        status: "failed",
+        reason: "The local backup destination is unavailable.",
+        externalStatus,
+      });
+    }
   }
 
   const receiptPath = latestBackupReceipt(runtimeHome);
   if (!receiptPath) {
-    return {
+    return backupState({
       configured: true,
+      mode,
       status: "stale",
-      reason: "The backup destination is available, but no verified recovery receipt exists.",
-    };
+      reason: "The recovery mode is configured, but no verified recovery receipt exists.",
+      externalStatus,
+    });
   }
   try {
     const receiptInfo = fs.lstatSync(receiptPath);
     if (!receiptInfo.isFile() || receiptInfo.isSymbolicLink() || receiptInfo.mode & 0o077) {
-      return {
-        configured: true,
-        status: "failed",
-        reason: "The latest backup receipt is not a private regular file.",
-      };
+      throw new Error("invalid receipt permissions");
     }
   } catch {
-    return {
+    return backupState({
       configured: true,
+      mode,
       status: "failed",
-      reason: "The latest backup receipt is unavailable.",
-    };
+      reason: "The latest backup receipt is unavailable or is not a private regular file.",
+      externalStatus,
+    });
   }
+
   let receipt: Record<string, unknown>;
   try {
     const value: unknown = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("receipt is not an object");
+      throw new Error("invalid receipt");
     }
     receipt = value as Record<string, unknown>;
   } catch {
-    return {
+    return backupState({
       configured: true,
+      mode,
       status: "failed",
       reason: "The latest backup receipt is malformed.",
-    };
+      externalStatus,
+    });
   }
+  const restoreDrill =
+    receipt.restoreDrill &&
+    typeof receipt.restoreDrill === "object" &&
+    !Array.isArray(receipt.restoreDrill)
+      ? (receipt.restoreDrill as Record<string, unknown>)
+      : null;
   if (
     receipt.schema !== UPDATE_BACKUP_RECEIPT_SCHEMA ||
+    receipt.mode !== mode ||
     receipt.result !== "passed" ||
     receipt.backupVerified !== true ||
-    !receipt.restoreDrill ||
-    typeof receipt.restoreDrill !== "object" ||
-    Array.isArray(receipt.restoreDrill) ||
-    (receipt.restoreDrill as Record<string, unknown>).result !== "passed"
+    restoreDrill?.result !== "passed"
   ) {
-    return {
+    return backupState({
       configured: true,
+      mode,
       status: "failed",
       reason: "The latest backup receipt did not prove a verified restore rehearsal.",
-    };
+      externalStatus,
+    });
   }
   if (receipt.sourceSha !== sourceSha) {
-    return {
+    return backupState({
       configured: true,
+      mode,
       status: "stale",
       reason: "The latest verified backup belongs to a different active source SHA.",
-    };
+      externalStatus,
+    });
   }
-  const createdAt = backupReceiptTimestamp(receipt.createdAt, receiptPath);
+  if (receipt.releaseId !== releaseId) {
+    return backupState({
+      configured: true,
+      mode,
+      status: "stale",
+      reason: "The latest verified backup belongs to a different active runtime release.",
+      externalStatus,
+    });
+  }
+  const createdAt = backupReceiptTimestamp(receipt.createdAt);
   if (
     !Number.isFinite(createdAt) ||
     createdAt > Date.now() + 60_000 ||
     Date.now() - createdAt > UPDATE_BACKUP_MAX_AGE_MS
   ) {
-    return {
+    return backupState({
       configured: true,
+      mode,
       status: "stale",
       reason: "The latest verified backup is older than the permitted recovery window.",
-    };
+      externalStatus,
+    });
   }
-  // Status reads validate binding shape and containment without hashing large
-  // archives. The official verifier re-hashes every binding before prepare or
-  // install, so a changed archive cannot pass an operational gate.
-  for (const [label, allowedRoot] of [
-    ["localArchive", path.join(runtimeHome, "data-backups")],
-    ["externalArchive", resolvedRoot],
-    ["controlPlane", resolvedRoot],
-  ] as const) {
-    const reason = backupReceiptBindingReason(receipt[label], label, allowedRoot);
+
+  // Status polling validates private path shape and containment. Operational
+  // prepare/install gates re-hash every binding before any runtime mutation.
+  for (const label of ["localArchive", "controlPlane"] as const) {
+    const reason = backupReceiptBindingReason(receipt[label], label, localRoot);
     if (reason) {
-      return { configured: true, status: "failed", reason };
+      return backupState({
+        configured: true,
+        mode,
+        status: "failed",
+        reason,
+        externalStatus,
+      });
     }
   }
-  return {
+  if (resolvedRoot && externalStatus === "ready") {
+    for (const label of ["externalArchive", "externalControlPlane"] as const) {
+      const reason = backupReceiptBindingReason(receipt[label], label, resolvedRoot);
+      if (reason) {
+        return backupState({
+          configured: true,
+          mode,
+          status: "failed",
+          reason,
+          localStatus: "ready",
+          externalStatus: "failed",
+        });
+      }
+    }
+  }
+  if (mode === "external_encrypted" && externalStatus !== "ready") {
+    return backupState({
+      configured: true,
+      mode,
+      status: externalStatus === "not_configured" ? "failed" : externalStatus,
+      reason: externalReason ?? "Encrypted external recovery is not ready.",
+      localStatus: "ready",
+      externalStatus,
+    });
+  }
+  return backupState({
     configured: true,
+    mode,
     status: "ready",
-    reason: "The encrypted backup destination and recent verified restore rehearsal are ready.",
-  };
+    reason:
+      mode === "local_verified"
+        ? "The recent local backup and verified restore rehearsal are ready."
+        : "The local and encrypted external recovery points are ready.",
+    localStatus: "ready",
+    externalStatus,
+  });
 }
 
 function isRegularPath(target: string, kind: "file" | "directory"): boolean {
@@ -742,7 +846,15 @@ export function resolveCustomRuntimeUpdatePolicy(
       sourceDurabilityReason: "The immutable custom-runtime pointer is missing or invalid.",
       backupConfigured: false,
       backupStatus: "unconfigured",
-      backupStatusReason: "No encrypted external backup destination has been configured.",
+      backupStatusReason: "No update recovery mode has been configured.",
+      recovery: {
+        mode: "unconfigured",
+        localStatus: "unconfigured",
+        externalStatus: "not_configured",
+        installationReady: false,
+        blockingReasons: ["The immutable custom-runtime pointer is missing or invalid."],
+        advisories: [],
+      },
       approvalPending: false,
       pendingCandidateSha: null,
       preparationRunning: false,
@@ -766,7 +878,7 @@ export function resolveCustomRuntimeUpdatePolicy(
     (wrapper !== null && path.basename(wrapper) === "custom-runtime-launcher.sh");
   const sourceDurability = resolveSourceDurability(pointer, pointerPath);
   const preparation = readPreparationState(pointerPath);
-  const backup = readBackupState(pointerPath, env, pointer.sourceSha);
+  const backup = readBackupState(pointerPath, pointer.sourceSha, pointer.releaseId);
   const backupConfigured =
     backup.configured && (backup.status === "ready" || backup.status === "stale");
   const preparationBlocked = !sourceDurability.durable || !backupConfigured;
@@ -778,6 +890,7 @@ export function resolveCustomRuntimeUpdatePolicy(
     backupConfigured,
     backupStatus: backup.status,
     backupStatusReason: backup.reason,
+    recovery: backup.recovery,
     approvalPending: preparation.approvalPending,
     pendingCandidateSha: preparation.pendingCandidateSha,
     preparationRunning: preparation.preparationRunning,

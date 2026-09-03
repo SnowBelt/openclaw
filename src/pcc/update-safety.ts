@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   resolveCustomRuntimeUpdatePolicy,
+  type CustomRuntimeRecoveryReadiness,
   type CustomRuntimeUpdatePolicyOptions,
 } from "../infra/custom-runtime-update-policy.js";
 
@@ -19,6 +20,7 @@ export type PccUpdateSafety = {
   standardUpdateBlocked: boolean;
   sourceDurable: boolean;
   backupConfigured: boolean;
+  recovery: CustomRuntimeRecoveryReadiness;
   brokerConfigured: boolean;
   runtimeGuardConfigured: boolean;
   approvalPending: boolean;
@@ -31,6 +33,7 @@ export type PccUpdateSafety = {
   activeRelease: string | null;
   lastReceipt: PccUpdateSafetyReceipt | null;
   issues: string[];
+  advisories: string[];
 };
 
 export type PccUpdateSafetyOptions = CustomRuntimeUpdatePolicyOptions & {
@@ -154,6 +157,14 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
   const guardLoaded = options.guardLoaded ?? isLaunchAgentLoaded(RUNTIME_GUARD_LABEL);
   const runtimeGuardConfigured = runtimeGuardInstalled && guardLoaded;
   const backupConfigured = policy.backupConfigured;
+  const recovery: CustomRuntimeRecoveryReadiness = policy.recovery ?? {
+    mode: "unconfigured",
+    localStatus: policy.backupStatus,
+    externalStatus: "not_configured",
+    installationReady: policy.backupConfigured && policy.backupStatus === "ready",
+    blockingReasons: policy.backupConfigured ? [] : [policy.backupStatusReason],
+    advisories: [],
+  };
   const pending = readJson(path.join(runtimeHome, "pending-update.json"));
   const approvalPending = pending?.result === "ready_for_approval";
   const issues: string[] = [];
@@ -164,7 +175,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     issues.push(policy.sourceDurabilityReason);
   }
   if (policy.managedRuntime && !backupConfigured) {
-    issues.push("The encrypted external update-backup destination is unavailable.");
+    issues.push(...recovery.blockingReasons);
   }
   if (policy.managedRuntime && !brokerInstalled) {
     issues.push("The verified custom-runtime update broker is not fully installed.");
@@ -186,6 +197,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     standardUpdateBlocked: policy.standardUpdateBlocked,
     sourceDurable: policy.sourceDurable,
     backupConfigured,
+    recovery,
     brokerConfigured,
     runtimeGuardConfigured,
     approvalPending,
@@ -198,5 +210,6 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     activeRelease: text(pointer?.releaseId),
     lastReceipt: latestReceipt(path.join(runtimeHome, "receipts")),
     issues,
+    advisories: recovery.advisories,
   };
 }

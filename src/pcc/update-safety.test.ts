@@ -37,8 +37,8 @@ describe("PCC update safety", () => {
     fs.writeFileSync(
       path.join(runtimeHome, "update-safety.json"),
       `${JSON.stringify({
-        schema: "openclaw.custom-runtime-update-safety-config.v1",
-        backupRoot: externalBackupRoot,
+        schema: "openclaw.custom-runtime-update-safety-config.v2",
+        mode: "local_verified",
       })}\n`,
     );
     fs.writeFileSync(
@@ -67,7 +67,7 @@ describe("PCC update safety", () => {
     fs.mkdirSync(localBackupRoot, { recursive: true });
     const localArchivePath = path.join(localBackupRoot, "backup.tar");
     const externalArchivePath = path.join(externalBackupRoot, "backup.tar");
-    const controlPlanePath = path.join(externalBackupRoot, "control-plane.json");
+    const controlPlanePath = path.join(localBackupRoot, "control-plane.json");
     for (const filePath of [localArchivePath, externalArchivePath, controlPlanePath]) {
       fs.writeFileSync(filePath, "verified fixture\n");
     }
@@ -78,14 +78,15 @@ describe("PCC update safety", () => {
     fs.writeFileSync(
       path.join(runtimeHome, "receipts", "update-backup-20260901T000000Z.json"),
       `${JSON.stringify({
-        schema: "openclaw.custom-runtime-update-backup.v1",
+        schema: "openclaw.custom-runtime-update-backup.v2",
+        mode: "local_verified",
         createdAt: new Date().toISOString(),
         sourceSha,
+        releaseId: "release-1",
         result: "passed",
         backupVerified: true,
         restoreDrill: { result: "passed" },
         localArchive: { path: localArchivePath, sha256: fixtureDigest },
-        externalArchive: { path: externalArchivePath, sha256: fixtureDigest },
         controlPlane: { path: controlPlanePath, sha256: fixtureDigest },
       })}\n`,
       { mode: 0o600 },
@@ -193,6 +194,14 @@ describe("PCC update safety", () => {
       standardUpdateBlocked: true,
       sourceDurable: true,
       backupConfigured: true,
+      recovery: {
+        mode: "local_verified",
+        localStatus: "ready",
+        externalStatus: "not_configured",
+        installationReady: true,
+        blockingReasons: [],
+        advisories: ["Hardware-disaster recovery is not configured on encrypted external storage."],
+      },
       brokerConfigured: true,
       runtimeGuardConfigured: true,
       approvalPending: true,
@@ -209,6 +218,7 @@ describe("PCC update safety", () => {
         stage: null,
       },
       issues: [],
+      advisories: ["Hardware-disaster recovery is not configured on encrypted external storage."],
     });
 
     expect(

@@ -17,12 +17,16 @@ export const CUSTOM_RUNTIME_UPDATE_PREPARATION_RUNNING_REASON =
 export const CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON = "custom-runtime-update-safety-blocked";
 
 export function assertCustomRuntimeUpdateCanPrepare(policy: CustomRuntimeUpdatePolicy): void {
-  const backupCanBeRefreshed = policy.backupStatus === "ready" || policy.backupStatus === "stale";
+  const backupCanBeRefreshed =
+    policy.recovery !== undefined
+      ? policy.recovery.mode !== "unconfigured" &&
+        (policy.recovery.localStatus === "ready" || policy.recovery.localStatus === "stale")
+      : policy.backupConfigured &&
+        (policy.backupStatus === "ready" || policy.backupStatus === "stale");
   if (
     !policy.managedRuntime ||
     !policy.standardUpdateBlocked ||
     !policy.sourceDurable ||
-    !policy.backupConfigured ||
     !backupCanBeRefreshed
   ) {
     throw new Error(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);
@@ -43,8 +47,10 @@ export function assertCustomRuntimeUpdateCanApprove(
     !policy.managedRuntime ||
     !policy.standardUpdateBlocked ||
     !policy.sourceDurable ||
-    !policy.backupConfigured ||
-    policy.backupStatus !== "ready" ||
+    !(
+      policy.recovery?.installationReady ??
+      (policy.backupConfigured && policy.backupStatus === "ready")
+    ) ||
     !policy.approvalPending ||
     !policy.pendingCandidateSha ||
     policy.pendingCandidateSha !== approvalSha

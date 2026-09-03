@@ -1617,6 +1617,13 @@ export function renderApp(state: AppViewState) {
     /^[0-9a-f]{40}$/u.test(state.customRuntimeUpdatePolicy.pendingCandidateSha ?? "")
       ? state.customRuntimeUpdatePolicy.pendingCandidateSha
       : null;
+  const updateRecoveryCanPrepare = Boolean(
+    state.customRuntimeUpdatePolicy?.recovery
+      ? state.customRuntimeUpdatePolicy.recovery.mode !== "unconfigured" &&
+          (state.customRuntimeUpdatePolicy.recovery.localStatus === "ready" ||
+            state.customRuntimeUpdatePolicy.recovery.localStatus === "stale")
+      : state.customRuntimeUpdatePolicy?.backupConfigured,
+  );
   const genericUpdateBannerVisible = Boolean(
     state.updateAvailable &&
     state.updateAvailable.latestVersion !== state.updateAvailable.currentVersion &&
@@ -2924,9 +2931,14 @@ export function renderApp(state: AppViewState) {
                   (state.customRuntimeUpdatePolicy?.approvalPending === true &&
                     !state.customRuntimeUpdatePolicy.pendingCandidateSha) ||
                   state.customRuntimeUpdatePolicy?.preparationRunning === true ||
+                  (state.customRuntimeUpdatePolicy?.approvalPending === true &&
+                    !(
+                      state.customRuntimeUpdatePolicy.recovery?.installationReady ??
+                      (state.customRuntimeUpdatePolicy.backupConfigured &&
+                        state.customRuntimeUpdatePolicy.backupStatus === "ready")
+                    )) ||
                   (state.customRuntimeUpdatePolicy?.standardUpdateBlocked === true &&
-                    (!state.customRuntimeUpdatePolicy.sourceDurable ||
-                      !state.customRuntimeUpdatePolicy.backupConfigured))}
+                    (!state.customRuntimeUpdatePolicy.sourceDurable || !updateRecoveryCanPrepare))}
                   @click=${() => runUpdate(state)}
                 >
                   ${state.updateRunning || state.customRuntimeUpdatePolicy?.preparationRunning
@@ -2947,8 +2959,7 @@ export function renderApp(state: AppViewState) {
                       "unknown failure"}</span
                     >`
                   : state.customRuntimeUpdatePolicy?.standardUpdateBlocked === true &&
-                      (!state.customRuntimeUpdatePolicy.sourceDurable ||
-                        !state.customRuntimeUpdatePolicy.backupConfigured)
+                      (!state.customRuntimeUpdatePolicy.sourceDurable || !updateRecoveryCanPrepare)
                     ? html`<span class="update-banner__running"
                         >${t("chat.updateProtectionIncomplete")}</span
                       >`

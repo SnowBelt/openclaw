@@ -87,8 +87,15 @@ class UpdateBanner extends LitElement {
     }
     const updateAvailable = props.updateAvailable;
     const managed = props.updateSafety?.managedRuntime === true;
+    const recoveryCanPrepare = Boolean(
+      props.updateSafety?.recovery
+        ? props.updateSafety.recovery.mode !== "unconfigured" &&
+            (props.updateSafety.recovery.localStatus === "ready" ||
+              props.updateSafety.recovery.localStatus === "stale")
+        : props.updateSafety?.backupConfigured,
+    );
     const preparationBlocked =
-      managed && (!props.updateSafety?.sourceDurable || !props.updateSafety?.backupConfigured);
+      managed && (!props.updateSafety?.sourceDurable || !recoveryCanPrepare);
     const approvalPending = managed && props.updateSafety?.approvalPending === true;
     const pendingCandidateSha = approvalPending ? props.updateSafety?.pendingCandidateSha : null;
     const installReady = Boolean(
@@ -122,6 +129,12 @@ class UpdateBanner extends LitElement {
               ?disabled=${props.updateRunning ||
               !props.connected ||
               preparationBlocked ||
+              (approvalPending &&
+                !(
+                  props.updateSafety?.recovery?.installationReady ??
+                  (props.updateSafety?.backupConfigured &&
+                    props.updateSafety.backupStatus === "ready")
+                )) ||
               (approvalPending && !installReady) ||
               preparationRunning}
               @click=${() =>

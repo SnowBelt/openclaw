@@ -63,6 +63,32 @@ The active runtime pointer records an exact 40-character Git commit, canonical s
 
 This prevents an update from rebasing custom behavior from an unrelated or incomplete checkout.
 
+## Recovery readiness
+
+Choose one canonical recovery mode before preparing an update:
+
+```bash
+# Default MVP mode: verified local backup, restore rehearsal, and immutable rollback.
+$HOME/.openclaw-custom-runtime/bin/custom-runtime-update-backup.mjs \
+  configure --mode local_verified
+
+# Optional stricter mode for hardware-disaster recovery.
+$HOME/.openclaw-custom-runtime/bin/custom-runtime-update-backup.mjs \
+  configure \
+  --mode external_encrypted \
+  --external-root /Volumes/EncryptedRecovery
+```
+
+Both modes require a fresh `openclaw backup create --verify` archive, an isolated restore rehearsal,
+SQLite integrity checks, a redacted control-plane recovery bundle, exact active-SHA binding, private
+receipt permissions, path containment, and SHA-256 verification. The update broker refreshes this
+evidence during preparation and re-verifies it before installation.
+
+In `local_verified` mode, missing external media is a non-blocking hardware-disaster advisory. In
+`external_encrypted` mode, the configured encrypted destination must be mounted, writable, and
+fully verified or preparation and installation fail closed. Neither mode weakens immutable rollback
+or operation-specific Release Governor evidence.
+
 ## Canonical production package
 
 Build and package an approved candidate from its clean exact-SHA source checkout. The package command rejects a candidate unless its `HEAD` equals the requested SHA and the currently active source SHA is an ancestor:
@@ -171,11 +197,15 @@ The PCC Update Safety card reports:
 - whether source identity is durable,
 - whether the prepare-only broker and approval command are installed and its weekly LaunchAgent is loaded,
 - whether the managed runtime recovery guard is installed and its LaunchAgent is loaded,
+- local recovery readiness and optional hardware-disaster recovery separately,
+- whether installation is blocked or ready,
 - whether a candidate is waiting for approval,
 - the active release, source branch, and latest update receipt,
 - exact protection gaps that must be resolved before an update.
 
 The card is status evidence, not permission to promote. Candidate approval remains an explicit operator action.
+An external-recovery advisory must not be presented as an installation blocker while
+`local_verified` recovery is ready.
 
 ## Primary Tailnet route continuity
 

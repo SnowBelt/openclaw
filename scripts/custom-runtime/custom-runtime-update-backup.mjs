@@ -10,8 +10,8 @@ import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import * as tar from "tar";
 
-const RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v1";
-const CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v1";
+const RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v2";
+const CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v2";
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
 const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -315,25 +315,55 @@ function resolveSourceProvenance(pointer, provenanceRoot) {
   return { recordPath, bundlePath };
 }
 
-function configuredExternalRoot(runtimeHome, explicitRoot) {
+function configuredRecovery(runtimeHome, explicitRoot) {
   const config = readJson(configPath(runtimeHome), "update safety configuration");
-  if (config.schema !== CONFIG_SCHEMA || typeof config.backupRoot !== "string") {
+  if (
+    config.schema !== CONFIG_SCHEMA ||
+    (config.mode !== "local_verified" && config.mode !== "external_encrypted")
+  ) {
     fail("update safety configuration is invalid");
+  }
+  if (config.mode === "local_verified") {
+    if (explicitRoot) {
+      fail("local verified recovery does not accept an external destination override");
+    }
+    return { mode: config.mode, externalRoot: null };
+  }
+  if (typeof config.backupRoot !== "string" || !config.backupRoot) {
+    fail("encrypted external recovery has no backup destination");
   }
   if (explicitRoot && path.resolve(explicitRoot) !== path.resolve(config.backupRoot)) {
     fail("explicit backup destination conflicts with canonical configuration");
   }
-  return config.backupRoot;
+  return { mode: config.mode, externalRoot: config.backupRoot };
 }
 
-function configureBackup({ runtimeHome, externalRoot, allowTestDirectory = false }) {
-  const verifiedExternalRoot = verifyExternalRoot(externalRoot, allowTestDirectory);
+function configureBackup({
+  runtimeHome,
+  mode = "local_verified",
+  externalRoot = "",
+  allowTestDirectory = false,
+}) {
+  if (mode !== "local_verified" && mode !== "external_encrypted") {
+    fail("recovery mode must be local_verified or external_encrypted");
+  }
+  const verifiedExternalRoot =
+    mode === "external_encrypted" ? verifyExternalRoot(externalRoot, allowTestDirectory) : null;
+  if (mode === "local_verified" && externalRoot) {
+    fail("local verified recovery does not accept an external destination");
+  }
   const target = configPath(runtimeHome);
   writeAtomic(target, {
     schema: CONFIG_SCHEMA,
-    backupRoot: verifiedExternalRoot,
+    mode,
+    ...(verifiedExternalRoot ? { backupRoot: verifiedExternalRoot } : {}),
   });
-  return { result: "configured", configPath: target, backupRoot: verifiedExternalRoot };
+  return {
+    result: "configured",
+    configPath: target,
+    mode,
+    ...(verifiedExternalRoot ? { backupRoot: verifiedExternalRoot } : {}),
+  };
 }
 
 function parseBackupOutput(stdout) {
@@ -645,7 +675,7 @@ function createControlPlaneBundle({
   runtimeHome,
   pointerPath,
   pointer,
-  externalDirectory,
+  destinationDirectory,
   homedir,
 }) {
   const required = controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir);
@@ -714,7 +744,7 @@ function createControlPlaneBundle({
       previousRelease: pointer.previousRelease ?? null,
       files,
     });
-    const bundlePath = path.join(externalDirectory, "openclaw-control-plane.tar.gz");
+    const bundlePath = path.join(destinationDirectory, "openclaw-control-plane.tar.gz");
     const archived = spawnSync("tar", ["-czf", bundlePath, "-C", staging, "."], {
       encoding: "utf8",
     });
@@ -734,7 +764,7 @@ function createControlPlaneBundle({
 
 function createBackup({
   runtimeHome,
-  externalRoot,
+  externalRoot = "",
   homedir = os.homedir(),
   allowTestDirectory = false,
 }) {
@@ -744,6 +774,10 @@ function createBackup({
   if (!SHA_PATTERN.test(sourceSha)) {
     fail("active runtime source SHA is invalid");
   }
+  const releaseId = typeof pointer.releaseId === "string" ? pointer.releaseId.trim() : "";
+  if (!releaseId) {
+    fail("active runtime release identity is invalid");
+  }
   const runtimeRoot = path.resolve(String(pointer.runtimeRoot ?? ""));
   regularDirectory(runtimeRoot, "active runtime root");
   const entrypoint = path.resolve(String(pointer.entrypoint ?? ""));
@@ -751,12 +785,32 @@ function createBackup({
     fail("active runtime entrypoint is not the managed runtime entrypoint");
   }
   containedRegularFile(entrypoint, runtimeRoot, "active runtime entrypoint");
-  const verifiedExternalRoot = verifyExternalRoot(
-    configuredExternalRoot(runtimeHome, externalRoot),
-    allowTestDirectory,
-  );
+  const recovery = configuredRecovery(runtimeHome, externalRoot);
+  const verifiedExternalRoot = recovery.externalRoot
+    ? verifyExternalRoot(recovery.externalRoot, allowTestDirectory)
+    : null;
   const localRoot = path.join(runtimeHome, "data-backups");
   fs.mkdirSync(localRoot, { recursive: true, mode: 0o700 });
+  regularDirectory(localRoot, "local backup root");
+  const localStats = fs.statfsSync(localRoot);
+  const localAvailableBytes = localStats.bavail * localStats.bsize;
+  const priorArchiveBytes = fs
+    .readdirSync(localRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.tar(?:\.gz)?$/u.test(entry.name))
+    .reduce((largest, entry) => {
+      try {
+        return Math.max(largest, fs.statSync(path.join(localRoot, entry.name)).size);
+      } catch {
+        return largest;
+      }
+    }, 0);
+  const minimumLocalBytes = Math.max(
+    4 * 1024 * 1024 * 1024,
+    Math.ceil(priorArchiveBytes * 1.15) + 1024 * 1024 * 1024,
+  );
+  if (localAvailableBytes < minimumLocalBytes) {
+    fail("local backup destination does not have enough free space for a verified recovery point");
+  }
   const stdout = execFileSync(
     process.execPath,
     [entrypoint, "backup", "create", "--output", localRoot, "--verify", "--json"],
@@ -777,57 +831,92 @@ function createBackup({
   const archiveSha256 = sha256File(archivePath);
   const restoreDrill = rehearseRestore(archivePath);
   const stamp = `${new Date().toISOString().replaceAll(/[-:.]/gu, "")}-${crypto.randomUUID().slice(0, 8)}`;
-  const externalBackupRoot = path.join(verifiedExternalRoot, "OpenClaw", "verified-updates");
-  fs.mkdirSync(externalBackupRoot, { recursive: true, mode: 0o700 });
-  const externalDirectory = path.join(externalBackupRoot, stamp);
-  const stagingDirectory = path.join(
-    externalBackupRoot,
+  const localRecoveryRoot = path.join(localRoot, "recovery");
+  fs.mkdirSync(localRecoveryRoot, { recursive: true, mode: 0o700 });
+  const localDirectory = path.join(localRecoveryRoot, stamp);
+  const localStagingDirectory = path.join(
+    localRecoveryRoot,
     `.${stamp}.partial-${process.pid}-${crypto.randomUUID()}`,
   );
-  fs.mkdirSync(stagingDirectory, { recursive: false, mode: 0o700 });
-  let externalArchivePath;
+  fs.mkdirSync(localStagingDirectory, { recursive: false, mode: 0o700 });
   let controlPlane;
   try {
-    const externalStats = fs.statfsSync(stagingDirectory);
-    const availableBytes = externalStats.bavail * externalStats.bsize;
-    const requiredBytes = fs.statSync(archivePath).size * 2 + 16 * 1024 * 1024;
-    if (availableBytes < requiredBytes) {
-      fail("external backup volume does not have enough free space for verified recovery copies");
-    }
-    const stagedArchivePath = path.join(stagingDirectory, path.basename(archivePath));
-    fs.copyFileSync(archivePath, stagedArchivePath, fs.constants.COPYFILE_EXCL);
-    syncFile(stagedArchivePath);
-    if (sha256File(stagedArchivePath) !== archiveSha256) {
-      fail("external backup copy hash does not match the verified local archive");
-    }
     const stagedControlPlane = createControlPlaneBundle({
       runtimeHome,
       pointerPath,
       pointer,
-      externalDirectory: stagingDirectory,
+      destinationDirectory: localStagingDirectory,
       homedir,
     });
-    fs.renameSync(stagingDirectory, externalDirectory);
-    externalArchivePath = path.join(externalDirectory, path.basename(stagedArchivePath));
+    fs.renameSync(localStagingDirectory, localDirectory);
     controlPlane = {
       ...stagedControlPlane,
-      path: path.join(externalDirectory, path.basename(stagedControlPlane.path)),
+      path: path.join(localDirectory, path.basename(stagedControlPlane.path)),
     };
   } catch (error) {
-    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+    fs.rmSync(localStagingDirectory, { recursive: true, force: true });
     throw error;
+  }
+
+  let externalArchive;
+  let externalControlPlane;
+  if (verifiedExternalRoot) {
+    const externalBackupRoot = path.join(verifiedExternalRoot, "OpenClaw", "verified-updates");
+    fs.mkdirSync(externalBackupRoot, { recursive: true, mode: 0o700 });
+    const externalDirectory = path.join(externalBackupRoot, stamp);
+    const stagingDirectory = path.join(
+      externalBackupRoot,
+      `.${stamp}.partial-${process.pid}-${crypto.randomUUID()}`,
+    );
+    fs.mkdirSync(stagingDirectory, { recursive: false, mode: 0o700 });
+    try {
+      const externalStats = fs.statfsSync(stagingDirectory);
+      const availableBytes = externalStats.bavail * externalStats.bsize;
+      const requiredBytes =
+        fs.statSync(archivePath).size + fs.statSync(controlPlane.path).size + 16 * 1024 * 1024;
+      if (availableBytes < requiredBytes) {
+        fail("external backup volume does not have enough free space for verified recovery copies");
+      }
+      const stagedArchivePath = path.join(stagingDirectory, path.basename(archivePath));
+      const stagedControlPlanePath = path.join(stagingDirectory, path.basename(controlPlane.path));
+      fs.copyFileSync(archivePath, stagedArchivePath, fs.constants.COPYFILE_EXCL);
+      fs.copyFileSync(controlPlane.path, stagedControlPlanePath, fs.constants.COPYFILE_EXCL);
+      syncFile(stagedArchivePath);
+      syncFile(stagedControlPlanePath);
+      if (sha256File(stagedArchivePath) !== archiveSha256) {
+        fail("external backup copy hash does not match the verified local archive");
+      }
+      if (sha256File(stagedControlPlanePath) !== controlPlane.sha256) {
+        fail("external control-plane copy hash does not match the verified local bundle");
+      }
+      fs.renameSync(stagingDirectory, externalDirectory);
+      externalArchive = {
+        path: path.join(externalDirectory, path.basename(stagedArchivePath)),
+        sha256: archiveSha256,
+      };
+      externalControlPlane = {
+        path: path.join(externalDirectory, path.basename(stagedControlPlanePath)),
+        sha256: controlPlane.sha256,
+      };
+    } catch (error) {
+      fs.rmSync(stagingDirectory, { recursive: true, force: true });
+      throw error;
+    }
   }
   const receiptPath = path.join(runtimeHome, "receipts", `update-backup-${stamp}.json`);
   const receipt = {
     schema: RECEIPT_SCHEMA,
+    mode: recovery.mode,
     createdAt: new Date().toISOString(),
     sourceSha,
+    releaseId,
     result: "passed",
     backupVerified: true,
     restoreDrill,
     localArchive: { path: archivePath, sha256: archiveSha256 },
-    externalArchive: { path: externalArchivePath, sha256: archiveSha256 },
     controlPlane,
+    ...(externalArchive ? { externalArchive } : {}),
+    ...(externalControlPlane ? { externalControlPlane } : {}),
   };
   writeAtomic(receiptPath, receipt);
   return { ...receipt, receiptPath, receiptSha256: sha256File(receiptPath) };
@@ -855,8 +944,22 @@ function verifyReceipt({
     fail("update backup receipt is outside the managed runtime receipts");
   }
   const receipt = readJson(receiptPath, "update backup receipt");
+  const recovery = configuredRecovery(resolvedRuntimeHome, "");
+  const activePointer = readJson(
+    path.join(resolvedRuntimeHome, "active-runtime.json"),
+    "active runtime pointer",
+  );
+  const activeReleaseId =
+    typeof activePointer.releaseId === "string" ? activePointer.releaseId.trim() : "";
+  if (activePointer.sourceSha !== expectedSha || !activeReleaseId) {
+    fail("active runtime identity changed after backup preparation");
+  }
+  if (receipt.releaseId !== activeReleaseId) {
+    fail("backup receipt does not match the active runtime release");
+  }
   if (
     receipt.schema !== RECEIPT_SCHEMA ||
+    receipt.mode !== recovery.mode ||
     receipt.result !== "passed" ||
     receipt.backupVerified !== true ||
     receipt.sourceSha !== expectedSha ||
@@ -872,28 +975,40 @@ function verifyReceipt({
   ) {
     fail("backup receipt is stale or has an invalid timestamp");
   }
-  const externalRoot = verifyExternalRoot(
-    configuredExternalRoot(resolvedRuntimeHome, ""),
-    allowTestDirectory,
-  );
   const localArchive = verifyReceiptBinding(
     receipt.localArchive,
     "localArchive",
     path.join(resolvedRuntimeHome, "data-backups"),
   );
-  const externalArchive = verifyReceiptBinding(
-    receipt.externalArchive,
-    "externalArchive",
-    externalRoot,
+  const controlPlane = verifyReceiptBinding(
+    receipt.controlPlane,
+    "controlPlane",
+    path.join(resolvedRuntimeHome, "data-backups"),
   );
-  const controlPlane = verifyReceiptBinding(receipt.controlPlane, "controlPlane", externalRoot);
+  let externalArchive;
+  let externalControlPlane;
+  if (recovery.externalRoot) {
+    const externalRoot = verifyExternalRoot(recovery.externalRoot, allowTestDirectory);
+    externalArchive = verifyReceiptBinding(
+      receipt.externalArchive,
+      "externalArchive",
+      externalRoot,
+    );
+    externalControlPlane = verifyReceiptBinding(
+      receipt.externalControlPlane,
+      "externalControlPlane",
+      externalRoot,
+    );
+  }
   return {
     result: "verified",
     receiptPath: resolvedReceiptPath,
     sourceSha: expectedSha,
+    mode: recovery.mode,
     localArchive,
-    externalArchive,
     controlPlane,
+    ...(externalArchive ? { externalArchive } : {}),
+    ...(externalControlPlane ? { externalControlPlane } : {}),
   };
 }
 
@@ -911,15 +1026,13 @@ if (isMainModule()) {
       command === "configure"
         ? configureBackup({
             runtimeHome,
+            mode: values.get("mode") || "local_verified",
             externalRoot: values.get("external-root") || "",
           })
         : command === "create"
           ? createBackup({
               runtimeHome,
-              externalRoot:
-                values.get("external-root") ||
-                process.env.OPENCLAW_CUSTOM_RUNTIME_BACKUP_ROOT ||
-                "",
+              externalRoot: values.get("external-root") || "",
             })
           : command === "verify"
             ? verifyReceipt({

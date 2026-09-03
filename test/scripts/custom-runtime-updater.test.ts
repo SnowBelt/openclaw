@@ -80,11 +80,13 @@ function writePreservationProof(
   };
 }
 
-function writeVerifiedBackup(runtimeHome: string, sourceSha: string) {
+function writeVerifiedBackup(runtimeHome: string, sourceSha: string, releaseId: string) {
   const receiptPath = path.join(runtimeHome, "receipts", "update-backup-test.json");
   writeJson(receiptPath, {
-    schema: "openclaw.custom-runtime-update-backup.v1",
+    schema: "openclaw.custom-runtime-update-backup.v2",
+    mode: "local_verified",
     sourceSha,
+    releaseId,
     result: "passed",
   });
   const verifier = path.join(runtimeHome, "bin", "custom-runtime-update-backup.mjs");
@@ -93,8 +95,9 @@ function writeVerifiedBackup(runtimeHome: string, sourceSha: string) {
   return {
     path: receiptPath,
     sha256: createHash("sha256").update(fs.readFileSync(receiptPath)).digest("hex"),
-    schema: "openclaw.custom-runtime-update-backup.v1",
+    schema: "openclaw.custom-runtime-update-backup.v2",
     sourceSha,
+    releaseId,
   };
 }
 
@@ -254,6 +257,7 @@ describe("custom runtime update broker", () => {
     const runtimeHome = path.join(base, "runtime-home");
     const repo = path.join(base, "source");
     writeJson(path.join(runtimeHome, "active-runtime.json"), {
+      releaseId: "active-release",
       sourceSha: "a".repeat(64),
       sourceRepo: repo,
       sourceBranch: "codex/custom-runtime",
@@ -293,6 +297,7 @@ describe("custom runtime update broker", () => {
     }).stdout.trim();
     fs.writeFileSync(path.join(repo, "untracked.txt"), "dirty\n");
     writeJson(path.join(runtimeHome, "active-runtime.json"), {
+      releaseId: "active-release",
       sourceSha,
       sourceRepo: repo,
       sourceBranch: "HEAD",
@@ -356,10 +361,13 @@ describe("custom runtime update broker", () => {
       `#!/bin/sh\n[ "\${OPENCLAW_TEST_SEAL_FAIL:-0}" = 0 ] || exit 1\nprintf '%s\\n' "$@" > ${JSON.stringify(sealMarker)}\n`,
       { mode: 0o700 },
     );
-    writeJson(path.join(runtimeHome, "active-runtime.json"), { sourceSha: "d".repeat(40) });
+    writeJson(path.join(runtimeHome, "active-runtime.json"), {
+      releaseId: "active-release",
+      sourceSha: "d".repeat(40),
+    });
     const pending = path.join(runtimeHome, "pending-update.json");
     let preservationProof = writePreservationProof(runtimeHome, baseSha, sourceSha, release);
-    const verifiedBackup = writeVerifiedBackup(runtimeHome, baseSha);
+    const verifiedBackup = writeVerifiedBackup(runtimeHome, baseSha, "active-release");
     let repositoryProof = writeRepositoryProof(runtimeHome, sourceSha);
     writeJson(pending, {
       schema: "openclaw.custom-runtime-update-candidate.v1",
@@ -387,7 +395,10 @@ describe("custom runtime update broker", () => {
     expect(result.stderr).toContain("active runtime changed");
     expect(fs.existsSync(marker)).toBe(false);
 
-    writeJson(path.join(runtimeHome, "active-runtime.json"), { sourceSha: baseSha });
+    writeJson(path.join(runtimeHome, "active-runtime.json"), {
+      releaseId: "active-release",
+      sourceSha: baseSha,
+    });
     result = spawnSync(approve, ["--sha", "f".repeat(40)], {
       encoding: "utf8",
       env: {

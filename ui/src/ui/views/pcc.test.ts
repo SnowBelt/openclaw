@@ -3214,6 +3214,14 @@ describe("renderPccDashboard", () => {
           standardUpdateBlocked: true,
           sourceDurable: true,
           backupConfigured: true,
+          recovery: {
+            mode: "local_verified",
+            localStatus: "ready",
+            externalStatus: "not_configured",
+            installationReady: true,
+            blockingReasons: [],
+            advisories: ["Hardware-disaster recovery is not configured."],
+          },
           brokerConfigured: true,
           runtimeGuardConfigured: true,
           approvalPending: true,
@@ -3230,6 +3238,7 @@ describe("renderPccDashboard", () => {
             stage: null,
           },
           issues: [],
+          advisories: ["Hardware-disaster recovery is not configured."],
         },
       }),
     );
@@ -3238,6 +3247,10 @@ describe("renderPccDashboard", () => {
     expect(safety?.textContent).toContain("Update ready for approval");
     expect(safety?.textContent).toContain("Blocked safely");
     expect(safety?.textContent).toContain("b".repeat(12));
+    expect(safety?.textContent).toContain("Local recovery");
+    expect(safety?.textContent).toContain("Hardware-disaster recovery");
+    expect(safety?.textContent).toContain("Installation gate");
+    expect(safety?.textContent).toContain("Hardware-disaster recovery is not configured.");
     expect(safety?.textContent).toContain("Durable source");
     expect(safety?.textContent).toContain("Scheduled");
     expect(safety?.textContent).toContain("Runtime guard");

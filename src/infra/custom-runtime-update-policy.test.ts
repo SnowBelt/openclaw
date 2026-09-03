@@ -101,20 +101,30 @@ function fixture() {
   fs.writeFileSync(localArchivePath, "verified local backup\n");
   const externalArchivePath = path.join(backupRoot, "verified-backup.tar.gz");
   fs.writeFileSync(externalArchivePath, "verified backup\n");
-  const controlPlanePath = path.join(backupRoot, "control-plane.tar.gz");
+  const controlPlanePath = path.join(
+    path.dirname(pointerPath),
+    "data-backups",
+    "recovery",
+    "control-plane.tar.gz",
+  );
+  fs.mkdirSync(path.dirname(controlPlanePath), { recursive: true });
   fs.writeFileSync(controlPlanePath, "verified control plane\n");
+  const externalControlPlanePath = path.join(backupRoot, "control-plane.tar.gz");
+  fs.writeFileSync(externalControlPlanePath, "verified control plane\n");
   const receiptsRoot = path.join(path.dirname(pointerPath), "receipts");
   fs.mkdirSync(receiptsRoot, { recursive: true });
   fs.writeFileSync(
     path.join(path.dirname(pointerPath), "update-safety.json"),
     `${JSON.stringify({
-      schema: "openclaw.custom-runtime-update-safety-config.v1",
+      schema: "openclaw.custom-runtime-update-safety-config.v2",
+      mode: "external_encrypted",
       backupRoot,
     })}\n`,
   );
   fs.writeFileSync(
     pointerPath,
     `${JSON.stringify({
+      releaseId: "candidate",
       runtimeRoot,
       entrypoint: path.join(runtimeRoot, "dist", "index.js"),
       sourceSha,
@@ -138,15 +148,21 @@ function fixture() {
   fs.writeFileSync(
     backupReceiptPath,
     `${JSON.stringify({
-      schema: "openclaw.custom-runtime-update-backup.v1",
+      schema: "openclaw.custom-runtime-update-backup.v2",
+      mode: "external_encrypted",
       createdAt: new Date().toISOString(),
       sourceSha,
+      releaseId: "candidate",
       result: "passed",
       backupVerified: true,
       restoreDrill: { result: "passed" },
       localArchive: { path: localArchivePath, sha256: sha256(localArchivePath) },
       externalArchive: { path: externalArchivePath, sha256: sha256(externalArchivePath) },
       controlPlane: { path: controlPlanePath, sha256: sha256(controlPlanePath) },
+      externalControlPlane: {
+        path: externalControlPlanePath,
+        sha256: sha256(externalControlPlanePath),
+      },
     })}\n`,
     { mode: 0o600 },
   );
@@ -185,6 +201,88 @@ describe("custom runtime update policy", () => {
     expect(CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON).toBe(
       "custom-runtime-update-broker-required",
     );
+  });
+
+  it("treats verified local recovery as install-ready and external recovery as advisory", () => {
+    const value = fixture();
+    const runtimeHome = path.dirname(value.pointerPath);
+    fs.writeFileSync(
+      path.join(runtimeHome, "update-safety.json"),
+      `${JSON.stringify({
+        schema: "openclaw.custom-runtime-update-safety-config.v2",
+        mode: "local_verified",
+      })}\n`,
+    );
+    const receiptPath = path.join(runtimeHome, "receipts", "update-backup-20260831T000000Z.json");
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8")) as Record<string, unknown>;
+    receipt.mode = "local_verified";
+    delete receipt.externalArchive;
+    delete receipt.externalControlPlane;
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
+    fs.chmodSync(receiptPath, 0o600);
+
+    const result = resolveCustomRuntimeUpdatePolicy({
+      homedir: value.homedir,
+      argv: ["node", path.join(value.runtimeRoot, "dist", "index.js")],
+      env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: value.runtimeRoot },
+    });
+
+    expect(result.backupConfigured).toBe(true);
+    expect(result.recovery).toMatchObject({
+      mode: "local_verified",
+      localStatus: "ready",
+      externalStatus: "not_configured",
+      installationReady: true,
+      blockingReasons: [],
+    });
+    expect(result.recovery?.advisories).toEqual([
+      "Hardware-disaster recovery is not configured on encrypted external storage.",
+    ]);
+  });
+
+  it("invalidates a verified backup from another runtime release", () => {
+    const value = fixture();
+    const receiptPath = path.join(
+      path.dirname(value.pointerPath),
+      "receipts",
+      "update-backup-20260831T000000Z.json",
+    );
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8")) as Record<string, unknown>;
+    receipt.releaseId = "previous-release";
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
+    fs.chmodSync(receiptPath, 0o600);
+
+    const result = resolveCustomRuntimeUpdatePolicy({
+      homedir: value.homedir,
+      argv: ["node", path.join(value.runtimeRoot, "dist", "index.js")],
+      env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: value.runtimeRoot },
+    });
+
+    expect(result.backupStatus).toBe("stale");
+    expect(result.recovery?.installationReady).toBe(false);
+    expect(result.backupStatusReason).toContain("different active runtime release");
+  });
+
+  it("does not trust a receipt file timestamp when createdAt is invalid", () => {
+    const value = fixture();
+    const receiptPath = path.join(
+      path.dirname(value.pointerPath),
+      "receipts",
+      "update-backup-20260831T000000Z.json",
+    );
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8")) as Record<string, unknown>;
+    receipt.createdAt = "not-a-timestamp";
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
+    fs.chmodSync(receiptPath, 0o600);
+
+    const result = resolveCustomRuntimeUpdatePolicy({
+      homedir: value.homedir,
+      argv: ["node", path.join(value.runtimeRoot, "dist", "index.js")],
+      env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: value.runtimeRoot },
+    });
+
+    expect(result.backupStatus).toBe("stale");
+    expect(result.recovery?.installationReady).toBe(false);
   });
 
   it("does not block an unrelated source checkout with a stale pointer", () => {
@@ -297,6 +395,26 @@ describe("custom runtime update policy", () => {
 
     expect(result.backupConfigured).toBe(false);
     expect(result.backupStatus).toBe("offline");
+  });
+
+  it("fails closed when the local backup destination is a symlink", () => {
+    const value = fixture();
+    const runtimeHome = path.dirname(value.pointerPath);
+    const localRoot = path.join(runtimeHome, "data-backups");
+    const redirectedRoot = path.join(value.homedir, "redirected-backups");
+    fs.rmSync(localRoot, { recursive: true });
+    fs.mkdirSync(redirectedRoot);
+    fs.symlinkSync(redirectedRoot, localRoot);
+
+    const result = resolveCustomRuntimeUpdatePolicy({
+      homedir: value.homedir,
+      argv: ["node", path.join(value.runtimeRoot, "dist", "index.js")],
+      env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: value.runtimeRoot },
+    });
+
+    expect(result.backupConfigured).toBe(false);
+    expect(result.backupStatus).toBe("failed");
+    expect(result.backupStatusReason).toContain("not a regular directory");
   });
 
   it("exposes only an exact candidate SHA from a ready preparation receipt", () => {
@@ -417,7 +535,7 @@ describe("custom runtime update policy", () => {
     expect(result.backupStatus).toBe("failed");
   });
 
-  it("fails closed when the environment backup destination conflicts with its configuration", () => {
+  it("uses the canonical config instead of a legacy environment backup destination", () => {
     const value = fixture();
     const conflictingRoot = path.join(value.homedir, "other-backup");
     fs.mkdirSync(conflictingRoot);
@@ -431,8 +549,8 @@ describe("custom runtime update policy", () => {
       },
     });
 
-    expect(result.backupConfigured).toBe(false);
-    expect(result.backupStatus).toBe("failed");
-    expect(result.backupStatusReason).toContain("conflicts with its canonical configuration");
+    expect(result.backupConfigured).toBe(true);
+    expect(result.backupStatus).toBe("ready");
+    expect(result.recovery?.externalStatus).toBe("ready");
   });
 });

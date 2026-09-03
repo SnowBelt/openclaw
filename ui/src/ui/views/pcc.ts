@@ -2122,6 +2122,11 @@ function renderUpdateSafetyDrawer(props: PccDashboardProps) {
   if (!safety) {
     return nothing;
   }
+  const recovery = safety.recovery ?? {
+    localStatus: safety.backupConfigured ? "ready" : "unconfigured",
+    externalStatus: "not_configured",
+    installationReady: safety.backupConfigured,
+  };
   const protectedRuntime = safety.status === "protected";
   const label = protectedRuntime
     ? safety.approvalPending
@@ -2166,12 +2171,16 @@ function renderUpdateSafetyDrawer(props: PccDashboardProps) {
           <dd>${safety.brokerConfigured ? "Scheduled" : "Missing or inactive"}</dd>
         </div>
         <div>
-          <dt>Recovery backup</dt>
-          <dd>
-            ${safety.backupConfigured
-              ? "Configured; verified during preparation"
-              : "Drive unavailable"}
-          </dd>
+          <dt>Local recovery</dt>
+          <dd>${recovery.localStatus}</dd>
+        </div>
+        <div>
+          <dt>Hardware-disaster recovery</dt>
+          <dd>${recovery.externalStatus.replaceAll("_", " ")}</dd>
+        </div>
+        <div>
+          <dt>Installation gate</dt>
+          <dd>${recovery.installationReady ? "Ready" : "Blocked"}</dd>
         </div>
         <div>
           <dt>Runtime guard</dt>
@@ -2219,6 +2228,11 @@ function renderUpdateSafetyDrawer(props: PccDashboardProps) {
             ${safety.issues.map((issue) => html`<li>${issue}</li>`)}
           </ul>`
         : html`<p>All update-preservation controls are healthy.</p>`}
+      ${safety.advisories?.length
+        ? html`<div class="callout info" role="status">
+            ${safety.advisories.map((advisory) => html`<p>${advisory}</p>`)}
+          </div>`
+        : nothing}
     </section>
   </details>`;
 }

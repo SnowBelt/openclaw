@@ -53,6 +53,9 @@ if not re.fullmatch(r"[0-9a-f]{40}", base_sha):
     raise SystemExit("prepared update base SHA is invalid")
 if active.get("sourceSha") != base_sha:
     raise SystemExit("prepared update is stale because the active runtime changed")
+active_release_id = str(active.get("releaseId", ""))
+if not active_release_id:
+    raise SystemExit("active runtime release identity is invalid")
 if receipt.get("verificationResult") != "passed":
     raise SystemExit("prepared update verification result is not passed")
 proof_binding = receipt.get("preservationProof")
@@ -115,7 +118,7 @@ official_sha = str(proof.get("officialSha", ""))
 if not re.fullmatch(r"[0-9a-f]{40}", official_sha) or proof.get("mergeParents") != [base_sha, official_sha]:
     raise SystemExit("prepared update preservation proof parents are invalid")
 backup_binding = receipt.get("verifiedBackup")
-if not isinstance(backup_binding, dict) or backup_binding.get("schema") != "openclaw.custom-runtime-update-backup.v1" or backup_binding.get("sourceSha") != base_sha:
+if not isinstance(backup_binding, dict) or backup_binding.get("schema") != "openclaw.custom-runtime-update-backup.v2" or backup_binding.get("sourceSha") != base_sha or backup_binding.get("releaseId") != active_release_id:
     raise SystemExit("prepared update verified backup binding is invalid")
 backup_path = os.path.realpath(str(backup_binding.get("path", "")))
 if not backup_path.startswith(proof_root + os.sep) or not os.path.isfile(backup_path):
@@ -326,7 +329,7 @@ with open(target + ".tmp", "w", encoding="utf-8") as f:
         "verifiedBackup": {
             "path": backup_path,
             "sha256": backup_sha,
-            "schema": "openclaw.custom-runtime-update-backup.v1",
+            "schema": "openclaw.custom-runtime-update-backup.v2",
         },
         "repositoryProof": {
             "path": github_path,

@@ -80,6 +80,7 @@ import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     value = json.load(f)
 print(value.get("sourceSha", "") if isinstance(value.get("sourceSha"), str) else "")
+print(value.get("releaseId", "") if isinstance(value.get("releaseId"), str) else "")
 provenance = value.get("sourceProvenance")
 if not isinstance(provenance, dict):
     provenance = {}
@@ -89,11 +90,13 @@ for key in ("recordPath", "recordSha256", "treeSha"):
 PY
 ) || fail active_pointer
 active_sha=$(printf '%s\n' "$pointer_fields" | sed -n '1p')
-provenance_record=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
-provenance_record_sha=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
-provenance_tree=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
+active_release_id=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
+provenance_record=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
+provenance_record_sha=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
+provenance_tree=$(printf '%s\n' "$pointer_fields" | sed -n '5p')
 case "$active_sha" in *[!0-9a-fA-F]*|'') fail durable_source_sha ;; esac
 [ "${#active_sha}" -eq 40 ] || [ "${#active_sha}" -eq 64 ] || fail durable_source_sha
+[ -n "$active_release_id" ] || fail active_pointer
 if [ -n "$provenance_record" ]; then
   [ -n "$provenance_record_sha" ] && [ -n "$provenance_tree" ] || fail durable_source_provenance
   [ -f "$provenance_record" ] && [ ! -L "$provenance_record" ] || fail durable_source_provenance
@@ -142,17 +145,20 @@ backup_result=$("${OPENCLAW_NODE_BIN:-node}" "$backup_helper" create \
 backup_fields=$(printf '%s' "$backup_result" | python3 -c '
 import json, sys
 value = json.load(sys.stdin)
-for key in ("receiptPath", "receiptSha256", "sourceSha"):
+for key in ("receiptPath", "receiptSha256", "sourceSha", "releaseId"):
     item = value.get(key)
     if not isinstance(item, str) or not item:
         raise SystemExit(f"backup result omitted {key}")
     print(item)
+if value.get("schema") != "openclaw.custom-runtime-update-backup.v2" or value.get("mode") not in ("local_verified", "external_encrypted"):
+    raise SystemExit("backup result recovery contract is invalid")
 if value.get("result") != "passed" or value.get("backupVerified") is not True or value.get("restoreDrill", {}).get("result") != "passed":
     raise SystemExit("backup result did not pass")
 ') || fail verified_backup
 backup_receipt=$(printf '%s\n' "$backup_fields" | sed -n '1p')
 backup_receipt_sha=$(printf '%s\n' "$backup_fields" | sed -n '2p')
 [ "$(printf '%s\n' "$backup_fields" | sed -n '3p')" = "$active_sha" ] || fail verified_backup
+[ "$(printf '%s\n' "$backup_fields" | sed -n '4p')" = "$active_release_id" ] || fail verified_backup
 published_active_sha=$(git ls-remote "$source_remote" "refs/heads/$source_remote_branch" | \
   awk 'NR == 1 { print $1 }') || fail durable_source_remote
 [ "$published_active_sha" = "$active_sha" ] || fail durable_source_remote
@@ -398,11 +404,11 @@ with open(target, "w", encoding="utf-8") as f:
 PY
 "$(dirname "$0")/custom-runtime-seal.sh" --seal --release "$release" || fail release_seal
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
-  "$official_ref" "$active_sha" "$sha" "$repo" "$branch" "$survival_receipt" \
+  "$official_ref" "$active_sha" "$active_release_id" "$sha" "$repo" "$branch" "$survival_receipt" \
   "$survival_receipt_sha" "$verification_commands" "$backup_receipt" \
   "$backup_receipt_sha" "$github_proof_receipt" "$github_proof_receipt_sha" <<'PY'
 import json, os, sys
-receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, proof_path, proof_sha, commands_path, backup_path, backup_sha, github_path, github_sha = sys.argv[1:]
+receipt, pending, at, worktree, release, stable_ref, base_sha, base_release_id, source_sha, repo, branch, proof_path, proof_sha, commands_path, backup_path, backup_sha, github_path, github_sha = sys.argv[1:]
 with open(commands_path, encoding="utf-8") as f:
     verification_commands = [line.rstrip("\n") for line in f if line.strip()]
 data = {
@@ -426,8 +432,9 @@ data = {
     "verifiedBackup": {
         "path": os.path.realpath(backup_path),
         "sha256": backup_sha,
-        "schema": "openclaw.custom-runtime-update-backup.v1",
+        "schema": "openclaw.custom-runtime-update-backup.v2",
         "sourceSha": base_sha,
+        "releaseId": base_release_id,
     },
     "repositoryProof": {
         "path": os.path.realpath(github_path),

@@ -17,6 +17,14 @@ function policy(overrides: Partial<CustomRuntimeUpdatePolicy> = {}): CustomRunti
     backupConfigured: true,
     backupStatus: "ready",
     backupStatusReason: "ready",
+    recovery: {
+      mode: "local_verified",
+      localStatus: "ready",
+      externalStatus: "not_configured",
+      installationReady: true,
+      blockingReasons: [],
+      advisories: ["Hardware-disaster recovery is not configured."],
+    },
     approvalPending: false,
     pendingCandidateSha: null,
     preparationRunning: false,
@@ -52,10 +60,21 @@ describe("custom runtime update broker", () => {
     );
   });
 
-  it("fails closed when the encrypted recovery destination is unavailable", () => {
+  it("fails closed when no refreshable local recovery destination is available", () => {
     expect(() =>
       assertCustomRuntimeUpdateCanPrepare(
-        policy({ backupConfigured: false, backupStatus: "offline" }),
+        policy({
+          backupConfigured: false,
+          backupStatus: "offline",
+          recovery: {
+            mode: "external_encrypted",
+            localStatus: "offline",
+            externalStatus: "offline",
+            installationReady: false,
+            blockingReasons: ["recovery unavailable"],
+            advisories: [],
+          },
+        }),
       ),
     ).toThrow(CUSTOM_RUNTIME_UPDATE_SAFETY_BLOCKED_REASON);
   });
@@ -63,7 +82,18 @@ describe("custom runtime update broker", () => {
   it("allows preparation to create or refresh a stale backup receipt", () => {
     expect(() =>
       assertCustomRuntimeUpdateCanPrepare(
-        policy({ backupConfigured: true, backupStatus: "stale" }),
+        policy({
+          backupConfigured: true,
+          backupStatus: "stale",
+          recovery: {
+            mode: "local_verified",
+            localStatus: "stale",
+            externalStatus: "not_configured",
+            installationReady: false,
+            blockingReasons: ["refresh required"],
+            advisories: [],
+          },
+        }),
       ),
     ).not.toThrow();
     expect(() =>
@@ -71,6 +101,14 @@ describe("custom runtime update broker", () => {
         policy({
           backupConfigured: true,
           backupStatus: "stale",
+          recovery: {
+            mode: "local_verified",
+            localStatus: "stale",
+            externalStatus: "not_configured",
+            installationReady: false,
+            blockingReasons: ["refresh required"],
+            advisories: [],
+          },
           approvalPending: true,
           pendingCandidateSha: "b".repeat(40),
         }),

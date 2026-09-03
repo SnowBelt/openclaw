@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configureBackup,
   createBackup,
@@ -118,7 +118,8 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
   writeFile(
     path.join(runtimeHome, "update-safety.json"),
     `${JSON.stringify({
-      schema: "openclaw.custom-runtime-update-safety-config.v1",
+      schema: "openclaw.custom-runtime-update-safety-config.v2",
+      mode: "external_encrypted",
       backupRoot: externalRoot,
     })}\n`,
   );
@@ -145,6 +146,7 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of roots.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -155,17 +157,136 @@ describe("custom runtime update backup", () => {
     const value = fixture();
     fs.rmSync(path.join(value.runtimeHome, "update-safety.json"));
 
-    const result = configureBackup(value);
+    const result = configureBackup({ ...value, mode: "external_encrypted" });
 
     expect(result).toEqual({
       result: "configured",
       configPath: path.join(value.runtimeHome, "update-safety.json"),
+      mode: "external_encrypted",
       backupRoot: value.externalRoot,
     });
     expect(JSON.parse(fs.readFileSync(result.configPath, "utf8"))).toEqual({
-      schema: "openclaw.custom-runtime-update-safety-config.v1",
+      schema: "openclaw.custom-runtime-update-safety-config.v2",
+      mode: "external_encrypted",
       backupRoot: value.externalRoot,
     });
+  });
+
+  it("fails before backup creation when local free space is insufficient", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const actual = fs.statfsSync(value.runtimeHome);
+    actual.bavail = 1;
+    vi.spyOn(fs, "statfsSync").mockReturnValue(actual);
+
+    expect(() =>
+      createBackup({
+        runtimeHome: value.runtimeHome,
+        homedir: value.homedir,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/does not have enough free space/u);
+    const receiptsRoot = path.join(value.runtimeHome, "receipts");
+    const receipts = fs.existsSync(receiptsRoot) ? fs.readdirSync(receiptsRoot) : [];
+    expect(receipts.some((name) => name.startsWith("update-backup-"))).toBe(false);
+  });
+
+  it("creates and verifies local recovery without requiring external storage", () => {
+    const value = fixture();
+    const configured = configureBackup({
+      runtimeHome: value.runtimeHome,
+      mode: "local_verified",
+    });
+
+    expect(configured).toEqual({
+      result: "configured",
+      configPath: path.join(value.runtimeHome, "update-safety.json"),
+      mode: "local_verified",
+    });
+    const result = createBackup({
+      runtimeHome: value.runtimeHome,
+      homedir: value.homedir,
+      allowTestDirectory: true,
+    });
+    expect(result).toMatchObject({
+      schema: "openclaw.custom-runtime-update-backup.v2",
+      mode: "local_verified",
+      releaseId: "release",
+      result: "passed",
+      backupVerified: true,
+      restoreDrill: { result: "passed" },
+    });
+    expect(result).not.toHaveProperty("externalArchive");
+    expect(result).not.toHaveProperty("externalControlPlane");
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects a changed local recovery archive", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const result = createBackup({
+      runtimeHome: value.runtimeHome,
+      homedir: value.homedir,
+      allowTestDirectory: true,
+    });
+    fs.appendFileSync(result.localArchive.path, "tampered\n");
+
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/localArchive hash changed/u);
+  });
+
+  it("rejects a backup receipt from another active runtime release", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const result = createBackup({
+      runtimeHome: value.runtimeHome,
+      homedir: value.homedir,
+      allowTestDirectory: true,
+    });
+    const pointerPath = path.join(value.runtimeHome, "active-runtime.json");
+    const pointer = JSON.parse(fs.readFileSync(pointerPath, "utf8")) as Record<string, unknown>;
+    pointer.releaseId = "replacement-release";
+    writeFile(pointerPath, `${JSON.stringify(pointer)}\n`);
+
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/runtime release/u);
+  });
+
+  it("rejects a symlinked local backup destination", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const localRoot = path.join(value.runtimeHome, "data-backups");
+    const redirectedRoot = path.join(path.dirname(value.runtimeHome), "redirected-backups");
+    fs.rmSync(localRoot, { recursive: true, force: true });
+    fs.mkdirSync(redirectedRoot);
+    fs.symlinkSync(redirectedRoot, localRoot);
+
+    expect(() =>
+      createBackup({
+        runtimeHome: value.runtimeHome,
+        homedir: value.homedir,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/local backup root is not a regular directory/u);
   });
 
   it("creates matching local and external recovery points and verifies the receipt", () => {
@@ -173,9 +294,11 @@ describe("custom runtime update backup", () => {
     const result = createBackup({ ...value, externalRoot: "" });
 
     expect(result).toMatchObject({
-      schema: "openclaw.custom-runtime-update-backup.v1",
+      schema: "openclaw.custom-runtime-update-backup.v2",
+      mode: "external_encrypted",
       result: "passed",
       sourceSha: value.sourceSha,
+      releaseId: "release",
       backupVerified: true,
       restoreDrill: { result: "passed" },
       controlPlane: { fileCount: 12 },
@@ -461,7 +584,7 @@ describe("custom runtime update backup", () => {
     expect(() => createBackup(value)).toThrow(
       /required control-plane recovery file is unavailable: snapshot\.json/u,
     );
-    const backupRoot = path.join(value.externalRoot, "OpenClaw", "verified-updates");
+    const backupRoot = path.join(value.runtimeHome, "data-backups", "recovery");
     expect(fs.existsSync(backupRoot)).toBe(true);
     expect(fs.readdirSync(backupRoot).filter((name) => name.startsWith(".")).length).toBe(0);
   });
@@ -485,7 +608,7 @@ describe("custom runtime update backup", () => {
         expectedSha: "b".repeat(40),
         allowTestDirectory: true,
       }),
-    ).toThrow(/did not pass for the expected active SHA/u);
+    ).toThrow(/active runtime identity changed/u);
   });
 
   it("rejects a backup destination override that differs from canonical configuration", () => {
