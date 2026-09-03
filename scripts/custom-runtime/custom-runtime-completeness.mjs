@@ -621,14 +621,25 @@ export function writeCustomRuntimeCompletenessManifest(rootDir = process.cwd()) 
 }
 
 function parseCli(argv) {
-  const [command, rootArg, root] = argv;
+  const [command, rootArg, root, ...flags] = argv;
   if ((command !== "write" && command !== "verify") || rootArg !== "--root") {
-    throw new Error("usage: custom-runtime-completeness.mjs <write|verify> --root PATH");
+    throw new Error(
+      "usage: custom-runtime-completeness.mjs <write|verify> --root PATH [--packaged]",
+    );
   }
   if (!root) {
     throw new Error("--root requires a path");
   }
-  return { command, root };
+  const packaged = flags.length === 1 && flags[0] === "--packaged";
+  if (flags.length > 0 && !packaged) {
+    throw new Error(
+      "usage: custom-runtime-completeness.mjs <write|verify> --root PATH [--packaged]",
+    );
+  }
+  if (packaged && command !== "verify") {
+    throw new Error("--packaged is supported only for verify");
+  }
+  return { command, root, verifySourceContract: !packaged };
 }
 
 function isMainModule() {
@@ -637,14 +648,14 @@ function isMainModule() {
 
 if (isMainModule()) {
   try {
-    const { command, root } = parseCli(process.argv.slice(2));
+    const { command, root, verifySourceContract } = parseCli(process.argv.slice(2));
     if (command === "write") {
       const manifest = writeCustomRuntimeCompletenessManifest(root);
       process.stdout.write(
         `${JSON.stringify({ result: "written", path: path.join(root, CUSTOM_RUNTIME_COMPLETENESS_PATH), sourceSha: manifest.source.commit })}\n`,
       );
     } else {
-      const errors = verifyCustomRuntimeCompleteness({ rootDir: root, verifySourceContract: true });
+      const errors = verifyCustomRuntimeCompleteness({ rootDir: root, verifySourceContract });
       if (errors.length > 0) {
         throw new Error(errors.join("\n"));
       }

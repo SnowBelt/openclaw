@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import {
 } from "../../scripts/custom-runtime/custom-runtime-completeness.mjs";
 
 const roots: string[] = [];
+const COMPLETENESS_CLI = path.resolve("scripts/custom-runtime/custom-runtime-completeness.mjs");
 
 function runGit(root: string, args: string[]): string {
   return execFileSync("git", args, {
@@ -82,6 +83,14 @@ function createFixture(): { root: string; sourceSha: string } {
   return { root, sourceSha };
 }
 
+function runCompletenessCli(root: string, ...args: string[]) {
+  const [command, ...flags] = args;
+  return spawnSync(process.execPath, [COMPLETENESS_CLI, command, "--root", root, ...flags], {
+    cwd: path.resolve("."),
+    encoding: "utf8",
+  });
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -132,6 +141,24 @@ describe("custom runtime completeness", () => {
         verifySourceContract: false,
       }),
     ).toEqual([]);
+  });
+
+  it("requires explicit packaged mode for the sealed-release CLI", () => {
+    const { root } = createFixture();
+    const writePackaged = runCompletenessCli(root, "write", "--packaged");
+    expect(writePackaged.status).not.toBe(0);
+    expect(writePackaged.stderr).toContain("--packaged is supported only for verify");
+
+    fs.rmSync(path.join(root, "ui"), { recursive: true, force: true });
+    fs.rmSync(path.join(root, ".git"), { recursive: true, force: true });
+
+    const defaultVerify = runCompletenessCli(root, "verify");
+    expect(defaultVerify.status).not.toBe(0);
+    expect(defaultVerify.stderr).toContain("ui/src/app/theme.ts");
+
+    const packagedVerify = runCompletenessCli(root, "verify", "--packaged");
+    expect(packagedVerify.status).toBe(0);
+    expect(JSON.parse(packagedVerify.stdout)).toEqual({ result: "passed" });
   });
 
   it("rejects an unexpected source identity", () => {
