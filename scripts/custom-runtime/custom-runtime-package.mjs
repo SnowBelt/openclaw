@@ -251,18 +251,36 @@ const SOURCE_CODE_EXTENSIONS = new Set([
   ".tsx",
 ]);
 const SOURCE_IMPORT_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
+const SOURCE_FROM_IMPORT_PATTERN = /\bfrom\s*["']([^"']+)["']/gu;
 const SOURCE_IMPORT_PATTERNS = [
-  /\bfrom\s*["']([^"']+)["']/gu,
+  SOURCE_FROM_IMPORT_PATTERN,
   /\bimport\s*(?:\(\s*)?["']([^"']+)["']/gu,
   /\brequire\s*\(\s*["']([^"']+)["']\s*\)/gu,
 ];
+
+function isTypeOnlySourceImport(source, fromIndex) {
+  const prefix = source.slice(0, fromIndex);
+  const importIndex = Math.max(prefix.lastIndexOf("import"), prefix.lastIndexOf("export"));
+  if (importIndex < 0 || importIndex < prefix.lastIndexOf(";")) {
+    return false;
+  }
+  return /^(?:import|export)\s+type(?:\s|\{|\*)/u.test(prefix.slice(importIndex));
+}
 
 function sourceImportSpecifiers(source) {
   const specifiers = new Set();
   for (const pattern of SOURCE_IMPORT_PATTERNS) {
     for (const match of source.matchAll(pattern)) {
       const specifier = match[1];
-      if (specifier?.startsWith(".")) {
+      // Type-only imports disappear after transpilation; generated declarations
+      // must not be mistaken for runtime files required by the sealed package.
+      if (
+        specifier?.startsWith(".") &&
+        !(
+          pattern === SOURCE_FROM_IMPORT_PATTERN &&
+          isTypeOnlySourceImport(source, match.index ?? -1)
+        )
+      ) {
         specifiers.add(specifier);
       }
     }

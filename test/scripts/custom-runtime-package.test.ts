@@ -38,6 +38,7 @@ function writeFile(root: string, relativePath: string, contents = `${relativePat
 function createRepository(
   options: {
     includeSourceImport?: boolean;
+    includeTypeOnlySourceImport?: boolean;
     registerSourceDependency?: boolean;
   } = {},
 ): { root: string; activeSha: string; candidateSha: string } {
@@ -67,6 +68,13 @@ function createRepository(
       'import { runtimeDependency } from "../../src/runtime-dependency.js";\nexport { runtimeDependency };\n',
     );
     writeFile(root, "src/runtime-dependency.ts", 'export const runtimeDependency = "ok";\n');
+  }
+  if (options.includeTypeOnlySourceImport) {
+    writeFile(
+      root,
+      "scripts/custom-runtime/type-only-placeholder.ts",
+      'import type { GeneratedDependency } from "../../src/generated-runtime-types.js";\nexport const typeOnlyMarker = "ok";\n',
+    );
   }
   writeFile(root, "extensions/research-manager/index.ts");
   writeFile(root, "extensions/research-manager/openclaw.plugin.json", "{}\n");
@@ -444,6 +452,36 @@ describe("custom managed-runtime packaging", () => {
       }),
     ).toThrow(/source import has no capability owner.*src\/runtime-dependency\.ts/u);
     expect(fs.readdirSync(releasesDir)).toEqual([]);
+  });
+
+  it("does not require generated declaration files for type-only custom-runtime imports", () => {
+    const { root, activeSha, candidateSha } = createRepository({
+      includeTypeOnlySourceImport: true,
+    });
+    writeBuildSnapshot(root, candidateSha);
+    const releasesDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-runtime-package-output-"));
+    roots.push(releasesDir);
+    const provenanceHome = createProvenanceHome(root, candidateSha);
+
+    const result = assembleManagedRuntimePackage({
+      sourceRoot: root,
+      releasesDir,
+      sourceSha: candidateSha,
+      activeSha,
+      releaseId: "type-only-import-release",
+      provenanceRuntimeHome: provenanceHome,
+      seal: false,
+      deploy({ stagingRoot }) {
+        writeFile(stagingRoot, "package.json", '{"name":"openclaw"}\n');
+        writeFile(stagingRoot, "node_modules/pdfjs-dist/package.json", "{}\n");
+      },
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(result.releaseRoot, "scripts/custom-runtime/type-only-placeholder.ts"),
+      ),
+    ).toBe(true);
   });
 
   it("fails closed and removes staging when deployment dirties the candidate source", () => {
