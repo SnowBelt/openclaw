@@ -84,6 +84,20 @@ SQLite integrity checks, a redacted control-plane recovery bundle, exact active-
 receipt permissions, path containment, and SHA-256 verification. The update broker refreshes this
 evidence during preparation and re-verifies it before installation.
 
+If an older active runtime's official backup command is itself defective, first package and seal the
+reviewed successor without activating it, then use that immutable candidate only as the backup
+producer:
+
+```bash
+"$HOME/.openclaw-runtime-releases/<sealed-candidate>/scripts/custom-runtime/custom-runtime-update-backup.mjs" \
+  create --backup-release "$HOME/.openclaw-runtime-releases/<sealed-candidate>"
+```
+
+The helper verifies the candidate with the trusted active seal verifier and the managed candidate
+registry, then records its exact SHA, release, entrypoint, and entrypoint hash in the recovery
+receipt. Arbitrary source builds, unregistered candidates, and unsealed directories are rejected.
+The receipt still binds the data recovery point to the unchanged active SHA and release.
+
 In `local_verified` mode, missing external media is a non-blocking hardware-disaster advisory. In
 `external_encrypted` mode, the configured encrypted destination must be mounted, writable, and
 fully verified or preparation and installation fail closed. Neither mode weakens immutable rollback

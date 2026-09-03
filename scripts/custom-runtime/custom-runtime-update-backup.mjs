@@ -9,6 +9,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import * as tar from "tar";
+import { verifyRegisteredCandidate } from "./candidate-registry.mjs";
 
 const RECEIPT_SCHEMA = "openclaw.custom-runtime-update-backup.v2";
 const CONFIG_SCHEMA = "openclaw.custom-runtime-update-safety-config.v2";
@@ -16,6 +17,7 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
 const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** @returns {never} */
 function fail(message) {
   throw new Error(`custom runtime update backup blocked: ${message}`);
 }
@@ -472,6 +474,7 @@ function validateRestoreEntry(entryPath, entry, restoreRoot) {
   return true;
 }
 
+/** @returns {string} */
 function containedRegularFile(filePath, allowedRoot, label) {
   const resolvedPath = path.resolve(filePath);
   const resolvedRoot = path.resolve(allowedRoot);
@@ -491,6 +494,102 @@ function containedRegularFile(filePath, allowedRoot, label) {
     fail(`${label} escapes its managed root through a symlink`);
   }
   return realFile;
+}
+
+function resolveBackupProducer({ runtimeHome, pointer, backupRelease = "" }) {
+  const activeRoot = path.resolve(String(pointer.runtimeRoot ?? ""));
+  const activeEntrypoint = containedRegularFile(
+    String(pointer.entrypoint ?? ""),
+    activeRoot,
+    "active runtime entrypoint",
+  );
+  const activeSourceSha = String(pointer.sourceSha ?? "");
+  const activeReleaseId = String(pointer.releaseId ?? "").trim();
+  if (!backupRelease) {
+    return {
+      kind: "active",
+      releaseId: activeReleaseId,
+      releaseRoot: activeRoot,
+      sourceSha: activeSourceSha,
+      entrypoint: activeEntrypoint,
+      entrypointSha256: sha256File(activeEntrypoint),
+    };
+  }
+
+  const configuredReleasesRoot = path.dirname(activeRoot);
+  regularDirectory(configuredReleasesRoot, "managed releases root");
+  const releasesRoot = fs.realpathSync(configuredReleasesRoot);
+  const configuredReleaseRoot = path.resolve(backupRelease);
+  regularDirectory(configuredReleaseRoot, "backup producer release");
+  const releaseRoot = fs.realpathSync(configuredReleaseRoot);
+  if (path.dirname(releaseRoot) !== releasesRoot || releaseRoot === activeRoot) {
+    fail("backup producer must be another immutable release in the managed releases root");
+  }
+  const sourceStamp = containedRegularFile(
+    path.join(releaseRoot, ".openclaw-production-sha"),
+    releaseRoot,
+    "backup producer source stamp",
+  );
+  const sourceSha = fs.readFileSync(sourceStamp, "utf8").trim().toLowerCase();
+  if (!SHA_PATTERN.test(sourceSha)) {
+    fail("backup producer source identity is invalid");
+  }
+  const snapshot = readJson(
+    containedRegularFile(
+      path.join(releaseRoot, "snapshot.json"),
+      releaseRoot,
+      "backup producer snapshot",
+    ),
+    "backup producer snapshot",
+  );
+  if (snapshot.releaseId !== path.basename(releaseRoot) || snapshot.source?.commit !== sourceSha) {
+    fail("backup producer snapshot identity does not match its immutable release");
+  }
+  const marker = containedRegularFile(
+    path.join(releaseRoot, ".openclaw-runtime-sealed"),
+    releaseRoot,
+    "backup producer seal marker",
+  );
+  if (fs.readFileSync(marker, "utf8").trim().split(/\s+/u)[0] !== sourceSha) {
+    fail("backup producer seal marker does not match its source identity");
+  }
+  const sealVerifier = containedRegularFile(
+    path.join(activeRoot, "scripts", "custom-runtime", "custom-runtime-seal.sh"),
+    activeRoot,
+    "trusted active runtime seal verifier",
+  );
+  const verification = spawnSync("/bin/sh", [sealVerifier, "--verify", "--release", releaseRoot], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+      OPENCLAW_CUSTOM_RUNTIME_RELEASES: releasesRoot,
+    },
+  });
+  if (verification.status !== 0) {
+    fail("backup producer immutable release verification failed");
+  }
+  try {
+    verifyRegisteredCandidate({
+      registryPath: path.join(releasesRoot, ".candidate-registry.json"),
+      releaseRoot,
+    });
+  } catch {
+    fail("backup producer is not registered with its current immutable identity");
+  }
+  const entrypoint = containedRegularFile(
+    path.join(releaseRoot, "dist", "index.js"),
+    releaseRoot,
+    "backup producer entrypoint",
+  );
+  return {
+    kind: "sealed_candidate",
+    releaseId: path.basename(releaseRoot),
+    releaseRoot,
+    sourceSha,
+    entrypoint,
+    entrypointSha256: sha256File(entrypoint),
+  };
 }
 
 function verifyReceiptBinding(value, label, allowedRoot) {
@@ -671,6 +770,7 @@ function controlPlaneEvidence(pointerPath, pointer, runtimeHome, homedir) {
   });
 }
 
+/** @returns {{ path: string; sha256: string; fileCount: number }} */
 function createControlPlaneBundle({
   runtimeHome,
   pointerPath,
@@ -765,6 +865,7 @@ function createControlPlaneBundle({
 function createBackup({
   runtimeHome,
   externalRoot = "",
+  backupRelease = "",
   homedir = os.homedir(),
   allowTestDirectory = false,
 }) {
@@ -780,11 +881,11 @@ function createBackup({
   }
   const runtimeRoot = path.resolve(String(pointer.runtimeRoot ?? ""));
   regularDirectory(runtimeRoot, "active runtime root");
-  const entrypoint = path.resolve(String(pointer.entrypoint ?? ""));
-  if (entrypoint !== path.join(runtimeRoot, "dist", "index.js")) {
+  const activeEntrypoint = path.resolve(String(pointer.entrypoint ?? ""));
+  if (activeEntrypoint !== path.join(runtimeRoot, "dist", "index.js")) {
     fail("active runtime entrypoint is not the managed runtime entrypoint");
   }
-  containedRegularFile(entrypoint, runtimeRoot, "active runtime entrypoint");
+  const backupProducer = resolveBackupProducer({ runtimeHome, pointer, backupRelease });
   const recovery = configuredRecovery(runtimeHome, externalRoot);
   const verifiedExternalRoot = recovery.externalRoot
     ? verifyExternalRoot(recovery.externalRoot, allowTestDirectory)
@@ -813,9 +914,17 @@ function createBackup({
   }
   const stdout = execFileSync(
     process.execPath,
-    [entrypoint, "backup", "create", "--output", localRoot, "--verify", "--json"],
+    [backupProducer.entrypoint, "backup", "create", "--output", localRoot, "--verify", "--json"],
     {
       encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CONFIG_PATH:
+          process.env.OPENCLAW_CONFIG_PATH ??
+          path.join(homedir, ".openclaw", "openclaw.director.json"),
+        OPENCLAW_STATE_DIR:
+          process.env.OPENCLAW_STATE_DIR ?? path.join(homedir, ".openclaw-director-state"),
+      },
       maxBuffer: 16 * 1024 * 1024,
     },
   );
@@ -839,24 +948,25 @@ function createBackup({
     `.${stamp}.partial-${process.pid}-${crypto.randomUUID()}`,
   );
   fs.mkdirSync(localStagingDirectory, { recursive: false, mode: 0o700 });
-  let controlPlane;
-  try {
-    const stagedControlPlane = createControlPlaneBundle({
-      runtimeHome,
-      pointerPath,
-      pointer,
-      destinationDirectory: localStagingDirectory,
-      homedir,
-    });
-    fs.renameSync(localStagingDirectory, localDirectory);
-    controlPlane = {
-      ...stagedControlPlane,
-      path: path.join(localDirectory, path.basename(stagedControlPlane.path)),
-    };
-  } catch (error) {
-    fs.rmSync(localStagingDirectory, { recursive: true, force: true });
-    throw error;
-  }
+  const controlPlane = (() => {
+    try {
+      const stagedControlPlane = createControlPlaneBundle({
+        runtimeHome,
+        pointerPath,
+        pointer,
+        destinationDirectory: localStagingDirectory,
+        homedir,
+      });
+      fs.renameSync(localStagingDirectory, localDirectory);
+      return {
+        ...stagedControlPlane,
+        path: path.join(localDirectory, path.basename(stagedControlPlane.path)),
+      };
+    } catch (error) {
+      fs.rmSync(localStagingDirectory, { recursive: true, force: true });
+      throw error;
+    }
+  })();
 
   let externalArchive;
   let externalControlPlane;
@@ -912,6 +1022,7 @@ function createBackup({
     releaseId,
     result: "passed",
     backupVerified: true,
+    backupProducer,
     restoreDrill,
     localArchive: { path: archivePath, sha256: archiveSha256 },
     controlPlane,
@@ -966,6 +1077,24 @@ function verifyReceipt({
     receipt.restoreDrill?.result !== "passed"
   ) {
     fail("backup receipt did not pass for the expected active SHA");
+  }
+  const receiptProducer = isRecord(receipt.backupProducer) ? receipt.backupProducer : null;
+  const expectedProducer = resolveBackupProducer({
+    runtimeHome: resolvedRuntimeHome,
+    pointer: activePointer,
+    backupRelease:
+      receiptProducer?.kind === "sealed_candidate" ? String(receiptProducer.releaseRoot ?? "") : "",
+  });
+  if (
+    !receiptProducer ||
+    receiptProducer.kind !== expectedProducer.kind ||
+    receiptProducer.releaseId !== expectedProducer.releaseId ||
+    receiptProducer.releaseRoot !== expectedProducer.releaseRoot ||
+    receiptProducer.sourceSha !== expectedProducer.sourceSha ||
+    receiptProducer.entrypoint !== expectedProducer.entrypoint ||
+    receiptProducer.entrypointSha256 !== expectedProducer.entrypointSha256
+  ) {
+    fail("backup producer identity changed after verification");
   }
   const createdAt = Date.parse(String(receipt.createdAt ?? ""));
   if (
@@ -1033,6 +1162,7 @@ if (isMainModule()) {
           ? createBackup({
               runtimeHome,
               externalRoot: values.get("external-root") || "",
+              backupRelease: values.get("backup-release") || "",
             })
           : command === "verify"
             ? verifyReceipt({

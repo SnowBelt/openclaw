@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { registerSealedCandidate } from "../../scripts/custom-runtime/candidate-registry.mjs";
 import {
   configureBackup,
   createBackup,
@@ -23,8 +24,33 @@ function writeFile(filePath: string, contents: string): void {
   fs.writeFileSync(filePath, contents);
 }
 
+function registerCandidate(candidateRoot: string, sourceSha: string): void {
+  const runtimeClosureSha256 = "b".repeat(64);
+  writeFile(path.join(candidateRoot, ".openclaw-production-sha"), `${sourceSha}\n`);
+  writeFile(
+    path.join(candidateRoot, ".openclaw-runtime-sealed"),
+    `${sourceSha} ${runtimeClosureSha256}\n`,
+  );
+  writeFile(path.join(candidateRoot, "config", "custom-runtime-capabilities.json"), "{}\n");
+  writeFile(
+    path.join(candidateRoot, "snapshot.json"),
+    `${JSON.stringify({
+      releaseId: path.basename(candidateRoot),
+      root: candidateRoot,
+      source: { commit: sourceSha },
+      artifactHash: "a".repeat(64),
+      runtimeClosureHash: runtimeClosureSha256,
+    })}\n`,
+  );
+  registerSealedCandidate({
+    registryPath: path.join(path.dirname(candidateRoot), ".candidate-registry.json"),
+    releaseRoot: candidateRoot,
+  });
+}
+
 function fixture(): {
   runtimeHome: string;
+  runtimeRoot: string;
   externalRoot: string;
   payload: string;
   sourceSha: string;
@@ -79,6 +105,14 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
 `,
   );
   writeFile(path.join(runtimeRoot, ".openclaw-production-sha"), `${sourceSha}\n`);
+  const sealVerifier = path.join(
+    runtimeRoot,
+    "scripts",
+    "custom-runtime",
+    "custom-runtime-seal.sh",
+  );
+  writeFile(sealVerifier, "#!/bin/sh\nexit 0\n");
+  fs.chmodSync(sealVerifier, 0o700);
   writeFile(path.join(runtimeRoot, ".openclaw-runtime-provenance.json"), "{}\n");
   writeFile(
     path.join(runtimeRoot, "snapshot.json"),
@@ -136,6 +170,7 @@ process.stdout.write(JSON.stringify({ archivePath, verified: true }) + "\\n");
   );
   return {
     runtimeHome,
+    runtimeRoot,
     externalRoot,
     payload,
     sourceSha,
@@ -226,6 +261,96 @@ describe("custom runtime update backup", () => {
         allowTestDirectory: true,
       }),
     ).not.toThrow();
+  });
+
+  it("uses a separately sealed candidate when the active backup command is broken", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const candidateSha = "a".repeat(40);
+    const candidateRoot = path.join(path.dirname(value.runtimeRoot), "candidate-release");
+    const activeEntrypoint = path.join(value.runtimeRoot, "dist", "index.js");
+    writeFile(
+      path.join(candidateRoot, "dist", "index.js"),
+      fs.readFileSync(activeEntrypoint, "utf8"),
+    );
+    registerCandidate(candidateRoot, candidateSha);
+
+    const result = createBackup({
+      runtimeHome: value.runtimeHome,
+      backupRelease: candidateRoot,
+      homedir: value.homedir,
+      allowTestDirectory: true,
+    });
+
+    expect(result.backupProducer).toMatchObject({
+      kind: "sealed_candidate",
+      releaseId: "candidate-release",
+      releaseRoot: candidateRoot,
+      sourceSha: candidateSha,
+    });
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
+    ).not.toThrow();
+    fs.appendFileSync(path.join(candidateRoot, "dist", "index.js"), "// changed\n");
+    expect(() =>
+      verifyReceipt({
+        receiptPath: result.receiptPath,
+        expectedSha: value.sourceSha,
+        runtimeHome: value.runtimeHome,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/backup producer identity changed/u);
+  });
+
+  it("rejects an unsealed candidate backup producer", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const candidateRoot = path.join(path.dirname(value.runtimeRoot), "candidate-release");
+    writeFile(path.join(candidateRoot, "dist", "index.js"), "process.exit(0);\n");
+    writeFile(path.join(candidateRoot, ".openclaw-production-sha"), `${"a".repeat(40)}\n`);
+    writeFile(
+      path.join(candidateRoot, "snapshot.json"),
+      `${JSON.stringify({
+        releaseId: "candidate-release",
+        source: { commit: "a".repeat(40) },
+      })}\n`,
+    );
+
+    expect(() =>
+      createBackup({
+        runtimeHome: value.runtimeHome,
+        backupRelease: candidateRoot,
+        homedir: value.homedir,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/seal marker is missing/u);
+  });
+
+  it("rejects a sealed backup producer that is absent from the candidate registry", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const candidateSha = "a".repeat(40);
+    const candidateRoot = path.join(path.dirname(value.runtimeRoot), "candidate-release");
+    writeFile(
+      path.join(candidateRoot, "dist", "index.js"),
+      fs.readFileSync(path.join(value.runtimeRoot, "dist", "index.js"), "utf8"),
+    );
+    registerCandidate(candidateRoot, candidateSha);
+    fs.rmSync(path.join(path.dirname(candidateRoot), ".candidate-registry.json"));
+
+    expect(() =>
+      createBackup({
+        runtimeHome: value.runtimeHome,
+        backupRelease: candidateRoot,
+        homedir: value.homedir,
+        allowTestDirectory: true,
+      }),
+    ).toThrow(/not registered/u);
   });
 
   it("rejects a changed local recovery archive", () => {
