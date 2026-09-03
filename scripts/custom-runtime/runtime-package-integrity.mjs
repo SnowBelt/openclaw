@@ -18,6 +18,9 @@ const EXCLUDED_TOP_LEVEL = new Set([
   ".openclaw-runtime-releases",
 ]);
 const SENSITIVE_EXTENSIONS = new Set([".key", ".p12", ".pfx", ".pem"]);
+const RUNTIME_CODE_EXTENSIONS = new Set([".cjs", ".js", ".mjs"]);
+const RUNTIME_IMPORT_PATTERN =
+  /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire(?:\.resolve)?\s*\(\s*)["']([^"']+)["']/gu;
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -229,8 +232,55 @@ function verifyResearchManagerDependencies(root) {
   }
   const manifest = readJson(packagePath);
   const dependencies = isRecord(manifest.dependencies) ? Object.keys(manifest.dependencies) : [];
+  const runtimeImports = new Set();
+  let inspectionFailed = false;
+  const visit = (currentPath) => {
+    let stat;
+    try {
+      stat = fs.lstatSync(currentPath);
+    } catch {
+      inspectionFailed = true;
+      return;
+    }
+    if (stat.isDirectory()) {
+      let entries;
+      try {
+        entries = fs.readdirSync(currentPath).toSorted((left, right) => left.localeCompare(right));
+      } catch {
+        inspectionFailed = true;
+        return;
+      }
+      for (const entry of entries) {
+        visit(path.join(currentPath, entry));
+      }
+      return;
+    }
+    if (!stat.isFile() || !RUNTIME_CODE_EXTENSIONS.has(path.extname(currentPath))) {
+      return;
+    }
+    let source;
+    try {
+      source = fs.readFileSync(currentPath, "utf8");
+    } catch {
+      inspectionFailed = true;
+      return;
+    }
+    for (const match of source.matchAll(RUNTIME_IMPORT_PATTERN)) {
+      runtimeImports.add(match[1]);
+    }
+  };
+  for (const runtimePath of [path.join(root, "dist"), path.join(root, "dist-runtime")]) {
+    visit(runtimePath);
+  }
   return dependencies
-    .filter((dependency) => !fs.existsSync(path.join(root, "node_modules", dependency)))
+    .filter(
+      (dependency) =>
+        !fs.existsSync(path.join(root, "node_modules", dependency)) &&
+        (inspectionFailed ||
+          [...runtimeImports].some(
+            (specifier) => specifier === dependency || specifier.startsWith(`${dependency}/`),
+          )),
+    )
     .map((dependency) => `Research Manager runtime dependency is missing: ${dependency}`);
 }
 

@@ -23,6 +23,11 @@ function createRuntime(options: { missingDependency?: string } = {}): string {
   roots.push(root);
   writeFile(root, "dist/index.js");
   writeFile(root, "dist/entry.js");
+  writeFile(
+    root,
+    "dist/research-runtime.js",
+    'export async function loadPdf() { return import("pdfjs-dist/legacy/build/pdf.mjs"); }\n',
+  );
   writeFile(root, "dist/control-ui/index.html");
   writeFile(root, "dist-runtime/extensions/research-manager/index.js");
   writeFile(root, "package.json", '{"name":"openclaw"}\n');
@@ -182,6 +187,35 @@ describe("managed runtime package integrity", () => {
 
   it("rejects missing Research Manager production dependencies", () => {
     const root = createRuntime({ missingDependency: "pdfjs-dist" });
+    sealSnapshot(root);
+
+    expect(verifyRuntimePackage({ releaseRoot: root })).toContain(
+      "Research Manager runtime dependency is missing: pdfjs-dist",
+    );
+  });
+
+  it("accepts a dependency that the production build inlines", () => {
+    const root = createRuntime({ missingDependency: "pdfjs-dist" });
+    writeFile(
+      root,
+      "dist/research-runtime.js",
+      'export async function loadPdf() { return import("./pdf.js"); }\n',
+    );
+    writeFile(root, "dist/pdf.js", 'export const pdfjsVersion = "6.2.108";\n');
+    sealSnapshot(root);
+
+    expect(verifyRuntimePackage({ releaseRoot: root })).not.toContain(
+      "Research Manager runtime dependency is missing: pdfjs-dist",
+    );
+  });
+
+  it("detects static and resolver imports that remain external", () => {
+    const root = createRuntime({ missingDependency: "pdfjs-dist" });
+    writeFile(
+      root,
+      "dist/research-runtime.js",
+      'import "pdfjs-dist";\nconst pdfPath = require.resolve("pdfjs-dist");\n',
+    );
     sealSnapshot(root);
 
     expect(verifyRuntimePackage({ releaseRoot: root })).toContain(
