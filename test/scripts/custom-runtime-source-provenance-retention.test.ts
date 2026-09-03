@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_SOURCE_PROVENANCE_MAX_BYTES,
+  DEFAULT_SOURCE_PROVENANCE_MAX_SNAPSHOTS,
   applySourceProvenanceRetentionReceipt,
   createSourceProvenanceRetentionReceipt,
   importSourceProvenance,
@@ -59,6 +61,11 @@ afterEach(() => {
 });
 
 describe("source provenance retention", () => {
+  it("keeps bounded multi-year headroom for managed update provenance", () => {
+    expect(DEFAULT_SOURCE_PROVENANCE_MAX_SNAPSHOTS).toBe(32);
+    expect(DEFAULT_SOURCE_PROVENANCE_MAX_BYTES).toBe(128 * 1024 ** 3);
+  });
+
   it("admits only the exact pending candidate reference without hiding retireable history", () => {
     const source = makeRepository();
     const runtimeHome = fs.mkdtempSync(

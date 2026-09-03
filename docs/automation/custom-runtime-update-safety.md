@@ -98,6 +98,10 @@ registry, then records its exact SHA, release, entrypoint, and entrypoint hash i
 receipt. Arbitrary source builds, unregistered candidates, and unsealed directories are rejected.
 The receipt still binds the data recovery point to the unchanged active SHA and release.
 
+Durable source provenance retains a bounded maximum of 32 snapshots or 128 GiB by default. Storage
+admission can stop earlier when free-space reserves would be crossed; reaching either provenance
+limit stops the update rather than deleting an older recovery record automatically.
+
 In `local_verified` mode, missing external media is a non-blocking hardware-disaster advisory. In
 `external_encrypted` mode, the configured encrypted destination must be mounted, writable, and
 fully verified or preparation and installation fail closed. Neither mode weakens immutable rollback

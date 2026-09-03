@@ -23,11 +23,11 @@ export const SOURCE_PROVENANCE_MIGRATION_SCHEMA =
   "openclaw.custom-runtime-source-provenance-migration.v1";
 export const SOURCE_PROVENANCE_RETENTION_SCHEMA =
   "openclaw.custom-runtime-source-provenance-retention.v1";
-// Keep enough headroom for the full history already retained by managed
-// installations; retention still blocks imports when this bounded budget is
-// exhausted instead of silently discarding recovery material.
-export const DEFAULT_SOURCE_PROVENANCE_MAX_SNAPSHOTS = 16;
-export const DEFAULT_SOURCE_PROVENANCE_MAX_BYTES = 64 * 1024 ** 3;
+// Keep practical multi-year headroom for update history without silently
+// discarding recovery material. Storage admission remains the hard free-space
+// guard, and retention still fails closed when this bounded budget is reached.
+export const DEFAULT_SOURCE_PROVENANCE_MAX_SNAPSHOTS = 32;
+export const DEFAULT_SOURCE_PROVENANCE_MAX_BYTES = 128 * 1024 ** 3;
 
 const SHA_PATTERN = /^[a-f0-9]{40,64}$/u;
 
