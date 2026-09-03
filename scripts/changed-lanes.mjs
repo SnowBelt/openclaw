@@ -240,26 +240,27 @@ export function detectChangedLanes(changedPaths, options = {}) {
  */
 export function detectChangedLanesForPaths(params) {
   const cwd = params.cwd ?? process.cwd();
-  const availableBase = params.staged
-    ? params.base
-    : resolveAvailableDiffBase({ base: params.base, cwd });
-  const base = params.staged
-    ? params.base
-    : resolveMergeHeadDiffBase({
-        base: availableBase,
-        head: params.head ?? "HEAD",
-        cwd,
-        maxBuffer: GIT_OUTPUT_MAX_BUFFER,
-        preferFirstParent: params.mergeHeadFirstParent === true,
-      });
-  const packageJsonChangeKind = params.paths.includes("package.json")
-    ? classifyPackageJsonChangeFromGit({
-        base,
-        head: params.head,
-        staged: params.staged,
-        cwd,
-      })
-    : null;
+  let packageJsonChangeKind = null;
+  if (params.paths.includes("package.json")) {
+    const availableBase = params.staged
+      ? params.base
+      : resolveAvailableDiffBase({ base: params.base, cwd });
+    const base = params.staged
+      ? params.base
+      : resolveMergeHeadDiffBase({
+          base: availableBase,
+          head: params.head ?? "HEAD",
+          cwd,
+          maxBuffer: GIT_OUTPUT_MAX_BUFFER,
+          preferFirstParent: params.mergeHeadFirstParent === true,
+        });
+    packageJsonChangeKind = classifyPackageJsonChangeFromGit({
+      base,
+      head: params.head,
+      staged: params.staged,
+      cwd,
+    });
+  }
   return detectChangedLanes(params.paths, { packageJsonChangeKind });
 }
 
