@@ -263,6 +263,29 @@ describe("custom runtime update backup", () => {
     ).not.toThrow();
   });
 
+  it("streams archive hashing instead of reading the complete backup into memory", () => {
+    const value = fixture();
+    configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
+    const originalReadFileSync = fs.readFileSync;
+    vi.spyOn(fs, "readFileSync").mockImplementation(((
+      filePath: fs.PathOrFileDescriptor,
+      ...args: unknown[]
+    ) => {
+      if (String(filePath).endsWith("fixture-openclaw-backup.tar.gz")) {
+        throw new Error("backup archive must not be hashed with readFileSync");
+      }
+      return Reflect.apply(originalReadFileSync, fs, [filePath, ...args]);
+    }) as typeof fs.readFileSync);
+
+    expect(() =>
+      createBackup({
+        runtimeHome: value.runtimeHome,
+        homedir: value.homedir,
+        allowTestDirectory: true,
+      }),
+    ).not.toThrow();
+  });
+
   it("uses a separately sealed candidate when the active backup command is broken", () => {
     const value = fixture();
     configureBackup({ runtimeHome: value.runtimeHome, mode: "local_verified" });
