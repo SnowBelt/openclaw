@@ -23,8 +23,11 @@ export const SOURCE_PROVENANCE_MIGRATION_SCHEMA =
   "openclaw.custom-runtime-source-provenance-migration.v1";
 export const SOURCE_PROVENANCE_RETENTION_SCHEMA =
   "openclaw.custom-runtime-source-provenance-retention.v1";
-export const DEFAULT_SOURCE_PROVENANCE_MAX_SNAPSHOTS = 8;
-export const DEFAULT_SOURCE_PROVENANCE_MAX_BYTES = 32 * 1024 ** 3;
+// Keep enough headroom for the full history already retained by managed
+// installations; retention still blocks imports when this bounded budget is
+// exhausted instead of silently discarding recovery material.
+export const DEFAULT_SOURCE_PROVENANCE_MAX_SNAPSHOTS = 16;
+export const DEFAULT_SOURCE_PROVENANCE_MAX_BYTES = 64 * 1024 ** 3;
 
 const SHA_PATTERN = /^[a-f0-9]{40,64}$/u;
 
@@ -486,9 +489,12 @@ function sourceProvenanceOpenReferences(root) {
     if (!line.startsWith("n") || !line.slice(1).startsWith(prefix)) {
       continue;
     }
-    const relative = line.slice(1 + prefix.length).split(path.sep)[0];
-    if (isSha(relative)) {
-      references.add(relative);
+    const sourceSha = line
+      .slice(1 + prefix.length)
+      .split(path.sep)
+      .find((segment) => isSha(segment));
+    if (sourceSha) {
+      references.add(sourceSha);
     }
   }
   return references;
@@ -523,7 +529,7 @@ function sourceProvenanceRecords(root, { errors }) {
     errors.push(`source provenance root is missing: ${root}`);
     return [];
   }
-  const records = [];
+  const recordDirectories = [];
   for (const entry of fs.readdirSync(root).toSorted((left, right) => left.localeCompare(right))) {
     if (entry.startsWith(".")) {
       continue;
@@ -542,11 +548,63 @@ function sourceProvenanceRecords(root, { errors }) {
       errors.push(`source provenance entry is not a private directory: ${directory}`);
       continue;
     }
+    if (entry === "source-provenance") {
+      // Older imports accidentally used <runtimeHome>/source-provenance as
+      // their runtime home, producing one nested namespace. Read it as a
+      // legacy namespace so valid recovery records remain governable while
+      // malformed entries still fail closed.
+      for (const nestedEntry of fs
+        .readdirSync(directory)
+        .toSorted((left, right) => left.localeCompare(right))) {
+        if (nestedEntry.startsWith(".")) {
+          continue;
+        }
+        if (!isSha(nestedEntry)) {
+          errors.push(`source provenance legacy entry has an invalid identity: ${nestedEntry}`);
+          continue;
+        }
+        const nestedDirectory = path.join(directory, nestedEntry);
+        let nestedStat;
+        try {
+          nestedStat = fs.lstatSync(nestedDirectory);
+        } catch (error) {
+          errors.push(
+            `source provenance entry is unreadable: ${nestedDirectory}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          continue;
+        }
+        if (!nestedStat.isDirectory() || nestedStat.isSymbolicLink()) {
+          errors.push(`source provenance entry is not a private directory: ${nestedDirectory}`);
+          continue;
+        }
+        recordDirectories.push({
+          directory: nestedDirectory,
+          expectedSha: nestedEntry,
+          stat: nestedStat,
+        });
+      }
+      continue;
+    }
+    if (!isSha(entry)) {
+      errors.push(`source provenance entry has an invalid identity: ${entry}`);
+      continue;
+    }
+    recordDirectories.push({ directory, expectedSha: entry, stat });
+  }
+
+  const records = [];
+  const seenShas = new Set();
+  for (const { directory, expectedSha, stat } of recordDirectories) {
+    if (seenShas.has(expectedSha)) {
+      errors.push(`source provenance identity is duplicated: ${expectedSha}`);
+      continue;
+    }
+    seenShas.add(expectedSha);
     const recordPath = path.join(directory, "provenance.json");
     try {
       const record = verifySourceProvenance({
         recordPath,
-        expectedSha: entry,
+        expectedSha,
         // Structural verification is bounded for the hourly inventory. A
         // deep independent bundle restore is performed only for snapshots
         // that the reference graph protects, and again for each delete target
@@ -807,6 +865,7 @@ function retentionReceiptPayload(plan, entry, nowMs) {
   if (entry.decision !== "retire") {
     throw new Error(`Source provenance entry is not eligible for retirement: ${entry.sourceSha}`);
   }
+  assertInside(plan.root, entry.path, "source provenance retention target");
   const fingerprint = fingerprintDisposableTree(entry.path);
   return {
     schema: SOURCE_PROVENANCE_RETENTION_SCHEMA,
@@ -829,6 +888,7 @@ function retentionReceiptPayload(plan, entry, nowMs) {
       treeSha: entry.treeSha,
       recordSha256: entry.recordSha256,
       bytes: entry.bytes,
+      relativePath: path.relative(plan.root, entry.path),
       fingerprint,
     },
   };
@@ -880,7 +940,11 @@ export function applySourceProvenanceRetentionReceipt({ receiptPath, expectedRec
     throw new Error("Source provenance retention target identity is invalid.");
   }
   const root = path.resolve(payload.root);
-  const targetPath = path.join(root, target.sourceSha);
+  const relativePath =
+    typeof target.relativePath === "string" && target.relativePath
+      ? target.relativePath
+      : target.sourceSha;
+  const targetPath = path.resolve(root, relativePath);
   assertInside(root, targetPath, "source provenance retention target");
   if (!Array.isArray(payload.referenceFiles) || !Array.isArray(payload.protectedCandidateStates)) {
     throw new Error("Source provenance retention receipt reference contract is incomplete.");
@@ -905,6 +969,9 @@ export function applySourceProvenanceRetentionReceipt({ receiptPath, expectedRec
   const currentEntry = currentPlan.entries.find((entry) => entry.sourceSha === target.sourceSha);
   if (!currentEntry || currentEntry.decision !== "retire") {
     throw new Error(`Source provenance target is no longer unreferenced: ${target.sourceSha}`);
+  }
+  if (path.resolve(currentEntry.path) !== targetPath) {
+    throw new Error(`Source provenance target path changed after approval: ${target.sourceSha}`);
   }
   if (
     currentEntry.treeSha !== target.treeSha ||
@@ -969,9 +1036,33 @@ export function importSourceProvenance({
   const finalStore = path.join(finalDirectory, "store.git");
   const finalBundle = path.join(finalDirectory, "source.bundle");
   const finalRecord = provenanceRecordPath(root, sourceSha);
-  if (fs.existsSync(finalRecord)) {
+  const legacyNamespace = path.join(root, "source-provenance");
+  if (fs.existsSync(legacyNamespace)) {
+    lstatDirectory(legacyNamespace, "legacy source provenance namespace");
+  }
+  const legacyDirectory = path.join(legacyNamespace, sourceSha);
+  const legacyRecord = provenanceRecordPath(legacyNamespace, sourceSha);
+  if (fs.existsSync(finalDirectory)) {
+    lstatDirectory(finalDirectory, "provenance identity directory");
+    if (!fs.existsSync(finalRecord)) {
+      fail("provenance identity has an incomplete existing directory");
+    }
+  }
+  if (fs.existsSync(legacyDirectory)) {
+    lstatDirectory(legacyDirectory, "legacy provenance identity directory");
+    if (!fs.existsSync(legacyRecord)) {
+      fail("legacy provenance identity has an incomplete existing directory");
+    }
+  }
+  const existingRecordPaths = [finalRecord, legacyRecord].filter((recordPath) =>
+    fs.existsSync(recordPath),
+  );
+  if (existingRecordPaths.length > 1) {
+    fail(`provenance identity is duplicated: ${sourceSha}`);
+  }
+  if (existingRecordPaths.length === 1) {
     const existing = verifySourceProvenance({
-      recordPath: finalRecord,
+      recordPath: existingRecordPaths[0],
       expectedSha: sourceSha,
       deep: true,
     });
@@ -985,9 +1076,6 @@ export function importSourceProvenance({
       fail("existing provenance remote identity differs from source");
     }
     return existing;
-  }
-  if (fs.existsSync(finalDirectory)) {
-    fail("provenance identity has an incomplete existing directory");
   }
 
   const retentionPlan = planSourceProvenanceRetention({

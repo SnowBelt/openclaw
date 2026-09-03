@@ -117,6 +117,135 @@ describe("source provenance retention", () => {
     expect(record.treeSha).toBe(git(source.root, ["rev-parse", `${source.commits[0]}^{tree}`]));
   });
 
+  it("governs valid records in the legacy nested provenance namespace", () => {
+    const source = makeRepository();
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-provenance-legacy-namespace-home-"),
+    );
+    roots.push(runtimeHome);
+    const legacyRuntimeHome = path.join(runtimeHome, "source-provenance");
+    fs.mkdirSync(legacyRuntimeHome, { recursive: true, mode: 0o700 });
+    fs.chmodSync(legacyRuntimeHome, 0o700);
+
+    git(source.root, ["checkout", "-q", source.commits[0]]);
+    importSourceProvenance({
+      sourceRoot: source.root,
+      sourceSha: source.commits[0],
+      runtimeHome: legacyRuntimeHome,
+      storageAdmission: isolatedStorageAdmission(path.join(runtimeHome, "storage-admission")),
+    });
+    const reused = importSourceProvenance({
+      sourceRoot: source.root,
+      sourceSha: source.commits[0],
+      runtimeHome: legacyRuntimeHome,
+      storageAdmission: isolatedStorageAdmission(path.join(runtimeHome, "storage-admission")),
+    });
+    expect(reused.recordPath).toContain(
+      path.join("source-provenance", "source-provenance", source.commits[0], "provenance.json"),
+    );
+
+    const plan = planSourceProvenanceRetention({
+      runtimeHome,
+      deepVerify: true,
+    });
+
+    expect(plan.errors).toEqual([]);
+    expect(plan.entries).toHaveLength(1);
+    expect(plan.entries[0]).toMatchObject({
+      sourceSha: source.commits[0],
+      decision: "retain",
+      protectedReasons: ["newest_deep_verified_per_lineage"],
+    });
+  });
+
+  it("retires a legacy nested record using its relative path", () => {
+    const source = makeRepository();
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-provenance-legacy-retire-home-"),
+    );
+    roots.push(runtimeHome);
+    const legacyRuntimeHome = path.join(runtimeHome, "source-provenance");
+    fs.mkdirSync(legacyRuntimeHome, { recursive: true, mode: 0o700 });
+    fs.chmodSync(legacyRuntimeHome, 0o700);
+    const storageRegistryRoot = path.join(runtimeHome, "storage-admission");
+
+    for (const sourceSha of source.commits) {
+      git(source.root, ["checkout", "-q", sourceSha]);
+      importSourceProvenance({
+        sourceRoot: source.root,
+        sourceSha,
+        runtimeHome: legacyRuntimeHome,
+        storageAdmission: isolatedStorageAdmission(storageRegistryRoot),
+      });
+    }
+
+    const plan = planSourceProvenanceRetention({
+      runtimeHome,
+      maxSnapshots: 1,
+      maxBytes: 32 * 1024 ** 3,
+      deepVerify: false,
+    });
+    const target = plan.entries.find((entry) => entry.sourceSha === source.commits[0]);
+    expect(plan.errors).toEqual([]);
+    expect(target?.decision).toBe("retire");
+
+    const receiptPath = path.join(runtimeHome, "legacy-retire-receipt.json");
+    const receipt = createSourceProvenanceRetentionReceipt({
+      plan,
+      sourceSha: source.commits[0],
+      receiptPath,
+    });
+    expect(receipt.target.relativePath).toBe(path.join("source-provenance", source.commits[0]));
+
+    const applied = applySourceProvenanceRetentionReceipt({
+      receiptPath,
+      expectedReceiptSha256: receipt.receiptSha256,
+    });
+    expect(applied.sourceSha).toBe(source.commits[0]);
+    const legacyRecordDirectory = path.join(
+      fs.realpathSync(runtimeHome),
+      "source-provenance",
+      "source-provenance",
+      source.commits[0],
+    );
+    expect(applied.removedPath).toBe(legacyRecordDirectory);
+    expect(fs.existsSync(legacyRecordDirectory)).toBe(false);
+  });
+
+  it("rejects an incomplete canonical directory before reusing a legacy record", () => {
+    const source = makeRepository();
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-provenance-legacy-conflict-home-"),
+    );
+    roots.push(runtimeHome);
+    const legacyRuntimeHome = path.join(runtimeHome, "source-provenance");
+    fs.mkdirSync(legacyRuntimeHome, { recursive: true, mode: 0o700 });
+    fs.chmodSync(legacyRuntimeHome, 0o700);
+    const storageRegistryRoot = path.join(runtimeHome, "storage-admission");
+
+    git(source.root, ["checkout", "-q", source.commits[0]]);
+    const legacyRecord = importSourceProvenance({
+      sourceRoot: source.root,
+      sourceSha: source.commits[0],
+      runtimeHome: legacyRuntimeHome,
+      storageAdmission: isolatedStorageAdmission(storageRegistryRoot),
+    });
+    fs.mkdirSync(path.join(runtimeHome, "source-provenance", source.commits[0]), {
+      recursive: true,
+      mode: 0o700,
+    });
+
+    expect(() =>
+      importSourceProvenance({
+        sourceRoot: source.root,
+        sourceSha: source.commits[0],
+        runtimeHome,
+        storageAdmission: isolatedStorageAdmission(storageRegistryRoot),
+      }),
+    ).toThrow(/incomplete existing directory/u);
+    expect(fs.existsSync(legacyRecord.recordPath)).toBe(true);
+  });
+
   it("blocks rather than pruning when protected lineages exceed the cap", () => {
     const source = makeRepository();
     const runtimeHome = fs.mkdtempSync(
